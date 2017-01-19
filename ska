@@ -18,6 +18,7 @@ class RBNSReads(object):
     def __init__(self, fname, chunklines=2000000):
         self.logger = logging.getLogger('RBNSReads')
         self.logger.info('reading sequences from {fname}'.format(fname=fname) )
+        self.fname = fname
         
         # load and keep all sequences in memory (numerically A=0,...T=3 )
         t0 = time.time()
@@ -37,13 +38,108 @@ class RBNSReads(object):
         """
         return ska_kmers.kmer_filter(self.seqm, kmer)
     
-    def kmer_flank_profiles(self, kmer, k_flank):
+    def kmer_flank_profiles(self, kmer, k_max):
         """
         use kmer_filter first and then compute the average occurrences of kmers
-        with k=k_flank around the desired "central" kmer.
+        with k=k_flank (k_flank = 1..k_max) around the desired "central" kmer.
         """
-        pass #TODO: implement
+        return ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_max=k_max)
 
+
+class SKAResult(object):
+    def __init__(self, reads, k, kmer_freqs, ska_weights, background=""):
+        self.logger = logging.getLogger('SKAResults')
+        self.reads = reads
+        self.k = k
+        self.kmer_freqs = kmer_freqs
+        self.ska_weights = ska_weights
+        self.background = background
+        self.name = 'SKA:{reads.fname}:{k}mers:bg={background}'.format(**locals())
+        
+    def store(self, out_path):
+        self.logger.info('storing SKA weights and kmer-frequencies for "{self.name}" in "out_path"'.format(self=self, out_path=out_path) )
+
+        with file(os.path.join(out_path, 'SKA_weights.{0}mer.txt'.format(self.k)), 'w') as of:
+            of.write('# kmer\tweight\n')
+            for kmer, weight in zip(yield_kmers(self.k), self.ska_weights):
+                of.write('%s\t%g\n' % (kmer, weight))
+            of.close()
+
+        with file(os.path.join(out_path, 'rel_freqs.{0}mer.txt'.format(self.k)), 'w') as of:
+            of.write('# kmer\trel_freq\n')
+            for kmer, freq in zip(yield_kmers(self.k), self.kmer_freqs):
+                of.write('%s\t%g\n' % (kmer, freq))
+            of.close()
+
+    def __str__(self):
+        I = self.ska_weights.argsort()[::-1]
+        buf = [self.name]
+        for i in I[:10]:
+            buf.append("{0}\t{1:.2f}".format(ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
+        
+        return '\n'.join(buf)
+
+class SecondPass(object):
+    def __init__(self, reads, run):
+        self.reads = reads
+        self.run = run
+        
+
+    def analyze_top_kmers(self, k):
+        res = self.run.results[k]
+        best_i = res.ska_weights.argmax()
+        best_w = res.ska_weights[best_i]
+        best_mer = ska_kmers.index_to_seq(best_i, k)
+        
+        #subset, hits = self.reads.kmer_filter(best_mer)
+        #print subset.shape, hits.shape
+        #print hits[:10]
+
+        def entropy(counts, pseudo= 1):
+            #counts += pseudo
+            p = counts / float(counts.sum())
+            
+            max_H = np.log2(len(p))
+            return max_H + np.where(p > 0, p * np.log2(p), 0).sum()
+            
+        res = self.run.results[k]
+        for i in res.ska_weights.argsort()[::-1][:10]:
+            kmer = ska_kmers.index_to_seq(i, k)
+            print "testing", kmer
+            for i, profiles in enumerate(self.reads.kmer_flank_profiles(kmer, 3)):
+                k_flank = i+1
+                print k_flank, profiles.shape
+                profiles += 1
+                
+                
+                totals = np.array(profiles.sum(axis=0), dtype=float)
+                freq = profiles / totals
+                ranked_us = []
+                ranked_ds = []
+                
+                for i, f in enumerate(freq):
+                    upstream = f[:18-k_flank]
+                    dostream = f[20:]
+                    #print upstream
+                    #print kmer
+                    #print dostream
+                    us = entropy(upstream)
+                    ds = entropy(dostream)
+                    word = ska_kmers.index_to_seq(i,k_flank)
+                    #print "{word} us_entropy={us:.2f} bits ds_entropy={ds:.2f} bits".format(**locals())
+                    
+                    ranked_us.append((us, word))
+                    ranked_ds.append((ds, word))
+                    
+                print "most associated upstream words"
+                for bits, word in sorted(ranked_us, reverse=True)[:10]:
+                    print "{word} {bits:.5f} bits".format(**locals())
+                    
+                print "most associated downstream words"
+                for bits, word in sorted(ranked_ds, reverse=True)[:10]:
+                    print "{word} {bits:.5f} bits".format(**locals())
+            
+            
 
 class SKARun(object):
     def __init__(self, reads, max_iterations=10, convergence=0.5, input_run = "", out_path=".", pseudo=1):
@@ -55,12 +151,14 @@ class SKARun(object):
         self.input_run = input_run
         self.out_path = os.path.abspath(out_path)
         
+        self.results = {}
+        
 
     def stream_counts(self, k):
         self.logger.info("streaming {0}-mers".format(k))
         
         kmers = list(yield_kmers(k))
-        background = self.try_load_background_freqs(k)
+        background, bg_source = self.try_load_background_freqs(k)
 
         t0 = time.time()
         kmer_counts = self.reads.kmer_counts(k) + self.pseudo
@@ -92,15 +190,8 @@ class SKARun(object):
                 if max_change < self.convergence:
                     self.logger.info("reached convergence after {0} iterations".format(iteration_i))
                     break
-                
-        best_i = current_weights.argmax()
-        self.logger.info("{best} is most enriched with w={best_w:.2f}".format(best=kmers[best_i], best_w=new_weights[best_i]) )
-        
-        subset, hits = self.reads.kmer_filter(kmers[best_i])
-        print subset.shape, hits.shape
-        print hits[:10]
-                
-        return current_weights, kmer_freqs
+               
+        return SKAResult(self.reads, k, kmer_freqs, current_weights, background = bg_source)
 
 
     def try_load_background_freqs(self,k):
@@ -110,27 +201,20 @@ class SKARun(object):
             self.logger.info("loaded background kmer frequencies from {0}".format(bg_path))
         else:
             background = np.ones(4 ** k, dtype=np.float32)
+            bg_path='None'
         
-        return background
+        return background, bg_path
 
 
     def run(self, min_k, max_k):
         for k in range(min_k, max_k+1):
-            SKA_weights, kmer_freqs = self.stream_counts(k)
-            
-            with file(os.path.join(self.out_path, 'SKA_weights.{0}mer.txt'.format(k)), 'w') as of:
-                of.write('# kmer\tweight\n')
-                for kmer, weight in zip(yield_kmers(k), SKA_weights):
-                    of.write('%s\t%g\n' % (kmer, weight))
-                of.close()
+            res = self.stream_counts(k)
+            self.results[k] = res
+            res.store(self.out_path)
+            print res
 
-            with file(os.path.join(self.out_path, 'rel_freqs.{0}mer.txt'.format(k)), 'w') as of:
-                of.write('# kmer\trel_freq\n')
-                for kmer, freq in zip(yield_kmers(k), kmer_freqs):
-                    of.write('%s\t%g\n' % (kmer, freq))
-                of.close()
-        
-        
+
+            
 def read_freqs(src):
     """
     Used to read kmer background frequencies from a previous run on input
@@ -207,8 +291,10 @@ def main():
     logger.info("called as '{0}'".format(" ".join(sys.argv)) )
 
     # run streaming kmer analysis
+    rbns_reads = RBNSReads(args[0])
+    
     ska = SKARun(
-        RBNSReads(args[0]), 
+        rbns_reads,
         max_iterations = options.n_passes, 
         convergence = options.convergence, 
         input_run = options.background, 
@@ -217,6 +303,9 @@ def main():
     )
     
     ska.run(options.min_k, options.max_k)
+    
+    pass2 = SecondPass(rbns_reads, ska)
+    print pass2.analyze_top_kmers(3)
     
 
 if __name__ == '__main__':
