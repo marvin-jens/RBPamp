@@ -26,10 +26,14 @@ class RBNSReads(object):
         self.N, self.L = self.seqm.shape
         t1 = time.time()
 
+        self.cached_counts = {}
         self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
 
     def kmer_counts(self, k):
-        return ska_kmers.seq_set_kmer_count(self.seqm,k)
+        if not k in self.cached_counts:
+            self.cached_counts[k] = ska_kmers.seq_set_kmer_count(self.seqm, k)
+
+        return self.cached_counts[k]
     
     def kmer_filter(self, kmer):
         """
@@ -87,57 +91,76 @@ class SecondPass(object):
 
     def analyze_top_kmers(self, k):
         res = self.run.results[k]
-        best_i = res.ska_weights.argmax()
-        best_w = res.ska_weights[best_i]
-        best_mer = ska_kmers.index_to_seq(best_i, k)
-        
-        #subset, hits = self.reads.kmer_filter(best_mer)
-        #print subset.shape, hits.shape
-        #print hits[:10]
-
-        def entropy(counts, pseudo= 1):
-            #counts += pseudo
-            p = counts / float(counts.sum())
-            
-            max_H = np.log2(len(p))
-            return max_H + np.where(p > 0, p * np.log2(p), 0).sum()
-            
-        res = self.run.results[k]
-        for i in res.ska_weights.argsort()[::-1][:10]:
+        for i in res.ska_weights.argsort()[::-1][:2]:
             kmer = ska_kmers.index_to_seq(i, k)
             print "testing", kmer
-            for i, profiles in enumerate(self.reads.kmer_flank_profiles(kmer, 3)):
+            for i, count_matrix in enumerate(self.reads.kmer_flank_profiles(kmer, 3)):
                 k_flank = i+1
-                print k_flank, profiles.shape
-                profiles += 1
                 
+                # assume identical composition at each position as background model
+                bg = np.array(self.reads.kmer_counts(k_flank), dtype=float)
+                bg /= bg.sum()
                 
-                totals = np.array(profiles.sum(axis=0), dtype=float)
-                freq = profiles / totals
-                ranked_us = []
-                ranked_ds = []
+                #print k_flank, count_matrix.shape
+                count_matrix = np.array(count_matrix, dtype=float) + 1. # pseudo count
                 
-                for i, f in enumerate(freq):
-                    upstream = f[:18-k_flank]
-                    dostream = f[20:]
-                    #print upstream
-                    #print kmer
-                    #print dostream
-                    us = entropy(upstream)
-                    ds = entropy(dostream)
-                    word = ska_kmers.index_to_seq(i,k_flank)
-                    #print "{word} us_entropy={us:.2f} bits ds_entropy={ds:.2f} bits".format(**locals())
+                obs = count_matrix / count_matrix.sum(axis=0)[np.newaxis,:]
+                #print obs
+                #print "BG",bg
+                
+                _KL = (obs * np.log2(obs / bg[:,np.newaxis]) )
+                
+                KL = _KL.sum(axis=0)
+                
+                # mask the core motif!
+                KL[20-k-k_flank + 1:20+k_flank-1] = 0
+                
+                # mask the ends TODO: pos-specific background model
+                KL[:2] = 0
+                KL[-2:] = 0
+                
+                print "testing for reduction of entropy of {k_flank} mers".format(k_flank=k_flank)
+                z = (KL - KL.mean())/KL.std()
+                print np.round(z,2)
+                print "positions with KL > 2 standard deviations"
+                for pos in (z >= 2.).nonzero()[0]:
+                    kl = _KL[:,pos]
+                    I = kl.argsort()[::-1]
+                    print "{pos} z={z:.2f} enriched words:".format(pos=pos, z=z[pos])
+                    for i in I:
+                        if kl[i] < 0:
+                            break
+                        
+                        word = ska_kmers.index_to_seq(i, k_flank)
+                        print "   {word} KL={kl:.3f}".format(word=word, kl=kl[i])
+                        
+                
+                #totals = np.array(profiles.sum(axis=0), dtype=float)
+                #freq = profiles / totals
+                #ranked_us = []
+                #ranked_ds = []
+                
+                #for i, f in enumerate(freq):
+                    #upstream = f[:18-k_flank]
+                    #dostream = f[20:]
+                    ##print upstream
+                    ##print kmer
+                    ##print dostream
+                    #us = entropy(upstream)
+                    #ds = entropy(dostream)
+                    #word = ska_kmers.index_to_seq(i,k_flank)
+                    ##print "{word} us_entropy={us:.2f} bits ds_entropy={ds:.2f} bits".format(**locals())
                     
-                    ranked_us.append((us, word))
-                    ranked_ds.append((ds, word))
+                    #ranked_us.append((us, word))
+                    #ranked_ds.append((ds, word))
                     
-                print "most associated upstream words"
-                for bits, word in sorted(ranked_us, reverse=True)[:10]:
-                    print "{word} {bits:.5f} bits".format(**locals())
+                #print "most associated upstream words"
+                #for bits, word in sorted(ranked_us, reverse=True)[:10]:
+                    #print "{word} {bits:.5f} bits".format(**locals())
                     
-                print "most associated downstream words"
-                for bits, word in sorted(ranked_ds, reverse=True)[:10]:
-                    print "{word} {bits:.5f} bits".format(**locals())
+                #print "most associated downstream words"
+                #for bits, word in sorted(ranked_ds, reverse=True)[:10]:
+                    #print "{word} {bits:.5f} bits".format(**locals())
             
             
 
@@ -306,6 +329,8 @@ def main():
     
     pass2 = SecondPass(rbns_reads, ska)
     print pass2.analyze_top_kmers(3)
+    print pass2.analyze_top_kmers(4)
+    print pass2.analyze_top_kmers(5)
     
 
 if __name__ == '__main__':
