@@ -22,30 +22,19 @@ ctypedef np.uint64_t UINT64_t
 ctypedef np.float32_t FLOAT32_t
 ctypedef np.float64_t FLOAT64_t
 
+cdef UINT8_t letter_lookup[20]
+# maps ASCII values of A,C,G,T to correct bits
+#                   A    C          G                                     T                         
+letter_lookup[:] = [0,-1,1,-1,-1,-1,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,3]
+                                
 cdef inline UINT8_t letter_to_bits(UINT8_t n):
-    if n == 'A':
-        return 0
-    elif n == 'C':
-        return 1
-    elif n == 'G':
-        return 2
-    elif n == 'T':
-        return 3
-    elif n == 'U':
-        return 3
-    if n == 'a':
-        return 0
-    elif n == 'c':
-        return 1
-    elif n == 'g':
-        return 2
-    elif n == 't':
-        return 3
-    elif n == 'u':
-        return 3
+    if n > 85:
+        n -= 97 # lower-case 'a'
     else:
-        #raise ValueError("encountered non ACGT nucleotide '{0}'".format(n))
-        return 255
+        n -= 65 # upper-case 'A'
+        
+    #print n, letter_lookup[n]
+    return letter_lookup[n]
     
 @cython.boundscheck(True)
 @cython.wraparound(False)
@@ -228,7 +217,7 @@ def index_to_seq(index, k):
     return "".join(seq)
 
 
-@cython.boundscheck(True)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -396,9 +385,9 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
 
 
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-@cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
 def seq_set_SKA(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[FLOAT32_t] _weights, np.ndarray[FLOAT32_t] _background, UINT32_t k):
