@@ -15,21 +15,37 @@ import ska_kmers
 
 
 class RBNSReads(object):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[]):
         self.logger = logging.getLogger('RBNSReads')
-        self.logger.info('reading sequences from {fname}'.format(fname=fname) )
         self.fname = fname
         self.pseudo_count = pseudo_count
         
-        # load and keep all sequences in memory (numerically A=0,...T=3 )
-        t0 = time.time()
-        self.seqm = ska_kmers.read_raw_seqs_chunked(file(fname), chunklines=chunklines, n_max=n_max)
-        self.N, self.L = self.seqm.shape
-        t1 = time.time()
+        if len(seqm):
+            self.seqm = seqm
+            self.N, self.L = self.seqm.shape
+        else:
+            self.logger.info('reading sequences from {fname}'.format(fname=fname) )
+            # load and keep all sequences in memory (numerically A=0,...T=3 )
+            t0 = time.time()
+            self.seqm = ska_kmers.read_raw_seqs_chunked(file(fname), chunklines=chunklines, n_max=n_max)
+            self.N, self.L = self.seqm.shape
+            t1 = time.time()
+
+            self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
+
 
         self.cached_counts = {}
-        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
 
+    def subsample(self, i, N):
+        chunk_n = self.N / float(N)
+        start = int(np.floor(i * chunk_n))
+        end = max(self.N, int(np.floor((i+1) * chunk_n)))
+        l = end - start
+        self.logger.debug("returning subsample of len={l} from {start}:{end}".format(**locals()) )
+        
+        return RBNSReads("{self.fname}_subsample_{i:02d}".format(**locals()), seqm=self.seqm[start:end], pseudo_count=self.pseudo_count )
+        
+        
     def kmer_counts(self, k):
         if not k in self.cached_counts:
             self.cached_counts[k] = ska_kmers.seq_set_kmer_count(self.seqm, k)
@@ -43,7 +59,7 @@ class RBNSReads(object):
         self.logger.debug("counted kmer occurrences in {0:.1f} seconds".format( (t1-t0) ) )
 
         N = counts.sum()
-        freqs = np.array(counts/N, dtype=np.float32)
+        freqs = np.array(counts, dtype=np.float32)/N * (4**k)
 
         return freqs
 
@@ -81,15 +97,20 @@ class RBNSReads(object):
 class SKAResult(object):
     def __init__(self, pd_reads, in_reads, k, R_values, ska_weights):
         self.logger = logging.getLogger('SKAResults')
+        self.k = k
         self.pd_reads = pd_reads
         self.in_reads = in_reads
-        self.k = k
+        
         self.R_values = R_values
+        self.R_values_err = np.zeros(R_values.shape, dtype=R_values.dtype)
+        
         self.ska_weights = ska_weights
+        self.ska_weights_err = np.zeros(ska_weights.shape, dtype=ska_weights.dtype)
+        
         self.name = 'SKA:{pd_reads}:{k}mers:bg={in_reads}'.format(**locals())
         
     def store(self, out_path):
-        self.logger.info('storing kmer frequencies, R-values and SKA weightsfor "{self.name}" in "out_path"'.format(self=self, out_path=out_path) )
+        self.logger.info('storing kmer frequencies, R-values and SKA-weights for "{self.name}" in "{out_path}"'.format(self=self, out_path=out_path) )
        
         z_scores_ska = (self.ska_weights - self.ska_weights.mean() )/ self.ska_weights.std()
         z_scores_R = (self.R_values - self.R_values.mean() )/ self.R_values.std()
@@ -99,15 +120,17 @@ class SKAResult(object):
             self.in_reads.kmer_frequencies(self.k), 
             self.pd_reads.kmer_frequencies(self.k), 
             self.R_values,
+            self.R_values_err,
             self.ska_weights,
+            self.ska_weights_err,
             z_scores_ska,
             z_scores_R
         )
 
         with file(os.path.join(out_path, 'SKA_results.{0}mer.txt'.format(self.k)), 'w') as of:
-            of.write('# kmer\t rel_freq_input\t rel_freq_pulldown\t R_value\t ska_weight\tska_z_score\t R_z_score\n')
+            of.write('# kmer\t rel_freq_input\t rel_freq_pulldown\t R_value\tR_err\t ska_weight\tska_err\tska_z_score\t R_z_score\n')
             for res in results:
-                of.write('%s\t%g\t%g\t%g\t%g\t%g\t%g\n' % res)
+                of.write('%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n' % res)
             of.close()
 
     def __str__(self):
@@ -201,32 +224,31 @@ class SecondPass(object):
             
 
 class SKARun(object):
-    def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path="."):
+    def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path=".", subsamples=10):
         self.logger = logging.getLogger('SKARun')
         self.pd_reads = pd_reads
         self.in_reads = in_reads
         self.max_iterations = max_iterations
         self.convergence = convergence
         self.out_path = os.path.abspath(out_path)
+        self.n_subsamples = subsamples
         
         self.results = {}
         
 
-    def stream_counts(self, k):
-        self.logger.info("streaming {0}-mers".format(k))
-        
+    def stream_counts(self, k, pd_reads, in_reads):
         kmers = list(yield_kmers(k))
         #background, bg_source = self.try_load_background_freqs(k)
 
-        pd_freqs = self.pd_reads.kmer_frequencies(k)
-        in_freqs = self.in_reads.kmer_frequencies(k)
+        pd_freqs = pd_reads.kmer_frequencies(k)
+        in_freqs = in_reads.kmer_frequencies(k)
         R_values = pd_freqs / in_freqs # kmer-frequency 'R'-atios
 
-        current_weights = R_values * (4.**k)/R_values.sum() # scale R-values such as to sum up to 4^k
+        current_weights = copy.copy(R_values)
         
         weight_history = []
         for iteration_i in range(self.max_iterations):
-            new_weights = ska_kmers.seq_set_SKA(self.pd_reads.seqm, current_weights, in_freqs, k)
+            new_weights = ska_kmers.seq_set_SKA(pd_reads.seqm, current_weights, in_freqs, k)
                 
             weight_history.append(new_weights)
             current_weights = copy.copy(new_weights)
@@ -244,12 +266,27 @@ class SKARun(object):
                     self.logger.info("reached convergence after {0} iterations".format(iteration_i))
                     break
                
-        return SKAResult(self.pd_reads, self.in_reads, k, R_values, current_weights)
+        return SKAResult(pd_reads, in_reads, k, R_values, current_weights)
 
 
     def run(self, min_k, max_k):
         for k in range(min_k, max_k+1):
-            res = self.stream_counts(k)
+            self.logger.info("streaming {0}-mers".format(k))
+            res = self.stream_counts(k, self.pd_reads, self.in_reads)
+            
+            self.logger.info("subsampling...")
+            samples = [self.stream_counts(
+                k, 
+                self.pd_reads.subsample(i, self.n_subsamples), 
+                self.in_reads) 
+                for i in range(self.n_subsamples)
+            ]
+            sample_matrix = np.array([s.ska_weights for s in samples])
+            res.ska_weights_err = sample_matrix.std(axis=0)
+            
+            sample_matrix = np.array([s.R_values for s in samples])
+            res.R_values_err = sample_matrix.std(axis=0)
+            
             self.results[k] = res
             res.store(self.out_path)
         
@@ -272,6 +309,7 @@ def main():
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
     
     parser.add_option("-n","--n-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
+    parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimateion (default=5)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("-c","--convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
     parser.add_option("-B","--background", dest="background", default="", help="path to file with background (input) kmer abundances in the library")
@@ -323,7 +361,8 @@ def main():
         in_reads,
         max_iterations = options.n_passes, 
         convergence = options.convergence, 
-        out_path = options.output, 
+        out_path = options.output,
+        subsamples = options.subsamples,
     )
     
     ska.run(options.min_k, options.max_k)
