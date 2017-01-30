@@ -127,10 +127,29 @@ class SKAResult(object):
             z_scores_R
         )
 
+        def round_to_2(x):
+            return round(x, max(-int(np.floor(np.log10(abs(x)))), 2) ) 
+        
+        def round_to_err(x, x_err):
+            n_dig = int(np.ceil(-np.log10(x_err)))+1
+            x_err = round(x_err,n_dig)
+
+            n_dig = int(np.ceil(-np.log10(x_err)))+1
+            return [round(x,n_dig), x_err]
+
         with file(os.path.join(out_path, 'SKA_results.{0}mer.txt'.format(self.k)), 'w') as of:
             of.write('# kmer\t rel_freq_input\t rel_freq_pulldown\t R_value\tR_err\t ska_weight\tska_err\tska_z_score\t R_z_score\n')
-            for res in results:
-                of.write('%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n' % res)
+            for mer,fi,fp,r,r_err,ska,ska_err,z_ska,z_r in results:
+                if mer == 'TATC':
+                    print ska,ska_err
+                    print round_to_err(ska,ska_err)
+                    
+                out = [mer, round_to_2(fi), round_to_2(fp),] \
+                    + round_to_err(r,r_err) \
+                    + round_to_err(ska,ska_err) \
+                    + [z_ska,z_r]
+
+                of.write('%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n' % tuple(out))
             of.close()
 
     def __str__(self):
