@@ -14,7 +14,8 @@ ext_modules = [ ]
 
 if use_cython:
     ext_modules += [
-        Extension("ska_kmers", [ "ska_kmers.pyx" ]),
+        #Extension("ska_kmers", [ "ska_kmers.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'],),
+        Extension("ska_kmers", [ "ska_kmers.pyx" ], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
 else:

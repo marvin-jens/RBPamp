@@ -35,7 +35,7 @@ class RBNSReads(object):
         returns the subset of seqm that contains sequences with the desired kmer
         and a boolean matrix with ones at the positions of kmer occurrence
         """
-        pass #TODO: implement
+        return ska_kmers.kmer_filter(self.seqm, kmer)
     
     def kmer_flank_profiles(self, kmer, k_flank):
         """
@@ -204,10 +204,17 @@ class SKARun(object):
                 max_i = change.argmax()
                 max_change = change[max_i]
                 
-                self.logger.info("iteration {0}: mean_change={1} max_change={2} for '{3}' ({4} -> {5})".format(iteration_i, mean_change, max_change, kmers[max_i], weight_history[-2][max_i], weight_history[-1][max_i]))
+                self.logger.debug("iteration {0}: mean_change={1} max_change={2} for '{3}' ({4} -> {5})".format(iteration_i, mean_change, max_change, kmers[max_i], weight_history[-2][max_i], weight_history[-1][max_i]))
                 if max_change < self.convergence:
                     self.logger.info("reached convergence after {0} iterations".format(iteration_i))
                     break
+                
+        best_i = current_weights.argmax()
+        self.logger.info("{best} is most enriched with w={best_w:.2f}".format(best=kmers[best_i], best_w=new_weights[best_i]) )
+        
+        subset, hits = self.reads.kmer_filter(kmers[best_i])
+        print subset.shape, hits.shape
+        print hits[:10]
                 
         return current_weights, kmer_freqs
 
