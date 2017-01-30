@@ -325,6 +325,75 @@ def kmer_filter(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer):
     return seq_matrix[rows], _mask[rows]
 
 
+@cython.boundscheck(True)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_max=3):
+    cdef UINT32_t k = len(kmer)
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    # the index we are looking for
+    cdef UINT32_t k_index = seq_to_index(kmer)
+    
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT32_t l = L-k+1
+    
+    # aggregate flanking kmer counts - at each relative position - here
+    flank_profiles = []
+    for k_flank in range(1, k_max+1):
+        flank_profiles.append(np.zeros( (4**k_flank, 2*l), dtype=np.uint32) )
+
+    # store k-mer hits here
+    _mask = np.zeros(N * l, dtype = np.uint8)
+    
+    # buffer
+    _indices = np.zeros(l, dtype = np.uint8)
+    
+    # make a cython MemoryView with fixed stride=1 for 
+    # fastest possible indexing
+    cdef UINT8_t [::1] mask = _mask
+
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT8_t [::1] seq_bits
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT32_t index, i, j
+    cdef UINT32_t hits = 0
+    
+    for j in range(N):
+        seq_bits = _seq_matrix[j*L:(j+1)*L]
+        # compute index of first k-1-mer by bit-shifts
+        index = kbits_to_index(seq_bits, k-1) 
+        # iterate over remaining k-mers
+        hits = 0
+        for i in range(0, l):
+            # get next "letter"
+            s = seq_bits[i+k-1]
+            # compute next index from previous by shift + next letter
+            index = ((index << 2) | s ) & MAX_INDEX
+            _indices[i] = index
+            
+            if index == k_index:
+                _mask[j*l+i] = 1
+                hits += 1
+
+        if hits:
+            origins = _mask[j*l:j*l+l].nonzero()[0]
+            for i in range(0,l):
+                for k_flank in range(1,k_max+1):
+                    index = _indices[i] >> ((k - k_flank)*2)
+                    for o in origins:
+                        flank_profiles[k_flank-1][index][i-o+l-1] += 1
+
+    return flank_profiles
+
+
 
 
 @cython.boundscheck(False)
