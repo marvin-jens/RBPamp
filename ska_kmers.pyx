@@ -22,19 +22,24 @@ ctypedef np.uint64_t UINT64_t
 ctypedef np.float32_t FLOAT32_t
 ctypedef np.float64_t FLOAT64_t
 
-cdef UINT8_t letter_lookup[20]
 # maps ASCII values of A,C,G,T to correct bits
-#                   A    C          G                                     T                         
-letter_lookup[:] = [0,-1,1,-1,-1,-1,2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,3]
+cdef UINT8_t letter_to_bits[256]
+for i in range(256):
+    letter_to_bits[i] = 255
+
+letter_to_bits[ord('a')] = 0 
+letter_to_bits[ord('c')] = 1 
+letter_to_bits[ord('g')] = 2
+letter_to_bits[ord('t')] = 3
+letter_to_bits[ord('u')] = 3
+
+letter_to_bits[ord('A')] = 0 
+letter_to_bits[ord('C')] = 1 
+letter_to_bits[ord('G')] = 2
+letter_to_bits[ord('T')] = 3
+letter_to_bits[ord('U')] = 3
+
                                 
-cdef inline UINT8_t letter_to_bits(UINT8_t n):
-    if n > 85:
-        n -= 97 # lower-case 'a'
-    else:
-        n -= 65 # upper-case 'A'
-        
-    #print n, letter_lookup[n]
-    return letter_lookup[n]
     
 @cython.boundscheck(True)
 @cython.wraparound(False)
@@ -51,7 +56,7 @@ def seq_to_bits(unsigned char *seq):
     
     for x in range(L):
         n = seq[x]
-        res[x] = letter_to_bits(n)
+        res[x] = letter_to_bits[n]
 
     return _res
 
@@ -82,7 +87,7 @@ def read_raw_seqs(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_ski
         
         l = line # extract raw string content
         for i in range(0,L):
-            buf[i] = letter_to_bits(l[i])
+            buf[i] = letter_to_bits[l[i]]
         
         seqs.append(_buf)
         if N >= n_max + n_skip and n_max:
@@ -97,7 +102,8 @@ def read_raw_seqs(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_ski
 @cython.cdivision(True)
 def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0, chunklines=1000000):
     cdef char* l
-    cdef UINT64_t i, N=0, n=0, L=0
+    cdef UINT64_t i, N=0, n=0, n0=0, L=0
+    cdef UINT8_t x=0
     cdef UINT32_t chunkbytes = 0
     cdef list chunks = list()
     cdef bytes line
@@ -110,13 +116,13 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
         if n_skip and N <= n_skip:
             continue
 
-        if 'N' in line:
-            continue
+        #if 'N' in line:
+            #continue
 
         line = line.rstrip() # remove trailing new-line characters
 
-        if pre or post:
-            line = _pre + line + _post
+        #if pre or post:
+            #line = _pre + line + _post
         
         if not L:
             L = len(line)
@@ -129,12 +135,20 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
             n = 0
 
         l = line # extract raw string content
+        n0 = n
         for i in range(0,L):
-            x = letter_to_bits(l[i])
+            x = letter_to_bits[l[i]]
+            if x > 3:
+                # non-ACGT character!
+                n = n0
+                break
+            
             buf[n] = x
             n += 1
 
-        N += 1
+        if n > n0:
+            # we have actually read a sequence!
+            N += 1
             
         if N >= n_max + n_skip and n_max:
             break
@@ -179,7 +193,7 @@ def read_fastq(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0
         
         l = line # extract raw string content
         for i in range(0,L):
-            buf[i] = letter_to_bits(l[i])
+            buf[i] = letter_to_bits[l[i]]
         
         seqs.append(_buf)
         if N >= n_max + n_skip and n_max:
