@@ -333,8 +333,11 @@ def kmer_filter(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer):
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_max=3):
+def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_flank=3):
+    
     cdef UINT32_t k = len(kmer)
+    print ">>>",kmer, k, k_flank
+
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT32_t MAX_INDEX = 4**k - 1
     # the index we are looking for
@@ -345,19 +348,21 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     cdef UINT32_t l = L-k+1
     
     # aggregate flanking kmer counts - at each relative position - here
-    flank_profiles = []
-    for k_flank in range(1, k_max+1):
-        flank_profiles.append(np.zeros( (4**k_flank, 2*l), dtype=np.uint32) )
+    profile = np.zeros( (4**k_flank, 2*l), dtype=np.uint32)
 
     # store k-mer hits here
     _mask = np.zeros(N * l, dtype = np.uint8)
+
+    # remember the hit positions
+    _hit_pos = np.zeros(l, dtype = np.uint64)
     
     # buffer
-    _indices = np.zeros(l, dtype = np.uint8)
+    _indices = np.zeros(l, dtype = np.uint64)
     
     # make a cython MemoryView with fixed stride=1 for 
     # fastest possible indexing
     cdef UINT8_t [::1] mask = _mask
+    cdef UINT64_t [::1] hit_pos = _hit_pos
 
     # a MemoryView into each sequence (already converted 
     # from letters to bits)
@@ -366,8 +371,9 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT32_t index, i, j
+    cdef UINT32_t index, findex, i, j, r
     cdef UINT32_t hits = 0
+
     
     for j in range(N):
         seq_bits = _seq_matrix[j*L:(j+1)*L]
@@ -375,26 +381,32 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
         index = kbits_to_index(seq_bits, k-1) 
         # iterate over remaining k-mers
         hits = 0
+        #print list(_seq_matrix[j*L:(j+1)*L])
         for i in range(0, l):
             # get next "letter"
             s = seq_bits[i+k-1]
             # compute next index from previous by shift + next letter
             index = ((index << 2) | s ) & MAX_INDEX
             _indices[i] = index
-            
+            #print i, index, index_to_seq(index, k), _indices[i]
             if index == k_index:
                 _mask[j*l+i] = 1
+                hit_pos[hits] = i
                 hits += 1
 
-        if hits:
-            origins = _mask[j*l:j*l+l].nonzero()[0]
+        #print "pos 0 index", _indices[0]
+        for o in hit_pos[:hits]:
+            #print "hit at",o
             for i in range(0,l):
-                for k_flank in range(1,k_max+1):
-                    index = _indices[i] >> ((k - k_flank)*2)
-                    for o in origins:
-                        flank_profiles[k_flank-1][index][i-o+l-1] += 1
+                # compute shorter kmer index from longer ones
+                #print _indices[i]
+                index = _indices[i]
+                
+                findex = index >> ((k - k_flank)*2)
+                #print index, index_to_seq(index, k), index_to_seq(findex, k_flank), k_flank
+                profile[findex][i-o+l-1] += 1
 
-    return flank_profiles
+    return profile
 
 
 
