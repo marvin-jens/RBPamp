@@ -335,20 +335,22 @@ def kmer_filter(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer):
 @cython.overflowcheck(False)
 def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_flank=3):
     
-    cdef UINT32_t k = len(kmer)
-    print ">>>",kmer, k, k_flank
+    cdef UINT64_t k = len(kmer)
+    
+    # number of bits to shift right to convert k-mer index to k_flank-mer index
+    cdef UINT64_t k_diff_bits = (k-k_flank)*2 
 
     # largest index in array of DNA/RNA k-mer counts
-    cdef UINT32_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t MAX_INDEX = 4**k - 1
     # the index we are looking for
-    cdef UINT32_t k_index = seq_to_index(kmer)
+    cdef UINT64_t k_index = seq_to_index(kmer)
     
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
-    cdef UINT32_t l = L-k+1
+    cdef UINT64_t N = len(seq_matrix)
+    cdef UINT64_t L = len(seq_matrix[0])
+    cdef UINT64_t l = L-k+1
     
     # aggregate flanking kmer counts - at each relative position - here
-    profile = np.zeros( (4**k_flank, 2*l), dtype=np.uint32)
+    _profile = np.zeros( ((4**k_flank) * 2*l), dtype=np.uint32)
 
     # store k-mer hits here
     _mask = np.zeros(N * l, dtype = np.uint8)
@@ -362,6 +364,7 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     # make a cython MemoryView with fixed stride=1 for 
     # fastest possible indexing
     cdef UINT8_t [::1] mask = _mask
+    cdef UINT32_t [::1] profile = _profile
     cdef UINT64_t [::1] hit_pos = _hit_pos
 
     # a MemoryView into each sequence (already converted 
@@ -371,8 +374,8 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT32_t index, findex, i, j, r
-    cdef UINT32_t hits = 0
+    cdef UINT64_t index, findex, i, j, r
+    cdef UINT64_t hits = 0
 
     
     for j in range(N):
@@ -402,11 +405,11 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
                 #print _indices[i]
                 index = _indices[i]
                 
-                findex = index >> ((k - k_flank)*2)
+                findex = index >> k_diff_bits
                 #print index, index_to_seq(index, k), index_to_seq(findex, k_flank), k_flank
-                profile[findex][i-o+l-1] += 1
+                profile[findex*2*l + i-o+l-1] += 1
 
-    return profile
+    return _profile.reshape( (4**k_flank, 2*l) ), _mask.reshape( (N, l) )
 
 
 
