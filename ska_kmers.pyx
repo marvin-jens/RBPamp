@@ -262,6 +262,54 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k):
     return _counts
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def get_oligo_counts_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+
+    # store k-mer counts here
+    _counts = np.zeros(4**k, dtype = np.uint32)
+    # make a cython MemoryView with fixed stride=1 for
+    # fastest possible indexing
+    cdef UINT32_t [::1] counts = _counts
+
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+
+    # a MemoryView into each sequence (already converted
+    # from letters to bits)
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT8_t [::1] seq_bits
+
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT32_t index, i, j
+
+    for j in range(N):
+        seq_bits = _seq_matrix[j*L:(j+1)*L]
+        # compute index of first k-mer by bit-shifts
+        index = kbits_to_index(seq_bits, k)
+        # count first k-mer
+        counts[index] += 1
+        seen_in_oligo = set([index])
+        # iterate over remaining k-mers
+        for i in range(0, L-k):
+            # get next "letter"
+            s = seq_bits[i+k]
+            # compute next index from previous by shift + next letter
+            index = ((index << 2) | s ) & MAX_INDEX
+            if index in seen_in_oligo: continue
+            seen_in_oligo.add(index)
+            # count
+            counts[index] += 1
+
+    return _counts
+
+
 @cython.boundscheck(True)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
