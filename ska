@@ -44,7 +44,7 @@ class RBNSReads(object):
         """
         chunk_n = self.N / float(N)
         start = int(np.floor(i * chunk_n))
-        end = max(self.N, int(np.floor((i+1) * chunk_n)))
+        end = min(self.N, int(np.floor((i+1) * chunk_n)))
         l = end - start
         self.logger.debug("returning subsample of len={l} from {start}:{end}".format(**locals()) )
         
@@ -459,7 +459,7 @@ def main():
     multi = MultiAnalysis(ska)
     if options.interactions:
         # TODO: determine good core size!
-        multi.find_interactors(5, k_flank_max=5)
+        multi.find_interactors(3, k_flank_max=3, n_top=5)
 
 if __name__ == '__main__':
     main()
