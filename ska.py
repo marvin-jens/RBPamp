@@ -67,11 +67,23 @@ class RBNSReads(object):
     def fraction_reads_with_kmer(self,k):
         t0 = time.time()
         counts_oligos_with_kmer = ska_kmers.get_oligo_counts_with_kmers(self.seqm, k)
+        print "here" ###
         t1 = time.time()
         self.logger.debug("counted read fractions attributable to motifs in {0:.1f} seconds".format( (t1-t0) ) )
         
         fractions = np.array(counts_oligos_with_kmer, dtype=np.float32)/self.N
         
+        return fractions
+
+
+    def fraction_reads_with_pattern(self,k,masks):
+        t0 = time.time()
+        pattern_counts = ska_kmers.get_oligo_counts_with_patterns(self.seqm, k, masks)
+        t1 = time.time()
+        self.logger.debug("counted read fractions attributable to patterns in {0:.1f} seconds".format( (t1-t0) ) )
+
+        fractions = np.array(pattern_counts, dtype=np.float32)/self.N
+
         return fractions
 
 

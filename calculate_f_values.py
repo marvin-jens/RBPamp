@@ -41,18 +41,18 @@ def run_F_values(pd_reads, in_reads, min_k, max_k, out_path=".", subsamples=10):
         
         f_value_err[k] = f_value_matrix.std(axis=0)
         f_value_mean[k] = f_value_matrix.mean(axis=0)
+        kmers = list(yield_kmers(k))
+        write_to_output_file(f_value_mean[k], f_value_err[k], kmers, logger, out_path, pd_reads.fname, k)
 
-        write_to_output_file(f_value_mean[k], f_value_err[k], logger, out_path, pd_reads.fname, k)
-
-    return f_value_means, f_value_errs
+    return f_value_mean, f_value_err
 
 
 
-def write_to_output_file(f_value_means, f_value_errs, logger, out_path, fname, k):
-    logger.info('storing kmer frequencies, R-values and SKA-weights for "{fname}" in "{out_path}"'.format(fname=fname, out_path=out_path) )
+def write_to_output_file(f_value_means, f_value_errs, kmers, logger, out_path, fname, k):
+    logger.info('storing kmer frequencies and f-values for "{fname}" in "{out_path}"'.format(fname=fname, out_path=out_path) )
 
     results = zip(
-        yield_kmers(k),
+        kmers,
         f_value_means,
         f_value_errs
         )
@@ -74,7 +74,6 @@ def main():
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimateion (default=5)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
-    parser.add_option("-c","--convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
@@ -103,7 +102,7 @@ def main():
     fh.setFormatter(logging.Formatter(FORMAT))
     root.addHandler(fh)
 
-    logger = logging.getLogger("SKA")
+    logger = logging.getLogger("f_values")
     logger.info("called as '{0}'".format(" ".join(sys.argv)) )
 
     # load pull-down and input reads

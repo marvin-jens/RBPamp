@@ -310,6 +310,76 @@ def get_oligo_counts_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t
     return _counts
 
 
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def get_oligo_counts_with_patterns(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k, 
+    np.ndarray[UINT8_t, ndim=3] masks):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+
+    # store k-mer counts here
+    N_masks = len(masks)
+    _pattern_counts = np.zeros(N_masks, dtype = np.uint32)
+    _mask_1 = np.zeros(N_masks, dtype = np.uint32)
+    _mask_2 = np.zeros(N_masks, dtype = np.uint32)
+
+    # make a cython MemoryView with fixed stride=1 for
+    # fastest possible indexing
+    cdef UINT32_t [::1] pattern_counts = _pattern_counts
+    cdef UINT32_t [::1] mask_1 = _mask_1
+    cdef UINT32_t [::1] mask_2 = _mask_2
+
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+
+    # a MemoryView into each sequence (already converted
+    # from letters to bits)
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT8_t [::1] seq_bits
+
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t index, i, j, p, kmer_index
+
+    for i in range(N_masks):
+        mask_1[i]=kbits_to_index(masks[i][0], k)
+        mask_2[i]=kbits_to_index(masks[i][1], k)
+
+
+    for j in range(N):
+        seen_patterns = 0
+        seq_bits = _seq_matrix[j*L:(j+1)*L]
+        # compute index of first k-mer by bit-shifts
+        kmer_index = kbits_to_index(seq_bits, k)
+        # count first k-mer
+
+        for p in range(N_masks):
+            if ((kmer_index ^ mask_1[p]) & mask_2[p]): continue
+            seen_patterns |= (1 << p)
+            pattern_counts[p] += 1
+        # iterate over remaining k-mers
+        for i in range(0, L-k):
+            # get next "letter"
+            s = seq_bits[i+k]
+            # compute next index from previous by shift + next letter
+            kmer_index = ((kmer_index << 2) | s ) & MAX_INDEX
+
+            for p in range(N_masks):
+                if (seen_patterns & (1 << p)): continue
+                if ((kmer_index ^ mask_1[p]) & mask_2[p]): continue
+                seen_patterns |= (1 << p)
+                pattern_counts[p] += 1
+
+    return _pattern_counts
+
+
+
+
 @cython.boundscheck(True)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
