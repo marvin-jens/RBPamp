@@ -11,6 +11,7 @@ import copy
 import time
 import os
 import logging
+import collections
 import ska_kmers
 
 
@@ -68,7 +69,7 @@ class RBNSReads(object):
         t0 = time.time()
         counts = self.kmer_counts(k) + self.pseudo_count
         t1 = time.time()
-        self.logger.debug("counted kmer occurrences in {0:.1f} seconds".format( (t1-t0) ) )
+        self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, (t1-t0)*1000. ) )
 
         N = counts.sum()
         freqs = np.array(counts/float(N) * (4**k), dtype=np.float32)
@@ -82,12 +83,12 @@ class RBNSReads(object):
         """
         return ska_kmers.kmer_filter(self.seqm, kmer)
     
-    def kmer_flank_profiles(self, kmer, k_max):
+    def kmer_flank_profiles(self, kmer, k_flank):
         """
         use kmer_filter first and then compute the average occurrences of kmers
         with k=k_flank (k_flank = 1..k_max) around the desired "central" kmer.
         """
-        return ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_max=k_max)
+        return ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_flank=k_flank)
     
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
@@ -122,21 +123,23 @@ class SKAResult(object):
         self.name = 'SKA:{pd_reads}:{k}mers:bg={in_reads}'.format(**locals())
         
     def store(self, out_path):
-        self.logger.info('storing kmer frequencies, R-values and SKA-weights for "{self.name}" in "{out_path}"'.format(self=self, out_path=out_path) )
+        res_file = 'SKA_results.{0}mer.txt'.format(self.k)
+        self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
        
         z_scores_ska = (self.ska_weights - self.ska_weights.mean() )/ self.ska_weights.std()
         z_scores_R = (self.R_values - self.R_values.mean() )/ self.R_values.std()
 
+        order = self.ska_weights.argsort()[::-1]
         results = zip(
-            yield_kmers(self.k), 
-            self.in_reads.kmer_frequencies(self.k), 
-            self.pd_reads.kmer_frequencies(self.k), 
-            self.R_values,
-            self.R_values_err,
-            self.ska_weights,
-            self.ska_weights_err,
-            z_scores_ska,
-            z_scores_R
+            np.array(list(yield_kmers(self.k))) [order],
+            self.in_reads.kmer_frequencies(self.k)[order], 
+            self.pd_reads.kmer_frequencies(self.k)[order], 
+            self.R_values[order],
+            self.R_values_err[order],
+            self.ska_weights[order],
+            self.ska_weights_err[order],
+            z_scores_ska[order],
+            z_scores_R[order],
         )
 
         def round_to_2(x):
@@ -155,7 +158,7 @@ class SKAResult(object):
             else:
                 return [x, x_err]
 
-        with file(os.path.join(out_path, 'SKA_results.{0}mer.txt'.format(self.k)), 'w') as of:
+        with file(os.path.join(out_path, res_file), 'w') as of:
             of.write('# kmer\t rel_freq_input\t rel_freq_pulldown\t R_value\tR_err\t ska_weight\tska_err\tska_z_score\t R_z_score\n')
             for mer,fi,fp,r,r_err,ska,ska_err,z_ska,z_r in results:
                 #if mer == 'AAA':
@@ -178,81 +181,134 @@ class SKAResult(object):
         
         return '\n'.join(buf)
 
-class SecondPass(object):
-    def __init__(self, run):
-        self.run = run
 
-    def analyze_top_kmers(self, k, n_top=2, k_flank_max=4):
+class PairInteractionScreen(object):
+    def __init__(self, run, core, k_int, pseudo=10.):
+        self.run = run
+        self.core = core
+        self.k_int = k_int
+        self.k_core = len(core)
+        
+        #print "scanning flanking {0}-mers".format(k_int)
+        pd_matrix, pd_mask = self.run.pd_reads.kmer_flank_profiles(core, k_int)
+        in_matrix, in_mask = self.run.in_reads.kmer_flank_profiles(core, k_int)
+
+        self.core_density_pd = pd_mask.sum(axis=0)
+        self.core_density_bg = in_mask.sum(axis=0)
+        
+        pd_matrix = np.array(pd_matrix, dtype=np.float32) + pseudo
+        in_matrix = np.array(in_matrix, dtype=np.float32) + pseudo
+
+        obsv = pd_matrix / pd_matrix.sum(axis=0)[np.newaxis,:]
+        bgnd = in_matrix / in_matrix.sum(axis=0)[np.newaxis,:]
+
+        # Kullback-Leibler (KL) divergence terms
+        self._KL = (obsv * np.log2(obsv / bgnd) )
+        # and per-position KL
+        self.KL = self._KL.sum(axis=0)
+        self.log_ratios = np.log2(obsv / bgnd)
+
+        # mask positions overlapping with the core motif
+        self.l = self.run.pd_reads.L - self.k_core
+        self.KL[self.l-self.k_int+1:self.l+self.k_core] = 0
+        self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core] = 0
+        #print "mask",self.l-self.k_int+1,self.l+self.k_core 
+        #print "log_ratios after masking", self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core]
+
+    def top_interactors(self, n_top=10):
+        #TODO: cook a set of candidate interacting kmers from significance for now let's just take top 10
+        top_i = self._KL.max(axis=1).argsort()[::-1][:n_top]
+        # and sort alphabetically to ensure reproducibility across successive runs
+        top_i = sorted(top_i)
+        top_kmers = [ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
+        #print "top interacting kmer candidate list", top_kmers
+        return top_i, top_kmers
+    
+    def make_plot(self, fname, n_top=10):
+        import matplotlib as mp
+        mp.rcParams['font.family'] = 'Arial'
+        mp.rcParams['font.size'] = 8
+        mp.rcParams['font.sans-serif'] = 'Arial'
+        mp.rcParams['legend.fontsize'] = 'small'
+        mp.rcParams['legend.frameon'] = False
+        #mp.rcParams['axes.labelsize'] = 8
+        
+        import matplotlib.pyplot as pp
+        fig = pp.figure()
+        fig.subplots_adjust(hspace=0.5)
+        
+        pp.title("{0} interacting with {1}-mers".format(self.core, self.k_int))
+        pp.subplot(311)
+        pp.gca().set_title("density of {0} core".format(self.core.upper()))
+        pp.plot(self.core_density_pd, drawstyle='steps-mid', label="pd")
+        pp.plot(self.core_density_bg, drawstyle='steps-mid', label="in")
+        pp.gca().locator_params(axis='y',nbins=3)
+        pp.gca().locator_params(axis='x',nbins=10)
+
+        pp.legend(loc='upper left')
+        pp.xlabel("read start pos [nt]")
+        pp.ylabel("frequency")
+        
+        pp.subplot(312)
+        pp.title("Kullback-Leibler divergence of flanking kmer composition")
+        x = np.arange(len(self.KL)) - len(self.KL)/2 +1.
+        pp.plot(x,self.KL, drawstyle='steps-mid', label="{0}mers around {1}".format(self.k_int, self.k_core) )
+        pp.xlim(-self.l-.5,self.l+.5)
+        pp.xlabel("rel. {0}-mer start pos [nt]".format(self.k_int))
+        pp.ylabel("KL [bits]")
+     
+        pp.subplot(313)
+        pp.gca().set_title("enriched {0}-mers".format(self.k_int))
+        top_i, top_kmers = self.top_interactors(n_top = n_top)
+        z = self.log_ratios[top_i[::-1],:]
+        y, x = np.mgrid[slice(0, len(top_i)+1),slice(-(self.l+.5), +self.l+1)]
+        
+        # symmetric, dynamic range of colorbar
+        dr = np.fabs(z).max()
+        pp.pcolor(x,y,z, cmap=pp.get_cmap('seismic'), vmin=-dr, vmax=dr)
+
+        pp.yticks(np.arange(len(top_i))+.5, top_kmers[::-1]) # reverse order of kmers so pcolor is not upside down
+        pp.xlim(-self.l-.5,self.l+.5)
+        cbar = pp.colorbar(orientation="horizontal", fraction=0.1, shrink=0.75, label=r"$\log_2( \frac{pd}{in} )$")
+        cbar.ax.tick_params(labelsize=8)
+        pp.savefig(fname)
+        pp.close()
+        
+
+
+class MultiAnalysis(object):
+    def __init__(self, run):
+        self.logger = logging.getLogger("MultiAnalysis")
+        self.run = run
+        self.pair_screens = collections.defaultdict(dict)
+
+    def select_significant_ska_kmers(self,k, n_top=2):
+        #TODO: do this based on some statistics, taking into 
+        # account the errors of ska weights from subsampling
+
         res = self.run.results[k]
-        for i in res.ska_weights.argsort()[::-1][:n_top]:
-            kmer = ska_kmers.index_to_seq(i, k)
-            
-            print "testing", kmer
-            pd_profiles = self.run.pd_reads.kmer_flank_profiles(kmer, k_flank_max) + 1 # pseudo count
-            in_profiles = self.run.in_reads.kmer_flank_profiles(kmer, k_flank_max) + 1 # pseudo count
-            
-            for i, (pd_matrix, in_matrix) in enumerate(zip(pd_profiles, in_profiles)):
-                k_flank = i+1
+        kmers = [ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
+        return kmers
+
+        
+    def find_interactors(self, k, n_top=2, k_flank_max=4):
+        
+        for core in self.select_significant_ska_kmers(k, n_top):
+            for k_int in range(1, k_flank_max+1):
+                t0 = time.time()
+                screen = PairInteractionScreen(self.run, core, k_int)
+                t1 = time.time()
+                self.logger.debug("interaction analysis of {0} with {1}mers took {2:.3f}s".format(core, k_int, (t1-t0)) )
                 
-                #print k_flank, pd_matrix.shape
-                pd_matrix = np.array(pd_matrix, dtype=np.float32)
-                in_matrix = np.array(in_matrix, dtype=np.float32)
-                obsv = pd_matrix / pd_matrix.sum(axis=0)[np.newaxis,:]
-                bgnd = in_matrix / in_matrix.sum(axis=0)[np.newaxis,:]
+                fplot = os.path.join(self.run.out_path, "{0}_interacting_with_{1}mers.pdf".format(core, k_int) )
+                screen.make_plot(fplot)
                 
-                _KL = (obsv * np.log2(obsv / bgnd[:,np.newaxis]) )
-                #_KL = (bg[:,np.newaxis] * np.log2(bg[:,np.newaxis]/obs) )
+                # keep for later?
+                #self.pair_screens[core][k_int] = screen
                 
-                KL = _KL.sum(axis=0)
-                print KL
                 
-                # mask the core motif!
-                KL[20-k-k_flank + 1:20+k_flank-1] = 0
                 
-                print "testing for reduction of entropy of {k_flank} mers".format(k_flank=k_flank)
-                z = (KL - KL.mean())/KL.std()
-                print np.round(z,2)
-                print "positions with KL > 1 standard deviations"
-                for pos in (z >= 1.).nonzero()[0]:
-                    kl = _KL[:,pos]
-                    I = kl.argsort()
-                    print "{pos} z={z:.2f} most enriched words:".format(pos=pos, z=z[pos])
-                    for i in I[:5]:
-                        if kl[i] > 0:
-                            break
-                        
-                        word = ska_kmers.index_to_seq(i, k_flank)
-                        print "   {word} KL={kl:.3f}".format(word=word, kl=kl[i])
-                        
-                
-                #totals = np.array(profiles.sum(axis=0), dtype=float)
-                #freq = profiles / totals
-                #ranked_us = []
-                #ranked_ds = []
-                
-                #for i, f in enumerate(freq):
-                    #upstream = f[:18-k_flank]
-                    #dostream = f[20:]
-                    ##print upstream
-                    ##print kmer
-                    ##print dostream
-                    #us = entropy(upstream)
-                    #ds = entropy(dostream)
-                    #word = ska_kmers.index_to_seq(i,k_flank)
-                    ##print "{word} us_entropy={us:.2f} bits ds_entropy={ds:.2f} bits".format(**locals())
-                    
-                    #ranked_us.append((us, word))
-                    #ranked_ds.append((ds, word))
-                    
-                #print "most associated upstream words"
-                #for bits, word in sorted(ranked_us, reverse=True)[:10]:
-                    #print "{word} {bits:.5f} bits".format(**locals())
-                    
-                #print "most associated downstream words"
-                #for bits, word in sorted(ranked_ds, reverse=True)[:10]:
-                    #print "{word} {bits:.5f} bits".format(**locals())
-            
-            
+
 
 class SKARun(object):
     def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path=".", subsamples=10):
@@ -347,6 +403,7 @@ def main():
     parser.add_option("-B","--background", dest="background", default="", help="path to file with background (input) kmer abundances in the library")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
+    parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search")
     parser.add_option("","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="SWITCH: show version information and quit")
     options,args = parser.parse_args()
@@ -399,10 +456,10 @@ def main():
     
     ska.run(options.min_k, options.max_k)
     
-    pass2 = SecondPass(ska)
-    print pass2.analyze_top_kmers(4)
-    ##print pass2.analyze_top_kmers(4)
-    #print pass2.analyze_top_kmers(5)
+    multi = MultiAnalysis(ska)
+    if options.interactions:
+        # TODO: determine good core size!
+        multi.find_interactors(5, k_flank_max=5)
 
 if __name__ == '__main__':
     main()
