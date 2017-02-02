@@ -207,8 +207,8 @@ def read_fastq(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0
 @cython.initializedcheck(False)
 @cython.overflowcheck(False)
 @cython.cdivision(True)
-cdef inline UINT32_t kbits_to_index(UINT8_t [:] kbits, UINT32_t k):
-    cdef UINT32_t i, index = 0
+cdef inline UINT64_t kbits_to_index(UINT8_t[:] kbits, UINT32_t k) nogil:
+    cdef UINT64_t i, index = 0
     
     for i in range(k):
         index += kbits[i] << 2 * (k - i - 1)
@@ -236,9 +236,9 @@ def index_to_seq(index, k):
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k):
+def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
-    cdef UINT32_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t MAX_INDEX = 4**k - 1
 
     # store k-mer counts here
     _counts = np.zeros(4**k, dtype = np.uint32)
@@ -246,8 +246,8 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k):
     # fastest possible indexing
     cdef UINT32_t [::1] counts = _counts
 
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT64_t N = len(seq_matrix)
+    cdef UINT64_t L = len(seq_matrix[0])
 
     # a MemoryView into each sequence (already converted 
     # from letters to bits)
@@ -256,7 +256,7 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT32_t k):
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT32_t index, i, j
+    cdef UINT64_t index, i, j
     
     for j in range(N):
         seq_bits = _seq_matrix[j*L:(j+1)*L]
@@ -365,6 +365,7 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     # fastest possible indexing
     cdef UINT8_t [::1] mask = _mask
     cdef UINT32_t [::1] profile = _profile
+    cdef UINT64_t [::1] indices = _indices
     cdef UINT64_t [::1] hit_pos = _hit_pos
 
     # a MemoryView into each sequence (already converted 
@@ -374,40 +375,40 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT64_t index, findex, i, j, r
+    cdef UINT64_t index, findex, i, j, r, o, q
     cdef UINT64_t hits = 0
 
-    
-    for j in range(N):
-        seq_bits = _seq_matrix[j*L:(j+1)*L]
-        # compute index of first k-1-mer by bit-shifts
-        index = kbits_to_index(seq_bits, k-1) 
-        # iterate over remaining k-mers
-        hits = 0
-        #print list(_seq_matrix[j*L:(j+1)*L])
-        for i in range(0, l):
-            # get next "letter"
-            s = seq_bits[i+k-1]
-            # compute next index from previous by shift + next letter
-            index = ((index << 2) | s ) & MAX_INDEX
-            _indices[i] = index
-            #print i, index, index_to_seq(index, k), _indices[i]
-            if index == k_index:
-                _mask[j*l+i] = 1
-                hit_pos[hits] = i
-                hits += 1
+    with nogil:#, parallel(num_threads=8):
+        for j in range(N):
+            seq_bits = _seq_matrix[j*L:(j+1)*L]
+            # compute index of first k-1-mer by bit-shifts
+            index = kbits_to_index(seq_bits, k-1) 
+            # iterate over remaining k-mers
+            hits = 0
+            #print list(_seq_matrix[j*L:(j+1)*L])
+            for i in range(0, l):
+                # get next "letter"
+                s = seq_bits[i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                indices[i] = index
+                #print i, index, index_to_seq(index, k), _indices[i]
+                if index == k_index:
+                    mask[j*l+i] = 1
+                    hit_pos[hits] = i
+                    hits += 1
 
-        #print "pos 0 index", _indices[0]
-        for o in hit_pos[:hits]:
-            #print "hit at",o
-            for i in range(0,l):
-                # compute shorter kmer index from longer ones
-                #print _indices[i]
-                index = _indices[i]
-                
-                findex = index >> k_diff_bits
-                #print index, index_to_seq(index, k), index_to_seq(findex, k_flank), k_flank
-                profile[findex*2*l + i-o+l-1] += 1
+            #print "pos 0 index", _indices[0]
+            for q in range(0, hits):
+                o = hit_pos[q]
+                #print "hit at",o
+                for i in range(0,l):
+                    # compute shorter kmer index from longer ones
+                    index = indices[i]
+                    findex = index >> k_diff_bits
+                    #print index, index_to_seq(index, k), index_to_seq(findex, k_flank), k_flank
+                    r = findex*2*l + i-o+l-1
+                    profile[r] += 1
 
     return _profile.reshape( (4**k_flank, 2*l) ), _mask.reshape( (N, l) )
 
