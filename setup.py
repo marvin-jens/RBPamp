@@ -55,7 +55,7 @@ setup(
     ],
     keywords = 'rna rbns k-mer kmer statistics biology bioinformatics',
 
-    install_requires=['cython','numpy'],
+    install_requires=['cython','numpy','matplotlib'],
     scripts=['ska'],
     cmdclass = cmdclass,
     ext_modules=ext_modules,
