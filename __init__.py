@@ -82,7 +82,20 @@ class RBNSReads(object):
         and a boolean matrix with ones at the positions of kmer occurrence
         """
         return ska_kmers.kmer_filter(self.seqm, kmer)
-    
+
+    def count_reads_with_kmers(self, kmer_list):
+        k = len(kmer_list[0])
+        mask = np.zeros(4**k, dtype=np.uint8)
+        for mer in kmer_list:
+            index = ska_kmers.seq_to_index(mer)
+            #print index, mer
+            mask[index] = 1
+        
+        #print mask
+        n = ska_kmers.count_hits(self.seqm, mask, k)
+        #print n
+        return n
+        
     def kmer_flank_profiles(self, kmer, k_flank):
         """
         use kmer_filter first and then compute the average occurrences of kmers
@@ -286,11 +299,23 @@ class SKARun(object):
         
         try:
             res = SKAResult.load(self.out_path, k, self.pd_reads, self.in_reads)
-        except OSError:
+        except IOError:
             return None
         
         self.results[k] = res
         return res
+
+
+    def recall(self, kmer_list):
+        return self.pd_reads.count_reads_with_kmers(kmer_list) / float(self.pd_reads.N)
+    
+    
+    def precision(self, kmer_list):
+        pd_hits = self.pd_reads.count_reads_with_kmers(kmer_list)
+        in_hits = self.in_reads.count_reads_with_kmers(kmer_list)
+        scale = float(self.pd_reads.N)/self.in_reads.N
+
+        return pd_hits / (in_hits*scale + pd_hits)
 
 
 class PairInteractionScreen(object):
@@ -401,6 +426,47 @@ class MultiAnalysis(object):
         kmers = [ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
         return kmers
 
+    def recall_precision_plot(self, k, z_cut = 1):
+        res = self.run.results[k]
+        I = res.z_scores_ska.argsort()[::-1]
+        
+        i_cut = (res.z_scores_ska[I] > z_cut).argmin()
+        top_i = I[:i_cut]
+        
+        #print res.z_scores_ska[top_i]
+        #top_i = (res.z_scores_ska > z_cut).nonzero()[0]
+        n = len(top_i)
+        top_kmers = [ska_kmers.index_to_seq(i, k) for i in top_i]
+
+        rec = []
+        prec = []
+        x = np.arange(1,n+1)
+
+        for i in x:
+            kmer_list = top_kmers[:i]
+            r = self.run.recall(kmer_list)
+            p = self.run.precision(kmer_list)
+            
+            #print kmer_list, r, p
+            rec.append(r)
+            prec.append(p)
+
+        
+        recall = np.array(rec)
+        precision = np.array(prec)
+        fmeasure = 2* precision*recall/(precision+recall)
+        
+        import matplotlib.pyplot as pp
+        pp.figure()
+        pp.title('recall and precision')
+        pp.plot(x, recall, label='recall')
+        pp.plot(x, precision, label='precision')
+        pp.plot(x, fmeasure, label='f-measure')
+        pp.xlabel('#top SKA kmers > Z-score cutoff')
+        pp.ylabel('metric score')
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.run.out_path,"{0}mer_precision_recall.pdf".format(k)))
+            
 
     def compare_k(self, z_cut=2):
         import matplotlib.pyplot as pp
@@ -573,6 +639,9 @@ def main():
     
     multi = MultiAnalysis(ska)
     multi.compare_k()
+    for k in range(options.min_k, options.max_k+1):
+        multi.recall_precision_plot(k)
+
     if options.interactions:
         # TODO: determine good core size!
         multi.find_interactors(3, k_flank_max=3, n_top=5)
