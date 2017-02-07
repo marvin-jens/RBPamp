@@ -83,17 +83,8 @@ class RBNSReads(object):
         """
         return ska_kmers.kmer_filter(self.seqm, kmer)
 
-    def count_reads_with_kmers(self, kmer_list):
-        k = len(kmer_list[0])
-        mask = np.zeros(4**k, dtype=np.uint8)
-        for mer in kmer_list:
-            index = ska_kmers.seq_to_index(mer)
-            #print index, mer
-            mask[index] = 1
-        
-        #print mask
-        n = ska_kmers.count_hits(self.seqm, mask, k)
-        #print n
+    def count_best_ranked_hits(self, kmer_ranks):
+        n = ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )
         return n
         
     def kmer_flank_profiles(self, kmer, k_flank):
@@ -306,16 +297,39 @@ class SKARun(object):
         return res
 
 
-    def recall(self, kmer_list):
-        return self.pd_reads.count_reads_with_kmers(kmer_list) / float(self.pd_reads.N)
+    def recall(self, kmer_order):
+        
+        kmer_ranks = np.zeros(len(kmer_order))
+        kmer_ranks[kmer_order] = np.arange(len(kmer_order))
+        
+        counts_by_kmer_rank = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order]
+        
+        #k = int(np.log2(len(kmer_order))/2)
+
+        #I = counts_by_kmer_rank.argsort()[::-1]
+        #for rank in I[:10]:
+            #print rank, counts_by_kmer_rank[rank]
+            #print ska_kmers.index_to_seq(kmer_order[rank], k)
+        
+        #print "max?", counts_by_kmer_rank.argmax()
+        #print k
+        #print kmer_order[:10]
+        #for i in kmer_order[:10]:
+            #print ska_kmers.index_to_seq(i,k)
+            #print counts_by_kmer_rank[i]
+        
+        return (counts_by_kmer_rank.cumsum() / float(self.pd_reads.N))
     
     
-    def precision(self, kmer_list):
-        pd_hits = self.pd_reads.count_reads_with_kmers(kmer_list)
-        in_hits = self.in_reads.count_reads_with_kmers(kmer_list)
+    def precision(self, kmer_order):
+        kmer_ranks = np.zeros(len(kmer_order))
+        kmer_ranks[kmer_order] = np.arange(len(kmer_order))
+
+        pd_hits = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
+        in_hits = self.in_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
         scale = float(self.pd_reads.N)/self.in_reads.N
 
-        return pd_hits / (in_hits*scale + pd_hits)
+        return (pd_hits / (in_hits*scale + pd_hits))
 
 
 class PairInteractionScreen(object):
@@ -426,43 +440,34 @@ class MultiAnalysis(object):
         kmers = [ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
         return kmers
 
-    def recall_precision_plot(self, k, z_cut = 1):
-        res = self.run.results[k]
-        I = res.z_scores_ska.argsort()[::-1]
-        
-        i_cut = (res.z_scores_ska[I] > z_cut).argmin()
-        top_i = I[:i_cut]
-        
-        #print res.z_scores_ska[top_i]
-        #top_i = (res.z_scores_ska > z_cut).nonzero()[0]
-        n = len(top_i)
-        top_kmers = [ska_kmers.index_to_seq(i, k) for i in top_i]
-
-        rec = []
-        prec = []
-        x = np.arange(1,n+1)
-
-        for i in x:
-            kmer_list = top_kmers[:i]
-            r = self.run.recall(kmer_list)
-            p = self.run.precision(kmer_list)
-            
-            #print kmer_list, r, p
-            rec.append(r)
-            prec.append(p)
-
-        
-        recall = np.array(rec)
-        precision = np.array(prec)
-        fmeasure = 2* precision*recall/(precision+recall)
-        
+    def recall_precision_plot(self, k, n_kmers=1000):
         import matplotlib.pyplot as pp
+        res = self.run.results[k]
         pp.figure()
         pp.title('recall and precision')
-        pp.plot(x, recall, label='recall')
-        pp.plot(x, precision, label='precision')
-        pp.plot(x, fmeasure, label='f-measure')
-        pp.xlabel('#top SKA kmers > Z-score cutoff')
+
+        order_by_ska = res.ska_weights.argsort()[::-1]
+        order_by_R = res.R_values.argsort()[::-1]
+
+        recall_ska = self.run.recall(order_by_ska)
+        recall_R = self.run.recall(order_by_R)
+
+        precision_ska = self.run.precision(order_by_ska)
+        precision_R = self.run.precision(order_by_R)
+
+        fmeasure_ska = 2* precision_ska*recall_ska/(precision_ska + recall_ska)
+        fmeasure_R = 2* precision_R*recall_R/(precision_R + recall_R)
+
+        pp.plot(recall_ska[:n_kmers], color='k', label='recall (SKA)')
+        pp.plot(recall_R[:n_kmers], color='k', linestyle='dashed', label='recall (R-value)')
+        
+        pp.plot(precision_ska[:n_kmers], color='b', label='precision (SKA)')
+        pp.plot(precision_R[:n_kmers], color='b', linestyle='dashed', label='precision (R-value)')
+
+        pp.plot(fmeasure_ska[:n_kmers], color='r', label='f-measure (SKA)')
+        pp.plot(fmeasure_R[:n_kmers], color='r', linestyle='dashed', label='f-measure (R-value)')
+
+        pp.xlabel('kmer rank')
         pp.ylabel('metric score')
         pp.legend(loc='lower right')
         pp.savefig(os.path.join(self.run.out_path,"{0}mer_precision_recall.pdf".format(k)))
@@ -522,7 +527,7 @@ class MultiAnalysis(object):
             errors = res.ska_weights_err[top_i]
             
             x = displace((np.ones(len(scores)) * k), amp=.4)
-            print x, len(x), len(scores)
+            #print x, len(x), len(scores)
             pp.errorbar(x, scores, yerr=errors, fmt='o', color='r', alpha=.5)
             
             y, kmers = spread(scores, kmers)

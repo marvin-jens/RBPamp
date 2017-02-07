@@ -335,25 +335,33 @@ def kmer_filter(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer):
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def count_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT8_t, ndim=1] index_mask, UINT64_t k):
+def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _order):
     # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t k = np.log2(len(_order))/2
     cdef UINT32_t MAX_INDEX = 4**k - 1
     
     cdef UINT32_t N = len(seq_matrix)
     cdef UINT32_t L = len(seq_matrix[0])
     cdef UINT32_t l = L-k+1
 
+    # count reads covered by kmer with best rank
+    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_order) ,dtype=np.uint32)
+    
     # a MemoryView into each sequence (already converted 
     # from letters to bits)
+    
     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT32_t [::1] order = _order
+    cdef UINT32_t [::1] hit_counts = _hit_counts
     cdef UINT8_t [::1] seq_bits
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT64_t index, i, j, n_hits=0, hit=0
+    cdef UINT64_t index, i, j, n_hits=0, best_index=0, best_order=MAX_INDEX
     
     for j in range(N):
-        hit = 0
+        best_order=MAX_INDEX
+
         seq_bits = _seq_matrix[j*L:(j+1)*L]
         # compute index of first k-1-mer by bit-shifts
         index = kbits_to_index(seq_bits, k-1) 
@@ -364,12 +372,14 @@ def count_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT8_t, ndim=
             # compute next index from previous by shift + next letter
             index = ((index << 2) | s ) & MAX_INDEX
             
-            if index_mask[index]:
-                hit = 1
+            # assign hit to kmer with best rank
+            if order[index] < best_order:
+                best_index = index
+                best_order = order[index]
 
-        n_hits += hit
+        hit_counts[best_index] += 1
 
-    return n_hits
+    return _hit_counts
 
 
 @cython.boundscheck(True)
