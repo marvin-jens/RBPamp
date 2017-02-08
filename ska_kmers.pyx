@@ -60,40 +60,40 @@ def seq_to_bits(unsigned char *seq):
 
     return _res
 
-@cython.boundscheck(True)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
-def read_raw_seqs(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0):
-    cdef char* l
-    cdef UINT32_t i, N=0, L
-    cdef list seqs = list()
-    cdef np.ndarray[UINT8_t] _buf
-    cdef UINT8_t [::1] buf
+#@cython.boundscheck(True)
+#@cython.wraparound(False)
+#@cython.initializedcheck(False)
+#@cython.overflowcheck(False)
+#@cython.cdivision(True)
+#def read_raw_seqs(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0):
+    #cdef char* l
+    #cdef UINT32_t i, N=0, L
+    #cdef list seqs = list()
+    #cdef np.ndarray[UINT8_t] _buf
+    #cdef UINT8_t [::1] buf
     
-    for line in src:
-        N += 1
-        if n_skip and N <= n_skip:
-            continue
+    #for line in src:
+        #N += 1
+        #if n_skip and N <= n_skip:
+            #continue
 
-        line = line.rstrip() # remove trailing new-line characters
-        if pre or post:
-            line = pre + line + post
+        #line = line.rstrip() # remove trailing new-line characters
+        #if pre or post:
+            #line = pre + line + post
 
-        L = len(line)
-        _buf = np.empty(L, dtype=np.uint8)
-        buf = _buf # initialize the view
+        #L = len(line)
+        #_buf = np.empty(L, dtype=np.uint8)
+        #buf = _buf # initialize the view
         
-        l = line # extract raw string content
-        for i in range(0,L):
-            buf[i] = letter_to_bits[l[i]]
+        #l = line # extract raw string content
+        #for i in range(0,L):
+            #buf[i] = letter_to_bits[l[i]]
         
-        seqs.append(_buf)
-        if N >= n_max + n_skip and n_max:
-            break
+        #seqs.append(_buf)
+        #if N >= n_max + n_skip and n_max:
+            #break
 
-    return np.array(seqs)
+    #return np.array(seqs)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -164,42 +164,42 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
     return cat.reshape((N,L))
 
         
-@cython.boundscheck(True)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
-def read_fastq(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0):
-    cdef char* l
-    cdef UINT32_t i, N, L, line_num = -1
-    cdef list seqs = list()
-    cdef np.ndarray[UINT8_t] _buf
-    cdef UINT8_t [::1] buf
+#@cython.boundscheck(True)
+#@cython.wraparound(False)
+#@cython.initializedcheck(False)
+#@cython.overflowcheck(False)
+#@cython.cdivision(True)
+#def read_fastq(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0):
+    #cdef char* l
+    #cdef UINT32_t i, N, L, line_num = -1
+    #cdef list seqs = list()
+    #cdef np.ndarray[UINT8_t] _buf
+    #cdef UINT8_t [::1] buf
     
-    N = 0
-    for line in src:
-        line_num += 1
-        if line_num % 4 != 1:
-            continue
+    #N = 0
+    #for line in src:
+        #line_num += 1
+        #if line_num % 4 != 1:
+            #continue
         
-        N += 1
-        if n_skip and N <= n_skip:
-            continue
+        #N += 1
+        #if n_skip and N <= n_skip:
+            #continue
         
-        line = pre + line.rstrip() + post
-        L = len(line)
-        _buf = np.empty(L, dtype=np.uint8)
-        buf = _buf # initialize the view
+        #line = pre + line.rstrip() + post
+        #L = len(line)
+        #_buf = np.empty(L, dtype=np.uint8)
+        #buf = _buf # initialize the view
         
-        l = line # extract raw string content
-        for i in range(0,L):
-            buf[i] = letter_to_bits[l[i]]
+        #l = line # extract raw string content
+        #for i in range(0,L):
+            #buf[i] = letter_to_bits[l[i]]
         
-        seqs.append(_buf)
-        if N >= n_max + n_skip and n_max:
-            break
+        #seqs.append(_buf)
+        #if N >= n_max + n_skip and n_max:
+            #break
         
-    return np.array(seqs)
+    #return np.array(seqs)
             
 
 @cython.boundscheck(False)
@@ -258,25 +258,26 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     cdef UINT8_t s
     cdef UINT64_t index, i, j
     
-    for j in range(N):
-        seq_bits = _seq_matrix[j*L:(j+1)*L]
-        # compute index of first k-mer by bit-shifts
-        index = kbits_to_index(seq_bits, k) 
-        # count first k-mer
-        counts[index] += 1
-        # iterate over remaining k-mers
-        for i in range(0, L-k):
-            # get next "letter"
-            s = seq_bits[i+k]
-            # compute next index from previous by shift + next letter
-            index = ((index << 2) | s ) & MAX_INDEX
-            # count
+    with nogil:
+        for j in range(N):
+            seq_bits = _seq_matrix[j*L:(j+1)*L]
+            # compute index of first k-mer by bit-shifts
+            index = kbits_to_index(seq_bits, k) 
+            # count first k-mer
             counts[index] += 1
+            # iterate over remaining k-mers
+            for i in range(0, L-k):
+                # get next "letter"
+                s = seq_bits[i+k]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                # count
+                counts[index] += 1
             
     return _counts
 
 
-@cython.boundscheck(True)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -330,7 +331,7 @@ def kmer_filter(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer):
 
 
 
-@cython.boundscheck(True)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -357,32 +358,34 @@ def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UI
     
     # helper variables to tell cython the types
     cdef UINT8_t s
-    cdef UINT64_t index, i, j, n_hits=0, best_index=0, best_order=MAX_INDEX
+    cdef UINT32_t best_order = MAX_INDEX
+    cdef UINT64_t index, i, j, n_hits=0, best_index=0
     
-    for j in range(N):
-        best_order=MAX_INDEX
+    with nogil:
+        for j in range(N):
+            best_order=MAX_INDEX
 
-        seq_bits = _seq_matrix[j*L:(j+1)*L]
-        # compute index of first k-1-mer by bit-shifts
-        index = kbits_to_index(seq_bits, k-1) 
-        # iterate over remaining k-mers
-        for i in range(0, l):
-            # get next "letter"
-            s = seq_bits[i+k-1]
-            # compute next index from previous by shift + next letter
-            index = ((index << 2) | s ) & MAX_INDEX
-            
-            # assign hit to kmer with best rank
-            if order[index] < best_order:
-                best_index = index
-                best_order = order[index]
+            seq_bits = _seq_matrix[j*L:(j+1)*L]
+            # compute index of first k-1-mer by bit-shifts
+            index = kbits_to_index(seq_bits, k-1) 
+            # iterate over remaining k-mers
+            for i in range(0, l):
+                # get next "letter"
+                s = seq_bits[i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                # assign hit to kmer with best rank
+                if order[index] < best_order:
+                    best_index = index
+                    best_order = order[index]
 
-        hit_counts[best_index] += 1
+            hit_counts[best_index] += 1
 
     return _hit_counts
 
 
-@cython.boundscheck(True)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -509,33 +512,34 @@ def seq_set_SKA(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[FLOAT32_t] _w
     
     #with nogil, parallel(num_threads=8):
         #for j in prange(N):
-    for j in range(N):
-        ofs = j*L
+    with nogil:
+        for j in range(N):
+            ofs = j*L
 
-        # compute index of first k-1 mer by bit-shifts
-        index = 0
-        for i in range(k-1):
-            index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
-        
-        total_w = 0
-        
-        # iterate over k-mers
-        for i in range(0, L-k+1):
-            # get next "letter"
-            s = _seq_matrix[ofs+i+k-1]
-            # compute next index from previous by shift + next letter
-            index = ((index << 2) | s ) & MAX_INDEX
-            mer_indices[i] = index
-            w = weights[index] / background[index] * Z
-            mer_weights[i] = w
-            total_w += w
+            # compute index of first k-1 mer by bit-shifts
+            index = 0
+            for i in range(k-1):
+                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+            
+            total_w = 0
+            
+            # iterate over k-mers
+            for i in range(0, L-k+1):
+                # get next "letter"
+                s = _seq_matrix[ofs+i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                mer_indices[i] = index
+                w = weights[index] / background[index] * Z
+                mer_weights[i] = w
+                total_w += w
 
-        # update weights
-        for i in range(0, L-k+1):
-            weights[mer_indices[i]] += mer_weights[i]/total_w
+            # update weights
+            for i in range(0, L-k+1):
+                weights[mer_indices[i]] += mer_weights[i]/total_w
 
-        current_weights_sum += 1
-        Z = weights_sum / current_weights_sum
+            current_weights_sum += 1
+            Z = weights_sum / current_weights_sum
 
     # normalize such that all weights sum up to 4**k
     _weights *= Z
