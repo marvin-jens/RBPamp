@@ -83,10 +83,17 @@ class RBNSReads(object):
         """
         return ska_kmers.kmer_filter(self.seqm, kmer)
 
-    def count_best_ranked_hits(self, kmer_ranks):
-        n = ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )
-        return n
+
+    def recall(self, kmer_order):
         
+        kmer_ranks = np.zeros(len(kmer_order))
+        kmer_ranks[kmer_order] = np.arange(len(kmer_order))
+        
+        counts_by_kmer_rank = ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )[kmer_order]
+        
+        return (counts_by_kmer_rank.cumsum() / float(self.N))
+
+
     def kmer_flank_profiles(self, kmer, k_flank):
         """
         use kmer_filter first and then compute the average occurrences of kmers
@@ -125,12 +132,12 @@ class SKAResult(object):
         self.name = 'SKA:{pd_reads}:{k}mers:bg={in_reads}'.format(**locals())
     
     @staticmethod
-    def _res_filename(k):
-        return 'SKA_results.{0}mer.txt'.format(k)
+    def _res_filename(k, rbp_name, rbp_conc):
+        return 'SKA.{rbp_name}.{rbp_conc:.0f}nM.{k}mer.txt'.format(**locals())
     
     @classmethod
-    def load(cls, load_path, k, pd_reads, in_reads):
-        path = os.path.join(load_path, cls._res_filename(k))
+    def load(cls, load_path, k, pd_reads, in_reads, rbp_name, rbp_conc):
+        path = os.path.join(load_path, cls._res_filename(k, rbp_name, rbp_conc))
         with file(path, 'r') as f:
             rows = []
             kmers = []
@@ -158,9 +165,9 @@ class SKAResult(object):
         return res
                 
         
-    def store(self, out_path):
+    def store(self, out_path, rbp_name, rbp_conc):
         
-        res_file = SKAResult._res_filename(self.k)
+        res_file = SKAResult._res_filename(self.k, rbp_name, rbp_conc)
         self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
        
 
@@ -218,7 +225,7 @@ class SKAResult(object):
 
 
 class SKARun(object):
-    def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path=".", subsamples=10):
+    def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path=".", subsamples=10, rbp_name='RBP', rbp_conc=300., rna_conc=100000.):
         self.logger = logging.getLogger('SKARun')
         self.pd_reads = pd_reads
         self.in_reads = in_reads
@@ -226,6 +233,9 @@ class SKARun(object):
         self.convergence = convergence
         self.out_path = os.path.abspath(out_path)
         self.n_subsamples = subsamples
+        self.rbp_name = rbp_name
+        self.rbp_conc = rbp_conc
+        self.rna_conc = rna_conc
         
         self.results = {}
         
@@ -282,14 +292,14 @@ class SKARun(object):
             res.R_values_err = sample_matrix.std(axis=0)
         
         self.results[k] = res
-        res.store(self.out_path)
+        res.store(self.out_path, self.rbp_name, self.rbp_conc)
         return res
       
     def load(self, k):
         self.logger.info("RESUME: trying to load {0}-mer results from previous run".format(k))
         
         try:
-            res = SKAResult.load(self.out_path, k, self.pd_reads, self.in_reads)
+            res = SKAResult.load(self.out_path, k, self.pd_reads, self.in_reads, self.rbp_name, self.rbp_conc)
         except IOError:
             return None
         
@@ -297,39 +307,18 @@ class SKARun(object):
         return res
 
 
-    def recall(self, kmer_order):
-        
-        kmer_ranks = np.zeros(len(kmer_order))
-        kmer_ranks[kmer_order] = np.arange(len(kmer_order))
-        
-        counts_by_kmer_rank = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order]
-        
-        #k = int(np.log2(len(kmer_order))/2)
-
-        #I = counts_by_kmer_rank.argsort()[::-1]
-        #for rank in I[:10]:
-            #print rank, counts_by_kmer_rank[rank]
-            #print ska_kmers.index_to_seq(kmer_order[rank], k)
-        
-        #print "max?", counts_by_kmer_rank.argmax()
-        #print k
-        #print kmer_order[:10]
-        #for i in kmer_order[:10]:
-            #print ska_kmers.index_to_seq(i,k)
-            #print counts_by_kmer_rank[i]
-        
-        return (counts_by_kmer_rank.cumsum() / float(self.pd_reads.N))
     
     
-    def precision(self, kmer_order):
-        kmer_ranks = np.zeros(len(kmer_order))
-        kmer_ranks[kmer_order] = np.arange(len(kmer_order))
+    #def precision(self, kmer_order):
+        #kmer_ranks = np.zeros(len(kmer_order))
+        #kmer_ranks[kmer_order] = np.arange(len(kmer_order))
 
-        pd_hits = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
-        in_hits = self.in_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
-        scale = float(self.pd_reads.N)/self.in_reads.N
+        #pd_hits = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
+        #in_hits = self.in_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
 
-        return (pd_hits / (in_hits*scale + pd_hits))
+        #scale = float(self.pd_reads.N)/self.in_reads.N
+
+        #return (pd_hits / (in_hits*scale + pd_hits))
 
 
 class PairInteractionScreen(object):
@@ -427,51 +416,56 @@ class PairInteractionScreen(object):
 
 
 class MultiAnalysis(object):
-    def __init__(self, run):
+    def __init__(self, runs):
         self.logger = logging.getLogger("MultiAnalysis")
-        self.run = run
+        self.runs = runs
         self.pair_screens = collections.defaultdict(dict)
+        self.AUCs = []
 
     def select_significant_ska_kmers(self,k, n_top=2):
         #TODO: do this based on some statistics, taking into 
         # account the errors of ska weights from subsampling
 
-        res = self.run.results[k]
+        res = self.runs[0].results[k]
         kmers = [ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
         return kmers
 
     def recall_precision_plot(self, k, n_kmers=1000):
         import matplotlib.pyplot as pp
-        res = self.run.results[k]
-        pp.figure()
-        pp.title('recall and precision')
 
-        order_by_ska = res.ska_weights.argsort()[::-1]
-        order_by_R = res.R_values.argsort()[::-1]
+        rbp_name = self.runs[0].rbp_name
+        out_path = self.runs[0].out_path
 
-        recall_ska = self.run.recall(order_by_ska)
-        recall_R = self.run.recall(order_by_R)
-
-        precision_ska = self.run.precision(order_by_ska)
-        precision_R = self.run.precision(order_by_R)
-
-        fmeasure_ska = 2* precision_ska*recall_ska/(precision_ska + recall_ska)
-        fmeasure_R = 2* precision_R*recall_R/(precision_R + recall_R)
-
-        pp.plot(recall_ska[:n_kmers], color='k', label='recall (SKA)')
-        pp.plot(recall_R[:n_kmers], color='k', linestyle='dashed', label='recall (R-value)')
-        
-        pp.plot(precision_ska[:n_kmers], color='b', label='precision (SKA)')
-        pp.plot(precision_R[:n_kmers], color='b', linestyle='dashed', label='precision (R-value)')
-
-        pp.plot(fmeasure_ska[:n_kmers], color='r', label='f-measure (SKA)')
-        pp.plot(fmeasure_R[:n_kmers], color='r', linestyle='dashed', label='f-measure (R-value)')
-
-        pp.xlabel('kmer rank')
-        pp.ylabel('metric score')
-        pp.legend(loc='lower right')
-        pp.savefig(os.path.join(self.run.out_path,"{0}mer_precision_recall.pdf".format(k)))
+        def make_plot(order_by="ska_weights", name="SKA"):
             
+            pp.figure()
+            pp.title('discrimination of {rbp_name} pd/input by {name}'.format(**locals()))
+
+            for run in self.runs:
+                res = run.results[k]
+
+                order = getattr(res, order_by).argsort()[::-1]
+
+                recall_pd = np.array([0,] + list(run.pd_reads.recall(order)) )
+                recall_in = np.array([0,] + list(run.in_reads.recall(order)) )
+                
+                AUC = np.trapz(recall_pd, recall_in)
+                pp.step(recall_in, recall_pd, where='post', label='{0}mers @{1}nM (AUC={2:.3f})'.format(k, run.rbp_conc, AUC))
+                self.AUCs.append( (AUC, name, k, rbp_name, run.rbp_conc) )
+
+            pp.plot([0,1.],[0,1.], color='gray', linestyle = 'dashed')
+            
+            pp.xlabel('fraction of input explained')
+            pp.ylabel('fraction of pulldown explained')
+            pp.legend(loc='lower right')
+            pp.savefig(os.path.join(out_path,"{rbp_name}.{k}mer.{name}.ROC.pdf".format(**locals())))
+
+        make_plot(order_by="ska_weights", name="SKA")
+        make_plot(order_by="R_values", name="R")
+        
+        #print self.AUCs
+        print "best discrimination achieved by"
+        print sorted(self.AUCs)[-1]
 
     def compare_k(self, z_cut=2):
         import matplotlib.pyplot as pp
@@ -570,13 +564,16 @@ def yield_kmers(k):
 
 def main():
     from optparse import OptionParser
-    usage = "usage: %prog [options] <pulldown_reads_file> <input_reads_file> OR cat <reads_file> | %prog [options] /dev/stdin"
+    usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
 
     parser = OptionParser(usage=usage)
     parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
     
     parser.add_option("-n","--n-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
+    parser.add_option("-R","--rna-concentration",dest="rna_conc",default=100.,type=float,help="concentration of random RNA used in the experiment in micro molars (default=100uM)")
+    parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="320",help="(comma separated list of) protein concentration used in the pulldown experiment(s) in nano molars (default=300nM)")
+    parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimateion (default=5)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("-c","--convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
@@ -599,6 +596,10 @@ def main():
         parser.error("missing argument: need <reads_file> (or use /dev/stdin)")
         sys.exit(1)
 
+    n = len(args) - 1
+    protein_concentrations = [float(c) for c in (options.prot_conc.split(',') * n)[:n]]
+    print protein_concentrations
+    
     # prepare outout path
     if not os.path.exists(options.output):
         os.makedirs(options.output)
@@ -622,28 +623,34 @@ def main():
     logger.info("called as '{0}'".format(" ".join(sys.argv)) )
 
     # load pull-down and input reads
-    pd_reads = RBNSReads(args[0], n_max=options.n_max, pseudo_count=options.pseudo)
-    in_reads = RBNSReads(args[1], n_max=options.n_max, pseudo_count=options.pseudo)
+    in_reads = RBNSReads(args[0], n_max=options.n_max, pseudo_count=options.pseudo)
+    pd_reads_list = [RBNSReads(a, n_max=options.n_max, pseudo_count=options.pseudo) for a in args[1:]]
     
     # run streaming kmer analysis
-    ska = SKARun(
-        pd_reads,
-        in_reads,
-        max_iterations = options.n_passes, 
-        convergence = options.convergence, 
-        out_path = options.output,
-        subsamples = options.subsamples,
-    )
+    runs = []
+    for pd_reads, p_conc in zip(pd_reads_list, protein_concentrations):
+        ska = SKARun(
+            pd_reads,
+            in_reads,
+            max_iterations = options.n_passes, 
+            convergence = options.convergence, 
+            out_path = options.output,
+            subsamples = options.subsamples,
+            rbp_name = options.name,
+            rbp_conc = p_conc,
+            rna_conc = options.rna_conc,
+        )
 
-    for k in range(options.min_k, options.max_k+1):
-        if options.resume:
-            if not ska.load(k):
+        for k in range(options.min_k, options.max_k+1):
+            if options.resume:
+                if not ska.load(k):
+                    ska.run(k)
+            else:
                 ska.run(k)
-        else:
-            ska.run(k)
-    
-    multi = MultiAnalysis(ska)
-    multi.compare_k()
+        runs.append(ska)
+
+    multi = MultiAnalysis(runs)
+    #multi.compare_k()
     for k in range(options.min_k, options.max_k+1):
         multi.recall_precision_plot(k)
 
