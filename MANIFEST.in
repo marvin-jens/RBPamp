@@ -1,4 +1,4 @@
-include ska_kmers.pyx
+include cska/ska_kmers.pyx
 include README.md
-include LICENCE
+include LICENSE
 include MANIFEST.in

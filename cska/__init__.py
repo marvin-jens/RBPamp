@@ -12,7 +12,7 @@ import time
 import os
 import logging
 import collections
-import ska_kmers
+import cska.ska_kmers
 
 
 class RBNSReads(object):
@@ -28,7 +28,7 @@ class RBNSReads(object):
             self.logger.info('reading sequences from {fname}'.format(fname=fname) )
             # load and keep all sequences in memory (numerically A=0,...T=3 )
             t0 = time.time()
-            self.seqm = ska_kmers.read_raw_seqs_chunked(file(fname), chunklines=chunklines, n_max=n_max)
+            self.seqm = cska.ska_kmers.read_raw_seqs_chunked(file(fname), chunklines=chunklines, n_max=n_max)
             self.N, self.L = self.seqm.shape
             t1 = time.time()
 
@@ -57,7 +57,7 @@ class RBNSReads(object):
         the same k are just a lookup.
         """
         if not k in self.cached_counts:
-            self.cached_counts[k] = ska_kmers.seq_set_kmer_count(self.seqm, k)
+            self.cached_counts[k] = cska.ska_kmers.seq_set_kmer_count(self.seqm, k)
 
         return self.cached_counts[k]
     
@@ -81,7 +81,7 @@ class RBNSReads(object):
         returns the subset of seqm that contains sequences with the desired kmer
         and a boolean matrix with ones at the positions of kmer occurrence
         """
-        return ska_kmers.kmer_filter(self.seqm, kmer)
+        return cska.ska_kmers.kmer_filter(self.seqm, kmer)
 
 
     def recall(self, kmer_order):
@@ -89,7 +89,7 @@ class RBNSReads(object):
         kmer_ranks = np.zeros(len(kmer_order))
         kmer_ranks[kmer_order] = np.arange(len(kmer_order))
         
-        counts_by_kmer_rank = ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )[kmer_order]
+        counts_by_kmer_rank = cska.ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )[kmer_order]
         
         return (counts_by_kmer_rank.cumsum() / float(self.N))
 
@@ -99,7 +99,7 @@ class RBNSReads(object):
         use kmer_filter first and then compute the average occurrences of kmers
         with k=k_flank (k_flank = 1..k_max) around the desired "central" kmer.
         """
-        return ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_flank=k_flank)
+        return cska.ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_flank=k_flank)
     
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
@@ -219,7 +219,7 @@ class SKAResult(object):
         I = self.ska_weights.argsort()[::-1]
         buf = [self.name]
         for i in I[:10]:
-            buf.append("{0}\t{1:.2f}".format(ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
+            buf.append("{0}\t{1:.2f}".format(cska.ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
         
         return '\n'.join(buf)
 
@@ -252,7 +252,7 @@ class SKARun(object):
         
         weight_history = []
         for iteration_i in range(self.max_iterations):
-            new_weights = ska_kmers.seq_set_SKA(pd_reads.seqm, current_weights, in_freqs, k)
+            new_weights = cska.ska_kmers.seq_set_SKA(pd_reads.seqm, current_weights, in_freqs, k)
                 
             weight_history.append(new_weights)
             current_weights = copy.copy(new_weights)
@@ -359,7 +359,7 @@ class PairInteractionScreen(object):
         top_i = self._KL.max(axis=1).argsort()[::-1][:n_top]
         # and sort alphabetically to ensure reproducibility across successive runs
         top_i = sorted(top_i)
-        top_kmers = [ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
+        top_kmers = [cska.ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
         #print "top interacting kmer candidate list", top_kmers
         return top_i, top_kmers
     
@@ -376,7 +376,7 @@ class PairInteractionScreen(object):
         fig = pp.figure()
         fig.subplots_adjust(hspace=0.5)
         
-        pp.title("{0} interacting with {1}-mers".format(self.core, self.k_int))
+        pp.title("{self.run.rbp_name}@{self.run.rbp_conc}nM {self.core} interacting with {self.k_int}-mers".format(self.core, self.k_int))
         pp.subplot(311)
         pp.gca().set_title("density of {0} core".format(self.core.upper()))
         pp.plot(self.core_density_pd, drawstyle='steps-mid', label="pd")
@@ -427,7 +427,7 @@ class MultiAnalysis(object):
         # account the errors of ska weights from subsampling
 
         res = self.runs[0].results[k]
-        kmers = [ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
+        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
         return kmers
 
     def recall_precision_plot(self, k, n_kmers=1000):
@@ -516,7 +516,7 @@ class MultiAnalysis(object):
             top_i = (res.z_scores_ska > z_cut).nonzero()[0]
             n = len(top_i)
             
-            kmers = [ska_kmers.index_to_seq(i,k) for i in top_i]
+            kmers = [cska.ska_kmers.index_to_seq(i,k) for i in top_i]
             scores = res.ska_weights[top_i]
             errors = res.ska_weights_err[top_i]
             
@@ -534,7 +534,7 @@ class MultiAnalysis(object):
         
     def find_interactors(self, k, n_top=2, k_flank_max=4):
         
-        for core in self.select_significant_ska_kmers(k, n_top):
+        for core in self.select_significant_cska.ska_kmers(k, n_top):
             for k_int in range(1, k_flank_max+1):
                 t0 = time.time()
                 screen = PairInteractionScreen(self.run, core, k_int)

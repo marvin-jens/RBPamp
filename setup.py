@@ -15,20 +15,20 @@ ext_modules = [ ]
 if use_cython:
     ext_modules += [
         #Extension("ska_kmers", [ "ska_kmers.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'],),
-        Extension("ska_kmers", [ "ska_kmers.pyx" ], ),
+        Extension("cska.ska_kmers", [ "cska/ska_kmers.pyx" ], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
 else:
     ext_modules += [
-        Extension("ska_kmers", [ "ska_kmers.c" ]),
+        Extension("cska.ska_kmers", [ "cska/ska_kmers.c" ]),
     ]
 
 
 setup(
-    name = "fast_ska",
-    version = "0.9.3",
+    name = "cska",
+    version = "0.9.5",
     description='A fast Cython implementation of the "Streaming K-mer Assignment" algorithm initially described in Lambert et al. 2014 (PMID: 24837674)',
-    url = 'https://github.com/marvin-jens/fast_ska',
+    url = 'https://bitbucket.org/marjens/cska/',
     author = 'Marvin Jens',
     author_email = 'mjens@mit.edu',
     license = 'MIT',
@@ -56,9 +56,9 @@ setup(
     keywords = 'rna rbns k-mer kmer statistics biology bioinformatics',
 
     install_requires=['cython','numpy','matplotlib'],
-    scripts=['ska'],
+    scripts=['bin/cska'],
+    package_dir='',
+    packages=['cska'],
     cmdclass = cmdclass,
     ext_modules=ext_modules,
-
-    #ext_modules = cythonize("ska_kmers.pyx")
 )
