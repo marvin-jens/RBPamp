@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9"
+__version__ = "0.9.5"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -299,19 +299,22 @@ def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UI
     # helper variables to tell cython the types
     cdef UINT8_t s
     cdef UINT32_t best_order = MAX_INDEX
-    cdef UINT64_t index, i, j, n_hits=0, best_index=0
+    cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0
     
     with nogil:
         for j in range(N):
             best_order=MAX_INDEX
+            ofs = j*L
 
-            seq_bits = _seq_matrix[j*L:(j+1)*L]
-            # compute index of first k-1-mer by bit-shifts
-            index = kbits_to_index(seq_bits, k-1) 
+            # compute index of first k-1 mer by bit-shifts
+            index = 0
+            for i in range(k-1):
+                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+
             # iterate over remaining k-mers
             for i in range(0, l):
                 # get next "letter"
-                s = seq_bits[i+k-1]
+                s = _seq_matrix[ofs+i+k-1]
                 # compute next index from previous by shift + next letter
                 index = ((index << 2) | s ) & MAX_INDEX
                 
@@ -324,7 +327,138 @@ def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UI
 
     return _hit_counts
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT32_t l = L-k+1
 
+    # count reads containing a given kmer, for all kmers
+    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(4**k ,dtype=np.uint32)
+    # keep distinct kmer indices from each read here
+    cdef np.ndarray[UINT64_t, ndim=1] _dindices = np.zeros(l ,dtype=np.uint64)
+    
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT32_t [::1] hit_counts = _hit_counts
+    cdef UINT64_t [::1] dindices = _dindices
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t ofs, index, i, j, m, n_distinct=0, append=1
+    
+    with nogil:
+        for j in range(N):
+            ofs = j*L
+            
+            # compute index of first k-1 mer by bit-shifts
+            index = 0
+            for i in range(k-1):
+                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+
+            n_distinct = 0
+            # iterate over remaining k-mers
+            for i in range(0, l):
+                # get next "letter"
+                s = _seq_matrix[ofs+i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                # make sure we do not have this index already
+                append = 1
+                for m in range(n_distinct):
+                    if index == dindices[m]:
+                        append = 0
+                
+                # it's a new index
+                if append:
+                    dindices[n_distinct] = index
+                    n_distinct += 1
+            
+            # record the read for each of the contained kmers *once*
+            for m in range(n_distinct):
+                hit_counts[dindices[m]] += 1
+
+    return _hit_counts
+
+
+#@cython.boundscheck(False)
+#@cython.wraparound(False)
+#@cython.initializedcheck(False)
+#@cython.cdivision(True)
+#@cython.overflowcheck(False)
+def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, np.ndarray[UINT64_t, ndim=1] _kmer_lookup, UINT64_t k, UINT64_t n_kmers):
+    
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(_seq_matrix)
+    cdef UINT32_t L = len(_seq_matrix[0])
+    cdef UINT32_t l = L-k+1 # maximum spacing
+
+    # count reads containing a given kmer, for all kmers
+    cdef np.ndarray[UINT32_t, ndim=3] _tensor = np.zeros( (n_kmers, n_kmers, l) ,dtype=np.uint32)
+
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    
+    cdef UINT8_t [::1] seq_matrix = _seq_matrix.flatten()
+    cdef UINT32_t [:,:,:] tensor = _tensor
+    cdef UINT64_t [::1] kmer_lookup = _kmer_lookup.flatten()
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef int ofs, index, i, j, m, kmer_i=0, kmer_j=0, spacing=0, kmer_hit=0, n2=n_kmers*n_kmers
+    
+    #with gil:
+    for j in range(N):
+        ofs = j*L
+        
+        # compute index of first k-1 mer by bit-shifts
+        index = 0
+        for i in range(k-1):
+            index += seq_matrix[ofs+i] << 2 * (k - i - 2)
+
+        kmer_i = 0
+        kmer_j = 0
+        spacing = 0
+        # iterate over remaining k-mers
+        for i in range(0, l):
+            # get next "letter"
+            s = seq_matrix[ofs+i+k-1]
+            # compute next index from previous by shift + next letter
+            index = ((index << 2) | s ) & MAX_INDEX
+            
+            kmer_hit = kmer_lookup[index]
+            if kmer_hit:
+                
+                if not kmer_i:
+                    # first hit:
+                    kmer_i = kmer_hit
+                    spacing = 0
+                else:
+                    # second hit
+                    kmer_j = kmer_hit
+                    #print kmer_i, kmer_j, n_kmers, "spacing", spacing, l
+                    tensor[kmer_i-1, kmer_j-1, spacing] += 1
+                    kmer_i = kmer_j
+                    kmer_j = 0
+                    spacing = 0
+
+            spacing += 1
+                            
+    return _tensor
+      
+    
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)

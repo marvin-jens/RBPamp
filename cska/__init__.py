@@ -55,7 +55,6 @@ class RBNSReads(object):
         
         return RBNSReads("{self.fname}_subsample_{i:02d}".format(**locals()), seqm=self.seqm[start:end], pseudo_count=self.pseudo_count )
         
-        
     def kmer_counts(self, k):
         """
         Returns kmer counts. Keeps counts cached so that successive queries for 
@@ -81,13 +80,29 @@ class RBNSReads(object):
 
         return freqs
 
+    def reads_with_kmers(self, k):
+        return cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
+
+    def fraction_of_reads_with_kmers(self, k):
+        # NOTE: since multiple kmers occur in the same read, this does not sum up to 1!
+        return (self.reads_with_kmers(k) + self.pseudo_count) / float(self.N + self.pseudo_count)
+        
+    def kmer_cooccurrence_distance_tensor(self, kmer_list):
+        k = len(kmer_list[0])
+        n = len(kmer_list)
+        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
+        kmer_lookup = np.zeros(4**k, dtype=np.uint64)
+        kmer_lookup[kmer_indices] = np.arange(n) + 1
+        
+        return cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
+        
+        
     def kmer_filter(self, kmer):
         """
         returns the subset of seqm that contains sequences with the desired kmer
         and a boolean matrix with ones at the positions of kmer occurrence
         """
         return cska.ska_kmers.kmer_filter(self.seqm, kmer)
-
 
     def recall(self, kmer_order):
         
@@ -96,8 +111,7 @@ class RBNSReads(object):
         
         counts_by_kmer_rank = cska.ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) )[kmer_order]
         
-        return (counts_by_kmer_rank.cumsum() / float(self.N))
-
+        return counts_by_kmer_rank / float(self.N)
 
     def kmer_flank_profiles(self, kmer, k_flank):
         """
@@ -317,9 +331,12 @@ class RBNSAnalysis(object):
 
         in_reads = self.reads[0]
         
+        
         # run streaming kmer analysis for all samples
-        for pd_reads in self.reads[1:]:
-            for k in self.k_range:
+        for k in self.k_range:
+            f_in = in_reads.fraction_of_reads_with_kmers(k)
+
+            for pd_reads in self.reads[1:]:
                 if resume:
                     self.logger.info("RESUME: trying to load {0}-mer results from previous run".format(k))
                     try:
@@ -333,6 +350,8 @@ class RBNSAnalysis(object):
                     
                 # TODO: better way of organizing sample/k matrix
                 self.runs[ (k, pd_reads.rbp_conc) ] = res
+                
+                res.f_ratios = pd_reads.fraction_of_reads_with_kmers(k) / f_in
     
     
     def run_ROC(self):
@@ -348,11 +367,13 @@ class RBNSAnalysis(object):
 
                 order = getattr(res, order_by).argsort()[::-1]
 
-                recall_pd = np.array([0,] + list(res.pd_reads.recall(order)) )
-                recall_in = np.array([0,] + list(res.in_reads.recall(order)) )
-                
-                AUC = np.trapz(recall_pd, recall_in)
-                pp.step(recall_in, recall_pd, where='post', label='{0}mers @{1}nM (AUC={2:.3f})'.format(k, reads.rbp_conc, AUC))
+                recall_pd = res.pd_reads.recall(order)
+                recall_in = res.in_reads.recall(order)
+                                
+                x = np.array([0,] + list(recall_in.cumsum()))
+                y = np.array([0,] + list(recall_pd.cumsum()))
+                AUC = np.trapz(y, x)
+                pp.step(x, y, where='post', label='{0}mers @{1}nM (AUC={2:.3f})'.format(k, reads.rbp_conc, AUC))
                 self.AUCs[ (k, reads.rbp_conc) ] = (AUC, name, k, reads.rbp_conc)
 
             pp.plot([0,1.],[0,1.], color='gray', linestyle = 'dashed')
@@ -365,11 +386,13 @@ class RBNSAnalysis(object):
         for k in self.k_range:
             make_plot(k, order_by="ska_weights", name="SKA")
             make_plot(k, order_by="R_values", name="R")
+            make_plot(k, order_by="f_ratios", name="f_ratios")
         
         # TODO: find rank at wich the ROC curve slope drops below 1. 
         # This is where reads with the kmer are no longer more abundant in pd than input
         # (f-value ratio is 1)!
         self.best_auc, self.best_method, self.best_k, self.best_rbp_conc = sorted(self.AUCs.values())[-1]
+        print "BEST", self.best_auc, self.best_method, self.best_k, self.best_rbp_conc
 
 
     def compare_k(self, z_cut=2):
@@ -437,13 +460,42 @@ class RBNSAnalysis(object):
         pp.savefig(os.path.join(self.run.out_path,"k_comparison.pdf"))
 
 
-    def select_significant_kmers(self,k, n_top=2):
+    def select_significant_kmers(self,k, n_max=10):
         #TODO: do this based on some statistics, taking into 
         # account the errors of ska weights from subsampling
+        
+        # TODO: less ugly!
+        all_f_ratios = np.array([self.runs[(k, reads.rbp_conc)].f_ratios for reads in self.reads[1:] ])
 
-        res = self.runs[(k, self.best_rbp_conc)]
-        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
-        return kmers
+        from scipy.stats.mstats import gmean
+        mf = gmean(all_f_ratios, axis=0)
+        order = mf.argsort()[::-1]
+        print "geometric mean f-ratios for k",k, mf[order][:n_max]
+        rank_cut = min((mf[order] < 1).argmax(), n_max)
+
+        best_sample_i = all_f_ratios[:,order[0]].argmax()
+        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
+        return kmers, self.reads[best_sample_i+1].rbp_conc
+        
+    def cooccurrence_analysis(self, k, n_max=10):
+        kmer_list, best_rbp_conc = self.select_significant_kmers(k)
+        
+        best_run = self.runs[(k, best_rbp_conc)]
+        pd_tensor = best_run.pd_reads.kmer_cooccurrence_distance_tensor(kmer_list)
+        in_tensor = best_run.in_reads.kmer_cooccurrence_distance_tensor(kmer_list)
+        
+        enr_tensor = (pd_tensor + 10.) / (in_tensor + 10.)
+
+        from mayavi import mlab
+        x_max, y_max, z_max = enr_tensor.shape
+        print enr_tensor.shape
+        print pd_tensor, pd_tensor.sum()
+        print in_tensor, in_tensor.sum()
+        
+        x, y, z = np.meshgrid(np.arange(x_max), np.arange(y_max), np.arange(z_max))
+        mlab.points3d(x, y, z, enr_tensor, transparent=True)
+        mlab.show()
+
         
     def find_interactors(self, k, n_top=2, k_flank_max=4):
         
@@ -651,11 +703,12 @@ def main():
     
     # compute f-values, make overview plots
     ##rbns.compare_k()
-    rbns.run_ROC()
+    #rbns.run_ROC()
+    rbns.cooccurrence_analysis(3)
     
     # screen for multi-part motifs
-    if options.interactions:
-        rbns.find_interactors(5, k_flank_max=3, n_top=2)
+    #if options.interactions:
+        #rbns.find_interactors(5, k_flank_max=3, n_top=2)
 
 if __name__ == '__main__':
     main()
