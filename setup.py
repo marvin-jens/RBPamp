@@ -53,7 +53,7 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
     ],
-    keywords = 'rna rbns k-mer kmer statistics biology bioinformatics',
+    keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
 
     install_requires=['cython','numpy','matplotlib'],
     scripts=['bin/cska'],

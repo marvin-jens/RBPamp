@@ -13,13 +13,19 @@ import os
 import logging
 import collections
 import cska.ska_kmers
-
+import matplotlib
+matplotlib.use('pdf')
+import matplotlib.pyplot as pp
 
 class RBNSReads(object):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[]):
-        self.logger = logging.getLogger('RBNSReads')
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000.):
+        self.rbp_name = rbp_name
+        self.rbp_conc = rbp_conc
+        self.rna_conc = rna_conc
         self.fname = fname
         self.pseudo_count = pseudo_count
+
+        self.logger = logging.getLogger('RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         
         if len(seqm):
             self.seqm = seqm
@@ -33,7 +39,6 @@ class RBNSReads(object):
             t1 = time.time()
 
             self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
-
 
         self.cached_counts = {}
 
@@ -108,7 +113,7 @@ class RBNSReads(object):
             
 
 class SKAResult(object):
-    def __init__(self, pd_reads, in_reads, k, R_values, ska_weights, R_values_err=None, ska_weights_err=None):
+    def __init__(self, pd_reads, in_reads, k, R_values, ska_weights, R_values_err=[], ska_weights_err=[]):
         self.logger = logging.getLogger('SKAResults')
         self.k = k
         self.pd_reads = pd_reads
@@ -117,14 +122,14 @@ class SKAResult(object):
         self.R_values = R_values
         self.z_scores_R = (self.R_values - self.R_values.mean() )/ self.R_values.std()
         
-        if R_values_err == None:
+        if not len(R_values_err):
             self.R_values_err = np.zeros(R_values.shape, dtype=R_values.dtype)
         else:
             self.R_values_err = R_values_err
         
         self.ska_weights = ska_weights
         self.z_scores_ska = (self.ska_weights - self.ska_weights.mean() )/ self.ska_weights.std()
-        if ska_weights_err == None:
+        if not len(ska_weights_err):
             self.ska_weights_err = np.zeros(ska_weights.shape, dtype=ska_weights.dtype)
         else:
             self.ska_weights_err = ska_weights_err
@@ -136,8 +141,8 @@ class SKAResult(object):
         return 'SKA.{rbp_name}.{rbp_conc:.0f}nM.{k}mer.txt'.format(**locals())
     
     @classmethod
-    def load(cls, load_path, k, pd_reads, in_reads, rbp_name, rbp_conc):
-        path = os.path.join(load_path, cls._res_filename(k, rbp_name, rbp_conc))
+    def load(cls, load_path, k, pd_reads, in_reads):
+        path = os.path.join(load_path, cls._res_filename(k, pd_reads.rbp_name, pd_reads.rbp_conc))
         with file(path, 'r') as f:
             rows = []
             kmers = []
@@ -165,9 +170,9 @@ class SKAResult(object):
         return res
                 
         
-    def store(self, out_path, rbp_name, rbp_conc):
+    def store(self, out_path):
         
-        res_file = SKAResult._res_filename(self.k, rbp_name, rbp_conc)
+        res_file = SKAResult._res_filename(self.k, self.pd_reads.rbp_name, self.pd_reads.rbp_conc)
         self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
        
 
@@ -224,22 +229,13 @@ class SKAResult(object):
         return '\n'.join(buf)
 
 
-class SKARun(object):
-    def __init__(self, pd_reads, in_reads, max_iterations=10, convergence=0.5, out_path=".", subsamples=10, rbp_name='RBP', rbp_conc=300., rna_conc=100000.):
-        self.logger = logging.getLogger('SKARun')
-        self.pd_reads = pd_reads
-        self.in_reads = in_reads
+class SKARunner(object):
+    def __init__(self, max_iterations=10, convergence=0.5, subsamples=10):
+        self.logger = logging.getLogger('SKARunner')
         self.max_iterations = max_iterations
         self.convergence = convergence
-        self.out_path = os.path.abspath(out_path)
         self.n_subsamples = subsamples
-        self.rbp_name = rbp_name
-        self.rbp_conc = rbp_conc
-        self.rna_conc = rna_conc
         
-        self.results = {}
-        
-
     def stream_counts(self, k, pd_reads, in_reads):
         kmers = list(yield_kmers(k))
         #background, bg_source = self.try_load_background_freqs(k)
@@ -273,16 +269,16 @@ class SKARun(object):
         return SKAResult(pd_reads, in_reads, k, R_values, current_weights)
 
 
-    def run(self, k):
+    def run(self, k, pd_reads, in_reads):
         self.logger.info("streaming {0}-mers".format(k))
-        res = self.stream_counts(k, self.pd_reads, self.in_reads)
+        res = self.stream_counts(k, pd_reads, in_reads)
         
         if self.n_subsamples:
             self.logger.info("subsampling...")
             samples = [self.stream_counts(
                 k, 
-                self.pd_reads.subsample(i, self.n_subsamples), 
-                self.in_reads) 
+                pd_reads.subsample(i, self.n_subsamples), 
+                in_reads) 
                 for i in range(self.n_subsamples)
             ]
             sample_matrix = np.array([s.ska_weights for s in samples])
@@ -291,181 +287,90 @@ class SKARun(object):
             sample_matrix = np.array([s.R_values for s in samples])
             res.R_values_err = sample_matrix.std(axis=0)
         
-        self.results[k] = res
-        res.store(self.out_path, self.rbp_name, self.rbp_conc)
         return res
       
-    def load(self, k):
-        self.logger.info("RESUME: trying to load {0}-mer results from previous run".format(k))
-        
-        try:
-            res = SKAResult.load(self.out_path, k, self.pd_reads, self.in_reads, self.rbp_name, self.rbp_conc)
-        except IOError:
-            return None
-        
-        self.results[k] = res
-        return res
 
 
-    
-    
-    #def precision(self, kmer_order):
-        #kmer_ranks = np.zeros(len(kmer_order))
-        #kmer_ranks[kmer_order] = np.arange(len(kmer_order))
+class RBNSAnalysis(object):
+    def __init__(self, rbp_name ='RBP', out_path='ska_results'):
+        self.reads = []
+        self.rbp_name = rbp_name
+        self.out_path = out_path
+        self.logger = logging.getLogger('RBNSAnalysis({self.rbp_name}) -> {self.out_path}'.format(self=self))
 
-        #pd_hits = self.pd_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
-        #in_hits = self.in_reads.count_best_ranked_hits(kmer_ranks)[kmer_order].cumsum()
-
-        #scale = float(self.pd_reads.N)/self.in_reads.N
-
-        #return (pd_hits / (in_hits*scale + pd_hits))
-
-
-class PairInteractionScreen(object):
-    def __init__(self, run, core, k_int, pseudo=10.):
-        self.run = run
-        self.core = core
-        self.k_int = k_int
-        self.k_core = len(core)
-        
-        #print "scanning flanking {0}-mers".format(k_int)
-        pd_matrix, pd_mask = self.run.pd_reads.kmer_flank_profiles(core, k_int)
-        in_matrix, in_mask = self.run.in_reads.kmer_flank_profiles(core, k_int)
-
-        self.core_density_pd = pd_mask.sum(axis=0)
-        self.core_density_bg = in_mask.sum(axis=0)
-        
-        pd_matrix = np.array(pd_matrix, dtype=np.float32) + pseudo
-        in_matrix = np.array(in_matrix, dtype=np.float32) + pseudo
-
-        obsv = pd_matrix / pd_matrix.sum(axis=0)[np.newaxis,:]
-        bgnd = in_matrix / in_matrix.sum(axis=0)[np.newaxis,:]
-
-        # Kullback-Leibler (KL) divergence terms
-        self._KL = (obsv * np.log2(obsv / bgnd) )
-        # and per-position KL
-        self.KL = self._KL.sum(axis=0)
-        self.log_ratios = np.log2(obsv / bgnd)
-
-        # mask positions overlapping with the core motif
-        self.l = self.run.pd_reads.L - self.k_core
-        self.KL[self.l-self.k_int+1:self.l+self.k_core] = 0
-        self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core] = 0
-        #print "mask",self.l-self.k_int+1,self.l+self.k_core 
-        #print "log_ratios after masking", self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core]
-
-    def top_interactors(self, n_top=10):
-        #TODO: cook a set of candidate interacting kmers from significance for now let's just take top 10
-        top_i = self._KL.max(axis=1).argsort()[::-1][:n_top]
-        # and sort alphabetically to ensure reproducibility across successive runs
-        top_i = sorted(top_i)
-        top_kmers = [cska.ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
-        #print "top interacting kmer candidate list", top_kmers
-        return top_i, top_kmers
-    
-    def make_plot(self, fname, n_top=10):
-        import matplotlib as mp
-        mp.rcParams['font.family'] = 'Arial'
-        mp.rcParams['font.size'] = 8
-        mp.rcParams['font.sans-serif'] = 'Arial'
-        mp.rcParams['legend.fontsize'] = 'small'
-        mp.rcParams['legend.frameon'] = False
-        #mp.rcParams['axes.labelsize'] = 8
-        
-        import matplotlib.pyplot as pp
-        fig = pp.figure()
-        fig.subplots_adjust(hspace=0.5)
-        
-        pp.title("{self.run.rbp_name}@{self.run.rbp_conc}nM {self.core} interacting with {self.k_int}-mers".format(self.core, self.k_int))
-        pp.subplot(311)
-        pp.gca().set_title("density of {0} core".format(self.core.upper()))
-        pp.plot(self.core_density_pd, drawstyle='steps-mid', label="pd")
-        pp.plot(self.core_density_bg, drawstyle='steps-mid', label="in")
-        pp.gca().locator_params(axis='y',nbins=3)
-        pp.gca().locator_params(axis='x',nbins=10)
-
-        pp.legend(loc='upper left')
-        pp.xlabel("read start pos [nt]")
-        pp.ylabel("frequency")
-        
-        pp.subplot(312)
-        pp.title("Kullback-Leibler divergence of flanking kmer composition")
-        x = np.arange(len(self.KL)) - len(self.KL)/2 +1.
-        pp.plot(x,self.KL, drawstyle='steps-mid', label="{0}mers around {1}".format(self.k_int, self.k_core) )
-        pp.xlim(-self.l-.5,self.l+.5)
-        pp.xlabel("rel. {0}-mer start pos [nt]".format(self.k_int))
-        pp.ylabel("KL [bits]")
-     
-        pp.subplot(313)
-        pp.gca().set_title("enriched {0}-mers".format(self.k_int))
-        top_i, top_kmers = self.top_interactors(n_top = n_top)
-        z = self.log_ratios[top_i[::-1],:]
-        y, x = np.mgrid[slice(0, len(top_i)+1),slice(-(self.l+.5), +self.l+1)]
-        
-        # symmetric, dynamic range of colorbar
-        dr = np.fabs(z).max()
-        pp.pcolor(x,y,z, cmap=pp.get_cmap('seismic'), vmin=-dr, vmax=dr)
-
-        pp.yticks(np.arange(len(top_i))+.5, top_kmers[::-1]) # reverse order of kmers so pcolor is not upside down
-        pp.xlim(-self.l-.5,self.l+.5)
-        cbar = pp.colorbar(orientation="horizontal", fraction=0.1, shrink=0.75, label=r"$\log_2( \frac{pd}{in} )$")
-        cbar.ax.tick_params(labelsize=8)
-        pp.savefig(fname)
-        pp.close()
-        
-
-
-class MultiAnalysis(object):
-    def __init__(self, runs):
-        self.logger = logging.getLogger("MultiAnalysis")
-        self.runs = runs
+        self.k_range = []
+        self.runs = {}
+        self.AUCs = {}
         self.pair_screens = collections.defaultdict(dict)
-        self.AUCs = []
+        
+    def add_reads(self, rbns_reads):
+        self.reads.append(rbns_reads)
+    
+    def run_ska(self, kmin = 3, kmax = 8, max_iterations = 10, convergence = 0.5, subsamples = 5, resume=True):
+        self.k_range = range(kmin, kmax+1)
+        
+        ska = SKARunner(
+            max_iterations = max_iterations,
+            convergence = convergence, 
+            subsamples = subsamples,
+        )
 
-    def select_significant_ska_kmers(self,k, n_top=2):
-        #TODO: do this based on some statistics, taking into 
-        # account the errors of ska weights from subsampling
-
-        res = self.runs[0].results[k]
-        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
-        return kmers
-
-    def recall_precision_plot(self, k, n_kmers=1000):
-        import matplotlib.pyplot as pp
-
-        rbp_name = self.runs[0].rbp_name
-        out_path = self.runs[0].out_path
-
-        def make_plot(order_by="ska_weights", name="SKA"):
+        in_reads = self.reads[0]
+        
+        # run streaming kmer analysis for all samples
+        for pd_reads in self.reads[1:]:
+            for k in self.k_range:
+                if resume:
+                    self.logger.info("RESUME: trying to load {0}-mer results from previous run".format(k))
+                    try:
+                        res = SKAResult.load(self.out_path, k, pd_reads, in_reads)
+                    except IOError:
+                        res = ska.run(k, pd_reads, in_reads)
+                        res.store(self.out_path)
+                else:
+                    res = ska.run(k, pd_reads, in_reads)
+                    res.store(self.out_path)
+                    
+                # TODO: better way of organizing sample/k matrix
+                self.runs[ (k, pd_reads.rbp_conc) ] = res
+    
+    
+    def run_ROC(self):
+        
+        self.logger.info("computing receiver-operator-characteristic for {0} samples".format(len(self.reads) -1 ) )
+        def make_plot(k, order_by="ska_weights", name="SKA"):
             
             pp.figure()
-            pp.title('discrimination of {rbp_name} pd/input by {name}'.format(**locals()))
+            pp.title('discrimination of {self.rbp_name} pd/input by {name}'.format(**locals()))
 
-            for run in self.runs:
-                res = run.results[k]
+            for reads in self.reads[1:]:
+                res = self.runs[ (k, reads.rbp_conc) ]
 
                 order = getattr(res, order_by).argsort()[::-1]
 
-                recall_pd = np.array([0,] + list(run.pd_reads.recall(order)) )
-                recall_in = np.array([0,] + list(run.in_reads.recall(order)) )
+                recall_pd = np.array([0,] + list(res.pd_reads.recall(order)) )
+                recall_in = np.array([0,] + list(res.in_reads.recall(order)) )
                 
                 AUC = np.trapz(recall_pd, recall_in)
-                pp.step(recall_in, recall_pd, where='post', label='{0}mers @{1}nM (AUC={2:.3f})'.format(k, run.rbp_conc, AUC))
-                self.AUCs.append( (AUC, name, k, rbp_name, run.rbp_conc) )
+                pp.step(recall_in, recall_pd, where='post', label='{0}mers @{1}nM (AUC={2:.3f})'.format(k, reads.rbp_conc, AUC))
+                self.AUCs[ (k, reads.rbp_conc) ] = (AUC, name, k, reads.rbp_conc)
 
             pp.plot([0,1.],[0,1.], color='gray', linestyle = 'dashed')
             
             pp.xlabel('fraction of input explained')
             pp.ylabel('fraction of pulldown explained')
             pp.legend(loc='lower right')
-            pp.savefig(os.path.join(out_path,"{rbp_name}.{k}mer.{name}.ROC.pdf".format(**locals())))
+            pp.savefig("{self.out_path}/{self.rbp_name}.{k}mer.{name}.ROC.pdf".format(**locals()))
 
-        make_plot(order_by="ska_weights", name="SKA")
-        make_plot(order_by="R_values", name="R")
+        for k in self.k_range:
+            make_plot(k, order_by="ska_weights", name="SKA")
+            make_plot(k, order_by="R_values", name="R")
         
-        #print self.AUCs
-        print "best discrimination achieved by"
-        print sorted(self.AUCs)[-1]
+        # TODO: find rank at wich the ROC curve slope drops below 1. 
+        # This is where reads with the kmer are no longer more abundant in pd than input
+        # (f-value ratio is 1)!
+        self.best_auc, self.best_method, self.best_k, self.best_rbp_conc = sorted(self.AUCs.values())[-1]
+
 
     def compare_k(self, z_cut=2):
         import matplotlib.pyplot as pp
@@ -531,27 +436,121 @@ class MultiAnalysis(object):
             hits_at_k.append( (kmers, scores, errors) )
         pp.savefig(os.path.join(self.run.out_path,"k_comparison.pdf"))
 
+
+    def select_significant_kmers(self,k, n_top=2):
+        #TODO: do this based on some statistics, taking into 
+        # account the errors of ska weights from subsampling
+
+        res = self.runs[(k, self.best_rbp_conc)]
+        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in res.ska_weights.argsort()[::-1][:n_top]]
+        return kmers
         
     def find_interactors(self, k, n_top=2, k_flank_max=4):
         
-        for core in self.select_significant_cska.ska_kmers(k, n_top):
+        for core in self.select_significant_kmers(k, n_top):
             for k_int in range(1, k_flank_max+1):
                 t0 = time.time()
-                screen = PairInteractionScreen(self.run, core, k_int)
+                screen = PairInteractionScreen(self.runs[(k, self.best_rbp_conc)], core, k_int)
                 t1 = time.time()
                 self.logger.debug("interaction analysis of {0} with {1}mers took {2:.3f}s".format(core, k_int, (t1-t0)) )
                 
-                fplot = os.path.join(self.run.out_path, "{0}_interacting_with_{1}mers.pdf".format(core, k_int) )
+                fplot = os.path.join(self.out_path, "{0}_interacting_with_{1}mers.pdf".format(core, k_int) )
                 screen.make_plot(fplot)
-                
-                # keep for later?
-                #self.pair_screens[core][k_int] = screen
-                
-                
-                
+    
 
+class PairInteractionScreen(object):
+    def __init__(self, res, core, k_int, pseudo=10.):
+        self.res = res
+        self.core = core
+        self.k_int = k_int
+        self.k_core = len(core)
+        
+        #print "scanning flanking {0}-mers".format(k_int)
+        pd_matrix, pd_mask = self.res.pd_reads.kmer_flank_profiles(core, k_int)
+        in_matrix, in_mask = self.res.in_reads.kmer_flank_profiles(core, k_int)
 
-  
+        self.core_density_pd = pd_mask.sum(axis=0)
+        self.core_density_bg = in_mask.sum(axis=0)
+        
+        pd_matrix = np.array(pd_matrix, dtype=np.float32) + pseudo
+        in_matrix = np.array(in_matrix, dtype=np.float32) + pseudo
+
+        obsv = pd_matrix / pd_matrix.sum(axis=0)[np.newaxis,:]
+        bgnd = in_matrix / in_matrix.sum(axis=0)[np.newaxis,:]
+
+        # Kullback-Leibler (KL) divergence terms
+        self._KL = (obsv * np.log2(obsv / bgnd) )
+        # and per-position KL
+        self.KL = self._KL.sum(axis=0)
+        self.log_ratios = np.log2(obsv / bgnd)
+
+        # mask positions overlapping with the core motif
+        self.l = self.res.pd_reads.L - self.k_core
+        self.KL[self.l-self.k_int+1:self.l+self.k_core] = 0
+        self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core] = 0
+        #print "mask",self.l-self.k_int+1,self.l+self.k_core 
+        #print "log_ratios after masking", self.log_ratios[:,self.l-self.k_int+1:self.l+self.k_core]
+
+    def top_interactors(self, n_top=10):
+        #TODO: cook a set of candidate interacting kmers from significance for now let's just take top 10
+        top_i = self._KL.max(axis=1).argsort()[::-1][:n_top]
+        # and sort alphabetically to ensure reproducibility across successive runs
+        top_i = sorted(top_i)
+        top_kmers = [cska.ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
+        #print "top interacting kmer candidate list", top_kmers
+        return top_i, top_kmers
+    
+    def make_plot(self, fname, n_top=10):
+        import matplotlib as mp
+        mp.rcParams['font.family'] = 'Arial'
+        mp.rcParams['font.size'] = 8
+        mp.rcParams['font.sans-serif'] = 'Arial'
+        mp.rcParams['legend.fontsize'] = 'small'
+        mp.rcParams['legend.frameon'] = False
+        #mp.rcParams['axes.labelsize'] = 8
+        
+        import matplotlib.pyplot as pp
+        fig = pp.figure()
+        fig.subplots_adjust(hspace=0.5)
+        
+        pp.title("{self.res.pd_reads.rbp_name}@{self.res.pd_reads.rbp_conc}nM {self.core} interacting with {self.k_int}-mers".format(self=self))
+        pp.subplot(311)
+        pp.gca().set_title("density of {0} core".format(self.core.upper()))
+        pp.plot(self.core_density_pd, drawstyle='steps-mid', label="pd")
+        pp.plot(self.core_density_bg, drawstyle='steps-mid', label="in")
+        pp.gca().locator_params(axis='y',nbins=3)
+        pp.gca().locator_params(axis='x',nbins=10)
+
+        pp.legend(loc='upper left')
+        pp.xlabel("read start pos [nt]")
+        pp.ylabel("frequency")
+        
+        pp.subplot(312)
+        pp.title("Kullback-Leibler divergence of flanking kmer composition")
+        x = np.arange(len(self.KL)) - len(self.KL)/2 +1.
+        pp.plot(x,self.KL, drawstyle='steps-mid', label="{0}mers around {1}".format(self.k_int, self.k_core) )
+        pp.xlim(-self.l-.5,self.l+.5)
+        pp.xlabel("rel. {0}-mer start pos [nt]".format(self.k_int))
+        pp.ylabel("KL [bits]")
+     
+        pp.subplot(313)
+        pp.gca().set_title("enriched {0}-mers".format(self.k_int))
+        top_i, top_kmers = self.top_interactors(n_top = n_top)
+        z = self.log_ratios[top_i[::-1],:]
+        y, x = np.mgrid[slice(0, len(top_i)+1),slice(-(self.l+.5), +self.l+1)]
+        
+        # symmetric, dynamic range of colorbar
+        dr = np.fabs(z).max()
+        pp.pcolor(x,y,z, cmap=pp.get_cmap('seismic'), vmin=-dr, vmax=dr)
+
+        pp.yticks(np.arange(len(top_i))+.5, top_kmers[::-1]) # reverse order of kmers so pcolor is not upside down
+        pp.xlim(-self.l-.5,self.l+.5)
+        cbar = pp.colorbar(orientation="horizontal", fraction=0.1, shrink=0.75, label=r"$\log_2( \frac{pd}{in} )$")
+        cbar.ax.tick_params(labelsize=8)
+        pp.savefig(fname)
+        pp.close()
+        
+
 
 def yield_kmers(k):
     """
@@ -572,7 +571,7 @@ def main():
     
     parser.add_option("-n","--n-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
     parser.add_option("-R","--rna-concentration",dest="rna_conc",default=100.,type=float,help="concentration of random RNA used in the experiment in micro molars (default=100uM)")
-    parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="320",help="(comma separated list of) protein concentration used in the pulldown experiment(s) in nano molars (default=300nM)")
+    parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimateion (default=5)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
@@ -580,7 +579,7 @@ def main():
     parser.add_option("-B","--background", dest="background", default="", help="path to file with background (input) kmer abundances in the library")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
-    parser.add_option("","--resume",dest="resume",default=False, action="store_true",help="SWITCH: load results from previous run, to resume with any second stage analyses")
+    parser.add_option("","--no-resume",dest="noresume",default=False, action="store_true",help="SWITCH: disable loading of results from previous runs")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search")
     parser.add_option("","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="SWITCH: show version information and quit")
@@ -596,9 +595,7 @@ def main():
         parser.error("missing argument: need <reads_file> (or use /dev/stdin)")
         sys.exit(1)
 
-    n = len(args) - 1
-    protein_concentrations = [float(c) for c in (options.prot_conc.split(',') * n)[:n]]
-    print protein_concentrations
+    rbp_concentrations = [float(c) for c in options.prot_conc.split(',')]
     
     # prepare outout path
     if not os.path.exists(options.output):
@@ -619,44 +616,46 @@ def main():
     fh.setFormatter(logging.Formatter(FORMAT))
     root.addHandler(fh)
     
-    logger = logging.getLogger("SKA")
-    logger.info("called as '{0}'".format(" ".join(sys.argv)) )
+    logger = logging.getLogger("CSKA")
+    logger.info("version {0}".format(__version__))
+    logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
 
-    # load pull-down and input reads
-    in_reads = RBNSReads(args[0], n_max=options.n_max, pseudo_count=options.pseudo)
-    pd_reads_list = [RBNSReads(a, n_max=options.n_max, pseudo_count=options.pseudo) for a in args[1:]]
+    # start a new analysis
+    rbns = RBNSAnalysis(
+        rbp_name = options.name,
+        out_path = options.output,
+    )
     
-    # run streaming kmer analysis
-    runs = []
-    for pd_reads, p_conc in zip(pd_reads_list, protein_concentrations):
-        ska = SKARun(
-            pd_reads,
-            in_reads,
-            max_iterations = options.n_passes, 
-            convergence = options.convergence, 
-            out_path = options.output,
-            subsamples = options.subsamples,
+    # populate with experimental data
+    for fname, p_conc in zip(args, rbp_concentrations):
+        reads = RBNSReads(
+            fname, 
+            rbp_conc=p_conc,
             rbp_name = options.name,
-            rbp_conc = p_conc,
+            n_max=options.n_max, 
+            pseudo_count=options.pseudo, 
             rna_conc = options.rna_conc,
         )
-
-        for k in range(options.min_k, options.max_k+1):
-            if options.resume:
-                if not ska.load(k):
-                    ska.run(k)
-            else:
-                ska.run(k)
-        runs.append(ska)
-
-    multi = MultiAnalysis(runs)
-    #multi.compare_k()
-    for k in range(options.min_k, options.max_k+1):
-        multi.recall_precision_plot(k)
-
+        rbns.add_reads(reads)
+    
+    # first stage of analysis: actual streaming kmer 
+    # analysis on all samples and for a range of k
+    rbns.run_ska(
+        kmin = options.min_k, 
+        kmax = options.max_k,
+        max_iterations = options.n_passes, 
+        convergence = options.convergence, 
+        subsamples = options.subsamples,
+        resume = not options.noresume,
+    )
+    
+    # compute f-values, make overview plots
+    ##rbns.compare_k()
+    rbns.run_ROC()
+    
+    # screen for multi-part motifs
     if options.interactions:
-        # TODO: determine good core size!
-        multi.find_interactors(3, k_flank_max=3, n_top=5)
+        rbns.find_interactors(5, k_flank_max=3, n_top=2)
 
 if __name__ == '__main__':
     main()
