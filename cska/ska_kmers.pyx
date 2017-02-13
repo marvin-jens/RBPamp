@@ -415,6 +415,11 @@ def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, n
     cdef UINT32_t [:,:,:] tensor = _tensor
     cdef UINT64_t [::1] kmer_lookup = _kmer_lookup.flatten()
     
+    # running variables
+    cdef UINT64_t [::1] encountered_vec = np.zeros(l, dtype=np.uint64)
+    cdef UINT64_t [::1] spacing_vec = np.zeros(l, dtype=np.uint64)
+    cdef UINT64_t n_tracing = 0
+    
     # helper variables to tell cython the types
     cdef UINT8_t s
     cdef int ofs, index, i, j, m, kmer_i=0, kmer_j=0, spacing=0, kmer_hit=0, n2=n_kmers*n_kmers
@@ -430,7 +435,8 @@ def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, n
 
         kmer_i = 0
         kmer_j = 0
-        spacing = 0
+        
+        n_tracing = 0
         # iterate over remaining k-mers
         for i in range(0, l):
             # get next "letter"
@@ -439,23 +445,25 @@ def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, n
             index = ((index << 2) | s ) & MAX_INDEX
             
             kmer_hit = kmer_lookup[index]
+            
             if kmer_hit:
-                
-                if not kmer_i:
-                    # first hit:
-                    kmer_i = kmer_hit
-                    spacing = 0
-                else:
-                    # second hit
+                for m in range(n_tracing):
+                    # record occurrence relative to previously encountered kmers
+                    kmer_i = encountered_vec[m]
                     kmer_j = kmer_hit
-                    #print kmer_i, kmer_j, n_kmers, "spacing", spacing, l
+                    spacing = spacing_vec[m]
                     tensor[kmer_i-1, kmer_j-1, spacing] += 1
-                    kmer_i = kmer_j
-                    kmer_j = 0
-                    spacing = 0
-
-            spacing += 1
-                            
+                    
+                # record as new hit
+                encountered_vec[n_tracing] = kmer_hit
+                spacing_vec[n_tracing] = 0
+                n_tracing += 1
+            
+            # and update all spacings
+            for m in range(n_tracing):
+                spacing_vec[m] += 1
+                
+                           
     return _tensor
       
     
