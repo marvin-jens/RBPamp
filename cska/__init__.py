@@ -16,8 +16,14 @@ import cska.ska_kmers
 import matplotlib
 #matplotlib.use('pdf')
 import matplotlib.pyplot as pp
+import cPickle as pickle
 
 def cached(func):
+    """
+    Decorator for class methods that keeps the results of the first call and 
+    returns the cached result for subsequent calls. Works by adding a 
+    "__cached_<func_name>" dictionary to the decorated instance.
+    """
     cache_name = "__cached_{name}".format(name=func.__name__)
     
     def cached_func(self, *argc):
@@ -29,11 +35,47 @@ def cached(func):
             cache[argc] = func(self, *argc)
             
         return cache[argc]
-
-    return cached_func
     
+    return cached_func
+  
+def pickled(func):
+    """
+    Decorator for class methods that returns an un-pickled result if it exists. 
+    Otherwise, stores the result of the call in a pickle file. Requires that the 
+    class has an out_path attribute and a pickle_key method that returns a distinct 
+    key for all the parameters that influence the results, ensuring that the correct
+    object is unpickled.
+    """
+    
+    def pickled_func(self, *argc, **kwargs):
+        inst_key = self.pickle_key()
+        argc_key = "_".join([str(a) for a in argc])
+        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
+        
+        path = os.path.join(self.out_path,"pkl")
+        pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
+        if not os.path.exists(os.path.join(path,pkl_name)):
+            res = func(self, *argc, **kwargs)
+            try:
+                os.makedirs(path)
+            except OSError:
+                # already exists
+                pass
+            self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
+            pickle.dump(res, file(os.path.join(path,pkl_name),'wb'), protocol=-1)
+        else:
+            self.logger.debug("un-pickling '{0}'".format(pkl_name) )
+            res = pickle.load(file(os.path.join(path,pkl_name),'rb'))
+        
+        return res
+    
+    return pickled_func
+
 class RBNSReads(object):
+    out_path = './'
+    
     def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0):
+        self.name = "{rbp_name}@{rbp_conc}nM".format(**locals())
         self.rbp_name = rbp_name
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
@@ -55,9 +97,12 @@ class RBNSReads(object):
 
         self._subsamples = []
     
-    def flush(self):
-        self._cached_counts = {}
-        self._subsamples = []
+    def pickle_key(self):
+        return "{self.fname}.{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
+
+    def flush(self, items = ["kmer_counts","reads_with_kmers", "fraction_of_reads_with_pure_kmers"]):
+        for item in items:
+            setattr(self, "__cached_{name}".format(name=item), dict() )
 
     @property
     def subsamples(self):
@@ -93,9 +138,16 @@ class RBNSReads(object):
         l = end - start
         self.logger.debug("returning subsample of len={l} from {start}:{end}".format(**locals()) )
         
-        return RBNSReads("{self.fname}_subsample_{i:02d}".format(**locals()), seqm=self.seqm[start:end], pseudo_count=self.pseudo_count )
-        
+        return RBNSReads(
+            self.fname, 
+            seqm=self.seqm[start:end],
+            pseudo_count=self.pseudo_count,
+            rbp_name="{self.rbp_name}_subsample_{i:02d}".format(**locals()),
+            rbp_conc = self.rbp_conc,
+        )
+
     @cached
+    @pickled
     def kmer_counts(self, k):
         """
         Returns kmer counts. Keeps counts cached so that successive queries for 
@@ -120,6 +172,7 @@ class RBNSReads(object):
         return freqs
 
     @cached
+    @pickled
     def reads_with_kmers(self, k):
         return cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
 
@@ -196,6 +249,8 @@ class SKARunner(object):
         self.n_subsamples = subsamples
         
     def stream_counts(self, k, pd_reads, in_reads):
+        self.logger.info("streaming {k} mers in {pd_reads.name}".format(**locals()))
+        t0 = time.time()
         kmers = list(yield_kmers(k))
         #background, bg_source = self.try_load_background_freqs(k)
 
@@ -224,7 +279,12 @@ class SKARunner(object):
                 if max_change < self.convergence:
                     self.logger.info("reached convergence after {0} iterations".format(iteration_i))
                     break
-               
+        
+        if iteration_i >= self.max_iterations:
+            self.logger.warning("reached max_iterations without convergence!")
+
+        t = time.time() - t0
+        self.logger.debug("streaming of {0:.2f}M reads took {1:.2f}ms".format(pd_reads.N / 1e6,  1000. * t) )
         return current_weights
 
 
@@ -250,28 +310,33 @@ class RBNSResult(object):
         self.in_reads = in_reads
         self.func = func
         self.name = name
-        self._values = None
-        self._errors = None
-
-    # TODO: add transparent pickle/unpickle 
+        self.logger = logging.getLogger('RBNSResult({self.name})'.format(self=self) )
+        
+        ## make the @cached and @pickled work
+        #self.__call__.name = name
+        
+    def pickle_key(self):
+        return ".".join([self.name, self.pd_reads.pickle_key(), self.in_reads.pickle_key()])
+    
+    @cached
+    @pickled
     def __call__(self, *argc, **kwargs):
-        if self._values == None:
-            self._values = self.func(self.pd_reads, self.in_reads, *argc, **kwargs)
-            sampled = np.array([
-                self.func(sample, self.in_reads, *argc, **kwargs)
-                for sample in self.pd_reads.subsamples
-            ])
-        
-            self._errors = sampled.std(axis=0)
-        
-        return self._values, self._errors
+        res = self.func(self.pd_reads, self.in_reads, *argc, **kwargs)
+        sampled = np.array([
+            self.func(sample, self.in_reads, *argc, **kwargs)
+            for sample in self.pd_reads.subsamples
+        ])
+    
+        errors = sampled.std(axis=0)
+    
+        return res, errors
         
     def __str__(self):
         return "{self.name} ({self.pd_reads.rbp_conc}nM / {self.in_reads.rbp_conc}nM)".format(self=self)
 
             
 class RBNSComparison(object):
-    def __init__(self, pd_reads, in_reads, ska_runner):
+    def __init__(self, in_reads, pd_reads, ska_runner):
         self.logger = logging.getLogger('RBNSResults')
         self.pd_reads = pd_reads
         self.in_reads = in_reads
@@ -445,6 +510,7 @@ class RBNSAnalysis(object):
         self.pair_screens = collections.defaultdict(dict)
         
     def add_reads(self, rbns_reads):
+        print "added", rbns_reads.name
         self.reads.append(rbns_reads)
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
@@ -455,6 +521,11 @@ class RBNSAnalysis(object):
         
         return R
             
+    def SKA_weight_matrix(self, k):
+        ska = np.array([comp.SKA_weights(k) for comp in self.comparisons]).T
+        
+        return ska
+        
     
     def run_ska(self, kmin = 3, kmax = 8, max_iterations = 10, convergence = 0.5, subsamples = 5, resume=True):
         self.k_range = range(kmin, kmax+1)
@@ -992,7 +1063,6 @@ def main():
         sys.exit(1)
 
     rbp_concentrations = [float(c) for c in options.prot_conc.split(',')]
-    
     # prepare outout path
     if not os.path.exists(options.output):
         os.makedirs(options.output)
@@ -1022,6 +1092,10 @@ def main():
         max_iterations = options.n_passes,
         convergence = options.convergence, 
     )
+    
+    # setting class-variables
+    RBNSReads.out_path = options.output
+    RBNSResult.out_path = options.output
 
     # start a new analysis
     rbns = RBNSAnalysis(
@@ -1031,10 +1105,10 @@ def main():
     )
     
     # populate with experimental data
-    for fname, p_conc in zip(args, rbp_concentrations):
+    for fname, rbp_conc in zip(args, rbp_concentrations):
         reads = RBNSReads(
             fname, 
-            rbp_conc=p_conc,
+            rbp_conc=rbp_conc,
             rbp_name = options.name,
             n_max=options.n_max, 
             pseudo_count=options.pseudo, 
@@ -1045,6 +1119,7 @@ def main():
         rbns.add_reads(reads)
     
     print rbns.R_value_matrix(5)
+    print rbns.SKA_weight_matrix(5)
     ## first stage of analysis: actual streaming kmer 
     ## analysis on all samples and for a range of k
     ##rbns.run_ska(
