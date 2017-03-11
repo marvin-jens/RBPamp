@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.5"
+__version__ = "0.9.6"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -17,6 +17,7 @@ from libc.math cimport exp, log
 
 ctypedef np.uint8_t UINT8_t
 ctypedef np.uint32_t UINT32_t
+ctypedef np.int32_t INT32_t
 ctypedef np.uint64_t UINT64_t
 ctypedef np.float32_t FLOAT32_t
 ctypedef np.float64_t FLOAT64_t
@@ -326,6 +327,74 @@ def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UI
             hit_counts[best_index] += 1
 
     return _hit_counts
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t k = np.log2(len(_candidates))/2
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT32_t l = L-k+1
+
+    # count reads with only one and no other kmer out of the candidates
+    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
+    
+    # flag each read with which kmer was detected in it (0=None, -1=multiple hits)
+    cdef np.ndarray[INT32_t, ndim=1] _hit_flags = np.zeros(N, dtype=np.int32)
+    
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT32_t [::1] candidates = _candidates
+    cdef UINT32_t [::1] hit_counts = _hit_counts
+    cdef INT32_t [::1] hit_flags = _hit_flags
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT32_t hit_id = 0
+    cdef UINT64_t ofs, index, i, j, n_hits=0, hit_index=0
+    
+    with nogil:
+        for j in range(N):
+            hit_id = 0
+            n_hits = 0
+            ofs = j*L
+
+            # compute index of first k-1 mer by bit-shifts
+            index = 0
+            for i in range(k-1):
+                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+
+            # iterate over remaining k-mers
+            for i in range(0, l):
+                # get next "letter"
+                s = _seq_matrix[ofs+i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                # assign hit to kmer with best rank
+                if candidates[index] > 0:
+                    hit_id = candidates[index]
+                    hit_index = index
+                    n_hits += 1
+            
+            if n_hits > 1:
+                hit_flags[j] = -1
+
+            elif n_hits == 1:
+                hit_flags[j] = hit_id 
+                hit_counts[hit_index] += 1
+
+    return _hit_counts, _hit_flags
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
