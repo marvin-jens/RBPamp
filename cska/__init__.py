@@ -31,10 +31,19 @@ def cached(func):
             setattr(self, cache_name, dict() )
         
         cache = getattr(self, cache_name)
-        if not argc in cache:
-            cache[argc] = func(self, *argc)
+        
+        def to_str(x):
+            if type(x) == np.ndarray:
+                return "array_{0}".format(x.shape)
+            else:
+                return str(x)
+
+        argc_key = "_".join([to_str(a) for a in argc])
+
+        if not argc_key in cache:
+            cache[argc_key] = func(self, *argc)
             
-        return cache[argc]
+        return cache[argc_key]
     
     return cached_func
   
@@ -48,8 +57,15 @@ def pickled(func):
     """
     
     def pickled_func(self, *argc, **kwargs):
+        
+        def to_str(x):
+            if type(x) == np.ndarray:
+                return "array_{0}".format(x.shape)
+            else:
+                return str(x)
+
         inst_key = self.pickle_key()
-        argc_key = "_".join([str(a) for a in argc])
+        argc_key = "_".join([to_str(a) for a in argc])
         kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
         
         path = os.path.join(self.out_path,"pkl")
@@ -350,9 +366,13 @@ class RBNSComparison(object):
         def compute_F_ratio(sample, control, k):
             return sample.fraction_of_reads_with_kmers(k) / control.fraction_of_reads_with_kmers(k)
             
+        def compute_recall_ratio(sample, control, kmer_order):
+            return sample.recall(kmer_order, reorder=False) / control.recall(kmer_order, reorder=False)
+
         self.R_values = RBNSResult(pd_reads, in_reads, "R-value", compute_R)
         self.SKA_weights = RBNSResult(pd_reads, in_reads, "SKA-weight", compute_SKA)
         self.F_ratios = RBNSResult(pd_reads, in_reads, "F-ratio", compute_F_ratio)
+        self.recall_ratios = RBNSResult(pd_reads, in_reads, "recall-ratio", compute_recall_ratio)
         self._pure_f_ratios = None
             
 
@@ -377,7 +397,6 @@ class RBNSComparison(object):
             
         return f_ratios, f_ratios_err
             
-        
 
     def __str__(self):
         # TODO: update
@@ -387,8 +406,6 @@ class RBNSComparison(object):
             buf.append("{0}\t{1:.2f}".format(cska.ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
         
         return '\n'.join(buf)
-
-
 
 class RBNSAnalysis(object):
     def __init__(self, rbp_name ='RBP', out_path='ska_results', ska_runner=None):
@@ -407,7 +424,7 @@ class RBNSAnalysis(object):
         self.pair_screens = collections.defaultdict(dict)
         
     def add_reads(self, rbns_reads):
-        print "added", rbns_reads.name
+        self.logger.info("adding {0}".format(rbns_reads.name) )
         self.reads.append(rbns_reads)
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
@@ -423,26 +440,47 @@ class RBNSAnalysis(object):
     def R_value_matrix(self, k):
         return self._make_matrices("R_values", k)
             
+    def SKA_weight_matrix(self, k):
+        return self._make_matrices("SKA_weights", k)
+
     def F_ratio_matrix(self, k):
         return self._make_matrices("F_ratios", k)
             
-    def SKA_weight_matrix(self, k):
-        return self._make_matrices("SKA_weights", k)
-        
+    def recall_ratio_matrix(self, k):
+        kmer_order = self.get_optimal_kmer_ranking(k)
+        return self._make_matrices("recall_ratios", kmer_order)
+                
+    @cached
     def get_optimal_kmer_ranking(self, k):
+        # TODO: factor in consistently elevated scores with increasing protein concentration
         from scipy.stats.mstats import gmean
         all_ska_weights = self.SKA_weight_matrix(k)[0]
 
         #return gmean(all_ska_weights, axis=0).argsort()[::-1]
         return np.median(all_ska_weights, axis=0).argsort()[::-1]
 
-    def store_all_results(self, k):
-        #self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
+    def select_significant_kmers(self,k, n_max=10):
+        #TODO: do this based on some statistics, taking into 
+        # account the errors of ska weights from subsampling
+        
+        # TODO: less ugly!
+        all_f_ratios = np.array([self.runs[(k, reads.rbp_conc)].f_ratios for reads in self.reads[1:] ])
 
+        from scipy.stats.mstats import gmean
+        mf = gmean(all_f_ratios, axis=0)
+        order = mf.argsort()[::-1]
+        print "geometric mean f-ratios for k",k, mf[order][:n_max]
+        rank_cut = min((mf[order] < 1).argmax(), n_max)
+
+        best_sample_i = all_f_ratios[:,order[0]].argmax()
+        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
+        return kmers, order[:rank_cut], self.reads[best_sample_i+1].rbp_conc
+
+    def store_all_results(self, k):
         order = self.get_optimal_kmer_ranking(k)
         kmers = np.array(list(yield_kmers(k)))
         
-        for name in ["SKA_weight", "R_value", "F_ratio"]:
+        for name in ["recall_ratio", "SKA_weight", "R_value", "F_ratio"]:
             values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
 
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
@@ -450,8 +488,8 @@ class RBNSAnalysis(object):
 
             self.write_kmer_matrix(path, kmers, values.T, errors.T, order)
 
-            
     def write_kmer_matrix(self, out_path, kmers, values, errors, order):
+        self.logger.info("writing data matrix '{out_path}'".format(out_path=out_path) )
         
         def round_to_2(x):
             if x:
@@ -496,50 +534,6 @@ class RBNSAnalysis(object):
                 of.write("\t".join(cols) + '\n')
             of.close()
  
-
-    
-    def run_f_value_fit(self, k):
-        
-        # TODO: needs to fit a global model because top k-mer containing reads show strong saturation effects -> decreased f-value at higher concentration!
-
-        c_in = self.reads[0].fraction_of_reads_with_kmers(k)
-        b_pd = np.array([pd_reads.fraction_of_reads_with_kmers(k) for pd_reads in self.reads[1:]])
-        rbp_conc = np.array([pd_reads.rbp_conc for pd_reads in self.reads[1:]])
-        
-        import pickle
-        pickle.dump((c_in, rbp_conc, b_pd), file('rbfox2.pkl','w'))
-        
-        kmers, indices, best_conc = self.select_significant_kmers(k)
-        # initial Kd guess from lowest protein concentration
-        print b_pd.shape
-        print b_pd[0,indices], b_pd[0,:].min()
-        print c_in[indices], c_in.min()
-        
-        K0 = rbp_conc[0] * c_in / b_pd[0]
-        
-        print "initial K vector", K0.min(), K0.mean(), K0.max()
-        
-        def to_fit(K):
-            occ = rbp_conc[:, np.newaxis] / (rbp_conc[:, np.newaxis] + K[np.newaxis,:])
-            bound = occ * c_in[np.newaxis,:]
-            f_pd = bound / bound.sum(axis=1)[:, np.newaxis]
-            
-            err = 1./len(rbp_conc) * ((f_pd - b_pd)**2 ).sum(axis=0)
-            print err.mean()
-            return np.sqrt(err)
-        
-        from scipy.optimize import leastsq
-        print "fitting"
-        K_opt, code = leastsq(to_fit, K0, maxfev=1000)
-        
-        
-        
-        
-        for kmer,i in zip(kmers, indices):
-            print kmer, c_in[i], b_pd[:,i], K_opt[i]
-            
-        
-        
             
     def run_ROC(self):
         
@@ -647,72 +641,8 @@ class RBNSAnalysis(object):
         pp.savefig(os.path.join(self.run.out_path,"k_comparison.pdf"))
 
     
-    def compute_recall_ratios(self, k):
-        kmer_order = self.get_optimal_kmer_ranking(k)
-        in_recall = self.reads[0].recall(kmer_order, reorder=False)
- 
-        kmer_ranks = np.zeros(len(kmer_order), dtype=int)
-        kmer_ranks[kmer_order] = np.arange(len(kmer_order), dtype=int)
-       
-        recall_matrix = []
-        for run_key in sorted(self.runs.keys()):
-            kr, rbp_conc = run_key
-            if kr != k:
-                continue
-            res = self.runs[run_key]
-            ratio = res.pd_reads.recall(kmer_order, reorder=False) / in_recall
-            res.recall_ratio = ratio
-            recall_matrix.append(ratio)
-
-        recall_matrix = np.array(recall_matrix).T
-        with file(os.path.join(self.out_path, "{0}mer_recall.tsv".format(k)), 'w') as f:
-            head = ['# kmer','ska_rank' ] + [str(r.rbp_conc) for r in self.reads[1:]]
-            f.write("\t".join(head) + '\n')
-            
-            for kmer, o, ratios in zip(yield_kmers(k), kmer_ranks, recall_matrix):
-                cols = [kmer, str(o)] + [str(r) for r in ratios]
-                f.write("\t".join(cols) + '\n')
-
-    def store_f_ratios(self, k):
-        kmer_order = self.get_optimal_kmer_ranking(k)
-        kmer_ranks = np.zeros(len(kmer_order), dtype=int)
-        kmer_ranks[kmer_order] = np.arange(len(kmer_order), dtype=int)
-       
-        f_matrix = []
-        for run_key in sorted(self.runs.keys()):
-            kr, rbp_conc = run_key
-            if kr != k:
-                continue
-            res = self.runs[run_key]
-            ratio = res.f_ratios
-            f_matrix.append(ratio)
-
-        f_matrix = np.array(f_matrix).T
-        with file(os.path.join(self.out_path, "{0}mer_f_ratio.tsv".format(k)), 'w') as f:
-            head = ['# kmer','ska_rank' ] + [str(r.rbp_conc) for r in self.reads[1:]]
-            f.write("\t".join(head) + '\n')
-            
-            for kmer, o, ratios in zip(yield_kmers(k), kmer_ranks, f_matrix):
-                cols = [kmer, str(o)] + [str(r) for r in ratios]
-                f.write("\t".join(cols) + '\n')
 
             
-    def select_significant_kmers(self,k, n_max=10):
-        #TODO: do this based on some statistics, taking into 
-        # account the errors of ska weights from subsampling
-        
-        # TODO: less ugly!
-        all_f_ratios = np.array([self.runs[(k, reads.rbp_conc)].f_ratios for reads in self.reads[1:] ])
-
-        from scipy.stats.mstats import gmean
-        mf = gmean(all_f_ratios, axis=0)
-        order = mf.argsort()[::-1]
-        print "geometric mean f-ratios for k",k, mf[order][:n_max]
-        rank_cut = min((mf[order] < 1).argmax(), n_max)
-
-        best_sample_i = all_f_ratios[:,order[0]].argmax()
-        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
-        return kmers, order[:rank_cut], self.reads[best_sample_i+1].rbp_conc
         
     def get_cooccurrence_tensor(self, k, n_max=20, resume=True):
         import pickle
