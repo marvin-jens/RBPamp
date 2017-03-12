@@ -22,7 +22,7 @@ def cached(func):
     """
     Decorator for class methods that keeps the results of the first call and 
     returns the cached result for subsequent calls. Works by adding a 
-    "__cached_<func_name>" dictionary to the decorated instance.
+    "__cached_<func_name>" dictionary to the decorated method's class instance.
     """
     cache_name = "__cached_{name}".format(name=func.__name__)
     
@@ -197,7 +197,8 @@ class RBNSReads(object):
         fraction = (counts + self.pseudo_count ) / float(self.N + self.pseudo_count)
 
         return fraction, flags
-        
+
+    @pickled
     def kmer_cooccurrence_distance_tensor(self, kmer_list):
         k = len(kmer_list[0])
         n = len(kmer_list)
@@ -229,6 +230,7 @@ class RBNSReads(object):
         else:
             return recall
 
+    @pickled
     def kmer_flank_profiles(self, kmer, k_flank):
         """
         use kmer_filter first and then compute the average occurrences of kmers
@@ -238,8 +240,6 @@ class RBNSReads(object):
     
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
-
-
 
 class SKARunner(object):
     def __init__(self, max_iterations=10, convergence=0.5, subsamples=10):
@@ -287,7 +287,6 @@ class SKARunner(object):
         self.logger.debug("streaming of {0:.2f}M reads took {1:.2f}ms".format(pd_reads.N / 1e6,  1000. * t) )
         return current_weights
 
-
 class RBNSResult(object):
     """
     Generic wrapper around all quantities that are computed by comparing two 
@@ -333,8 +332,7 @@ class RBNSResult(object):
         
     def __str__(self):
         return "{self.name} ({self.pd_reads.rbp_conc}nM / {self.in_reads.rbp_conc}nM)".format(self=self)
-
-            
+           
 class RBNSComparison(object):
     def __init__(self, in_reads, pd_reads, ska_runner):
         self.logger = logging.getLogger('RBNSResults')
@@ -353,36 +351,15 @@ class RBNSComparison(object):
             return sample.fraction_of_reads_with_kmers(k) / control.fraction_of_reads_with_kmers(k)
             
         self.R_values = RBNSResult(pd_reads, in_reads, "R-value", compute_R)
-        self.SKA_weights = RBNSResult(pd_reads, in_reads, "SKA-weights", compute_SKA)
-        self._f_ratios = None
+        self.SKA_weights = RBNSResult(pd_reads, in_reads, "SKA-weight", compute_SKA)
+        self.F_ratios = RBNSResult(pd_reads, in_reads, "F-ratio", compute_F_ratio)
         self._pure_f_ratios = None
-        
-    @staticmethod
-    def _res_filename(k, rbp_name, rbp_conc):
-        return 'SKA.{rbp_name}.{rbp_conc:.0f}nM.{k}mer.txt'.format(**locals())
-    
+            
+
     def ska_z_scores(self, k):
         s = self.SKA_weights(k)
         z = (s - s.mean()) / s.std()
         return z
-    
-
-    def f_ratios(self, k):
-        if self._f_ratios == None:
-            f_pd = self.pd_reads.fraction_of_reads_with_kmers(k)
-            f_in = self.in_reads.fraction_of_reads_with_kmers(k)
-            
-            self._f_ratios = f_pd / f_in
-
-            f_sampled = np.array([
-                sample.fraction_of_reads_with_kmers(k) / f_in
-                for sample in self.pd_reads.subsamples()
-            ])
-            
-            self._f_ratios_err = f_sampled.std(axis=0)
-            
-        return self._f_ratios, self._f_ratios_err
-
 
     def pure_f_ratios(self, k, candidates):
 
@@ -400,90 +377,10 @@ class RBNSComparison(object):
             
         return f_ratios, f_ratios_err
             
-            
         
-        
-    @classmethod
-    def load(cls, load_path, k, pd_reads, in_reads):
-        path = os.path.join(load_path, cls._res_filename(k, pd_reads.rbp_name, pd_reads.rbp_conc))
-        with file(path, 'r') as f:
-            rows = []
-            kmers = []
-            
-            for line in f:
-                if line.startswith('#'):
-                    continue
-                
-                parts = line.rstrip().split('\t')
-                kmers.append(parts[0])
-                rows.append(parts[1:])
-                
-        data = np.array(rows, dtype=float)
-        kmers = np.array(kmers)
-        I = kmers.argsort()
-        
-        # undo the sorting by SKA-weight
-        data = data[I]
-        kmers = kmers[I]
-        
-        fin, fpd, R_values, R_values_err, ska_weights, ska_weights_err, ska_z, R_z = data.T
-        res = cls(pd_reads, in_reads, k, R_values, ska_weights, R_values_err=R_values_err, ska_weights_err=ska_weights_err)
-        res.logger.info("successfully loaded from '{0}'".format(path))
-        
-        return res
-                
-        
-    def store(self, out_path):
-        
-        res_file = SKAResult._res_filename(self.k, self.pd_reads.rbp_name, self.pd_reads.rbp_conc)
-        self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
-       
-
-        order = self.ska_weights.argsort()[::-1]
-        results = zip(
-            np.array(list(yield_kmers(self.k))) [order],
-            self.in_reads.kmer_frequencies(self.k)[order], 
-            self.pd_reads.kmer_frequencies(self.k)[order], 
-            self.R_values[order],
-            self.R_values_err[order],
-            self.ska_weights[order],
-            self.ska_weights_err[order],
-            self.z_scores_ska[order],
-            self.z_scores_R[order],
-        )
-
-        def round_to_2(x):
-            if x:
-                return round(x, max(-int(np.floor(np.log10(abs(x)))), 2) ) 
-            else:
-                return x
-        
-        def round_to_err(x, x_err):
-            if x_err:
-                n_dig = int(np.ceil(-np.log10(x_err)))+1
-                x_err = round(x_err,n_dig)
-
-                n_dig = int(np.ceil(-np.log10(x_err)))+1
-                return [round(x,n_dig), x_err]
-            else:
-                return [x, x_err]
-
-        with file(os.path.join(out_path, res_file), 'w') as of:
-            of.write('# kmer\t rel_freq_input\t rel_freq_pulldown\t R_value\tR_err\t ska_weight\tska_err\tska_z_score\t R_z_score\n')
-            for mer,fi,fp,r,r_err,ska,ska_err,z_ska,z_r in results:
-                #if mer == 'AAA':
-                    #print ska,ska_err
-                    #print round_to_err(ska,ska_err)
-                    
-                out = [mer, round_to_2(fi), round_to_2(fp),] \
-                    + round_to_err(r,r_err) \
-                    + round_to_err(ska,ska_err) \
-                    + [z_ska,z_r]
-
-                of.write('%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\n' % tuple(out))
-            of.close()
 
     def __str__(self):
+        # TODO: update
         I = self.ska_weights.argsort()[::-1]
         buf = [self.name]
         for i in I[:10]:
@@ -516,47 +413,89 @@ class RBNSAnalysis(object):
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
     
-    def R_value_matrix(self, k):
-        R = np.array([comp.R_values(k) for comp in self.comparisons]).T
+    def _make_matrices(self, comp_attr, k):
+        M = np.array([getattr(comp, comp_attr)(k) for comp in self.comparisons])
+        values = M[:,0,:]
+        errors = M[:,1,:]
         
-        return R
+        return values, errors
+        
+    def R_value_matrix(self, k):
+        return self._make_matrices("R_values", k)
+            
+    def F_ratio_matrix(self, k):
+        return self._make_matrices("F_ratios", k)
             
     def SKA_weight_matrix(self, k):
-        ska = np.array([comp.SKA_weights(k) for comp in self.comparisons]).T
+        return self._make_matrices("SKA_weights", k)
         
-        return ska
-        
-    
-    def run_ska(self, kmin = 3, kmax = 8, max_iterations = 10, convergence = 0.5, subsamples = 5, resume=True):
-        self.k_range = range(kmin, kmax+1)
-        
-        ska = SKARunner(
-            max_iterations = max_iterations,
-            convergence = convergence, 
-            subsamples = subsamples,
-        )
+    def get_optimal_kmer_ranking(self, k):
+        from scipy.stats.mstats import gmean
+        all_ska_weights = self.SKA_weight_matrix(k)[0]
 
-        in_reads = self.reads[0]
-        
-        
-        # run streaming kmer analysis for all samples
-        for k in self.k_range:
+        #return gmean(all_ska_weights, axis=0).argsort()[::-1]
+        return np.median(all_ska_weights, axis=0).argsort()[::-1]
 
-            for pd_reads in self.reads[1:]:
-                if resume:
-                    self.logger.info("RESUME: trying to load {0}-mer results from previous run".format(k))
-                    try:
-                        res = SKAResult.load(self.out_path, k, pd_reads, in_reads)
-                    except IOError:
-                        res = ska.run(k, pd_reads, in_reads)
-                        res.store(self.out_path)
-                else:
-                    res = ska.run(k, pd_reads, in_reads)
-                    res.store(self.out_path)
-                    
-                # TODO: better way of organizing sample/k matrix
-                self.runs[ (k, pd_reads.rbp_conc) ] = res
+    def store_all_results(self, k):
+        #self.logger.info('storing kmer frequencies, R-values and SKA-weights in "{out_path}/{res_file}"'.format(**locals()) )
+
+        order = self.get_optimal_kmer_ranking(k)
+        kmers = np.array(list(yield_kmers(k)))
+        
+        for name in ["SKA_weight", "R_value", "F_ratio"]:
+            values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
+
+            fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
+            path = os.path.join(self.out_path, fname)
+
+            self.write_kmer_matrix(path, kmers, values.T, errors.T, order)
+
+            
+    def write_kmer_matrix(self, out_path, kmers, values, errors, order):
+        
+        def round_to_2(x):
+            if x:
+                return round(x, max(-int(np.floor(np.log10(abs(x)))), 2) ) 
+            else:
+                return x
+        
+        def round_to_err(x, x_err):
+            if x_err:
+                n_dig = int(np.ceil(-np.log10(x_err)))+1
+                x_err = round(x_err,n_dig)
+
+                n_dig = int(np.ceil(-np.log10(x_err)))+1
+                x = round(x,n_dig)
+            
+            return [str(x), str(x_err)]
+
+        def roundrobin(*iterables):
+            from itertools import cycle, islice
+            "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
+            # Recipe credited to George Sakkis
+            pending = len(iterables)
+            nexts = cycle(iter(it).next for it in iterables)
+            while pending:
+                try:
+                    for next in nexts:
+                        yield next()
+                except StopIteration:
+                    pending -= 1
+                    nexts = cycle(islice(nexts, pending))
+
+        header = ['# kmer'] + list(roundrobin(['{0}nM'.format(c) for c in self.rbp_conc], ['error' for c in self.rbp_conc]))
+        with file(os.path.join(out_path), 'w') as of:
+
+            of.write("\t".join(header) + '\n')
+            for mer, values_row, error_row in zip(kmers[order], values[order], errors[order]):
                 
+                cols = [str(mer), ]
+                for x, err in zip(values_row, error_row):
+                    cols.extend(round_to_err(x, err))
+
+                of.write("\t".join(cols) + '\n')
+            of.close()
+ 
 
     
     def run_f_value_fit(self, k):
@@ -707,16 +646,6 @@ class RBNSAnalysis(object):
             hits_at_k.append( (kmers, scores, errors) )
         pp.savefig(os.path.join(self.run.out_path,"k_comparison.pdf"))
 
-
-    def get_optimal_kmer_ranking(self, k):
-        # TODO: less ugly!
-        all_ska_weights = np.array([self.runs[(k, reads.rbp_conc)].ska_weights for reads in self.reads[1:] ])
-
-        from scipy.stats.mstats import gmean
-        mf = gmean(all_ska_weights, axis=0)
-        order = mf.argsort()[::-1]
-        
-        return order
     
     def compute_recall_ratios(self, k):
         kmer_order = self.get_optimal_kmer_ranking(k)
@@ -1118,8 +1047,10 @@ def main():
         
         rbns.add_reads(reads)
     
-    print rbns.R_value_matrix(5)
-    print rbns.SKA_weight_matrix(5)
+    rbns.store_all_results(5)
+    
+    #print rbns.R_value_matrix(5)
+    #print rbns.SKA_weight_matrix(5)
     ## first stage of analysis: actual streaming kmer 
     ## analysis on all samples and for a range of k
     ##rbns.run_ska(
