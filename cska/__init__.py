@@ -369,33 +369,23 @@ class RBNSComparison(object):
         def compute_recall_ratio(sample, control, kmer_order):
             return sample.recall(kmer_order, reorder=False) / control.recall(kmer_order, reorder=False)
 
+        def compute_pure_f_ratio(sample, control, candidates):
+            f_pd, flags = sample.fraction_of_reads_with_pure_kmers(candidates)
+            f_in, flags = control.fraction_of_reads_with_pure_kmers(candidates)
+        
+            return f_pd / f_in
+
         self.R_values = RBNSResult(pd_reads, in_reads, "R-value", compute_R)
         self.SKA_weights = RBNSResult(pd_reads, in_reads, "SKA-weight", compute_SKA)
         self.F_ratios = RBNSResult(pd_reads, in_reads, "F-ratio", compute_F_ratio)
         self.recall_ratios = RBNSResult(pd_reads, in_reads, "recall-ratio", compute_recall_ratio)
-        self._pure_f_ratios = None
+        self.pure_F_ratios = RBNSResult(pd_reads, in_reads, "pure-F-ratio", compute_pure_f_ratio)
             
 
     def ska_z_scores(self, k):
         s = self.SKA_weights(k)
         z = (s - s.mean()) / s.std()
         return z
-
-    def pure_f_ratios(self, k, candidates):
-
-        f_pd, flags = self.pd_reads.fraction_of_reads_with_pure_kmers(candidates)
-        f_in, flags = self.in_reads.fraction_of_reads_with_pure_kmers(candidates)
-        
-        f_ratios = f_pd / f_in
-
-        f_sampled = np.array([
-            sample.fraction_of_reads_with_pure_kmers(candidates) / f_in
-            for sample in self.pd_reads.subsamples()
-        ])
-        
-        f_ratios_err = f_sampled.std(axis=0)
-            
-        return f_ratios, f_ratios_err
             
 
     def __str__(self):
@@ -449,7 +439,22 @@ class RBNSAnalysis(object):
     def recall_ratio_matrix(self, k):
         kmer_order = self.get_optimal_kmer_ranking(k)
         return self._make_matrices("recall_ratios", kmer_order)
-                
+
+    def pure_F_ratio_matrix(self, k):
+        order = self.get_optimal_kmer_ranking(k)
+        R, R_err = self.R_value_matrix(k)
+        Rm = np.median(R - R_err, axis=0)[order]
+        
+        i_cut = (Rm > 1).argmin()
+        candidates = np.zeros(4**k, dtype=np.uint32)
+        candidates[order[:i_cut]] = np.arange(i_cut) + 1
+        
+        for x in candidates.nonzero()[0]:
+            print cska.ska_kmers.index_to_seq(x, k), candidates[x]
+            
+        return self._make_matrices("pure_F_ratios", candidates)
+        
+
     @cached
     def get_optimal_kmer_ranking(self, k):
         # TODO: factor in consistently elevated scores with increasing protein concentration
@@ -480,7 +485,7 @@ class RBNSAnalysis(object):
         order = self.get_optimal_kmer_ranking(k)
         kmers = np.array(list(yield_kmers(k)))
         
-        for name in ["recall_ratio", "SKA_weight", "R_value", "F_ratio"]:
+        for name in ["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"]:
             values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
 
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
