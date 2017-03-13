@@ -1,3 +1,8 @@
+__license__ = "MIT"
+__version__ = "0.9.6"
+__authors__ = ["Marvin Jens"]
+__email__ = "mjens@mit.edu"
+
 import os
 import logging
 import numpy as np
@@ -9,6 +14,9 @@ class CachedBase(object):
     pickling by use of the @cached or @pickled decorators. Adds the 
     minimum hooks required to make this work.
     """
+
+    pkl_path = "./.pkl/"
+
     def __init__(self):
         self._cache_names = []
         self.logger = logging.getLogger('CachedBase')
@@ -90,7 +98,7 @@ def pickled(func):
         argc_key = "_".join([to_str(a) for a in argc])
         kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
         
-        path = os.path.join(self.out_path,"pkl")
+        path = self.pkl_path
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
         if not os.path.exists(os.path.join(path,pkl_name)):
             res = func(self, *argc, **kwargs)

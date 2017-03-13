@@ -39,6 +39,14 @@ letter_to_bits[ord('G')] = 2
 letter_to_bits[ord('T')] = 3
 letter_to_bits[ord('U')] = 3
 
+def yield_kmers(k):
+    import itertools
+    """
+    An iterater to all kmers of length k in alphabetical order
+    """
+    bases = 'ACGT'
+    for kmer in itertools.product(bases, repeat=k):
+        yield ''.join(kmer)
                                 
     
 @cython.boundscheck(True)
