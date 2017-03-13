@@ -16,6 +16,7 @@ class CachedBase(object):
     """
 
     pkl_path = "./.pkl/"
+    debug_caching = False # set to True to get a lot of debug output from the caching framework
 
     def __init__(self):
         self._cache_names = []
@@ -28,11 +29,13 @@ class CachedBase(object):
         """
         return self.__class__.__name__
     
-    def cache_preload(self, cache_name, value, argc=tuple()):
+    def cache_preload(self, cache_name, value, argc=""):
         if not hasattr(self, cache_name):
             setattr(self, cache_name, dict() )
 
         getattr(self, cache_name)[argc] = value
+        if self.debug_caching:
+            self.logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, argc, value) )
     
     def cache_flush(self, cache_names = []):
         if not cache_names:
@@ -59,6 +62,8 @@ def cached(func):
         if not hasattr(self, cache_name):
             setattr(self, cache_name, dict() )
             self._cache_names.append(cache_name)
+            if self.debug_caching:
+                self.logger.debug("accessed {0} for first time".format(cache_name) )
         
         cache = getattr(self, cache_name)
         
@@ -71,10 +76,21 @@ def cached(func):
         argc_key = "_".join([to_str(a) for a in argc])
 
         if not argc_key in cache:
-            cache[argc_key] = func(self, *argc)
+            if self.debug_caching:
+                self.logger.debug("{0} cache-miss '{1}'".format(cache_name, argc_key) )
+
+            if getattr(self, '_do_not_cache', False):
+                # override caching, but allow pre-loading!
+                return func(self, *argc)
+            else:
+                cache[argc_key] = func(self, *argc)
+        else:
+            if self.debug_caching:
+                self.logger.debug("{0} cache-hit '{1}'".format(cache_name, argc_key) )
             
         return cache[argc_key]
     
+    cached_func.__name__ = func.__name__
     return cached_func
   
 def pickled(func):
@@ -87,6 +103,9 @@ def pickled(func):
     """
     
     def pickled_func(self, *argc, **kwargs):
+        
+        if getattr(self, '_do_not_cache', False):
+            return func(self, *argc)
         
         def to_str(x):
             if type(x) == np.ndarray:
@@ -101,18 +120,22 @@ def pickled(func):
         path = self.pkl_path
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
         if not os.path.exists(os.path.join(path,pkl_name)):
+            print "pickled: calling {0} with {1}".format(func.__name__, argc)
             res = func(self, *argc, **kwargs)
             try:
                 os.makedirs(path)
             except OSError:
                 # already exists
                 pass
-            self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
+            if self.debug_caching:
+                self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
             pickle.dump(res, file(os.path.join(path,pkl_name),'wb'), protocol=-1)
         else:
-            self.logger.debug("un-pickling '{0}'".format(pkl_name) )
+            if self.debug_caching:
+                self.logger.debug("un-pickling '{0}'".format(pkl_name) )
             res = pickle.load(file(os.path.join(path,pkl_name),'rb'))
         
         return res
     
+    pickled_func.__name__ = func.__name__
     return pickled_func

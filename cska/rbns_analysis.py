@@ -3,6 +3,7 @@ __version__ = "0.9.6"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
+import os
 import numpy as np
 import time
 import logging
@@ -10,93 +11,83 @@ import cska.ska_kmers
 
 from cska.caching import cached, pickled, CachedBase
 
-
-class RBNSResult(CachedBase):
-    """
-    Generic wrapper around all quantities that are computed by comparing two 
-    RBNS samples, such as R-values, F-values, SKA-weights, etc.
-    Adds transparent caching and pickling/unpickling of the values as well as
-    error estimates using the subsamples of the underlying RBNSReads instance
-    for the pulldown sample.
-    """
-    
-    def __init__(self, pd_reads, in_reads, name, func):
-        """
-        Name is arbitrary, the pd_reads and in_reads are RBNSReads instances of 
-        the two samples being compared. Func is a callable that will receive
-        pd_reads and in_reads as first arguments, plus *argc, **kwargs from
-        the __call__ to the RBNSResults instance.
-        """
+        
+class RBNSComparison(CachedBase):
+    def __init__(self, in_reads, pd_reads, ska_runner):
         
         CachedBase.__init__(self)
-
+        
+        self.logger = logging.getLogger('RBNSComparison')
         self.pd_reads = pd_reads
         self.in_reads = in_reads
-        self.func = func
-        self.name = name
-        self.logger = logging.getLogger('RBNSResult({self.name})'.format(self=self) )
-        
-        ## make the @cached and @pickled work
-        #self.__call__.name = name
-        
-    def cache_key(self):
-        return ".".join([self.name, self.pd_reads.cache_key(), self.in_reads.cache_key()])
-    
-    @cached
-    @pickled
-    def __call__(self, *argc, **kwargs):
-        res = self.func(self.pd_reads, self.in_reads, *argc, **kwargs)
-        sampled = np.array([
-            self.func(sample, self.in_reads, *argc, **kwargs)
-            for sample in self.pd_reads.subsamples
-        ])
-    
-        errors = sampled.std(axis=0)
-    
-        return res, errors
-        
-    def __str__(self):
-        return "{self.name} ({self.pd_reads.rbp_conc}nM / {self.in_reads.rbp_conc}nM)".format(self=self)
-           
-class RBNSComparison(object):
-    def __init__(self, in_reads, pd_reads, ska_runner):
-        self.logger = logging.getLogger('RBNSResults')
-        self.pd_reads = pd_reads
-        self.in_reads = in_reads
+        self.ska_runner = ska_runner
         
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
-        def compute_R(sample, control, k):
+    def _subsampled(self, func):
+        """
+        Adds error estimates using subsamples of the underlying RBNSReads instance
+        for the pulldown sample.
+        """
+        
+        res = func(self.pd_reads, self.in_reads)
+
+        sampled = np.array([
+            func(sample, self.in_reads)
+            for sample in self.pd_reads.subsamples
+        ])
+        errors = sampled.std(axis=0)
+
+        return res, errors
+        
+    @cached
+    @pickled
+    def R_values(self, k):
+        def compute_R(sample, control):
             return sample.kmer_frequencies(k) / control.kmer_frequencies(k)
         
-        def compute_SKA(sample, control, k):
-            return ska_runner.stream_counts(k, sample, control)
-            
-        def compute_F_ratio(sample, control, k):
-            return sample.fraction_of_reads_with_kmers(k) / control.fraction_of_reads_with_kmers(k)
-            
-        def compute_recall_ratio(sample, control, kmer_order):
-            return sample.recall(kmer_order, reorder=False) / control.recall(kmer_order, reorder=False)
+        return self._subsampled(compute_R)
 
-        def compute_pure_f_ratio(sample, control, candidates):
+    @cached
+    @pickled
+    def SKA_weights(self, k):
+        def compute_SKA(sample, control):
+            return self.ska_runner.stream_counts(k, sample, control)
+        
+        return self._subsampled(compute_SKA)
+
+    @cached
+    @pickled
+    def F_ratios(self, k):
+        def compute_F_ratio(sample, control):
+            return sample.fraction_of_reads_with_kmers(k) / control.fraction_of_reads_with_kmers(k)
+        
+        return self._subsampled(compute_F_ratio)
+
+    @cached
+    @pickled
+    def recall_ratios(self, kmer_order):
+        def compute_recall_ratio(sample, control):
+            return sample.recall(kmer_order, reorder=False) / control.recall(kmer_order, reorder=False)
+        
+        return self._subsampled(compute_recall_ratio)
+
+    @cached
+    @pickled
+    def pure_F_ratios(self, candidates):
+        def compute_pure_F_ratio(sample, control):
             f_pd, flags = sample.fraction_of_reads_with_pure_kmers(candidates)
             f_in, flags = control.fraction_of_reads_with_pure_kmers(candidates)
         
             return f_pd / f_in
 
-        self.R_values = RBNSResult(pd_reads, in_reads, "R-value", compute_R)
-        self.SKA_weights = RBNSResult(pd_reads, in_reads, "SKA-weight", compute_SKA)
-        self.F_ratios = RBNSResult(pd_reads, in_reads, "F-ratio", compute_F_ratio)
-        self.recall_ratios = RBNSResult(pd_reads, in_reads, "recall-ratio", compute_recall_ratio)
-        self.pure_F_ratios = RBNSResult(pd_reads, in_reads, "pure-F-ratio", compute_pure_f_ratio)
-            
+        return self._subsampled(compute_pure_F_ratio)
 
     def ska_z_scores(self, k):
         s = self.SKA_weights(k)
         z = (s - s.mean()) / s.std()
         return z
             
-
     def __str__(self):
         # TODO: update
         I = self.ska_weights.argsort()[::-1]
@@ -105,6 +96,7 @@ class RBNSComparison(object):
             buf.append("{0}\t{1:.2f}".format(cska.ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
         
         return '\n'.join(buf)
+
 
 class RBNSAnalysis(CachedBase):
     def __init__(self, rbp_name ='RBP', out_path='ska_results', ska_runner=None):
@@ -125,6 +117,10 @@ class RBNSAnalysis(CachedBase):
         self.AUCs = {}
         #self.pair_screens = collections.defaultdict(dict)
         
+    def flush(self):
+        for comp in self.comparisons:
+            comp.cache_flush()
+
     def add_reads(self, rbns_reads):
         self.logger.info("adding {0}".format(rbns_reads.name) )
         self.reads.append(rbns_reads)
@@ -194,7 +190,7 @@ class RBNSAnalysis(CachedBase):
 
     def store_all_results(self, k):
         order = self.get_optimal_kmer_ranking(k)
-        kmers = np.array(list(yield_kmers(k)))
+        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
         
         for name in ["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"]:
             values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)

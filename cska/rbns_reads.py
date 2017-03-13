@@ -77,13 +77,16 @@ class RBNSReads(CachedBase):
         l = end - start
         self.logger.debug("returning subsample of len={l} from {start}:{end}".format(**locals()) )
         
-        return RBNSReads(
+        ss = RBNSReads(
             self.fname, 
             seqm=self.seqm[start:end],
             pseudo_count=self.pseudo_count,
             rbp_name="{self.rbp_name}_subsample_{i:02d}".format(**locals()),
             rbp_conc = self.rbp_conc,
         )
+        # disable caching on the subsamples, bc they are only used once
+        ss._do_not_cache = True
+        return ss
 
     @cached
     @pickled
