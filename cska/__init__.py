@@ -18,79 +18,16 @@ import matplotlib
 import matplotlib.pyplot as pp
 import cPickle as pickle
 
-def cached(func):
-    """
-    Decorator for class methods that keeps the results of the first call and 
-    returns the cached result for subsequent calls. Works by adding a 
-    "__cached_<func_name>" dictionary to the decorated method's class instance.
-    """
-    cache_name = "__cached_{name}".format(name=func.__name__)
-    
-    def cached_func(self, *argc):
-        if not hasattr(self, cache_name):
-            setattr(self, cache_name, dict() )
-        
-        cache = getattr(self, cache_name)
-        
-        def to_str(x):
-            if type(x) == np.ndarray:
-                return "array_{0}".format(x.shape)
-            else:
-                return str(x)
+from cska.caching import cached, pickled, CachedBase
 
-        argc_key = "_".join([to_str(a) for a in argc])
 
-        if not argc_key in cache:
-            cache[argc_key] = func(self, *argc)
-            
-        return cache[argc_key]
-    
-    return cached_func
-  
-def pickled(func):
-    """
-    Decorator for class methods that returns an un-pickled result if it exists. 
-    Otherwise, stores the result of the call in a pickle file. Requires that the 
-    class has an out_path attribute and a pickle_key method that returns a distinct 
-    key for all the parameters that influence the results, ensuring that the correct
-    object is unpickled.
-    """
-    
-    def pickled_func(self, *argc, **kwargs):
-        
-        def to_str(x):
-            if type(x) == np.ndarray:
-                return "array_{0}".format(x.shape)
-            else:
-                return str(x)
-
-        inst_key = self.pickle_key()
-        argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
-        
-        path = os.path.join(self.out_path,"pkl")
-        pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
-        if not os.path.exists(os.path.join(path,pkl_name)):
-            res = func(self, *argc, **kwargs)
-            try:
-                os.makedirs(path)
-            except OSError:
-                # already exists
-                pass
-            self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
-            pickle.dump(res, file(os.path.join(path,pkl_name),'wb'), protocol=-1)
-        else:
-            self.logger.debug("un-pickling '{0}'".format(pkl_name) )
-            res = pickle.load(file(os.path.join(path,pkl_name),'rb'))
-        
-        return res
-    
-    return pickled_func
-
-class RBNSReads(object):
+class RBNSReads(CachedBase):
     out_path = './'
     
     def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0):
+        
+        CachedBase.__init__(self)
+        
         self.name = "{rbp_name}@{rbp_conc}nM".format(**locals())
         self.rbp_name = rbp_name
         self.rbp_conc = rbp_conc
@@ -104,44 +41,40 @@ class RBNSReads(object):
         self.logger = logging.getLogger('RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         
         if len(seqm):
-            self._seqm = seqm
-            self.N, self.L = self._seqm.shape
+            self.cache_preload("__cached_seqm", seqm)
+            self.N, self.L = seqm.shape
         else:
-            self._seqm = []
             self.N = 0
             self.L = 0
 
-        self._subsamples = []
     
-    def pickle_key(self):
+    def cache_key(self):
         return "{self.fname}.{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
 
-    def flush(self, items = ["kmer_counts","reads_with_kmers", "fraction_of_reads_with_pure_kmers"]):
-        for item in items:
-            setattr(self, "__cached_{name}".format(name=item), dict() )
-
     @property
+    @cached
     def subsamples(self):
         # TODO: do this more rigorously. Perhaps bootstrapping is better?
-        if not self._subsamples:
-            self.logger.info("subsampling reads...")
-            self._subsamples = [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+        self.logger.info("subsampling reads...")
+        return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
 
-        return self._subsamples
 
     @property
+    @cached
     def seqm(self):
-        if not len(self._seqm):
-            self.logger.info('reading sequences from {self.fname}'.format(self=self) )
-            # load and keep all sequences in memory (numerically A=0,...T=3 )
-            t0 = time.time()
-            self._seqm = cska.ska_kmers.read_raw_seqs_chunked(file(self.fname), chunklines=self.chunklines, n_max=self.n_max)
-            self.N, self.L = self._seqm.shape
-            t1 = time.time()
+        """
+        load and keep all sequences in memory (numerically A=0,...T=3 )
+        """
+        self.logger.info('reading sequences from {self.fname}'.format(self=self) )
+        
+        t0 = time.time()
+        seqm = cska.ska_kmers.read_raw_seqs_chunked(file(self.fname), chunklines=self.chunklines, n_max=self.n_max)
+        self.N, self.L = seqm.shape
+        t1 = time.time()
 
-            self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
+        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
 
-        return self._seqm
+        return seqm
 
     def _subsample(self, i, N):
         """
@@ -303,7 +236,7 @@ class SKARunner(object):
         self.logger.debug("streaming of {0:.2f}M reads took {1:.2f}ms".format(pd_reads.N / 1e6,  1000. * t) )
         return current_weights
 
-class RBNSResult(object):
+class RBNSResult(CachedBase):
     """
     Generic wrapper around all quantities that are computed by comparing two 
     RBNS samples, such as R-values, F-values, SKA-weights, etc.
@@ -321,6 +254,9 @@ class RBNSResult(object):
         pd_reads and in_reads as first arguments, plus *argc, **kwargs from
         the __call__ to the RBNSResults instance.
         """
+        
+        CachedBase.__init__(self)
+
         self.pd_reads = pd_reads
         self.in_reads = in_reads
         self.func = func
@@ -330,8 +266,8 @@ class RBNSResult(object):
         ## make the @cached and @pickled work
         #self.__call__.name = name
         
-    def pickle_key(self):
-        return ".".join([self.name, self.pd_reads.pickle_key(), self.in_reads.pickle_key()])
+    def cache_key(self):
+        return ".".join([self.name, self.pd_reads.cache_key(), self.in_reads.cache_key()])
     
     @cached
     @pickled
@@ -397,8 +333,11 @@ class RBNSComparison(object):
         
         return '\n'.join(buf)
 
-class RBNSAnalysis(object):
+class RBNSAnalysis(CachedBase):
     def __init__(self, rbp_name ='RBP', out_path='ska_results', ska_runner=None):
+        
+        CachedBase.__init__(self)
+        
         self.reads = []
         self.rbp_name = rbp_name
         self.out_path = out_path
@@ -453,7 +392,6 @@ class RBNSAnalysis(object):
             print cska.ska_kmers.index_to_seq(x, k), candidates[x]
             
         return self._make_matrices("pure_F_ratios", candidates)
-        
 
     @cached
     def get_optimal_kmer_ranking(self, k):
