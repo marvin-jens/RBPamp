@@ -135,10 +135,17 @@ class RBNSReads(CachedBase):
         candidate hits), or the number assigned to the candidate kmer in your input
         if it is a "pure" occurrence.
         """
-        counts, flags = cska.ska_kmers.count_pure_hits(self.seqm, candidates)
+        counts, flags, indices = cska.ska_kmers.count_pure_hits(self.seqm, candidates)
         fraction = (counts + self.pseudo_count ) / float(self.N + self.pseudo_count)
 
-        return fraction, flags
+        return fraction, flags, indices
+
+    def write_pure_reads_fasta(self, out_file, k, candidates, n_sample=100000):
+        counts, flags, indices = self.fraction_of_reads_with_pure_kmers(candidates)
+        n = np.ones(4**k, dtype=np.uint32)*n_sample
+
+        cska.ska_kmers.store_pure_reads(out_file, self.seqm, flags, indices, n)
+        
 
     @pickled
     def kmer_cooccurrence_distance_tensor(self, kmer_list):

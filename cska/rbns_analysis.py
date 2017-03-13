@@ -76,8 +76,8 @@ class RBNSComparison(CachedBase):
     @pickled
     def pure_F_ratios(self, candidates):
         def compute_pure_F_ratio(sample, control):
-            f_pd, flags = sample.fraction_of_reads_with_pure_kmers(candidates)
-            f_in, flags = control.fraction_of_reads_with_pure_kmers(candidates)
+            f_pd, flags, indices = sample.fraction_of_reads_with_pure_kmers(candidates)
+            f_in, flags, indices = control.fraction_of_reads_with_pure_kmers(candidates)
         
             return f_pd / f_in
 
@@ -162,6 +162,22 @@ class RBNSAnalysis(CachedBase):
             
         return self._make_matrices("pure_F_ratios", candidates)
 
+    def write_pure_reads_fasta(self, k, n_sample=100000):
+        order = self.get_optimal_kmer_ranking(k)
+        R, R_err = self.R_value_matrix(k)
+        Rm = np.median(R - R_err, axis=0)[order]
+        
+        i_cut = (Rm > 1).argmin()
+        candidates = np.zeros(4**k, dtype=np.uint32)
+        candidates[order[:i_cut]] = np.arange(i_cut) + 1
+        
+        for x in candidates.nonzero()[0]:
+            print cska.ska_kmers.index_to_seq(x, k), candidates[x]
+
+        for reads in self.reads:
+            fname = "pure_{k}mer_reads_{reads.name}.fa".format(**locals() )
+            reads.write_pure_reads_fasta(file(os.path.join(self.out_path, fname), 'w'), k, candidates, n_sample=n_sample)
+        
     @cached
     def get_optimal_kmer_ranking(self, k):
         # TODO: factor in consistently elevated scores with increasing protein concentration

@@ -16,7 +16,7 @@ class CachedBase(object):
     """
 
     pkl_path = "./.pkl/"
-    debug_caching = False # set to True to get a lot of debug output from the caching framework
+    debug_caching = True # set to True to get a lot of debug output from the caching framework
 
     def __init__(self):
         self._cache_names = []

@@ -111,6 +111,7 @@ def main():
     
     for k in range(options.min_k, options.max_k + 1):
         rbns.store_all_results(k)
+        rbns.write_pure_reads_fasta(k)
         rbns.flush()
     
     ##compute f-values, make overview plots

@@ -39,6 +39,9 @@ letter_to_bits[ord('G')] = 2
 letter_to_bits[ord('T')] = 3
 letter_to_bits[ord('U')] = 3
 
+cdef UINT8_t bits_to_letters[4]
+bits_to_letters[:] = [ord('A'), ord('C'), ord('G'), ord('T')]
+    
 def yield_kmers(k):
     import itertools
     """
@@ -357,6 +360,8 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
     
     # flag each read with which kmer was detected in it (0=None, -1=multiple hits)
     cdef np.ndarray[INT32_t, ndim=1] _hit_flags = np.zeros(N, dtype=np.int32)
+    cdef np.ndarray[UINT32_t, ndim=1] _hit_indices = np.zeros(N, dtype=np.uint32)
+
     
     # a MemoryView into each sequence (already converted 
     # from letters to bits)
@@ -365,6 +370,7 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
     cdef UINT32_t [::1] candidates = _candidates
     cdef UINT32_t [::1] hit_counts = _hit_counts
     cdef INT32_t [::1] hit_flags = _hit_flags
+    cdef UINT32_t [::1] hit_indices = _hit_indices
     
     # helper variables to tell cython the types
     cdef UINT8_t s
@@ -401,8 +407,79 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
             elif n_hits == 1:
                 hit_flags[j] = hit_id 
                 hit_counts[hit_index] += 1
+                hit_indices[j] = hit_index
 
-    return _hit_counts, _hit_flags
+    return _hit_counts, _hit_flags, _hit_indices
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def store_pure_reads(
+        out_file,
+        np.ndarray[UINT8_t, ndim=2] seq_matrix, 
+        np.ndarray[INT32_t, ndim=1] _flags, # one entry for each read. 
+        np.ndarray[UINT32_t, ndim=1] _indices, # one entry for each read.
+        np.ndarray[UINT32_t, ndim=1] _n, # one entry for each kmer-index
+    ):
+    
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t k = np.log2(len(_n))/2
+    print k
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT32_t l = L-k+1
+
+
+    cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
+    cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
+    
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT8_t [::1] seq = _seq
+    cdef UINT8_t [::1] kmer = _kmer
+    cdef INT32_t [::1] flags = _flags
+    cdef UINT32_t [::1] indices = _indices
+    cdef UINT32_t [::1] n = _n
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT32_t hit_id = 0
+    cdef INT32_t flag = 0
+    cdef UINT64_t ofs, index, i, j, n_hits=0, hit_index=0
+    
+    for j in range(N):
+        
+        flag = flags[j]
+        if flag < 1:
+            # not pure
+            continue
+
+        hit_index = indices[j]
+        if n[hit_index] < 1:
+            # already enough of these
+            continue
+
+        n[hit_index] -= 1
+        ofs = j*L
+
+        # convert seq entries back to string
+        for i in range(L):
+            seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
+
+        # convert hit index back to kmer
+        for i in range(k):
+            s = hit_index >> ((k - i-1) * 2)
+            kmer[i] = bits_to_letters[s & 3]
+        
+        out_file.write(">{0} | r={1}\n{2}\n".format(_kmer.tobytes(), flag, _seq.tobytes()) )
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
