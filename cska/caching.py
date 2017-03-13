@@ -21,6 +21,7 @@ class CachedBase(object):
     def __init__(self):
         self._cache_names = []
         self.logger = logging.getLogger('CachedBase')
+        self._do_not_cache = True # DEBUG!!
 
     def cache_key(self):
         """
