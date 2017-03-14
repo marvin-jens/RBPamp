@@ -24,6 +24,10 @@ class RBNSComparison(CachedBase):
         
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
+    @property
+    def cache_key(self):
+        return "{self.name}.{self.pd_reads.cache_key}.{self.in_reads.cache_key}".format(self=self)
+        
     def _subsampled(self, func):
         """
         Adds error estimates using subsamples of the underlying RBNSReads instance

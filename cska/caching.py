@@ -16,13 +16,14 @@ class CachedBase(object):
     """
 
     pkl_path = "./.pkl/"
-    debug_caching = True # set to True to get a lot of debug output from the caching framework
+    debug_caching = False # set to True to get A LOT of debug output from the caching framework
 
     def __init__(self):
         self._cache_names = []
         self.logger = logging.getLogger('CachedBase')
-        self._do_not_cache = True # DEBUG!!
+        #self._do_not_cache = True # DEBUG!!
 
+    @property
     def cache_key(self):
         """
         This needs to be overridden by each subclass, unless class attributes
@@ -45,7 +46,12 @@ class CachedBase(object):
         for cache_name in cache_names:
             setattr(self, cache_name, dict() )
 
-        
+    def cache_debug(self):
+        for name in self._cache_names:
+            print ">>>", self.cache_key, name
+            for k,v in sorted(getattr(self, name).items()):
+                print "  '{0}' : '{1}'".format(k,v)
+    
 def cached(func):
     """
     Decorator for class methods that keeps the results of the first call and 
@@ -65,7 +71,7 @@ def cached(func):
             self._cache_names.append(cache_name)
             if self.debug_caching:
                 self.logger.debug("accessed {0} for first time".format(cache_name) )
-        
+                
         cache = getattr(self, cache_name)
         
         def to_str(x):
@@ -79,6 +85,8 @@ def cached(func):
         if not argc_key in cache:
             if self.debug_caching:
                 self.logger.debug("{0} cache-miss '{1}'".format(cache_name, argc_key) )
+                print "cache miss"
+                self.cache_debug()
 
             if getattr(self, '_do_not_cache', False):
                 # override caching, but allow pre-loading!
@@ -114,14 +122,14 @@ def pickled(func):
             else:
                 return str(x)
 
-        inst_key = self.cache_key()
+        inst_key = self.cache_key
         argc_key = "_".join([to_str(a) for a in argc])
         kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
         
         path = self.pkl_path
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
         if not os.path.exists(os.path.join(path,pkl_name)):
-            print "pickled: calling {0} with {1}".format(func.__name__, argc)
+            #print "pickled: calling {0} with {1}".format(func.__name__, argc)
             res = func(self, *argc, **kwargs)
             try:
                 os.makedirs(path)

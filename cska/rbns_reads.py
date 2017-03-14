@@ -12,8 +12,6 @@ from cska.caching import cached, pickled, CachedBase
 
 
 class RBNSReads(CachedBase):
-    out_path = './'
-    
     def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0):
         
         CachedBase.__init__(self)
@@ -38,8 +36,9 @@ class RBNSReads(CachedBase):
             self.L = 0
 
     
+    @property
     def cache_key(self):
-        return "{self.fname}.{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
+        return "{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
 
     @property
     @cached
@@ -136,7 +135,9 @@ class RBNSReads(CachedBase):
         if it is a "pure" occurrence.
         """
         counts, flags, indices = cska.ska_kmers.count_pure_hits(self.seqm, candidates)
-        fraction = (counts + self.pseudo_count ) / float(self.N + self.pseudo_count)
+        
+        N = (flags > 0).sum() # fraction of pure reads
+        fraction = (counts + self.pseudo_count ) / float(N + self.pseudo_count)
 
         return fraction, flags, indices
 
