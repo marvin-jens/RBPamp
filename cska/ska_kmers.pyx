@@ -346,7 +346,7 @@ def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UI
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates):
+def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t k = np.log2(len(_candidates))/2
     cdef UINT32_t MAX_INDEX = 4**k - 1
@@ -357,25 +357,29 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
 
     # count reads with only one and no other kmer out of the candidates
     cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
+    cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
+    cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
+    cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
     
-    # flag each read with which kmer was detected in it (0=None, -1=multiple hits)
-    cdef np.ndarray[INT32_t, ndim=1] _hit_flags = np.zeros(N, dtype=np.int32)
-    cdef np.ndarray[UINT32_t, ndim=1] _hit_indices = np.zeros(N, dtype=np.uint32)
-
-    
+        
     # a MemoryView into each sequence (already converted 
     # from letters to bits)
-    
     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
     cdef UINT32_t [::1] candidates = _candidates
     cdef UINT32_t [::1] hit_counts = _hit_counts
-    cdef INT32_t [::1] hit_flags = _hit_flags
-    cdef UINT32_t [::1] hit_indices = _hit_indices
+    
+    cdef UINT8_t [::1] seq = _seq
+    cdef UINT8_t [::1] kmer = _kmer
+    cdef UINT32_t [::1] n = _n
     
     # helper variables to tell cython the types
     cdef UINT8_t s
     cdef UINT32_t hit_id = 0
-    cdef UINT64_t ofs, index, i, j, n_hits=0, hit_index=0
+    cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0, best_i = 0, ov=0, best=MAX_INDEX, do_write=0
+    
+    if out_file:
+        # avoid GIL issues if we want to write to this file
+        do_write = 1
     
     with nogil:
         for j in range(N):
@@ -397,19 +401,43 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
                 
                 # assign hit to kmer with best rank
                 if candidates[index] > 0:
-                    hit_id = candidates[index]
-                    hit_index = index
-                    n_hits += 1
+                    if ov == 0:
+                        # non-overlapping hit. Always counts!
+                        n_hits += 1
+
+                    if candidates[index] < best:
+                        # attribute read to lowest-ranked kmer
+                        best = candidates[index]
+                        best_index = index
+                        best_i = i
+                    
+                    ov = 7 # re-start overlap count-down
+
+                if ov > 0:
+                    ov -= 1
             
-            if n_hits > 1:
-                hit_flags[j] = -1
+            if n_hits != 1:
+                # do not count ambiguous or no hit
+                continue
 
-            elif n_hits == 1:
-                hit_flags[j] = hit_id 
-                hit_counts[hit_index] += 1
-                hit_indices[j] = hit_index
+            hit_counts[best_index] += 1
+            if do_write and n[best_index] < n_sample:
+                with gil:
+                    n[best_index] += 1
 
-    return _hit_counts, _hit_flags, _hit_indices
+                    # convert seq entries back to string
+                    for i in range(L):
+                        seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
+
+                    # convert hit index back to kmer
+                    for i in range(k):
+                        s = best_index >> ((k - i-1) * 2)
+                        kmer[i] = bits_to_letters[s & 3]
+                    
+                    out_file.write(">{0} | p={1} | r={2} | n={3}\n{4}\n".format(_kmer.tobytes(), best_i, best, n[best_index], _seq.tobytes()) )
+                        
+
+    return _hit_counts
 
 
 @cython.boundscheck(False)
@@ -419,22 +447,20 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
 @cython.overflowcheck(False)
 def store_pure_reads(
         out_file,
+        UINT64_t k,
         np.ndarray[UINT8_t, ndim=2] seq_matrix, 
         np.ndarray[INT32_t, ndim=1] _flags, # one entry for each read. 
         np.ndarray[UINT32_t, ndim=1] _indices, # one entry for each read.
-        np.ndarray[UINT32_t, ndim=1] _n, # one entry for each kmer-index
+        UINT32_t n_sample,
     ):
     
-    # largest index in array of DNA/RNA k-mer counts
-    cdef UINT64_t k = np.log2(len(_n))/2
-    print k
     cdef UINT32_t MAX_INDEX = 4**k - 1
     
     cdef UINT32_t N = len(seq_matrix)
     cdef UINT32_t L = len(seq_matrix[0])
     cdef UINT32_t l = L-k+1
 
-
+    cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
     cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
     cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
     
@@ -462,11 +488,11 @@ def store_pure_reads(
             continue
 
         hit_index = indices[j]
-        if n[hit_index] < 1:
+        if n[hit_index] >= n_sample:
             # already enough of these
             continue
 
-        n[hit_index] -= 1
+        n[hit_index] += 1
         ofs = j*L
 
         # convert seq entries back to string
@@ -478,7 +504,7 @@ def store_pure_reads(
             s = hit_index >> ((k - i-1) * 2)
             kmer[i] = bits_to_letters[s & 3]
         
-        out_file.write(">{0} | r={1}\n{2}\n".format(_kmer.tobytes(), flag, _seq.tobytes()) )
+        out_file.write(">{0} | r={1} | n={2}\n{3}\n".format(_kmer.tobytes(), flag, n[hit_index], _seq.tobytes()) )
 
 
 @cython.boundscheck(False)

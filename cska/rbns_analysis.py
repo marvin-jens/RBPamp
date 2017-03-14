@@ -70,19 +70,26 @@ class RBNSComparison(CachedBase):
 
     @cached
     @pickled
-    def recall_ratios(self, kmer_order):
+    def recall_ratios(self, k, kmer_order):
         def compute_recall_ratio(sample, control):
-            return sample.recall(kmer_order, reorder=False) / control.recall(kmer_order, reorder=False)
+            return sample.recall(k, kmer_order, reorder=False) / control.recall(k, kmer_order, reorder=False)
         
         return self._subsampled(compute_recall_ratio)
 
     @cached
     @pickled
-    def pure_F_ratios(self, candidates):
+    def pure_F_ratios(self, k, candidates, out_path = "", n_sample = 100000):
         def compute_pure_F_ratio(sample, control):
-            f_pd, flags, indices = sample.fraction_of_reads_with_pure_kmers(candidates)
-            f_in, flags, indices = control.fraction_of_reads_with_pure_kmers(candidates)
-        
+            if not sample.is_subsample and out_path:
+                out_file_pd = os.path.join(out_path, "pure_{k}mer_reads_{sample.name}.fa".format(k = k, sample=sample ))
+                out_file_in = os.path.join(out_path, "pure_{k}mer_reads_{control.name}.fa".format(k = k, control=control ))
+            else:
+                out_file_pd = None
+                out_file_in = None
+                
+            f_pd = sample.fraction_of_reads_with_pure_kmers(k, candidates, out_file=out_file_pd, n_sample = n_sample)
+            f_in = control.fraction_of_reads_with_pure_kmers(k, candidates, out_file=out_file_in, n_sample = n_sample)
+                
             return f_pd / f_in
 
         return self._subsampled(compute_pure_F_ratio)
@@ -93,17 +100,11 @@ class RBNSComparison(CachedBase):
         return z
             
     def __str__(self):
-        # TODO: update
-        I = self.ska_weights.argsort()[::-1]
-        buf = [self.name]
-        for i in I[:10]:
-            buf.append("{0}\t{1:.2f}".format(cska.ska_kmers.index_to_seq(i, self.k), self.ska_weights[i] ) )
-        
-        return '\n'.join(buf)
+        return self.name
 
 
 class RBNSAnalysis(CachedBase):
-    def __init__(self, rbp_name ='RBP', out_path='ska_results', ska_runner=None):
+    def __init__(self, rbp_name ='RBP', out_path='ska_results', ska_runner=None, write_fasta=False, n_pure_samples = 100000):
         
         CachedBase.__init__(self)
         
@@ -111,6 +112,8 @@ class RBNSAnalysis(CachedBase):
         self.rbp_name = rbp_name
         self.out_path = out_path
         self.ska_runner = ska_runner
+        self.write_fasta = write_fasta
+        self.n_pure_samples = n_pure_samples
         self.logger = logging.getLogger('RBNSAnalysis({self.rbp_name}) -> "{self.out_path}"'.format(self=self))
         
         self.rbp_conc = []
@@ -132,8 +135,8 @@ class RBNSAnalysis(CachedBase):
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
     
-    def _make_matrices(self, comp_attr, k):
-        M = np.array([getattr(comp, comp_attr)(k) for comp in self.comparisons])
+    def _make_matrices(self, comp_attr, *argc, **kwargs):
+        M = np.array([getattr(comp, comp_attr)(*argc, **kwargs) for comp in self.comparisons])
         values = M[:,0,:]
         errors = M[:,1,:]
         
@@ -150,7 +153,7 @@ class RBNSAnalysis(CachedBase):
             
     def recall_ratio_matrix(self, k):
         kmer_order = self.get_optimal_kmer_ranking(k)
-        return self._make_matrices("recall_ratios", kmer_order)
+        return self._make_matrices("recall_ratios", k, kmer_order)
 
     def pure_F_ratio_matrix(self, k):
         order = self.get_optimal_kmer_ranking(k)
@@ -164,23 +167,13 @@ class RBNSAnalysis(CachedBase):
         for x in candidates.nonzero()[0]:
             print cska.ska_kmers.index_to_seq(x, k), candidates[x]
             
-        return self._make_matrices("pure_F_ratios", candidates)
+        if self.write_fasta:
+            out_path = self.out_path
+        else:
+            out_path = None
+            
+        return self._make_matrices("pure_F_ratios", k, candidates, out_path=out_path, n_sample = self.n_pure_samples)
 
-    def write_pure_reads_fasta(self, k, n_sample=100000):
-        order = self.get_optimal_kmer_ranking(k)
-        R, R_err = self.R_value_matrix(k)
-        Rm = np.median(R - R_err, axis=0)[order]
-        
-        i_cut = (Rm > 1).argmin()
-        candidates = np.zeros(4**k, dtype=np.uint32)
-        candidates[order[:i_cut]] = np.arange(i_cut) + 1
-        
-        for x in candidates.nonzero()[0]:
-            print cska.ska_kmers.index_to_seq(x, k), candidates[x]
-
-        for reads in self.reads:
-            fname = "pure_{k}mer_reads_{reads.name}.fa".format(**locals() )
-            reads.write_pure_reads_fasta(file(os.path.join(self.out_path, fname), 'w'), k, candidates, n_sample=n_sample)
         
     @cached
     def get_optimal_kmer_ranking(self, k):
@@ -201,7 +194,7 @@ class RBNSAnalysis(CachedBase):
         from scipy.stats.mstats import gmean
         mf = gmean(all_f_ratios, axis=0)
         order = mf.argsort()[::-1]
-        print "geometric mean f-ratios for k",k, mf[order][:n_max]
+        #print "geometric mean f-ratios for k",k, mf[order][:n_max]
         rank_cut = min((mf[order] < 1).argmax(), n_max)
 
         best_sample_i = all_f_ratios[:,order[0]].argmax()

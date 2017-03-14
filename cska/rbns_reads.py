@@ -29,41 +29,17 @@ class RBNSReads(CachedBase):
         self.logger = logging.getLogger('RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         
         if len(seqm):
+            self.is_subsample = True
             self.cache_preload("__cached_seqm", seqm)
             self.N, self.L = seqm.shape
         else:
+            self.is_subsample = False
             self.N = 0
             self.L = 0
-
     
     @property
     def cache_key(self):
         return "{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
-
-    @property
-    @cached
-    def subsamples(self):
-        # TODO: do this more rigorously. Perhaps bootstrapping is better?
-        self.logger.info("subsampling reads...")
-        return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
-
-
-    @property
-    @cached
-    def seqm(self):
-        """
-        load and keep all sequences in memory (numerically A=0,...T=3 )
-        """
-        self.logger.info('reading sequences from {self.fname}'.format(self=self) )
-        
-        t0 = time.time()
-        seqm = cska.ska_kmers.read_raw_seqs_chunked(file(self.fname), chunklines=self.chunklines, n_max=self.n_max)
-        self.N, self.L = seqm.shape
-        t1 = time.time()
-
-        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
-
-        return seqm
 
     def _subsample(self, i, N):
         """
@@ -87,6 +63,36 @@ class RBNSReads(CachedBase):
         ss._do_not_cache = True
         return ss
 
+    @property
+    @cached
+    def subsamples(self):
+        # TODO: do this more rigorously. Perhaps bootstrapping is better?
+        self.logger.info("subsampling reads...")
+        return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+
+    @property
+    @cached
+    def seqm(self):
+        """
+        load and keep all sequences in memory (numerically A=0,...T=3 )
+        """
+        self.logger.info('reading sequences from {self.fname}'.format(self=self) )
+
+        if type(self.fname) == str:
+            src = file(self.fname)
+        else:
+            # already file-like
+            src = self.fname
+
+        t0 = time.time()
+        seqm = cska.ska_kmers.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
+        self.N, self.L = seqm.shape
+        t1 = time.time()
+
+        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
+
+        return seqm
+
     @cached
     @pickled
     def kmer_counts(self, k):
@@ -96,8 +102,8 @@ class RBNSReads(CachedBase):
         """
         t0 = time.time()
         counts = cska.ska_kmers.seq_set_kmer_count(self.seqm, k)
-        t1 = time.time()
-        self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, (t1-t0)*1000. ) )
+        t = time.time() - t0
+        self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, 1000.*t ) )
         
         return counts
 
@@ -115,14 +121,22 @@ class RBNSReads(CachedBase):
     @cached
     @pickled
     def reads_with_kmers(self, k):
-        return cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
+        t0 = time.time()
+        res = cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
+        t = time.time() - t0
+        self.logger.debug("counted reads with {0}mers {1:.3f} ms".format( k, 1000.*t ) )
+        
+        return res
 
+    @cached
+    @pickled
     def fraction_of_reads_with_kmers(self, k):
         # NOTE: since multiple kmers occur in the same read, this does not sum up to 1!
         return (self.reads_with_kmers(k) + self.pseudo_count) / float(self.N + self.pseudo_count)
         
     @cached
-    def fraction_of_reads_with_pure_kmers(self, candidates):
+    @pickled
+    def fraction_of_reads_with_pure_kmers(self, k, candidates, out_file=None, n_sample=100000):
         """
         candidates is a kmer-indexed np.array with the (non-zero) 
         ranks/ids of candidate kmers to consider. The numbers in it are 
@@ -134,20 +148,23 @@ class RBNSReads(CachedBase):
         candidate hits), or the number assigned to the candidate kmer in your input
         if it is a "pure" occurrence.
         """
-        counts, flags, indices = cska.ska_kmers.count_pure_hits(self.seqm, candidates)
-        
-        N = (flags > 0).sum() # fraction of pure reads
-        fraction = (counts + self.pseudo_count ) / float(N + self.pseudo_count)
+        if out_file:
+            # open the file only here when the function is actually executed, 
+            # to avoid starting a new file whithout the actual call performed
+            # due to caching!
+            out_file = file(out_file, 'w')
 
-        return fraction, flags, indices
+        t0 = time.time()
+        counts = cska.ska_kmers.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
+        t = time.time() - t0
+        self.logger.debug("counted reads with pure {0}mers {1:.3f} ms".format( k, 1000.*t ) )
 
-    def write_pure_reads_fasta(self, out_file, k, candidates, n_sample=100000):
-        counts, flags, indices = self.fraction_of_reads_with_pure_kmers(candidates)
-        n = np.ones(4**k, dtype=np.uint32)*n_sample
+        #N = (flags > 0).sum() # fraction of pure reads
+        fraction = (counts + self.pseudo_count ) / float(self.N + self.pseudo_count)
 
-        cska.ska_kmers.store_pure_reads(out_file, self.seqm, flags, indices, n)
-        
+        return fraction
 
+    @cached
     @pickled
     def kmer_cooccurrence_distance_tensor(self, kmer_list):
         k = len(kmer_list[0])
@@ -156,8 +173,12 @@ class RBNSReads(CachedBase):
         kmer_lookup = np.zeros(4**k, dtype=np.uint64)
         kmer_lookup[kmer_indices] = np.arange(n) + 1
         
-        return cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
+        t0 = time.time()
+        tensor = cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
+        t = time.time() - t0
+        self.logger.debug("built {0}mer-cooccurrence tensor in {1:.3f} ms".format( k, 1000.*t ) )
         
+        return tensor
         
     def kmer_filter(self, kmer):
         """
@@ -166,13 +187,18 @@ class RBNSReads(CachedBase):
         """
         return cska.ska_kmers.kmer_filter(self.seqm, kmer)
 
-    def recall(self, kmer_order, reorder=True):
+    @cached
+    @pickled
+    def recall(self, k, kmer_order, reorder=True):
         
         kmer_ranks = np.zeros(len(kmer_order))
         kmer_ranks[kmer_order] = np.arange(len(kmer_order))
         
+        t0 = time.time()
         counts_by_kmer_rank = cska.ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) ) 
-        
+        t = time.time() - t0
+        self.logger.debug("counted reads by {0}mer-rank in {1:.3f} ms".format( k, 1000.*t ) )
+
         recall = (counts_by_kmer_rank + self.pseudo_count) / (float(self.N) + self.pseudo_count)
         
         if reorder:
@@ -180,6 +206,7 @@ class RBNSReads(CachedBase):
         else:
             return recall
 
+    @cached
     @pickled
     def kmer_flank_profiles(self, kmer, k_flank):
         """
