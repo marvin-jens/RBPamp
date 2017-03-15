@@ -155,7 +155,7 @@ class RBNSReads(CachedBase):
             out_file = file(out_file, 'w')
 
         t0 = time.time()
-        counts = cska.ska_kmers.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
+        counts = cska.ska_kmers.count_reads_with_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
         t = time.time() - t0
         self.logger.debug("counted reads with pure {0}mers {1:.3f} ms".format( k, 1000.*t ) )
 

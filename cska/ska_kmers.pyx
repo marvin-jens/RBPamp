@@ -445,6 +445,118 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
+def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t k = np.log2(len(_candidates))/2
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(seq_matrix)
+    cdef UINT32_t L = len(seq_matrix[0])
+    cdef UINT32_t l = L-k+1
+
+    # count reads with only one and no other kmer out of the candidates
+    cdef np.ndarray[UINT32_t, ndim=1] _kmer_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
+    cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
+    cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
+    cdef np.ndarray[UINT8_t] _kmer = np.zeros(2*l+2, dtype=np.uint8) + ord(',')
+    cdef np.ndarray[UINT64_t] _hit_indices = np.zeros(l, dtype=np.uint64)
+    cdef np.ndarray[UINT64_t] _nonhit_indices = np.zeros(l, dtype=np.uint64)
+    cdef np.ndarray[UINT64_t] _hit_pos = np.zeros(l, dtype=np.uint64)
+    cdef np.ndarray[UINT64_t] _nonhit_pos = np.zeros(l, dtype=np.uint64)
+        
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+    cdef UINT32_t [::1] candidates = _candidates
+    cdef UINT32_t [::1] kmer_counts = _kmer_counts
+    
+    cdef UINT8_t [::1] seq = _seq
+    cdef UINT8_t [::1] kmer = _kmer
+    cdef UINT32_t [::1] n = _n
+    cdef UINT64_t [::1] hit_indices = _hit_indices
+    cdef UINT64_t [::1] nonhit_indices = _nonhit_indices
+    cdef UINT64_t [::1] hit_pos = _hit_pos
+    cdef UINT64_t [::1] nonhit_pos = _nonhit_pos
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT32_t hit_id = 0
+    cdef UINT64_t ofs, index, i, j, n_hits=0, n_nonhits=0, o=0, dont_need=0, do_write=0
+    
+    if out_file:
+        # avoid GIL issues if we want to write to this file
+        do_write = 1
+    
+    with nogil:
+        for j in range(N):
+            hit_id = 0
+            n_hits = 0
+            n_nonhits = 0
+            dont_need = 0
+            ofs = j*L
+
+            # compute index of first k-1 mer by bit-shifts
+            index = 0
+            for i in range(k-1):
+                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+
+            # iterate over remaining k-mers
+            for i in range(0, l):
+                # get next "letter"
+                s = _seq_matrix[ofs+i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                # assign hit to kmer with best rank
+                if candidates[index] > 0:
+                    hit_indices[n_hits] = index
+                    hit_pos[n_hits] = i
+                    n_hits += 1
+                    if n[index] >= n_sample:
+                        dont_need += 1
+                else:
+                    nonhit_indices[n_nonhits] = index
+                    nonhit_pos[n_nonhits] = i
+                    n_nonhits += 1
+                    
+            if not n_hits:
+                # no candidate hits! count the non-hits 
+                for i in range(n_nonhits):
+                    index = nonhit_indices[i]
+                    kmer_counts[index] += 1
+            else:
+                # one or more candidate hits. count only those
+                for i in range(n_hits):
+                    index = hit_indices[i]
+                    kmer_counts[index] += 1
+                    n[index] += 1
+                    
+            if do_write and dont_need < n_hits:
+
+                # convert seq entries back to string
+                for i in range(L):
+                    seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
+                
+                for o in range(n_hits):
+                    index = hit_indices[o]
+
+                    # convert hit index back to kmer
+                    for i in range(k):
+                        s = index >> ((k - i-1) * 2)
+                        kmer[i+(k+1)*o] = bits_to_letters[s & 3]
+                        
+                with gil:                            
+                    out_file.write(">{0}\n{1}\n".format(_kmer[:n_hits*(k+1)].tobytes(), _seq.tobytes()) )
+                    
+
+    return _kmer_counts
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def store_pure_reads(
         out_file,
         UINT64_t k,
