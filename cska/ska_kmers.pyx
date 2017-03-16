@@ -445,7 +445,7 @@ def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t,
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
+def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000, str adap5='', str adap3=''):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t k = np.log2(len(_candidates))/2
     cdef UINT32_t MAX_INDEX = 4**k - 1
@@ -453,12 +453,13 @@ def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UIN
     cdef UINT32_t N = len(seq_matrix)
     cdef UINT32_t L = len(seq_matrix[0])
     cdef UINT32_t l = L-k+1
+    cdef UINT64_t l_adap5 = len(adap5)
 
     # count reads with only one and no other kmer out of the candidates
     cdef np.ndarray[UINT32_t, ndim=1] _kmer_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
     cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
     cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
-    cdef np.ndarray[UINT8_t] _kmer = np.zeros(2*l+2, dtype=np.uint8) + ord(',')
+    cdef np.ndarray[UINT8_t] _kmer = np.zeros(l*(k+2), dtype=np.uint8) + ord(',')
     cdef np.ndarray[UINT64_t] _hit_indices = np.zeros(l, dtype=np.uint64)
     cdef np.ndarray[UINT64_t] _nonhit_indices = np.zeros(l, dtype=np.uint64)
     cdef np.ndarray[UINT64_t] _hit_pos = np.zeros(l, dtype=np.uint64)
@@ -545,8 +546,9 @@ def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UIN
                         s = index >> ((k - i-1) * 2)
                         kmer[i+(k+1)*o] = bits_to_letters[s & 3]
                         
-                with gil:                            
-                    out_file.write(">{0}\n{1}\n".format(_kmer[:n_hits*(k+1)].tobytes(), _seq.tobytes()) )
+                with gil:
+                    pos_str = ",".join( [str(p + l_adap5) for p in hit_pos[:n_hits]] )
+                    out_file.write(">{0} | p={1}\n{2}{3}{4}\n".format(_kmer[:n_hits*(k+1)-1].tobytes(), pos_str, adap5, _seq.tobytes(), adap3))
                     
 
     return _kmer_counts

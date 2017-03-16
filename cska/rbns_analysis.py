@@ -157,15 +157,15 @@ class RBNSAnalysis(CachedBase):
 
     def pure_F_ratio_matrix(self, k):
         order = self.get_optimal_kmer_ranking(k)
-        R, R_err = self.R_value_matrix(k)
+        R, R_err = self.SKA_weight_matrix(k)
         Rm = np.median(R - R_err, axis=0)[order]
         
-        i_cut = (Rm > 1).argmin()
+        i_cut = (Rm > 2).argmin()
         candidates = np.zeros(4**k, dtype=np.uint32)
         candidates[order[:i_cut]] = np.arange(i_cut) + 1
         
-        for x in candidates.nonzero()[0]:
-            print cska.ska_kmers.index_to_seq(x, k), candidates[x]
+        for i,o in enumerate(order[:i_cut]):
+            print cska.ska_kmers.index_to_seq(o, k), candidates[o], Rm[i]
             
         if self.write_fasta:
             out_path = self.out_path

@@ -40,13 +40,15 @@ def main():
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search")
-    parser.add_option("-w","--write-fasta",dest="write_fasta",default=False, action="store_true",help="SWITCH: write FASTA file for each library with isolated, top-scoring kmers")
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
     parser.add_option("","--disable-caching",dest="disable_caching",default=False, action="store_true",help="DEBUG: disable transparent caching (SLOW!)")
     parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
     parser.add_option("","--debug-caching",dest="debug_caching",default=False, action="store_true",help="DEBUG: enable detailed debug output from the caching framework")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
+    parser.add_option("-w","--write-fasta",dest="write_fasta",default=False, action="store_true",help="SWITCH: write FASTA file for each library with isolated, top-scoring kmers")
+    parser.add_option("","--adap-5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to FASTA ouput")
+    parser.add_option("","--adap-3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to FASTA ouput")
     options,args = parser.parse_args()
 
     if options.version:
@@ -116,7 +118,9 @@ def main():
             n_max=options.n_max, 
             pseudo_count=options.pseudo, 
             rna_conc = options.rna_conc,
-            n_subsamples = options.subsamples
+            n_subsamples = options.subsamples,
+            adap5=options.adap5,
+            adap3=options.adap3
         )
         
         rbns.add_reads(reads)

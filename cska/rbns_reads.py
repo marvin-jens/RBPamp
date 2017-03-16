@@ -12,7 +12,7 @@ from cska.caching import cached, pickled, CachedBase
 
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0, adap5='', adap3=''):
         
         CachedBase.__init__(self)
         
@@ -20,6 +20,8 @@ class RBNSReads(CachedBase):
         self.rbp_name = rbp_name
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
+        self.adap5 = adap5
+        self.adap3 = adap3
         self.fname = fname
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
@@ -100,6 +102,7 @@ class RBNSReads(CachedBase):
         Returns kmer counts. Keeps counts cached so that successive queries for 
         the same k are just a lookup.
         """
+        self.seqm # trigger loading, so that timer is correct
         t0 = time.time()
         counts = cska.ska_kmers.seq_set_kmer_count(self.seqm, k)
         t = time.time() - t0
@@ -155,10 +158,13 @@ class RBNSReads(CachedBase):
             out_file = file(out_file, 'w')
 
         t0 = time.time()
-        counts = cska.ska_kmers.count_reads_with_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
+        #counts = cska.ska_kmers.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
+        counts = cska.ska_kmers.count_reads_with_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample, adap5=self.adap5, adap3=self.adap3)
         t = time.time() - t0
         self.logger.debug("counted reads with pure {0}mers {1:.3f} ms".format( k, 1000.*t ) )
-
+        if out_file:
+            out_file.close()
+            
         #N = (flags > 0).sum() # fraction of pure reads
         fraction = (counts + self.pseudo_count ) / float(self.N + self.pseudo_count)
 

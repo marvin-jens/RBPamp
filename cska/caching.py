@@ -88,7 +88,7 @@ def cached(func):
                 return str(x)
 
         argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
+        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ]).replace('/','__')
         key = argc_key + "." + kw_key
         
         if not key in cache:
@@ -137,7 +137,7 @@ def pickled(func):
 
         inst_key = self.cache_key
         argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ])
+        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ]).replace('/','__')
         
         path = self.pkl_path
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
