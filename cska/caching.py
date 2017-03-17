@@ -143,7 +143,7 @@ def pickled(func):
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
 
         # get the result from call or un-pickle
-        if getattr(self, '_do_not_unpickle', False):
+        if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
             res = func(self, *argc, **kwargs)
             new = True
 
@@ -157,7 +157,7 @@ def pickled(func):
             new = True
 
         # store the result, if new and not disabled
-        if new and len(res) and (not getattr(self, '_do_not_pickle', False)):
+        if new and len(res) and (not (getattr(self, '_do_not_pickle', False) or kwargs.get('_do_not_pickle', False))):
             self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
             try:
                 os.makedirs(path)
