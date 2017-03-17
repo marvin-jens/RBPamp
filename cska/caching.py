@@ -96,7 +96,7 @@ def cached(func):
                 self.logger.debug("{0} cache-miss '{1}'".format(cache_name, key) )
                 #self.cache_debug()
 
-            if getattr(self, '_do_not_cache', False):
+            if getattr(self, '_do_not_cache', False) or kwargs.get('_do_not_cache', False):
                 if self.debug_caching:
                     self.logger.debug("! NOT CACHING: calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
 
