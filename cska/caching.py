@@ -149,7 +149,6 @@ def pickled(func):
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
 
         # get the result from call or un-pickle
-        print kwargs.get('_do_not_unpickle', False), kwargs, argc
         if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
             res = func(self, *argc, **kw)
             new = True
