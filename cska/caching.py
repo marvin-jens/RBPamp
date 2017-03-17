@@ -72,6 +72,9 @@ def cached(func):
     cache_name = "__cached_{name}".format(name=func.__name__)
     
     def cached_func(self, *argc, **kwargs):
+        kw = dict(kwargs)
+        kw.pop('_do_not_cache', None)
+        
         if not hasattr(self, cache_name):
             setattr(self, cache_name, dict() )
             self._cache_names.append(cache_name)
@@ -101,11 +104,11 @@ def cached(func):
                     self.logger.debug("! NOT CACHING: calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
 
                 # override caching, but allow pre-loading!
-                return func(self, *argc)
+                return func(self, *argc, **kw)
             else:
                 if self.debug_caching:
                     self.logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
-                cache[key] = func(self, *argc, **kwargs)
+                cache[key] = func(self, *argc, **kw)
         else:
             if self.debug_caching:
                 self.logger.debug("{0} cache-hit '{1}'".format(cache_name, key) )
@@ -125,6 +128,9 @@ def pickled(func):
     """
     
     def pickled_func(self, *argc, **kwargs):
+        kw = dict(kwargs)
+        kw.pop('_do_not_pickle', None)
+        kw.pop('_do_not_unpickle', None)
         
         def to_str(x):
             if type(x) == np.ndarray:
@@ -143,8 +149,9 @@ def pickled(func):
         pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
 
         # get the result from call or un-pickle
+        print kwargs.get('_do_not_unpickle', False), kwargs, argc
         if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
-            res = func(self, *argc, **kwargs)
+            res = func(self, *argc, **kw)
             new = True
 
         elif os.path.exists(os.path.join(path,pkl_name)):
@@ -153,7 +160,7 @@ def pickled(func):
             new = False
             
         else:
-            res = func(self, *argc, **kwargs)
+            res = func(self, *argc, **kw)
             new = True
 
         # store the result, if new and not disabled
