@@ -33,11 +33,11 @@ class RBNSReads(CachedBase):
         if len(seqm):
             self.is_subsample = True
             self.cache_preload("__cached_seqm", seqm)
-            self.N, self.L = seqm.shape
+            N, L = seqm.shape
+            self.cache_preload("__cached_N", N)
+            self.cache_preload("__cached_L", L)
         else:
             self.is_subsample = False
-            self.N = 0
-            self.L = 0
     
     @property
     def cache_key(self):
@@ -88,13 +88,26 @@ class RBNSReads(CachedBase):
 
         t0 = time.time()
         seqm = cska.ska_kmers.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
-        self.N, self.L = seqm.shape
         t1 = time.time()
-
-        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(self.N/1E6, self.L, (t1-t0) ) )
+        N, L = seqm.shape
+        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(N/1E6, L, (t1-t0) ) )
 
         return seqm
 
+    @property
+    @cached
+    @pickled
+    def N(self):
+        N, L = self.seqm.shape
+        return N
+
+    @property
+    @cached
+    @pickled
+    def L(self):
+        N, L = self.seqm.shape
+        return L
+    
     @cached
     @pickled
     def kmer_counts(self, k):
@@ -172,29 +185,6 @@ class RBNSReads(CachedBase):
 
     @cached
     @pickled
-    def kmer_cooccurrence_distance_tensor(self, kmer_list):
-        k = len(kmer_list[0])
-        n = len(kmer_list)
-        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
-        kmer_lookup = np.zeros(4**k, dtype=np.uint64)
-        kmer_lookup[kmer_indices] = np.arange(n) + 1
-        
-        t0 = time.time()
-        tensor = cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
-        t = time.time() - t0
-        self.logger.debug("built {0}mer-cooccurrence tensor in {1:.3f} ms".format( k, 1000.*t ) )
-        
-        return tensor
-        
-    def kmer_filter(self, kmer):
-        """
-        returns the subset of seqm that contains sequences with the desired kmer
-        and a boolean matrix with ones at the positions of kmer occurrence
-        """
-        return cska.ska_kmers.kmer_filter(self.seqm, kmer)
-
-    @cached
-    @pickled
     def recall(self, k, kmer_order, reorder=True):
         
         kmer_ranks = np.zeros(len(kmer_order))
@@ -212,6 +202,74 @@ class RBNSReads(CachedBase):
         else:
             return recall
 
+    @cached
+    @pickled
+    def kmer_profiles(self, k):
+        t0 = time.time()
+        profiles = cska.ska_kmers.kmer_profiles(self.seqm, k)
+        t = time.time() - t0
+        self.logger.debug("built {0}mer-profiles {1:.3f} ms".format( k, 1000.*t ) )
+        
+        return profiles
+    
+    #@cached
+    #@pickled
+    def expected_kmer_cooccurrence_distance_tensor(self, kmer_list):
+        """
+        Predict the cooccurrence frequency of kmers from kmer_list
+        at each distance from their positional kmer profiles under
+        the assumption of independence.
+        """
+        k = len(kmer_list[0])
+        n = len(kmer_list)
+        l = self.L - k + 1
+        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
+        kmer_lookup = np.zeros(4**k, dtype=np.uint64)
+        kmer_lookup[kmer_indices] = np.arange(n) + 1
+        
+        tensor = np.zeros( (n, n, l) ,dtype=np.float32)
+        profiles = self.kmer_profiles(k)
+        
+        max_index = {}
+        for s in np.arange(0,k):
+            max_index[s] = 4**(k-s) - 1
+
+        def omega(x,y, s):
+            "returns 1 if overlap is all matches, zero for non-overlap or mismatch"
+            if s < k:
+                return (y >> 2*s) == x & max_index[s]
+            
+            return 1
+            
+        for i,x in enumerate(kmer_indices):
+            for j,y in enumerate(kmer_indices):
+                f_x = profiles[x]/float(self.N)
+                f_y = profiles[y]
+                #if i == 0 and j == 0:
+                    #print f_x
+                for s in np.arange(1,l):
+                    tensor[i,j,s] = np.array([f_x[m] * f_y[m+s] * omega(x,y,s) for m in np.arange(0, l-s)]).mean()
+        
+        return tensor
+                
+        
+    @cached
+    @pickled
+    def kmer_cooccurrence_distance_tensor(self, kmer_list):
+        k = len(kmer_list[0])
+        n = len(kmer_list)
+        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
+        kmer_lookup = np.zeros(4**k, dtype=np.uint64)
+        kmer_lookup[kmer_indices] = np.arange(n) + 1
+        
+        t0 = time.time()
+        tensor = cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
+        t = time.time() - t0
+        self.logger.debug("built {0}mer-cooccurrence tensor in {1:.3f} ms".format( k, 1000.*t ) )
+        
+        return tensor
+        
+    
     @cached
     @pickled
     def kmer_flank_profiles(self, kmer, k_flank):

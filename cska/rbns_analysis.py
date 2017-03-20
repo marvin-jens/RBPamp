@@ -183,24 +183,46 @@ class RBNSAnalysis(CachedBase):
 
         #return gmean(all_ska_weights, axis=0).argsort()[::-1]
         return np.median(all_ska_weights, axis=0).argsort()[::-1]
-
-    def select_significant_kmers(self,k, n_max=10):
-        #TODO: do this based on some statistics, taking into 
-        # account the errors of ska weights from subsampling
+    
+    def select_significant_kmers(self,k, z_cut=2, n_min=1, n_max=None):
+        ska, ska_err = self.SKA_weight_matrix(k)
         
-        # TODO: less ugly!
-        all_f_ratios = np.array([self.runs[(k, reads.rbp_conc)].f_ratios for reads in self.reads[1:] ])
-
-        from scipy.stats.mstats import gmean
-        mf = gmean(all_f_ratios, axis=0)
-        order = mf.argsort()[::-1]
-        #print "geometric mean f-ratios for k",k, mf[order][:n_max]
-        rank_cut = min((mf[order] < 1).argmax(), n_max)
-
-        best_sample_i = all_f_ratios[:,order[0]].argmax()
+        # be conservative rg. error of SKA weight, but keep it non-negative
+        s = np.where(ska > ska_err, ska - ska_err, 0)
+        # z-score across kmers, mean across protein concentations
+        z = np.mean( (s - ska.mean(axis=1)[:, np.newaxis]) / ska.std(axis=1)[:, np.newaxis], axis=0)
+        
+        order = z.argsort()[::-1]
+        #print z[order][:20]
+        rank_cut = max((z[order] < z_cut).argmax(), n_min)
+        if n_max:
+            rank_cut = min(n_max, rank_cut)
+        
+        best_sample_i = ska[:,order[0]].argmax()
         kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
-        return kmers, order[:rank_cut], self.reads[best_sample_i+1].rbp_conc
+        return kmers, order[:rank_cut], best_sample_i+1
 
+    def cooccurrence_tensor_analysis(self, k):
+        kmers, indices, best_sample_i = self.select_significant_kmers(k)
+        print kmers
+        reads = self.reads[best_sample_i]
+        inrds = self.reads[0] # input control
+        
+        expect = np.array(reads.expected_kmer_cooccurrence_distance_tensor(kmers), dtype=np.float32)
+        obsrvd = np.array(reads.kmer_cooccurrence_distance_tensor(kmers), dtype=np.float32)
+        inpool = np.array(inrds.kmer_cooccurrence_distance_tensor(kmers), dtype=np.float32)
+                          
+        lratio =np.log2((obsrvd+1) / (expect+1) )
+        sratio =np.log2((obsrvd+1) / (inpool+1) )
+        
+        #print "expect kmer co-occurrence", expect[0,1,:].sum()
+        #print "obsrvd kmer co-occurrence", obsrvd[0,1,:].sum()
+        
+        import matplotlib.pyplot as pp
+        pp.plot( lratio[2,0,:] ) 
+        pp.plot( sratio[2,0,:] ) 
+        pp.show()
+        
     def store_all_results(self, k):
         order = self.get_optimal_kmer_ranking(k)
         kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
