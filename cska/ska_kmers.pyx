@@ -654,7 +654,7 @@ def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
         for j in range(N):
             ofs = j*L
             
-            # compute index of first k-1 mer by bit-shifts
+            # compute index of first k-1 mer by bit-shiftkmer_profile(self.seqm, k)s
             index = 0
             for i in range(k-1):
                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
@@ -684,12 +684,71 @@ def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
 
     return _hit_counts
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_profiles(np.ndarray[UINT8_t, ndim=2] _seq_matrix, UINT64_t k):
+    """
+    count the occurrences of each kmer at each position from 0-L-k+1 
+    across all reads.
+    input: 
+      _seq_matrix NxL UINT8_t array of all reads
+      k : kmer size
+    
+    returns:
+      4^k x (L-k+1) array of kmer counts along read positions (profiles)
+    
+    """
+    #print "kmer_profiles"
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
-#@cython.initializedcheck(False)
-#@cython.cdivision(True)
-#@cython.overflowcheck(False)
+    cdef UINT32_t N = len(_seq_matrix)
+    cdef UINT32_t L = len(_seq_matrix[0])
+    cdef UINT32_t l = L-k+1 # maximum spacing
+
+    # count reads containing a given kmer, for all kmers
+    cdef np.ndarray[UINT32_t, ndim=2] _profiles = np.zeros( (4**k, l) ,dtype=np.uint32)
+
+    # a MemoryView into each sequence (already converted 
+    # from letters to bits)
+    
+    cdef UINT8_t [::1] seqm = _seq_matrix.flatten()
+    cdef UINT32_t [:,:] profiles = _profiles
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef int ofs, index, i, j
+    
+    #with gil:
+    for j in range(N):
+        ofs = j*L
+        
+        # compute index of first k-1 mer by bit-shifts
+        index = 0
+        for i in range(k-1):
+            index += seqm[ofs+i] << 2 * (k - i - 2)
+
+        # iterate over k-mers
+        for i in range(0, l):
+            # get next "letter"
+            s = seqm[ofs+i+k-1]
+            # compute next index from previous by shift + next letter
+            index = ((index << 2) | s ) & MAX_INDEX
+            # count occurrence
+            profiles[index][i] += 1
+            #print ">", index, index*l + 1, profiles[index*l + i]
+
+    #print "outof",_profiles.sum()
+    return _profiles
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, np.ndarray[UINT64_t, ndim=1] _kmer_lookup, UINT64_t k, UINT64_t n_kmers):
     
     # largest index in array of DNA/RNA k-mer counts
