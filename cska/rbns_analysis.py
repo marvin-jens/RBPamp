@@ -218,10 +218,10 @@ class RBNSAnalysis(CachedBase):
         #print "expect kmer co-occurrence", expect[0,1,:].sum()
         #print "obsrvd kmer co-occurrence", obsrvd[0,1,:].sum()
         
-        import matplotlib.pyplot as pp
-        pp.plot( lratio[2,0,:] ) 
-        pp.plot( sratio[2,0,:] ) 
-        pp.show()
+        #import matplotlib.pyplot as pp
+        #pp.plot( lratio[2,2,:] ) 
+        #pp.plot( sratio[2,2,:] ) 
+        #pp.show()
         
     def store_all_results(self, k):
         order = self.get_optimal_kmer_ranking(k)

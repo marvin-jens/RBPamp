@@ -153,6 +153,9 @@ def pickled(func):
         pkl_key = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}".format(**locals() )
         pkl_name = "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key))
 
+        # allow override
+        pkl_name = getattr(func, "pkl_name", pkl_name)
+        
         # get the result from call or un-pickle
         if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
             res = func(self, *argc, **kw)
