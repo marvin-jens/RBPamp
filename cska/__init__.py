@@ -127,9 +127,12 @@ def main():
     
     for k in range(options.min_k, options.max_k + 1):
         rbns.store_all_results(k)
+        if k >= 5:
+            rbns.cooccurrence_tensor_analysis(k)
         rbns.flush()
     
-    ##compute f-values, make overview plots
+    
+    
     ###rbns.compare_k()
     ##rbns.run_ROC()
     
