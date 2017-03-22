@@ -7,7 +7,11 @@ import os
 import logging
 import numpy as np
 import cPickle as pickle
+import hashlib
 
+def key_to_hash(key):
+    return hashlib.md5(key).hexdigest()
+    
 class CachedBase(object):
     """
     Base class for anything that wants to use transparent caching and/or 
@@ -146,7 +150,8 @@ def pickled(func):
         kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ]).replace('/','__')
         
         path = self.pkl_path
-        pkl_name = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}.pkl".format(**locals() )
+        pkl_key = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}".format(**locals() )
+        pkl_name = "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key))
 
         # get the result from call or un-pickle
         if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
@@ -154,7 +159,7 @@ def pickled(func):
             new = True
 
         elif os.path.exists(os.path.join(path,pkl_name)):
-            self.logger.debug("un-pickling '{0}'".format(pkl_name) )
+            self.logger.debug("un-pickling '{0}' as '{1}'".format(pkl_key, pkl_name) )
             res = pickle.load(file(os.path.join(path,pkl_name),'rb'))
             new = False
             
@@ -163,8 +168,8 @@ def pickled(func):
             new = True
 
         # store the result, if new and not disabled
-        if new and len(res) and (not (getattr(self, '_do_not_pickle', False) or kwargs.get('_do_not_pickle', False))):
-            self.logger.debug("storing pickle of '{0}'".format(pkl_name) )
+        if new and (not (getattr(self, '_do_not_pickle', False) or kwargs.get('_do_not_pickle', False))):
+            self.logger.debug("storing pickle of '{0}' as '{1}'".format(pkl_key, pkl_name) )
             try:
                 os.makedirs(path)
             except OSError:
