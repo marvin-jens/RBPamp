@@ -33,6 +33,7 @@ def main():
     parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in micro molars (default=100uM)")
     parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-T","--temperature",dest="temp",default=22,type=float,help="temperature of the experiment in Celsius (default=22.0)")
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
@@ -45,10 +46,12 @@ def main():
     parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
     parser.add_option("","--debug-caching",dest="debug_caching",default=False, action="store_true",help="DEBUG: enable detailed debug output from the caching framework")
+    parser.add_option("","--openen",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and built open-energy distributions")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
     parser.add_option("-w","--write-fasta",dest="write_fasta",default=False, action="store_true",help="SWITCH: write FASTA file for each library with isolated, top-scoring kmers")
     parser.add_option("","--adap-5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to FASTA ouput")
     parser.add_option("","--adap-3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to FASTA ouput")
+    parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     options,args = parser.parse_args()
 
     if options.version:
@@ -124,12 +127,38 @@ def main():
         )
         
         rbns.add_reads(reads)
-    
-    for k in range(options.min_k, options.max_k + 1):
-        rbns.store_all_results(k)
-        if k >= 5:
-            rbns.cooccurrence_tensor_analysis(k)
-        rbns.flush()
+
+    if options.folding:
+        from cska.folding import OpenenHistCollection, ThreadManager
+        fold_path = os.path.join(options.output,"openen")
+        # prepare outout path
+        if not os.path.exists(fold_path):
+            os.makedirs(fold_path)
+
+        for reads in rbns.reads:
+            logger.info("folding {reads.name}".format(reads=reads) )
+            oa = OpenenHistCollection(name=reads.name, path=fold_path)
+            tm = ThreadManager(n_threads=options.parallel)
+            tm.process_reads(
+                file(reads.fname,'r'), 
+                oa, 
+                temp = options.temp,
+                adap5 = options.adap5,
+                adap3 = options.adap3,
+                min_k = options.min_k,
+                max_k = options.max_k,
+                n_max=options.n_max,
+            )
+            oa.digest()
+            oa.store_pickle()
+        
+    else:
+        for k in range(options.min_k, options.max_k + 1):
+            rbns.store_all_results(k)
+            if k >= 5:
+                rbns.cooccurrence_tensor_analysis(k)
+
+            rbns.flush()
     
     
     
