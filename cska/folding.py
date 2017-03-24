@@ -10,6 +10,21 @@ from Queue import Queue, Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
 
+def getsizeof(obj):
+    size = sys.getsizeof(obj)
+    if hasattr(obj, "items"):
+        #print "dict", type(obj)
+        for o in obj.items():
+            size += getsizeof(o)
+    
+    elif hasattr(obj, "__iter__"):
+        #print "iterable", type(obj)
+        for o in obj:
+            size += getsizeof(o)
+    elif hasattr(obj, "nbytes"):
+        size += obj.nbytes
+        
+    return size
 
 class OpenenHistCollection(object):
     def __init__(self, name="openen.hist", path=".", min_en=0., max_en=20., n_bins=100, n_chunk=10000):
@@ -27,6 +42,7 @@ class OpenenHistCollection(object):
 
         self.n_raw = 0
         self.logger = logging.getLogger("OpenenHistCollection({0})".format(self.name) )
+        self.pickles_in_progress = {}
     
     def add_chunk(self, chunk):
         for k, data in enumerate(chunk.openen):
@@ -37,16 +53,32 @@ class OpenenHistCollection(object):
         self.n_raw += 1
         
         if self.n_raw and (self.n_raw % self.n_chunk == 0):
-            self.digest(min_data=10)
+            self.digest(min_data=0)
             self.store_pickle(suffix="_temp")
 
     def store_pickle(self, suffix=""):
-        print "tadaa"
+        
+        import copy
+        def async_pickle(bins, k, data, fname, in_progress_event):
+            in_progress_event.set()
+            pickle.dump( (bins, k, data), file(fname, 'wb') )
+            in_progress_event.clear()
+        
         for k in sorted(self.kmer_binned.keys()):
+            
+            if not k in self.pickles_in_progress:
+                self.pickles_in_progress[k] = Event()
+            
             fname = os.path.join(self.path, "{self.name}{suffix}.{k}mers.pkl".format(**locals()) )
-            self.logger.debug("store_pickle('{0}')".format(fname) )
-            print "store_pickle('{0}')".format(fname)
-            pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
+            in_progress_event = self.pickles_in_progress[k]
+            if in_progress_event.is_set():
+                self.logger.warning("another pickle of {fname} is still in progress! Skipping.".format(fname=fname) )
+            else:    
+                self.logger.debug("store_pickle('{0}')".format(fname) )
+                t = Thread(target = async_pickle, args = (self.bins, k, copy.deepcopy(self.kmer_binned[k]), fname, in_progress_event) )
+                t.daemon = True
+                t.start()
+            #pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
                                  
     def load_pickle(self, path):
         self.logger.debug("load_pickle('{0}')".format(path) )
@@ -55,6 +87,8 @@ class OpenenHistCollection(object):
     
     def digest(self, min_data=0):
         self.logger.debug("digest() at n_raw={0}".format(self.n_raw) )
+        #self.logger.debug("digest() sizeof kmer_raw={0}".format(getsizeof(self.kmer_raw)) )
+        #self.logger.debug("digest() sizeof kmer_binned={0}".format(getsizeof(self.kmer_binned)) )
         for k in sorted(self.kmer_raw.keys()):
             self.logger.debug("digesting {1} {0}mers".format(k, len(self.kmer_raw[k])) )
             for kmer, data in self.kmer_raw[k].items():
@@ -66,8 +100,9 @@ class OpenenHistCollection(object):
                         self.kmer_binned[k][kmer] += binned
                     
                     # release memory
-                    self.kmer_raw[k][kmer] = []
+                    del self.kmer_raw[k][kmer]
         
+        #self.logger.debug("after digest() sizeof kmer_raw={0}".format(getsizeof(self.kmer_raw)) )
         return self.kmer_binned
 
     def __getitem__(self, kmer):
@@ -105,6 +140,21 @@ class RNAplfoldChunk(object):
             col = line.split('\t')[k]
             self.openen[k].append( (kmer, float(col) ) )
 
+def random_plfold_chunks(k, N=0, L=84):
+    import cska.ska_kmers
+    n = 0
+    while True:
+        chunk = RNAplfoldChunk()
+        l = L-k+1
+        openen = [np.random.random(size=l) * 20]
+        kmers = [cska.ska_kmers.index_to_seq(i,k) for i in np.random.randint(0,4**k,size=l)]
+        chunk.openen[k] = zip(kmers, openen)
+        
+        yield chunk
+        n += 1
+        if N and n >=N:
+            break
+        
 
 def plfold_chunks(src, chunk_type=RNAplfoldChunk):
     chunk = RNAplfoldChunk()
@@ -126,6 +176,7 @@ class ThreadManager(object):
     def __init__(self, n_threads=8):
         #self.name = name
         self.n_threads = n_threads
+        self.logger = logging.getLogger("ThreadManager")
 
     def process_reads(self, src, ohc, min_k=3, max_k=8, vienna_bin="RNAplfold_cska", adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", l=84, temp=22, n_max=0, chunk_type=RNAplfoldChunk):
         cmd=[vienna_bin, "-O", "-u {0}".format(max_k), "-W {0}".format(l), "-L {0}".format(l), "-T {0}".format(temp)]
@@ -169,9 +220,13 @@ class ThreadManager(object):
         #chunk_type.start = len(adap5)
         #chunk_type.end = l - len(adap3)
         
-        def enqueue_output(out, queue):
+        def enqueue_output(out, queue, throttle=100):
+            import time
             for i,chunk in enumerate(plfold_chunks(iter(out.readline, b''), chunk_type)):
                 #print ".", i
+                if queue.qsize() > throttle:
+                    time.sleep(1)
+
                 queue.put(chunk)
             
             out.close()
@@ -195,6 +250,7 @@ class ThreadManager(object):
                     done = False
             return not done
 
+        n = 0
         try:
             while pending():
                 #print "reading", self.q.qsize()
@@ -203,6 +259,9 @@ class ThreadManager(object):
                     #print chunk.openen
                     ohc.add_chunk(chunk)
                     self.q.task_done()
+                    n += 1
+                    if n and not n % 1000:
+                        self.logger.debug("size of queue {0}".format(self.q.qsize()))
                 except Empty:
                     #print "empty"
                     pass
@@ -226,10 +285,16 @@ class ThreadManager(object):
                 
         return ohc
 
-
+def test_memory_consumption():
+    oa = OpenenHistCollection(name="random_test")
+    print "testing kmers"
+    for chunk in random_plfold_chunks(8,N=1E7):
+        oa.add_chunk(chunk)
      
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
+    #test_memory_consumption()
+    
     oa = OpenenHistCollection(name=sys.argv[1])
     
     tm = ThreadManager()
