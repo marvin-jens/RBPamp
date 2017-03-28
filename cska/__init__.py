@@ -14,7 +14,7 @@ import collections
 import cska.ska_kmers
 import matplotlib
 #matplotlib.use('pdf')
-import matplotlib.pyplot as pp
+#import matplotlib.pyplot as pp
 
 from cska.caching import cached, pickled, CachedBase
 from cska.rbns_reads import RBNSReads
@@ -149,8 +149,6 @@ def main():
                 max_k = options.max_k,
                 n_max=options.n_max,
             )
-            oa.digest()
-            oa.store_pickle()
         
     else:
         for k in range(options.min_k, options.max_k + 1):
