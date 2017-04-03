@@ -47,6 +47,7 @@ class RBNSComparison(CachedBase):
     @cached
     @pickled
     def R_values(self, k):
+        self.logger.debug("computing R-values")
         def compute_R(sample, control):
             return sample.kmer_frequencies(k) / control.kmer_frequencies(k)
         
@@ -55,6 +56,7 @@ class RBNSComparison(CachedBase):
     @cached
     @pickled
     def SKA_weights(self, k):
+        self.logger.debug("computing SKA-weights")
         def compute_SKA(sample, control):
             return self.ska_runner.stream_counts(k, sample, control)
         
@@ -63,6 +65,7 @@ class RBNSComparison(CachedBase):
     @cached
     @pickled
     def F_ratios(self, k):
+        self.logger.debug("computing F-ratios")
         def compute_F_ratio(sample, control):
             return sample.fraction_of_reads_with_kmers(k) / control.fraction_of_reads_with_kmers(k)
         
@@ -71,6 +74,7 @@ class RBNSComparison(CachedBase):
     @cached
     @pickled
     def recall_ratios(self, k, kmer_order):
+        self.logger.debug("computing recall ratios")
         def compute_recall_ratio(sample, control):
             return sample.recall(k, kmer_order, reorder=False) / control.recall(k, kmer_order, reorder=False)
         
@@ -79,6 +83,7 @@ class RBNSComparison(CachedBase):
     @cached
     @pickled
     def pure_F_ratios(self, k, candidates, out_path = "", n_sample = 100000):
+        self.logger.debug("computing pure F-ratios")
         def compute_pure_F_ratio(sample, control):
             if not sample.is_subsample and out_path:
                 out_file_pd = os.path.join(out_path, "pure_{k}mer_reads_{sample.name}.fa".format(k = k, sample=sample ))
@@ -93,11 +98,6 @@ class RBNSComparison(CachedBase):
             return f_pd / f_in
 
         return self._subsampled(compute_pure_F_ratio)
-
-    def ska_z_scores(self, k):
-        s = self.SKA_weights(k)
-        z = (s - s.mean()) / s.std()
-        return z
             
     def __str__(self):
         return self.name
@@ -136,6 +136,8 @@ class RBNSAnalysis(CachedBase):
             self.rbp_conc.append(rbns_reads.rbp_conc)
     
     def _make_matrices(self, comp_attr, *argc, **kwargs):
+        self.logger.debug("gathering data matrices for {0}".format(comp_attr) )
+
         M = np.array([getattr(comp, comp_attr)(*argc, **kwargs) for comp in self.comparisons])
         values = M[:,0,:]
         errors = M[:,1,:]
@@ -156,16 +158,19 @@ class RBNSAnalysis(CachedBase):
         return self._make_matrices("recall_ratios", k, kmer_order)
 
     def pure_F_ratio_matrix(self, k):
+        self.logger.debug("computing pure F-ratio matrix for k={0}".format(k) )
+
+        # TODO: replace by select_significant_kmers
         order = self.get_optimal_kmer_ranking(k)
-        R, R_err = self.SKA_weight_matrix(k)
+        R, R_err = self.F_ratio_matrix(k)
         Rm = np.median(R - R_err, axis=0)[order]
         
         i_cut = (Rm > 2).argmin()
         candidates = np.zeros(4**k, dtype=np.uint32)
         candidates[order[:i_cut]] = np.arange(i_cut) + 1
         
-        for i,o in enumerate(order[:i_cut]):
-            print cska.ska_kmers.index_to_seq(o, k), candidates[o], Rm[i]
+        #for i,o in enumerate(order[:i_cut]):
+            #print cska.ska_kmers.index_to_seq(o, k), candidates[o], Rm[i]
             
         if self.write_fasta:
             out_path = self.out_path
@@ -223,21 +228,55 @@ class RBNSAnalysis(CachedBase):
         #pp.plot( sratio[2,2,:] ) 
         #pp.show()
         
-    def store_all_results(self, k):
+    def compute_results(self, k, results=["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"]):
         order = self.get_optimal_kmer_ranking(k)
-        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
-        
-        for name in ["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"]:
-            values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
+        all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
 
+        for name in results:
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
             path = os.path.join(self.out_path, fname)
 
-            self.write_kmer_matrix(path, kmers, values.T, errors.T, order)
+            if name == 'binding_constants':
+                from cska.rbns_model import RBNSKmerModel
+                from cska.folding import OpenenHistCollection, ThreadManager
+                fold_path = os.path.join(self.out_path, "openen")
 
-    def write_kmer_matrix(self, out_path, kmers, values, errors, order):
+                oc = OpenenHistCollection.from_pickle(k, name = self.reads[0].name, path=fold_path)
+                theta = oc.occ('TGCATGT', 121., 1.8)
+                print "THETA", theta
+
+                mdl = RBNSKmerModel.from_analysis(self, k, unfolding_energies = oc )
+                kmers, betas, k_est = mdl.fit_full()
+                print "full model: omegas", betas
+                print "full model: k_est", k_est.mean(axis=0)
+                print k_est
+
+                N = len(kmers)
+                values = np.reshape(k_est.mean(axis=0), (N,1) )
+                errors = np.reshape(k_est.std(axis=0), (N,1) )
+                
+                #errors = betas[:, np.newaxis] #np.zeros(values.shape) * np.NaN
+                
+                header = ['# kmer', 'Kd_est', 'Kd_err']
+                self.write_kmer_matrix(path, kmers, values, errors, header=header)
+                
+            elif name == 'cooccurrence_tensor':
+                rbns.cooccurrence_tensor_analysis(k)
+                continue
+
+            else:
+                values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
+                self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
+
+
+    def write_kmer_matrix(self, out_path, kmers, values, errors, order=None, err_str='error', header=None):
         self.logger.info("writing data matrix '{out_path}'".format(out_path=out_path) )
-        
+        if header == None:
+            header = ['# kmer'] + list(roundrobin(['{0}nM'.format(c) for c in self.rbp_conc], [err_str for c in self.rbp_conc]))
+
+        if order == None:
+            order = np.arange(len(kmers))
+
         def round_to_2(x):
             if x:
                 return round(x, max(-int(np.floor(np.log10(abs(x)))), 2) ) 
@@ -268,7 +307,6 @@ class RBNSAnalysis(CachedBase):
                     pending -= 1
                     nexts = cycle(islice(nexts, pending))
 
-        header = ['# kmer'] + list(roundrobin(['{0}nM'.format(c) for c in self.rbp_conc], ['error' for c in self.rbp_conc]))
         with file(os.path.join(out_path), 'w') as of:
 
             of.write("\t".join(header) + '\n')

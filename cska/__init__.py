@@ -39,6 +39,7 @@ def main():
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("","--ska-convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
+    parser.add_option("","--compute-results",dest="results",default="R_values,SKA_weights,F_ratios",help="list of RBNS metrics to compute and store (default='R_values,SKA_weights,F_ratios')")
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search")
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
@@ -128,9 +129,9 @@ def main():
         
         rbns.add_reads(reads)
 
+    fold_path = os.path.join(options.output,"openen")
     if options.folding:
         from cska.folding import OpenenHistCollection, ThreadManager
-        fold_path = os.path.join(options.output,"openen")
         # prepare outout path
         if not os.path.exists(fold_path):
             os.makedirs(fold_path)
@@ -149,17 +150,12 @@ def main():
                 max_k = options.max_k,
                 n_max=options.n_max,
             )
-        
     else:
         for k in range(options.min_k, options.max_k + 1):
-            rbns.store_all_results(k)
-            if k >= 5:
-                rbns.cooccurrence_tensor_analysis(k)
-
+            rbns.compute_results(k, results=options.results.split(',') )
             rbns.flush()
     
-    
-    
+
     ###rbns.compare_k()
     ##rbns.run_ROC()
     

@@ -69,15 +69,75 @@ class OpenenHistCollection(object):
             self.logger.debug("store_pickle('{0}')".format(fname) )
             pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
 
+    @classmethod
+    def from_pickle(cls, k, name="openen.hist", path="./", suffix=""):
+        OC = cls(name=name, path=path)
+        fname = os.path.join(path, "{name}{suffix}.{k}mers.pkl".format(**locals()) )
+        OC.load_pickle(fname)
+        return OC
+        
     def load_pickle(self, path):
         self.logger.debug("load_pickle('{0}')".format(path) )
         self.bins, k, kmer_binned = pickle.load(file(path, 'rb') )
-        self.kmer_binned[k] = kmer_binned
+        #print kmer_binned.keys()[0]
+        # HACK, CLUDGE, WORKAROUND, HOTFIX, REMOVE!!!!
+        self.kmer_binned[k+1] = kmer_binned # TODO: clean up OpenenHistCollection creation to fix this bug!
    
     def __getitem__(self, kmer):
         k = len(kmer)
         return self.kmer_binned[k][kmer]
 
+   
+    def occ(self, kmer, P, k_bare, disable=False, temp=22.):
+        """
+        mid-point integration of the binding equation over the empirical 
+        open-energy distribution.
+        """
+        k = len(kmer)
+        counts = self.kmer_binned[k][kmer]
+
+        RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
+        #U = (self.bins[:-1] + self.bins[1:]) / 2.
+        U = self.bins[:-1]
+        inv_acc = np.exp(U/RT)
+        #print "inv_acc", inv_acc
+        integrand = counts * P/ (P + k_bare * inv_acc)
+        #print "integrand", integrand
+        Z = np.trapz(U, counts)
+        return np.trapz(U, integrand) / Z
+
+
+    def k_bare_from_occ(self, kmer, P, occ_est, min_k = 1e-9, max_k=1e6, temp=22.):
+        """
+        Given the observed open-energy distrubtion for the kmer, find the 
+        Kd_bare that best predicts the observed (or estimated) occupancy at 
+        the given concentration.
+        Uses `brentq` root finding from scipy.optimize
+        """
+        k = len(kmer)
+        counts = self.kmer_binned[k][kmer]
+
+        RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
+        #U = (self.bins[:-1] + self.bins[1:]) / 2.
+        U = self.bins[:-1]
+        acc = np.exp(-U/RT)
+
+        Z = np.trapz(counts, U)
+        fU = counts / Z
+        
+        def err(k_bare):
+            integrand = fU * P / (P + k_bare / acc)
+            predict = np.trapz(integrand, U)
+            #print k_bare, predict, occ_est
+            return occ_est - predict
+        
+        #print kmer, P, occ_est, "err", err(min_k), err(max_k)
+        from scipy.optimize import minimize, newton, brentq
+        fit = brentq(err, min_k, max_k)
+        #print "optimum kd", fit
+        
+        return fit
+    
    
 
 class RNAplfoldChunk(object):
