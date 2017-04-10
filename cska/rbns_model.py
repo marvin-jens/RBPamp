@@ -1,6 +1,7 @@
 import numpy as np
 import cska.ska_kmers 
 import logging
+import time
 
 
 def Kd_to_kcal(K,temp=22):
@@ -49,14 +50,23 @@ class RBNSGenerator(object):
             di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
             di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
             
-
-            print nt_freq
-            print di_freq
+            t0 = time.time()
             seqm = cska.ska_kmers.generate_random_sequence_matrix_dinuc(self.l, N, nt_freq, di_freq)
+            dt = time.time() - t0
+            
+            rps = N / dt
+            self.logger.debug("took {0:.3f} seconds. {1:.1f} reads per second".format(dt, rps) )
 
         else:
             self.logger.debug("generating random sequence matrix")
+
+            t0 = time.time()
             seqm = cska.ska_kmers.generate_random_sequence_matrix(self.l, N)
+            dt = time.time() - t0
+            
+            rps = N / dt
+            self.logger.debug("took {0:.3f} seconds. {1:.1f} reads per second".format(dt, rps) )
+
         if store:
             cska.ska_kmers.write_seqm(seqm, file(store, 'w') )
 
@@ -495,4 +505,4 @@ class RBNSKmerModel(object):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     gen = RBNSGenerator(7,l=40)
-    gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads", N=100000)
+    gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads")
