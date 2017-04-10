@@ -88,6 +88,16 @@ def rand_seed(UINT64_t seed, burn=1000):
 import time
 rand_seed(int(1000*time.time()) + 11)
 
+cdef inline UINT8_t rand_choice_uint8(UINT64_t [:] cum, int n):
+    cdef UINT64_t rnd = randint()
+    cdef UINT8_t x = 0
+
+    for x in range(n-1):
+        if rnd < cum[x]:
+            return x
+
+    return n-1
+
 def generate_random_sequence_matrix(UINT32_t l, UINT32_t N):
     cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, l), dtype=np.uint8)
     cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
@@ -99,6 +109,32 @@ def generate_random_sequence_matrix(UINT32_t l, UINT32_t N):
             seqm[j,i] = randint() & 3 # use lower 2 bits
             
     return seqm_
+
+
+def generate_random_sequence_matrix_dinuc(UINT32_t l, UINT32_t N, np.ndarray[FLOAT32_t] nt_freqs, np.ndarray[FLOAT32_t, ndim=2] di_freqs):
+    cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, l), dtype=np.uint8)
+    cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
+    
+    cdef UINT64_t i, j, nuc
+    cdef np.ndarray[UINT64_t, ndim=1] cum_nt
+    cdef np.ndarray[UINT64_t, ndim=2] cum_di
+    
+    cum_nt = np.array(nt_freqs.cumsum() * FRAND_MAX, dtype=np.uint64)
+    cum_di = np.array(di_freqs.cumsum(axis=1) * FRAND_MAX, dtype=np.uint64)
+
+    print "nt", cum_nt
+    print "di", cum_di
+    
+    for j in range(N):
+        nuc = rand_choice_uint8(cum_nt, 4)
+        seqm[j,0] = nuc
+        for i in range(1,l):
+            nuc = rand_choice_uint8(cum_di[nuc], 4)
+            seqm[j,i] = nuc
+            
+    return seqm_
+
+
     
 def write_seqm(np.ndarray[UINT8_t, ndim=2] seqm_, f):
     cdef UINT64_t N = seqm_.shape[0], l = seqm_.shape[1], i, j

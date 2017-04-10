@@ -2,8 +2,97 @@ import numpy as np
 import cska.ska_kmers 
 import logging
 
+
+def Kd_to_kcal(K,temp=22):
+    RT = (temp + 273.15) * 8.314459848# RT in Joules/mol
+    kcal = 4.184E3 # kcal in Joules
+    # Kd in nM to E in kcal/mol
+    return np.log(K/1E9)*RT/kcal
+
+
+def kcal_to_Kd(E,temp=22):
+    RT = (temp + 273.15) * 8.314459848# RT in Joules/mol
+    kcal = 4.184E3 # kcal in Joules
+    print "1./RT",kcal/RT
+    # kcal/mol to Kd in nM
+    return np.exp(E*kcal/RT)*1e9
+
+
+class RBNSGenerator(object):
+    def __init__(self, k, l=20, min_E=-11, seed=None, **kwargs):
+        self.k = k
+        self.l = l
+        self.min_E = min_E
+        if seed: 
+            np.random.seed(seed)
+            cska.ska_kmers.rand_seed(seed)
+
+        self.kd = np.array(sorted(RBNSGenerator.Kd_distribution(min_E=min_E, N=4**k, **kwargs)))
+        self.logger = logging.getLogger("RBNSGenerator")
+
+    @staticmethod
+    def Kd_distribution(mu=10., sigma=.2, min_E = -11., N=1024, temp=22.):
+        #s = np.random.lognormal(mu, sigma, N)
+        E = - np.random.lognormal(10., sigma, N) 
+        E -= E.mean()
+        E *= min_E / E.min()
+        
+        return kcal_to_Kd(E, temp=temp)
+
+    def generate_input_reads(self, N=20000000, real_input="", store=""):
+        if real_input:
+            self.logger.debug("generating random sequence matrix, mimicking '{0}'".format(real_input))
+            
+            from cska.rbns_reads import RBNSReads
+            reads = RBNSReads(real_input)
+            nt_freq = reads.kmer_frequencies(1) / 4.
+            di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
+            di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
+            
+
+            print nt_freq
+            print di_freq
+            seqm = cska.ska_kmers.generate_random_sequence_matrix_dinuc(self.l, N, nt_freq, di_freq)
+
+        else:
+            self.logger.debug("generating random sequence matrix")
+            seqm = cska.ska_kmers.generate_random_sequence_matrix(self.l, N)
+        if store:
+            cska.ska_kmers.write_seqm(seqm, file(store, 'w') )
+
+        return seqm
+   
+        
+
+
+class KmerSoupModel(object):
+    def __init__(self, k=5, min_E = -11., temp=22., seed=None):
+        self.k=5
+        self.min_E = min_E
+        if seed: np.random.seed(seed)
+        self.Kd = np.array(sorted(Kd_distribution(min_E = self.min_E, N=4**k, temp=temp)))
+        
+    def occ(self, P):
+        return P[:,np.newaxis] / (P[:,np.newaxis] + self.Kd[np.newaxis,:])
+    
+    def specific_ratio(self, P, beta):
+        occ = self.occ(P)
+        omega = occ.mean(axis=1)
+        
+        return omega / beta
+        
+    def enrichment(self, P, beta):
+        occ = self.occ(P)
+        omega = occ.mean(axis=1)
+        
+        return beta / (beta + omega[:,np.newaxis]) + occ / (beta + omega[:,np.newaxis])
+    
+    def estimate_k(self, P, beta, r, r_ns):
+        return P / (beta * (r/r_ns - 1)) - P
+
+
 class RBNSKmerModel(object):
-    def __init__(self, kmers, r_matrix, rbp_conc, rna_conc=1000., temp=22., unfolding_energies=None, tracked_kmers=None, out_path= './', rbp_name="RBP"):
+    def __init__(self, kmers, r_matrix, rbp_conc, rna_conc=1000., temp=22., unfolding_energies=None, tracked_kmers=[], out_path= './', rbp_name="RBP"):
         """
         kmers and r_matrix should be sorted from most to least strongly bound kmer
         """
@@ -17,14 +106,15 @@ class RBNSKmerModel(object):
         self.rna_conc = rna_conc
         self.temp = temp
         self.unfolding = unfolding_energies
-        self.tracked_kmers = tracked_kmers
+        self.tracked_kmers = {}
+        self.track_kmers(tracked_kmers)
         self.out_path = out_path
 
         self.logger = logging.getLogger("RBNSKmerModel({self.rbp_name},{self.k}mers) ".format(self=self) )
         self.logger.debug("rbp_conc={self.rbp_conc}, rna_conc={self.rna_conc}, temp={self.temp}".format(self=self))
 
     @classmethod
-    def from_file(cls, fname):
+    def from_file(cls, fname, col_start=None, col_end=None):
         rs = []
         rbp_conc = []
         kmers = []
@@ -33,15 +123,19 @@ class RBNSKmerModel(object):
         with file(fname) as f:
             I = f.__iter__()
             head = I.next().rstrip().split('\t')
-            rbp_conc = [float(c) for c in head[2:]]
+            rbp_conc = [float(c.replace('nM','')) for c in head[1:]]
             
             for line in I:
                 parts = line.rstrip().split('\t')
-                rs.append( [float(c) for c in parts[2:]] )
+                rs.append( [float(c) for c in parts[1:]] )
                 kmers.append(parts[0])
                 ranks.append(int(float(parts[1])))
 
         rs = np.array(rs)
+        if col_start and col_end:
+            rs = rs[:, col_start:col_end]
+            rbp_conc = rbp_conc[col_start:col_end]
+            
         most_enriched = np.percentile(rs, axis=0, q=99.9)
         best_sample = most_enriched.argmax()
         I = rs[:,best_sample].argsort()[::-1]
@@ -53,40 +147,84 @@ class RBNSKmerModel(object):
         rna_conc = a.reads[0].rna_conc # assume constant over different experiments
         kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
 
-        r_values, r_errors = a.F_ratio_matrix(k) # a.pure_F_ratio_matrix(k) # a.SKA_weight_matrix(k)
+        r_values, r_errors = a.SKA_weight_matrix(k) # a.pure_F_ratio_matrix(k) # a.SKA_weight_matrix(k)
         #order = a.get_optimal_kmer_ranking(k)
-
-        most_enriched = np.percentile(r_values.T, axis=0, q=99.9)
-        best_sample = most_enriched.argmax()
-        order = r_values[best_sample,:].argsort()[::-1]
-        
+       
+            
         mdl = cls(
-            kmers[order], 
-            r_values[:,order], 
+            kmers, 
+            r_values, 
             np.array(rbp_conc), 
             rna_conc=rna_conc, 
             rbp_name=a.rbp_name, 
             **kwargs
         )
+
+        if a.known_kd:
+            mdl.load_known(a.known_kd)
         
         return mdl
         
 
-    def estimate_r_nonspecific(self, q=1):
+    def load_known(self, path):
+        self.logger.info("loading known Kd values from '{0}'".format(path) )
+
+        ref_kds = {}
+        def is_valid(kmer):
+            nucs = set(['A','C','G','T'])
+
+            for n in kmer:
+                if not n in nucs:
+                    return False
+            return True
+            
+
+        for line in file(path):
+            if line.startswith('#'): 
+                continue
+
+            kmer, kd, err = line.split()[:3]
+            kmer = kmer.upper().replace('U','T')
+            
+            if not is_valid(kmer):
+                self.logger.warning("non-standard nucleotides in kmer '{0}', skipping.".format(kmer) )
+                continue
+            
+            ref_kds[kmer] = float(kd) #float(err) )
+        
+        self.ref_kds = ref_kds
+        self.track_kmers(ref_kds.keys())
+        return ref_kds
+        
+    def track_kmers(self, kmers):
+        for mer in kmers:
+            self.tracked_kmers[mer] = cska.ska_kmers.seq_to_index(mer)
+
+            
+    def estimate_r_nonspecific(self, q=10):
         rns = np.percentile(self.r, q, axis=1)
         self.logger.debug("estimated r_ns='{0}'".format(rns) )
         return rns
 
-    def select_kmers(self, n_top=20):
-        I = np.arange(n_top)
 
-        #indices = []
-        #for i, kmer in enumerate(self.kmers):
-            #if 'GCATG' in kmer or 'TGCACGT' in kmer:
-                #indices.append(i)
+    def select_kmers(self, n_top=10):
+        most_enriched = np.percentile(self.r.T, axis=0, q=99.9)
+        best_sample = most_enriched.argmax()
+        
+        selected = self.tracked_kmers.values()
+        I = self.r[best_sample,:].argsort()[::-1]
+        j = 0
+        while len(selected) < n_top:
+            i = I[j]
+            if not i in selected:
+                selected.append(i)
+            j += 1
+
+        I = np.array(selected)
 
         kmers = self.kmers[I]
         r = self.r[:,I]
+
         self.logger.debug("select_kmers: {0}".format(kmers))
         self.logger.debug("select_peak_r_values: {0}".format(r.max(axis=0)) )
         return kmers, r
@@ -104,16 +242,18 @@ class RBNSKmerModel(object):
         
         n = len(k_est)
         S = (err_weight[np.newaxis,:] * np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
-        
-            #err = np.var(np.log(k_est), axis=0)
-            #err_weight = np.median(1./k_est, axis=0)
-            #err_weight /= err_weight.sum()
-
-            ##print self.rbp_conc
-            ##print kmers[0], err[0], "opt", k_est[:,0]
-            #return (err * err_weight[np.newaxis,:]).sum() / n
-        
+        #S = (np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
         return S
+
+        #n = len(k_est)
+        #err = np.var(np.log(k_est), axis=0)
+        #err_weight = np.median(1./k_est, axis=0)
+        #err_weight /= err_weight.sum()
+
+        ##print self.rbp_conc
+        ##print kmers[0], err[0], "opt", k_est[:,0]
+        #return (err * err_weight[np.newaxis,:]).sum() / n
+        
         
 
     def fit_naive(self, **kwargs):
@@ -190,16 +330,19 @@ class RBNSKmerModel(object):
         return kmers, res.x, k_est
 
         
-    def fit_full(self, q=5, **kwargs):
+    def fit_full(self, q=50, **kwargs):
         self.logger.info("fitting kmer energy model with background and secondary structure unfolding energy")
         
         kmers, r = self.select_kmers(**kwargs)
         rns = self.estimate_r_nonspecific(q=q)
         n = self.n_conc
+        
+        r_eff = (r - rns[:,np.newaxis]) / (1 - rns[:,np.newaxis])
 
-        def estimate_k(betas):
+        def estimate_k(omegas):
             k_est = []
-            occ_matrix = betas[:,np.newaxis]*(r/rns[:,np.newaxis] - 1)
+            occ_matrix = r_eff * omegas[:,np.newaxis]
+            
             for j,occ_row in enumerate(occ_matrix):
                 k_row = []
                 for i, occ in enumerate(occ_row):
@@ -210,34 +353,23 @@ class RBNSKmerModel(object):
             return np.array(k_est)
 
         def score(omegas):
-            #k_est = estimate_k(omegas)
-            #err = np.var(np.log(k_est), axis=0)
-            #err_weight = np.median(1./k_est, axis=0)
-            #err_weight /= err_weight.sum()
-
-            ##print self.rbp_conc
-            ##print kmers[0], err[0], "opt", k_est[:,0]
-            #return (err * err_weight[np.newaxis,:]).sum() / n
-            
             return self.objective_function( estimate_k(omegas) )
             
-        #print "ratios", (1./(r/rns[:,np.newaxis] - 1)).min(axis=1)
-        
         bounds = np.ones((n,2), dtype=float)
-        bounds[:,0] = 1e-4
-        bounds[:,1] = (1./(r/rns[:,np.newaxis] - 1)).min(axis=1)*(1- 1e-2)
-        
-        betas_init = bounds[:,1] / 2.
+        bounds[:,0] = 1e-5
+        bounds[:,1] = (1./r_eff).min(axis=1)*(1- 1e-2)
+        #omegas_init = np.ones(n, dtype=float)*0.02
+        omegas_init = bounds[:,1] / 2.
         
         #print "BOUNDS", bounds
         from scipy.optimize import minimize
-        res = minimize(score, betas_init, method='L-BFGS-B', bounds = bounds)
+        res = minimize(score, omegas_init, method='L-BFGS-B', bounds = bounds)
         
-        betas = res.x
-        occ = betas[:,np.newaxis]*(r/rns[:,np.newaxis] - 1)
+        omegas = res.x
+        occ = r_eff * omegas[:,np.newaxis]
         
-        k_est = estimate_k(betas)
-        err = score( betas )
+        k_est = estimate_k(omegas)
+        err = score( omegas )
         
         if not res.success:
             self.logger.warning("optimization did not converge! binding constant estimates are invalid")
@@ -246,6 +378,26 @@ class RBNSKmerModel(object):
             
         return kmers, res.x, k_est
 
+    def test_known_kds(self, q=10):
+        kmers, r = self.select_kmers(n_top=0) # select only tracked/known kmers
+        rns = self.estimate_r_nonspecific(q=q)
+        n = self.n_conc
+        print "rns", rns
+        print "r", r
+        r_eff = (r - rns[:,np.newaxis]) / (1 - rns[:,np.newaxis])
+        print "r_eff", r_eff
+        k_bare = [self.ref_kds[mer] for mer in kmers]
+
+        omegas = []
+        for i in range(n):
+            P = self.rbp_conc[i]
+            occ_fold = np.array([self.unfolding.occ(mer, P, self.ref_kds[mer]) for mer in kmers])
+            om = occ_fold / r_eff[i]
+            omegas.append(om)
+        
+        print "omegas", omegas
+        
+        
 
     def test_known(self, kmers, kds, q=1):
         # TODO: update!!
@@ -316,7 +468,7 @@ class RBNSKmerModel(object):
         pp.ylim(1e-3,1e3)
         pp.savefig('test_dU.pdf')
 
-        
+
     def plot_k(self, kmers, k_est, title='naive model'):
         import matplotlib.pyplot as pp
         import brewer2mpl
@@ -339,3 +491,8 @@ class RBNSKmerModel(object):
         self.logger.info("plot_k: rendering PDF '{0}'".format(path) )
         pp.savefig(path)
         
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    gen = RBNSGenerator(7,l=40)
+    gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads", N=100000)
