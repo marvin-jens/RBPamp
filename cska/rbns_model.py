@@ -14,31 +14,62 @@ def Kd_to_kcal(K,temp=22):
 def kcal_to_Kd(E,temp=22):
     RT = (temp + 273.15) * 8.314459848# RT in Joules/mol
     kcal = 4.184E3 # kcal in Joules
-    print "1./RT",kcal/RT
+    #print "1./RT",kcal/RT
     # kcal/mol to Kd in nM
     return np.exp(E*kcal/RT)*1e9
 
 
 class RBNSGenerator(object):
-    def __init__(self, k, l=20, min_E=-11, seed=None, **kwargs):
+    def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, **kwargs):
         self.k = k
         self.l = l
         self.min_E = min_E
+        self.temp = temp
+        self.RT = (temp + 273.15) * 8.314459848 / 4.184E3 # RT in kcal/mol
+
         if seed: 
             np.random.seed(seed)
             cska.ska_kmers.rand_seed(seed)
 
-        self.kd = np.array(sorted(RBNSGenerator.Kd_distribution(min_E=min_E, N=4**k, **kwargs)))
+        self.kmer_energies = np.array(sorted(RBNSGenerator.energy_distribution(min_E=min_E, N=4**k, **kwargs))[::-1], dtype=np.float32) / self.RT
+        print self.kmer_energies
         self.logger = logging.getLogger("RBNSGenerator")
 
+    def energy_plot(self):
+        import matplotlib.pyplot as pp
+        pp.figure()
+        pp.hist(self.kmer_energies*self.RT,bins=100)
+        pp.xlabel(r'$\Delta G$ [kcal/mol]')
+        pp.ylabel('frequency')
+        
+        pp.figure()
+        pp.hist(kcal_to_Kd(self.kmer_energies*self.RT),bins=100)
+        pp.xlabel(r'$K_d$ [nM]')
+        pp.ylabel('frequency')
+        
+        
+        pp.show()
+
+    def __str__(self):
+        top_kmers = []
+        
+        for i in self.kmer_energies.argsort()[:10]:
+            kmer = cska.ska_kmers.index_to_seq(i, self.k)
+            E = self.kmer_energies[i]
+            top_kmers.append( "{0}\t{1}\t{2}".format(kmer, E, kcal_to_Kd(E*self.RT, self.temp) ) )
+            
+        return "\n".join(top_kmers)
+
     @staticmethod
-    def Kd_distribution(mu=10., sigma=.2, min_E = -11., N=1024, temp=22.):
-        #s = np.random.lognormal(mu, sigma, N)
+    def energy_distribution(mu=10., sigma=.2, min_E = -11., N=1024, temp=22.):
         E = - np.random.lognormal(10., sigma, N) 
         E -= E.mean()
         E *= min_E / E.min()
-        
-        return kcal_to_Kd(E, temp=temp)
+        return E
+
+    @staticmethod
+    def Kd_distribution(**kwargs):
+        return kcal_to_Kd(RBNSGenerator.energy_distribution(**kwargs))
 
     def generate_input_reads(self, N=20000000, real_input="", store=""):
         if real_input:
@@ -72,7 +103,27 @@ class RBNSGenerator(object):
 
         return seqm
    
+    def generate_bound_reads(self, N=20000000, P=320., p_ns=0.01, real_input="", store=""):
+        self.logger.debug("simulating bound sequence matrix, mimicking input from '{0}'".format(real_input))
         
+        from cska.rbns_reads import RBNSReads
+        reads = RBNSReads(real_input)
+        nt_freq = reads.kmer_frequencies(1) / 4.
+        di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
+        di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
+        
+        t0 = time.time()
+        seqm, n_bound, n_ns = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, nt_freq, di_freq, self.kmer_energies, P, p_ns)
+        dt = time.time() - t0
+        
+        print "specific", n_bound, "non-specific", n_ns
+        rps = N / dt
+        self.logger.debug("took {0:.3f} seconds. {1:.1f} reads per second".format(dt, rps) )
+        
+        if store:
+            cska.ska_kmers.write_seqm(seqm, file(store, 'w') )
+
+        return seqm
 
 
 class KmerSoupModel(object):
@@ -504,5 +555,12 @@ class RBNSKmerModel(object):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    gen = RBNSGenerator(7,l=40)
-    gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads")
+    print kcal_to_Kd(-11.)
+    print kcal_to_Kd(-2.)
+    print kcal_to_Kd(-4.)
+    
+    gen = RBNSGenerator(5,l=40, seed=47110815)
+    print gen
+    #gen.energy_plot()
+    #gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads")
+    gen.generate_bound_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="sim_bound.reads", P=320., p_ns=0.00, N=2000000)

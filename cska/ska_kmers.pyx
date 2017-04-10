@@ -143,6 +143,83 @@ def generate_random_sequence_matrix_dinuc(UINT32_t l, UINT32_t N, np.ndarray[FLO
             
     return seqm_
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.overflowcheck(False)
+@cython.cdivision(True)    
+def simulate_rbns_reads(
+        UINT32_t L, 
+        UINT32_t N,
+        UINT64_t k,
+        np.ndarray[FLOAT32_t] nt_freqs, 
+        np.ndarray[FLOAT32_t, ndim=2] di_freqs,
+        np.ndarray[FLOAT32_t] scaled_kmer_energies_,
+        FLOAT32_t P,
+        FLOAT32_t p_ns,
+    ):
+    
+    cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, L), dtype=np.uint8)
+    cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
+    
+    cdef UINT64_t [:] cum_nt
+    cdef UINT64_t [:] cum_di
+    cdef FLOAT32_t [:] kmer_energies =  scaled_kmer_energies_
+    
+    cum_nt = np.array(nt_freqs.cumsum() * FRAND_MAX, dtype=np.uint64)
+    cum_di = np.array(di_freqs.cumsum(axis=1) * FRAND_MAX, dtype=np.uint64).flatten()
+
+    cdef UINT8_t [:] seq_bits
+    cdef FLOAT32_t Z, w, p_bound, p_obs
+    cdef UINT64_t i, j, nuc, index, n_bound=0, n_ns=0, l=L-k+1
+    cdef UINT64_t MAX_INDEX = 4**k - 1, ofs
+    cdef UINT8_t s
+    
+    P *= 1e-9 # in nMolars
+    
+    j = 0
+    while j < N:
+        # generate a random read with dinuc frequencies
+        nuc = rand_choice_uint8(cum_nt, 0, 4)
+        seqm[j,0] = nuc
+        for i in range(1,l):
+            nuc = rand_choice_uint8(cum_di, nuc << 2, 4)
+            seqm[j,i] = nuc
+            
+        # partition function for binding
+        Z = 0
+        #ofs = j+l
+        # compute index of first k-1 mer by bit-shifts
+        index = 0
+        for i in range(k-1):
+            index += seqm[j, i] << 2 * (k - i - 2)
+
+        # iterate over all k-mers in the read
+        for i in range(k-1, L):
+            # get next "letter"
+            s = seqm[j, i]
+            # compute next index from previous by shift + next letter
+            index = ((index << 2) | s ) & MAX_INDEX
+            
+            # Boltzmann weight for binding here
+            Z += exp(-kmer_energies[index])
+            #print "weight", exp(-kmer_energies[index]), "index", index, "energy", kmer_energies[index]
+
+        Z *= P # times protein concentration
+        
+        #print p_bound
+
+        # do we observe this read?
+        p_bound = Z / (Z + 1.)
+        p_obs = 1 - (1-p_bound)*(1-p_ns)
+        
+        if rand() < p_obs:
+            # was pulled down
+            j += 1
+    
+    return seqm_, n_bound, n_ns
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
