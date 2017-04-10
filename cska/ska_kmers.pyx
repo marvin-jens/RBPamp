@@ -182,7 +182,7 @@ def simulate_rbns_reads(
         # generate a random read with dinuc frequencies
         nuc = rand_choice_uint8(cum_nt, 0, 4)
         seqm[j,0] = nuc
-        for i in range(1,l):
+        for i in range(1,L):
             nuc = rand_choice_uint8(cum_di, nuc << 2, 4)
             seqm[j,i] = nuc
             
