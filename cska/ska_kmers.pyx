@@ -51,7 +51,72 @@ def yield_kmers(k):
     for kmer in itertools.product(bases, repeat=k):
         yield ''.join(kmer)
                                 
+
+#include <stdint.h>
+
+cdef UINT64_t rand_state[2]
+cdef UINT64_t RAND_MAX = 2**64 - 1
+cdef FLOAT32_t FRAND_MAX = RAND_MAX
+
+cdef inline UINT64_t randint():
+    """
+    Cython version of xorshift128plus by Vigna, Sebastiano 
+    https://arxiv.org/abs/1404.0390
+    """
+    cdef UINT64_t x = rand_state[0]
+    cdef UINT64_t y = rand_state[1]
+    rand_state[0] = y
+    x ^= x << 23
+    rand_state[1] = x ^ y ^ (x >> 17) ^ (y >> 26)
+    return rand_state[1] + y
+
+
+cdef inline FLOAT32_t rand():
+    cdef FLOAT32_t x = randint()
+    return x / FRAND_MAX
+
+def rand_seed(UINT64_t seed, burn=1000):
+    cdef UINT64_t rnd
     
+    rand_state[0] = seed
+    rand_state[1] = (~ seed) << 3
+    
+    for i in range(burn):
+        rnd = randint()
+
+# default initialization
+import time
+rand_seed(int(1000*time.time()) + 11)
+
+def generate_random_sequence_matrix(UINT32_t l, UINT32_t N):
+    cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, l), dtype=np.uint8)
+    cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
+    
+    cdef UINT64_t i, j
+    
+    for j in range(N):
+        for i in range(l):
+            seqm[j,i] = randint() & 3 # use lower 2 bits
+            
+    return seqm_
+    
+def write_seqm(np.ndarray[UINT8_t, ndim=2] seqm_, f):
+    cdef UINT64_t N = seqm_.shape[0], l = seqm_.shape[1], i, j
+    
+    cdef UINT8_t [:, :] seqm = seqm_
+    cdef np.ndarray[UINT8_t] seq_ = np.zeros(l+1, dtype=np.uint8)
+    cdef UINT8_t [:] seq = seq_
+    seq[l] = '\n'
+    
+    for j in range(N):
+        # convert seq entries back to string
+        for i in range(l):
+            seq[i] = bits_to_letters[ seqm[j, i] ]
+
+        f.write(seq_)
+    
+    
+
 @cython.boundscheck(True)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
@@ -508,13 +573,15 @@ def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UIN
                 # compute next index from previous by shift + next letter
                 index = ((index << 2) | s ) & MAX_INDEX
                 
-                # assign hit to kmer with best rank
+                # track hits
                 if candidates[index] > 0:
                     hit_indices[n_hits] = index
                     hit_pos[n_hits] = i
                     n_hits += 1
                     if n[index] >= n_sample:
                         dont_need += 1
+                
+                # track non-hits
                 else:
                     nonhit_indices[n_nonhits] = index
                     nonhit_pos[n_nonhits] = i
