@@ -154,14 +154,14 @@ def simulate_rbns_reads(
         UINT64_t k,
         np.ndarray[FLOAT32_t] nt_freqs, 
         np.ndarray[FLOAT32_t, ndim=2] di_freqs,
-        np.ndarray[FLOAT32_t] scaled_kmer_energies_,
-        FLOAT32_t P,
-        FLOAT32_t p_ns,
+        np.ndarray[FLOAT32_t] scaled_kmer_energies_, # already in units of RT
+        FLOAT32_t P, # protein concentration in nM
+        FLOAT32_t p_ns, # prob. for non-specific binding
     ):
     
     cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, L), dtype=np.uint8)
+
     cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
-    
     cdef UINT64_t [:] cum_nt
     cdef UINT64_t [:] cum_di
     cdef FLOAT32_t [:] kmer_energies =  scaled_kmer_energies_
@@ -175,8 +175,8 @@ def simulate_rbns_reads(
     cdef UINT64_t MAX_INDEX = 4**k - 1, ofs
     cdef UINT8_t s
     
-    P *= 1e-9 # in nMolars
-    
+    P *= 1e-9 # convert from nano Molars to Molars
+
     j = 0
     while j < N:
         # generate a random read with dinuc frequencies
@@ -220,7 +220,45 @@ def simulate_rbns_reads(
     return seqm_, n_bound, n_ns
 
 
+def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x):
+    
+    cdef UINT64_t i = 0, j = 0, s = 0
+    cdef UINT64_t N = 4**x
+    cdef UINT64_t l = L - k + 1
+    
+    cdef UINT64_t OV_MAX_INDEX, MAX_INDEX = (4**k) -1 
+    
+    cdef FLOAT32_t w
 
+    cdef np.ndarray[UINT64_t] sindices_  = np.zeros(2*N, dtype=np.uint64)
+    #cdef np.ndarray[FLOAT32_t] sweights_ = np.zeros(2*N), dtype=np.float32)
+    
+    cdef UINT64_t [:] sindices = sindices_
+    #cdef FLOAT32_t [:] sweights = sweights_
+    
+    
+    i = 0
+    w = 1. * (l - x) / l / N
+    OV_MAX_INDEX = 4**(k-x) - 1
+    
+    # shifted to the right, overlaps on the left with index
+    ov = ( index << (2 * x) ) & MAX_INDEX
+    for j in range(4**x): # all possible extensions
+        s = j | ov
+        sindices[i] = s
+        i += 1
+
+    # shifted to the left, overlaps on the right with index
+    ov = ( index >> (2 * x) ) & OV_MAX_INDEX
+    for j in range(4**x): # all possible extensions
+        s = (j << (2*(k-x)) ) | ov
+        sindices[i] = s
+        i += 1
+
+    return w, sindices_
+        
+    
+    
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)

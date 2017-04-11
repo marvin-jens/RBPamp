@@ -1,7 +1,9 @@
 import numpy as np
-import cska.ska_kmers 
 import logging
 import time
+
+import cska.ska_kmers 
+from cska.rbns_reads import RBNSReads
 
 
 def Kd_to_kcal(K,temp=22):
@@ -32,8 +34,8 @@ class RBNSGenerator(object):
             cska.ska_kmers.rand_seed(seed)
 
         self.kmer_energies = np.array(sorted(RBNSGenerator.energy_distribution(min_E=min_E, N=4**k, **kwargs))[::-1], dtype=np.float32) / self.RT
-        print self.kmer_energies
         self.logger = logging.getLogger("RBNSGenerator")
+        self.input_reads = None
 
     def energy_plot(self):
         import matplotlib.pyplot as pp
@@ -71,18 +73,24 @@ class RBNSGenerator(object):
     def Kd_distribution(**kwargs):
         return kcal_to_Kd(RBNSGenerator.energy_distribution(**kwargs))
 
-    def generate_input_reads(self, N=20000000, real_input="", store=""):
-        if real_input:
-            self.logger.debug("generating random sequence matrix, mimicking '{0}'".format(real_input))
-            
-            from cska.rbns_reads import RBNSReads
-            reads = RBNSReads(real_input)
-            nt_freq = reads.kmer_frequencies(1) / 4.
-            di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
-            di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
-            
+    def assign_experimental_input(self, real_input):
+        from cska.rbns_reads import RBNSReads
+        reads = RBNSReads(real_input)
+        nt_freq = reads.kmer_frequencies(1) / 4.
+        di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
+        di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
+        
+        self.input_reads = reads
+        self.input_nt_freq = nt_freq
+        self.input_di_freq = di_freq
+        
+        return nt_freq, di_freq
+        
+    def generate_input_reads(self, N=20000000, store=""):
+        if self.input_reads:
+            self.logger.debug("generating random sequence matrix, mimicking '{0}'".format(self.input_reads.name))
             t0 = time.time()
-            seqm = cska.ska_kmers.generate_random_sequence_matrix_dinuc(self.l, N, nt_freq, di_freq)
+            seqm = cska.ska_kmers.generate_random_sequence_matrix_dinuc(self.l, N, self.input_nt_freq, self.input_di_freq)
             dt = time.time() - t0
             
             rps = N / dt
@@ -104,16 +112,10 @@ class RBNSGenerator(object):
         return seqm
    
     def generate_bound_reads(self, N=20000000, P=320., p_ns=0.01, real_input="", store=""):
-        self.logger.debug("simulating bound sequence matrix, mimicking input from '{0}'".format(real_input))
-        
-        from cska.rbns_reads import RBNSReads
-        reads = RBNSReads(real_input)
-        nt_freq = reads.kmer_frequencies(1) / 4.
-        di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
-        di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
+        self.logger.debug("simulating bound sequence matrix, mimicking input from '{0}'".format(self.input_reads.name))
         
         t0 = time.time()
-        seqm, n_bound, n_ns = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, nt_freq, di_freq, self.kmer_energies, P, p_ns)
+        seqm, n_bound, n_ns = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
         dt = time.time() - t0
         
         print "specific", n_bound, "non-specific", n_ns
@@ -125,7 +127,56 @@ class RBNSGenerator(object):
 
         return seqm
 
+    def predict_occupancies(self, P=320., store=""):
+        Kd = np.exp(self.kmer_energies)*1e9
+        occ = P / (P+Kd)
+        
+        if store:
+            with file(store,'w') as f:
+                for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), occ):
+                    f.write("{0}\t{1}\n".format(kmer, o) )
+            
+        return occ
+    
+    def predict_r_values(self, P=320., store=""):
+        occ = self.predict_occupancies(P)
+        k = self.k
+        kappa = self.input_reads.kmer_frequencies(k) / 4**k
+        omega = (occ * kappa).sum()
+        
+        pi = np.empty(occ.shape, dtype=np.float32)
+        
+        I = occ.argsort()[::-1]
+        for i in I:
+            kmer = cska.ska_kmers.index_to_seq(i, k)
+            p = occ[i] * kappa[i]
+            #print "direct", kmer, occ[i], kappa[i], "pi_naked", p
+            
+            for x in range(1,k):
+                f, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x) 
+                for s in shifts:
+                    #print s, f, type(s), k 
+                    ks = cska.ska_kmers.index_to_seq(int(s), self.k)
+                    #print "shifted", ks, "weight", f, "abundance", kappa[s]
+                    p += occ[s] * kappa[s] * f
 
+                #print "pi_with_shift_{0}".format(x), p
+            #print "pi_with_all_shifts", p
+            pi[i] = p
+
+        # adding baseline
+        pi += omega * kappa * (self.l-3.*k+2.)/self.l
+        
+        r = pi / pi.sum() / kappa
+        I = r.argsort()[::-1]
+        for i in I[:10]:
+            print i, cska.ska_kmers.index_to_seq(i, k), pi[i], r[i]
+
+        if store:
+            with file(store,'w') as f:
+                for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), r):
+                    f.write("{0}\t{1}\n".format(kmer, o) )
+        
 class KmerSoupModel(object):
     def __init__(self, k=5, min_E = -11., temp=22., seed=None):
         self.k=5
@@ -560,7 +611,11 @@ if __name__ == "__main__":
     print kcal_to_Kd(-4.)
     
     gen = RBNSGenerator(5,l=40, seed=47110815)
+    gen.assign_experimental_input("/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads")
     print gen
     #gen.energy_plot()
-    #gen.generate_input_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="bla.reads")
-    gen.generate_bound_reads(real_input="/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads", store="sim_bound.reads", P=320., p_ns=0.00, N=2000000)
+    #gen.generate_input_reads(store="bla.reads")
+    gen.generate_bound_reads(store="sim_bound.reads", P=320., p_ns=0.00, N=2000000)
+    gen.predict_occupancies(P=320., store="occ_320.tsv")
+    gen.predict_r_values(P=320., store="r_320.tsv")
+    
