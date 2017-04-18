@@ -5,6 +5,7 @@ import time
 import cska.ska_kmers 
 from cska.rbns_reads import RBNSReads
 
+from cska.caching import CachedBase, cached, pickled
 
 def Kd_to_kcal(K,temp=22):
     RT = (temp + 273.15) * 8.314459848# RT in Joules/mol
@@ -21,8 +22,264 @@ def kcal_to_Kd(E,temp=22):
     return np.exp(E*kcal/RT)*1e9
 
 
-class RBNSGenerator(object):
+class CrosstalkMatrix(CachedBase):
+    def __init__(self, k, input_reads):
+        CachedBase.__init__(self)
+
+        self.k = k
+        self.l = input_reads.L # oligo size
+        self.input_reads = input_reads
+        self.kappa = self.input_reads.kmer_frequencies(k) / 4**k
+        
+        self.logger = logging.getLogger("CrosstalkMatrix")
+        
+
+    @property
+    def cache_key(self):
+        return "crosstalkmatrix_k={0}_{1}".format(self.k, self.input_reads.cache_key)
+
+    @property
+    @cached
+    @pickled
+    def M(self):
+        k = self.k
+        N = 4**k
+        
+        M = np.zeros((N,N), dtype=np.float32)
+        
+        # kmer overlap extension frequencies
+        kfreqs = {}
+        for x in range(1,k):
+            kfreqs[x] = self.input_reads.kmer_frequencies(x) / 4**x
+        
+        t0 = time.time()        
+        for i in np.arange(N):
+            M[i,i] = 1
+            for x in range(1,k):
+                weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                for s,f in zip(shifts, weights):
+                    M[i,s] += f
+
+        t1 = time.time()
+        self.logger.debug("computed crosstalk matrix for k={0} in {1:.3f}s".format(self.k, t1-t0) )
+        return M
+
+    @property
+    @cached
+    @pickled
+    def M_inv(self):
+        M = self.M
+        t1 = time.time()
+        M_inv = np.linalg.inv(M)
+        t2 = time.time()
+        self.logger.debug("inverted crosstalk matrix for k={0} in {1:.3f}s".format(self.k, t2-t1) )
+        
+        return M_inv
+
+
+    @property
+    def sparseness(self):
+        M = self.M
+        nzero = (M == 0).nonzero()[0].size
+        return nzero / float(M.size)
+
+
+    def matrix_plot(self, fname='crosstalk_matrix.pdf'):
+        M = self.M
+        M_inv = self.M_inv
+
+        import matplotlib.pyplot as pp
+        pp.figure(figsize=(8,4))
+        pp.subplot(121)
+        pp.imshow(np.log10(M), cmap=pp.get_cmap('plasma'))
+        pp.colorbar(label=r'$\log_{10}(M)$',fraction=0.046, pad=0.04)
+
+        pp.subplot(122)
+        pp.imshow(np.log10(M_inv), cmap=pp.get_cmap('plasma'))
+        pp.colorbar(label=r'$\log_{10}(M^{-1})$',fraction=0.046, pad=0.04)
+        pp.tight_layout()
+        
+        self.logger.info("storing figure in '{0}'".format(fname) )
+        pp.savefig(fname)
+
+    def r_values_from_occupancies(self, occ, bg=None):
+        k = self.k
+        kappa = self.kappa
+        omega = (occ * kappa).sum()
+
+        # adding baseline
+        l = self.l - k + 1
+        if bg == None:
+            bg = omega*(l-2.*(k-1))
+        
+        pi = kappa * (np.dot(M, occ ) + bg )
+        sum_pi = pi.sum()
+        
+        r = pi / sum_pi / kappa
+        return r
+    
+
+    def o_values(self, r_values, sum_pi=1., beta=1.):
+        k = self.k
+        
+        M = self.M
+        M_inv = self.M_inv
+        
+        r_inv = np.dot(M_inv, r_values)
+        bg_vec = np.dot(M_inv,np.ones(4**k))
+        
+        occ = r_inv * sum_pi - bg_vec * beta
+        
+        return occ
+        
+        
+    def fit_occupancies(self, r_values):
+        k = self.k
+        
+        M = self.M
+        M_inv = self.M_inv
+        
+        r_inv = np.dot(M_inv, r_values)
+        bg_vec = np.dot(M_inv,np.ones(4**k))
+        
+        kappa = self.input_reads.kmer_frequencies(k) / 4**k
+
+        def r2occ(sum_pi, beta):
+            occ = r_inv * sum_pi - bg_vec * beta
+            return occ
+        
+        def occ2r(occ, beta):
+            omega = (occ * kappa).sum()
+
+            # adding baseline
+            #l = self.l - k + 1
+            #print M.shape, occ.shape
+            pi = kappa * (np.dot(M, occ ) + beta )
+            sum_pi = pi.sum()
+            
+            r = pi / sum_pi / kappa
+            return r
+            
+        def err(r_predict, r_obs):
+            #return np.mean((r_predict - r_obs)**2)
+            return np.mean(np.log2(np.fabs(r_predict/r_obs))**2)
+        
+        def score(params):
+            sum_pi, beta = params
+            
+            occ = r2occ(sum_pi, beta)
+            print "occ top5", occ[-5:]
+            r_predict = occ2r(occ, beta)
+            print "r_predict top5", r_predict[-5:]
+            print "r_value   top5", r_values[-5:]
+            
+            e = err(r_predict, r_values)
+            print "score({0},{1}) -> err={2}".format(sum_pi, beta, e) 
+            print occ[-20:]
+            return e + (occ[occ < 0]**2).sum() + (occ[occ > 1]**2).sum()
+        
+        from scipy.optimize import minimize
+        x0 = (0.01, 0.01)
+        bounds = np.array([
+            [1e-6, .9],
+            [1e-6, .9]
+        ])
+        res = minimize(score, x0, method='SLSQP', bounds = bounds)
+        print res
+        sum_pi, beta = res.x
+        print score(res.x), "<- optimized score"
+        
+        
+        opt_occ = r2occ(sum_pi, beta)
+        r_pred = occ2r()
+        return opt_occ
+
+
+    def linear_fit(self, rbp_conc, r_matrix, indices, temp=22):
+        k = self.k
+        n = len(rbp_conc)
+
+        # all the expensive matrix multiplications are 
+        # done *once*
+        
+        M = self.M
+        M_inv = self.M_inv
+        r_inv = np.array([np.dot(M_inv, r) for r in r_matrix])
+        bg_vec = np.dot(M_inv,np.ones(4**k))
+        
+        I = indices
+        
+        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))[I]
+        
+        r_inv = r_inv[:,I]
+        bg_vec = bg_vec[I]
+        
+
+        def infer_lkd(sum_pi, bg):
+            occ = r_inv * sum_pi[:,np.newaxis] - bg_vec[np.newaxis,:] * bg[:,np.newaxis]
+            
+            kd = rbp_conc[:,np.newaxis] * (1/occ - 1)
+            return np.log(np.where(kd > 0, kd, 1e8))
+        
+        
+        def objective_function(k_est):
+            #k_mean = k_est.mean(axis=0)
+            k_mean = np.median(k_est, axis=0)
+            
+            #err_weight = 1./k_mean
+            #err_weight /= err_weight.sum()
+            
+            S = ((k_est - k_mean[np.newaxis,:])**2).mean()
+            
+            #n = len(k_est)
+            #S = (err_weight[np.newaxis,:] * np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
+            #S = (np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
+            return S
+
+
+        def score(x):
+            sum_pi = x[:n]
+            bg = x[n:]
+            
+            lkd = infer_lkd(sum_pi, bg)
+            
+            #err = RBNSKmerModel.objective_function(kd)
+            err = objective_function(lkd)
+            
+            print "score(",sum_pi,bg,")-> err=",err
+            return err
+
+        
+        def best_fit():
+            from scipy.optimize import minimize, basinhopping
+            x0 = np.ones(2*n, dtype=float)*0.01
+            bounds = np.ones((2*n,2), dtype=float) * 0.1
+            bounds[:,0] = 1e-3
+            #min_dict = dict(bounds = bounds, method='SLSQP')
+            #res = basinhopping(score, x0, minimizer_kwargs=min_dict)
+            
+            res = minimize(score, x0, method='SLSQP', bounds = bounds)#, options=dict(eps=1e-3))
+            print res
+            x = res.x
+            print score(x), "<- optimized score"
+            sum_pi = x[:n]
+            bg = x[n:]
+            
+            lkd = infer_lkd(sum_pi, bg)
+            
+            return np.exp(lkd), sum_pi, bg
+        
+
+        kd, sum_pi, bg = best_fit()
+        dG = Kd_to_kcal(kd, temp=temp).mean(axis=0)
+        
+        return kmers, kd, dG
+
+class RBNSGenerator(CachedBase):
     def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, **kwargs):
+        
+        CachedBase.__init__(self)
+
         self.k = k
         self.l = l
         self.min_E = min_E
@@ -37,27 +294,30 @@ class RBNSGenerator(object):
         self.logger = logging.getLogger("RBNSGenerator")
         self.input_reads = None
 
-    def energy_plot(self):
+    def energy_plot(self, store="kmer_energies.pdf"):
         import matplotlib.pyplot as pp
         pp.figure()
-        pp.hist(self.kmer_energies*self.RT,bins=100)
-        pp.xlabel(r'$\Delta G$ [kcal/mol]')
-        pp.ylabel('frequency')
-        
-        pp.figure()
-        pp.hist(kcal_to_Kd(self.kmer_energies*self.RT),bins=100)
+        y, bins = np.histogram(self.kmer_energies*self.RT,bins=50)
+        print bins.shape, y.shape
+        pp.semilogx(kcal_to_Kd(bins[:-1]), y, linestyle='steps', linewidth=2.)
         pp.xlabel(r'$K_d$ [nM]')
+        #pp.xlabel(r'$\Delta G$ [kcal/mol]')
         pp.ylabel('frequency')
+        pp.savefig(store)
+
+        ##pp.figure()
+        #pp.hist(kcal_to_Kd(self.kmer_energies*self.RT),bins=100)
+        #pp.xlabel(r'$K_d$ [nM]')
+        #pp.ylabel('frequency')
         
-        
-        pp.show()
+
 
     def __str__(self):
         top_kmers = []
         
         for i in self.kmer_energies.argsort()[:10]:
             kmer = cska.ska_kmers.index_to_seq(i, self.k)
-            E = self.kmer_energies[i]
+            E = self.kmer_energies[i]* self.RT
             top_kmers.append( "{0}\t{1}\t{2}".format(kmer, E, kcal_to_Kd(E*self.RT, self.temp) ) )
             
         return "\n".join(top_kmers)
@@ -143,8 +403,11 @@ class RBNSGenerator(object):
         k = self.k
         kappa = self.input_reads.kmer_frequencies(k) / 4**k
         omega = (occ * kappa).sum()
-        
+        print "omega", omega
         pi = np.empty(occ.shape, dtype=np.float32)
+        kfreqs = {}
+        for x in range(1,k):
+            kfreqs[x] = self.input_reads.kmer_frequencies(x) / 4**x
         
         I = occ.argsort()[::-1]
         for i in I:
@@ -153,19 +416,20 @@ class RBNSGenerator(object):
             #print "direct", kmer, occ[i], kappa[i], "pi_naked", p
             
             for x in range(1,k):
-                f, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x) 
-                for s in shifts:
+                weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                for s,f in zip(shifts, weights):
                     #print s, f, type(s), k 
                     ks = cska.ska_kmers.index_to_seq(int(s), self.k)
                     #print "shifted", ks, "weight", f, "abundance", kappa[s]
-                    p += occ[s] * kappa[s] * f
+                    p += occ[s] * f * kappa[i]
 
                 #print "pi_with_shift_{0}".format(x), p
             #print "pi_with_all_shifts", p
             pi[i] = p
 
         # adding baseline
-        pi += omega * kappa * (self.l-3.*k+2.)/self.l
+        l = self.l - k + 1
+        pi += omega*(l-2.*(k-1)) * kappa 
         
         r = pi / pi.sum() / kappa
         I = r.argsort()[::-1]
@@ -177,6 +441,188 @@ class RBNSGenerator(object):
                 for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), r):
                     f.write("{0}\t{1}\n".format(kmer, o) )
         
+        return r
+
+    @cached
+    def crosstalk_matrix_and_inverse(self, store=""):
+        k = self.k
+        N = 4**k
+        
+        M = np.zeros((N,N), dtype=np.float32)
+        
+        # kmer overlap extension frequencies
+        kfreqs = {}
+        for x in range(1,k):
+            kfreqs[x] = self.input_reads.kmer_frequencies(x) / 4**x
+        
+        t0 = time.time()        
+        for i in np.arange(N):
+            M[i,i] = 1
+            for x in range(1,k):
+                weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                for s,f in zip(shifts, weights):
+                    M[i,s] += f
+
+        t1 = time.time()
+        M_inv = np.linalg.inv(M)
+        t2 = time.time()
+        self.logger.debug("computed crosstalk matrix for k={0} in {1:.3f}s, inverted in {2:.3f}s".format(self.k, t1-t0, t2-t1) )
+        return M, M_inv
+    
+        #occ = self.predict_occupancies(P)
+        #kappa = self.input_reads.kmer_frequencies(k) / 4**k
+        #omega = (occ * kappa).sum()
+
+        ## adding baseline
+        #l = self.l - k + 1
+        #bg = omega*(l-2.*(k-1)) #* kappa 
+        
+        ##pi = np.dot(M, occ ) * kappa + base
+
+        #pi = kappa * (np.dot(M, occ ) + bg )
+        
+        #sum_pi = pi.sum()
+        
+        #print "background terms", bg, sum_pi
+        #r = pi / sum_pi / kappa
+        ##import matplotlib.pyplot as pp
+        ##pp.figure()
+        ##pp.loglog(pi / kappa, r,'ok')
+        ##pp.show()
+        #I = r.argsort()[::-1]
+        #for i in I[:10]:
+            #print i, cska.ska_kmers.index_to_seq(i, k), pi[i], r[i]
+
+        #if store:
+            #with file(store,'w') as f:
+                #for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), r):
+                    #f.write("{0}\t{1}\n".format(kmer, o) )
+        
+        ## all the expensive matrix multiplications are 
+        ## done *once*
+        #M_inv = np.linalg.inv(M)
+        #r_inv = np.dot(M_inv, r)
+        #bg_vec = np.dot(M_inv,np.ones(4**k)) 
+
+    
+    def linear_fit(self, rbp_conc, r_matrix, n_top=20):
+
+        k = self.k
+        n = len(rbp_conc)
+
+        def correct_parameters():
+            corr_sum_pi = []
+            corr_bg = []
+            for P in rbp_conc:
+                occ = self.predict_occupancies(P)
+                kappa = self.input_reads.kmer_frequencies(k) / 4**k
+                omega = (occ * kappa).sum()
+
+                # adding baseline
+                l = self.l - k + 1
+                bg = omega*(l-2.*(k-1)) #* kappa 
+                corr_bg.append(bg)
+
+                # predict amount in pulldown
+                pi = kappa * (np.dot(M, occ ) + bg )
+                sum_pi = pi.sum()
+                corr_sum_pi.append(sum_pi)
+        
+            return np.array(corr_sum_pi), np.array(corr_bg)
+        
+        # all the expensive matrix multiplications are 
+        # done *once*
+        
+        M, M_inv = self.crosstalk_matrix_and_inverse()
+        r_inv = np.array([np.dot(M_inv, r) for r in r_matrix])
+        bg_vec = np.dot(M_inv,np.ones(4**k))
+        
+        #occ_recover = r_inv * sum_pi - bg_vec * bg 
+        
+        
+        I = np.arange(4**k - n_top, 4**k)
+        
+        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))[I]
+        
+        r_inv = r_inv[:,I]
+        bg_vec = bg_vec[I]
+        
+
+        def infer_lkd(sum_pi, bg):
+            occ = r_inv * sum_pi[:,np.newaxis] - bg_vec[np.newaxis,:] * bg[:,np.newaxis]
+            
+            kd = rbp_conc[:,np.newaxis] * (1/occ - 1)
+            return np.log(np.where(kd > 0, kd, 1e8))
+        
+        
+        sp0, bg0 = correct_parameters()
+        print "correct parameters are", sp0, bg0
+        #kd = infer_kd(sp0, bg0)
+
+
+        def objective_function(k_est):
+            #k_mean = k_est.mean(axis=0)
+            k_mean = np.median(k_est, axis=0)
+            
+            #err_weight = 1./k_mean
+            #err_weight /= err_weight.sum()
+            
+            S = ((k_est - k_mean[np.newaxis,:])**2).mean()
+            
+            #n = len(k_est)
+            #S = (err_weight[np.newaxis,:] * np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
+            #S = (np.log(k_est / k_mean[np.newaxis,:])**2).sum() / n
+            return S
+
+
+        def score(x):
+            sum_pi = x[:n]
+            bg = x[n:]
+            
+            lkd = infer_lkd(sum_pi, bg)
+            
+            #err = RBNSKmerModel.objective_function(kd)
+            err = objective_function(lkd)
+            
+            print "score(",sum_pi,bg,")-> err=",err
+            return err
+
+        
+        def best_fit():
+            from scipy.optimize import minimize, basinhopping
+            x0 = np.ones(2*n, dtype=float)*0.02
+            bounds = np.ones((2*n,2), dtype=float) * 0.1
+            bounds[:,0] = 1e-3
+            min_dict = dict(bounds = bounds, method='L-BFGS-B')
+            x_best = np.concatenate( (sp0, bg0) )
+            
+            print score(x_best), "<- best score"
+            res = minimize(score, x_best, method='SLSQP', bounds = bounds)#, options=dict(eps=1e-3))
+            #res = basinhopping(score, x0, minimizer_kwargs=min_dict)
+            print res
+            x = res.x
+            print score(x), "<- optimized score"
+            sum_pi = x[:n]
+            bg = x[n:]
+            
+            lkd = infer_lkd(sum_pi, bg)
+            
+            return lkd
+        
+        kd = np.exp(best_fit())
+            
+        #import matplotlib.pyplot as pp
+        #pp.figure()
+        #pp.loglog(occ, occ_recover,'xr')
+        #pp.show()
+        print "correct parameters are", sp0, bg0
+        print kd
+        dG = self.RT * np.log(kd/1e9).mean(axis=0)
+        
+        return kmers, kd, dG
+
+
+    
 class KmerSoupModel(object):
     def __init__(self, k=5, min_E = -11., temp=22., seed=None):
         self.k=5
@@ -606,16 +1052,55 @@ class RBNSKmerModel(object):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    print kcal_to_Kd(-11.)
-    print kcal_to_Kd(-2.)
-    print kcal_to_Kd(-4.)
     
     gen = RBNSGenerator(5,l=40, seed=47110815)
     gen.assign_experimental_input("/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads")
     print gen
+    gen.energy_plot()
+
     #gen.energy_plot()
-    #gen.generate_input_reads(store="bla.reads")
-    gen.generate_bound_reads(store="sim_bound.reads", P=320., p_ns=0.00, N=2000000)
-    gen.predict_occupancies(P=320., store="occ_320.tsv")
-    gen.predict_r_values(P=320., store="r_320.tsv")
+    #gen.generate_input_reads(store="input.reads")
+
+    #gen.generate_bound_reads(store="bound_320.reads", P=320., p_ns=0.00, N=20000000)
+    #occ = gen.predict_occupancies(P=320., store="occ_320.tsv")
+    
+    rbp_conc = np.array([40, 80, 160, 320])
+    rbp_conc = np.array([1.,5.])
+    r_matrix = []
+    for P in rbp_conc:
+        r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
+        occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
+        r_matrix.append(r)
+        #gen.generate_bound_reads(store="bound_{0}.reads".format(P), P=P, p_ns=0.00, N=20000000)
+        
+    kmers, k_est, dG = gen.linear_fit(rbp_conc, np.array(r_matrix), n_top=20)
+    
+    M, M_inv = gen.crosstalk_matrix_and_inverse()
+    nzero = (M == 0).nonzero()[0].size
+    print "sparseness of M", nzero / float(M.size)
+
+    import matplotlib.pyplot as pp
+    #pp.figure()
+    #pp.loglog(r, rm, 'ok')
+    
+    pp.figure(figsize=(8,4))
+    pp.subplot(121)
+    pp.imshow(np.log10(M), cmap=pp.get_cmap('plasma'))
+    pp.colorbar(label=r'$\log_{10}(M)$',fraction=0.046, pad=0.04)
+
+    pp.subplot(122)
+    pp.imshow(np.log10(M_inv), cmap=pp.get_cmap('plasma'))
+    pp.colorbar(label=r'$\log_{10}(M^{-1})$',fraction=0.046, pad=0.04)
+    pp.tight_layout()
+    pp.savefig('crosstalk_matrix.pdf')
+        
+    pp.figure()
+    pp.title("inferred binding energies")
+    print gen.kmer_energies[-20:].shape, dG.shape
+    pp.plot(gen.kmer_energies[-20:]*gen.RT, dG, 'ob')
+    pp.xlabel("simulated energies [kcal/mol]")
+    pp.ylabel("inferred energies [kcal/mol]")
+
+    pp.show()
+    #pp.savefig('predict.pdf')
     
