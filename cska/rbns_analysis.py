@@ -13,7 +13,7 @@ from cska.caching import cached, pickled, CachedBase
 
         
 class RBNSComparison(CachedBase):
-    def __init__(self, in_reads, pd_reads, ska_runner):
+    def __init__(self, in_reads, pd_reads, ska_runner = None):
         
         CachedBase.__init__(self)
         
@@ -60,14 +60,45 @@ class RBNSComparison(CachedBase):
         from cska.rbns_model import CrosstalkMatrix
         cm = CrosstalkMatrix(k, self.in_reads)
         
-        occ = cm.o_values(R)
-        occ_min = cm.o_values(R - R_err)
-        occ_max = cm.o_values(R + R_err)
+        occ = cm.fit_occupancies(R)
+        occ_min = cm.fit_occupancies(R - R_err)
+        occ_max = cm.fit_occupancies(R + R_err)
         
         err_m = np.fabs(occ - occ_min)
         err_M = np.fabs(occ - occ_max)
         occ_err = np.where(err_m > err_M, err_m, err_M )
         return occ, occ_err
+
+
+    @cached
+    #@pickled
+    def DI_values(self, k):
+        self.logger.debug("computing differential information (DI) values")
+        def compute_DI(sample, control):
+            
+            c_pd = sample.kmer_counts(k)
+            c_in = control.kmer_counts(k)
+            
+            n_pd = float(c_pd.sum())
+            n_in = float(c_in.sum())
+            
+            p_pd = n_pd / (n_pd + n_in)
+            p_in = 1. - p_pd
+            
+            #print "p_pd=",p_pd
+            px_pd = c_pd / n_pd
+            px_in = c_in / n_in
+            px = (c_pd + c_in)/(n_pd + n_in)
+            
+            #print "norms=", px_pd.sum(), px_in.sum(), px.sum()
+            
+            DI = p_pd * np.log2(px_pd / (px * p_pd) ) + p_in * np.log2(px_in / (px * p_in) )
+            #print k, "DI", DI[-5:], DI.sum()
+            #print "UUUUU", px[-1], px_pd[-1], px_in[-1]
+            
+            return DI 
+        
+        return self._subsampled(compute_DI)
 
 
     @cached
@@ -164,6 +195,15 @@ class RBNSAnalysis(CachedBase):
         
     def R_value_matrix(self, k):
         return self._make_matrices("R_values", k)
+
+    def DI_value_matrix(self, k):
+        DI, DI_err = self._make_matrices("DI_values", k)
+        print DI.shape, 
+        for conc,di in zip(self.rbp_conc, DI):
+            print di.argmax(), di.argmin()
+            self.logger.info("total mutual information between {0}mer-frequencies and pd/in variable @{2:.1f}nM is {1:.3e} bits".format(k, di.sum(), conc))
+
+        return self._make_matrices("DI_values", k)
 
     def O_value_matrix(self, k):
         return self._make_matrices("O_values", k)
