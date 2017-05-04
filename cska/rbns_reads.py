@@ -12,7 +12,7 @@ from cska.caching import cached, pickled, CachedBase
 
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=100000., n_subsamples = 0, adap5='', adap3=''):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5='', adap3=''):
         
         CachedBase.__init__(self)
         
