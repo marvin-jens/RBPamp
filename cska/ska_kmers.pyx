@@ -84,6 +84,26 @@ def rand_seed(UINT64_t seed, burn=1000):
     for i in range(burn):
         rnd = randint()
 
+
+def fast_randint(int N, max=RAND_MAX):
+    cdef np.ndarray[UINT64_t] rnd = np.empty(N, dtype=np.uint64)
+    cdef int i
+    
+    for i in range(N):
+        rnd[i] = randint() % max
+
+    return rnd
+
+def fast_rand(int N):
+    cdef np.ndarray[FLOAT32_t] rnd = np.empty(N, dtype=np.float32)
+    cdef int i
+    
+    for i in range(N):
+        rnd[i] = rand()
+
+    return rnd
+
+    
 # default initialization
 import time
 rand_seed(int(1000*time.time()) + 11)
@@ -143,6 +163,9 @@ def generate_random_sequence_matrix_dinuc(UINT32_t l, UINT32_t N, np.ndarray[FLO
             
     return seqm_
 
+
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
@@ -169,13 +192,17 @@ def simulate_rbns_reads(
     cum_nt = np.array(nt_freqs.cumsum() * FRAND_MAX, dtype=np.uint64)
     cum_di = np.array(di_freqs.cumsum(axis=1) * FRAND_MAX, dtype=np.uint64).flatten()
 
+    cdef FLOAT32_t mu = np.log(P*1e-9)
+    cdef FLOAT32_t [:] boltzmann_weights = np.exp(-scaled_kmer_energies_ + mu)
+
+    
     cdef UINT8_t [:] seq_bits
-    cdef FLOAT32_t Z, w, p_bound, p_obs
-    cdef UINT64_t i, j, nuc, index, n_bound=0, n_ns=0, l=L-k+1
+    cdef FLOAT64_t Z, w, p_bound, p_obs
+    cdef UINT64_t i, j, nuc, index, n_bound=0, n_simulated=0, l=L-k+1
     cdef UINT64_t MAX_INDEX = 4**k - 1, ofs
     cdef UINT8_t s
     
-    P *= 1e-9 # convert from nano Molars to Molars
+    #P *= 1e-9 # convert from nano Molars to Molars
 
     j = 0
     while j < N:
@@ -184,9 +211,11 @@ def simulate_rbns_reads(
         seqm[j,0] = nuc
         for i in range(1,L):
             nuc = rand_choice_uint8(cum_di, nuc << 2, 4)
+            #nuc = rand_choice_uint8(cum_nt, 0, 4)
             seqm[j,i] = nuc
-            
-        # partition function for binding
+        n_simulated += 1
+        
+        # partition function for binding of a single protein
         Z = 0
         #ofs = j+l
         # compute index of first k-1 mer by bit-shifts
@@ -202,25 +231,135 @@ def simulate_rbns_reads(
             index = ((index << 2) | s ) & MAX_INDEX
             
             # Boltzmann weight for binding here
-            Z += exp(-kmer_energies[index])
+            Z += boltzmann_weights[index]
             #print "weight", exp(-kmer_energies[index]), "index", index, "energy", kmer_energies[index]
 
-        Z *= P # times protein concentration
+        #Z *= P # times protein concentration
         
         #print p_bound
-
         # do we observe this read?
         p_bound = Z / (Z + 1.)
         p_obs = 1 - (1-p_bound)*(1-p_ns)
-        
+
+        #if (seqm_[j,:] == 3).all(): #polyU
+            #print "UUUUUU Z={0} p_bound={1} p_obs={2}".format(Z, p_bound, p_obs) 
+
+        #print "Z={0} p_obs={1}".format(Z, p_obs)
         if rand() < p_obs:
             # was pulled down
             j += 1
     
-    return seqm_, n_bound, n_ns
+    return seqm_, float(N)/n_simulated
 
 
-def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x):
+
+
+
+#@cython.boundscheck(False)
+#@cython.wraparound(False)
+#@cython.initializedcheck(False)
+#@cython.overflowcheck(False)
+#@cython.cdivision(True)    
+#def simulate_rbns_reads(
+        #UINT32_t L, 
+        #UINT32_t N,
+        #UINT64_t k,
+        #np.ndarray[FLOAT32_t] nt_freqs, 
+        #np.ndarray[FLOAT32_t, ndim=2] di_freqs,
+        #np.ndarray[FLOAT32_t] scaled_kmer_energies_, # already in units of RT
+        #FLOAT32_t P, # protein concentration in nM
+        #FLOAT32_t p_ns, # prob. for non-specific binding
+    #):
+    
+    #cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, L), dtype=np.uint8)
+
+    #cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
+    #cdef UINT64_t [:] cum_nt
+    #cdef UINT64_t [:] cum_di
+    #cdef FLOAT32_t [:] kmer_energies =  scaled_kmer_energies_
+    
+    #cum_nt = np.array(nt_freqs.cumsum() * FRAND_MAX, dtype=np.uint64)
+    #cum_di = np.array(di_freqs.cumsum(axis=1) * FRAND_MAX, dtype=np.uint64).flatten()
+
+    #cdef FLOAT32_t mu = np.log(P*1e-9)
+    #cdef FLOAT32_t [:] boltzmann_weights = np.exp(-scaled_kmer_energies_ + mu)
+
+    ## Danger! For l > 10 this explodes your RAM
+    #cdef np.ndarray[UINT64_t] input_kmer_counts = np.zeros(4**L, dtype=np.uint64)
+    #cdef np.ndarray[UINT64_t] pd_kmer_counts = np.zeros(4**L, dtype=np.uint64)
+    #cdef np.ndarray[FLOAT32_t] pd_kmer_weights = np.zeros(4**L, dtype=np.float32)
+    #cdef np.ndarray[FLOAT32_t] partition_functions = np.zeros(4**L, dtype=np.float32)
+    
+    #cdef UINT8_t [:] seq_bits
+    #cdef FLOAT64_t Z, w, p_bound, p_obs
+    #cdef UINT64_t i, j, nuc, index, n_bound=0, n_simulated=0, n_ns=0, l=L-k+1, seq_index = 0
+    #cdef UINT64_t MAX_INDEX = 4**k - 1, ofs
+    #cdef UINT8_t s
+    
+    ##P *= 1e-9 # convert from nano Molars to Molars
+
+    #j = 0
+    #while j < N:
+        ## generate a random read with dinuc frequencies
+        #nuc = rand_choice_uint8(cum_nt, 0, 4)
+        #seqm[j,0] = nuc
+        #seq_index = nuc
+        #for i in range(1,L):
+            #nuc = rand_choice_uint8(cum_di, nuc << 2, 4)
+            ##nuc = rand_choice_uint8(cum_nt, 0, 4)
+            #seqm[j,i] = nuc
+            #seq_index = ((seq_index << 2) | nuc)
+            
+        #n_simulated += 1
+        ## partition function for binding
+        #Z = 0
+        ##ofs = j+l
+        ## compute index of first k-1 mer by bit-shifts
+        #index = 0
+        #for i in range(k-1):
+            #index += seqm[j, i] << 2 * (k - i - 2)
+
+        ##seq_index = index
+        ## iterate over all k-mers in the read
+        #for i in range(k-1, L):
+            ## get next "letter"
+            #s = seqm[j, i]
+            ## compute next index from previous by shift + next letter
+            #index = ((index << 2) | s ) & MAX_INDEX
+            
+            ## Boltzmann weight for binding here
+            #Z += boltzmann_weights[index]
+            ##print "weight", exp(-kmer_energies[index]), "index", index, "energy", kmer_energies[index]
+
+        #input_kmer_counts[seq_index] += 1
+        ##Z *= P # times protein concentration
+        
+        ##print p_bound
+        ## do we observe this read?
+        #p_bound = Z / (Z + 1.)
+        #p_obs = 1 - (1-p_bound)*(1-p_ns)
+
+        ##if (seqm_[j,:] == 3).all(): #polyU
+            ##print "UUUUUU Z={0} p_bound={1} p_obs={2}".format(Z, p_bound, p_obs), seq_index
+
+        #pd_kmer_weights[seq_index] = p_obs
+        #partition_functions[seq_index] = Z
+
+        ##print "Z={0} p_obs={1}".format(Z, p_obs)
+        #if randint() < p_obs*FRAND_MAX:
+            ## was pulled down
+            #pd_kmer_counts[seq_index] += 1
+            #j += 1
+    
+    #return seqm_, input_kmer_counts, pd_kmer_weights, pd_kmer_counts, float(N)/n_simulated, partition_functions
+
+
+
+
+
+
+
+def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x, FLOAT32_t [:] kfreqs):
     
     cdef UINT64_t i = 0, j = 0, s = 0
     cdef UINT64_t N = 4**x
@@ -231,14 +370,14 @@ def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x):
     cdef FLOAT32_t w
 
     cdef np.ndarray[UINT64_t] sindices_  = np.zeros(2*N, dtype=np.uint64)
-    #cdef np.ndarray[FLOAT32_t] sweights_ = np.zeros(2*N), dtype=np.float32)
+    cdef np.ndarray[FLOAT32_t] sweights_ = np.zeros(2*N, dtype=np.float32)
     
     cdef UINT64_t [:] sindices = sindices_
-    #cdef FLOAT32_t [:] sweights = sweights_
+    cdef FLOAT32_t [:] sweights = sweights_
     
     
     i = 0
-    w = 1. * (l - x) / l / N
+    w = 1. * (l - 2*x) / l 
     OV_MAX_INDEX = 4**(k-x) - 1
     
     # shifted to the right, overlaps on the left with index
@@ -246,6 +385,7 @@ def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x):
     for j in range(4**x): # all possible extensions
         s = j | ov
         sindices[i] = s
+        sweights[i] = w * kfreqs[j]
         i += 1
 
     # shifted to the left, overlaps on the right with index
@@ -253,9 +393,10 @@ def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x):
     for j in range(4**x): # all possible extensions
         s = (j << (2*(k-x)) ) | ov
         sindices[i] = s
+        sweights[i] = w * kfreqs[j]
         i += 1
 
-    return w, sindices_
+    return sweights_, sindices_
         
     
     
