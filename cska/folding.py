@@ -99,12 +99,13 @@ class OpenenHistCollection(object):
         RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
         #U = (self.bins[:-1] + self.bins[1:]) / 2.
         U = self.bins[:-1]
-        inv_acc = np.exp(U/RT)
-        #print "inv_acc", inv_acc
-        integrand = counts * P/ (P + k_bare * inv_acc)
-        #print "integrand", integrand
-        Z = np.trapz(U, counts)
-        return np.trapz(U, integrand) / Z
+        acc = np.exp(-U/RT)
+
+        Z = np.trapz(counts, U)
+        fU = counts / Z
+        
+        integrand = fU * P/ (P + k_bare / acc)
+        return np.trapz(integrand, U)
 
 
     def k_bare_from_occ(self, kmer, P, occ_est, min_k = 1e-9, max_k=1e6, temp=22.):
@@ -138,7 +139,19 @@ class OpenenHistCollection(object):
         
         return fit
     
-   
+    def test_k_bare_from_occ(self, kmer, P, **kwargs):
+        occ_est = np.arange(1e-4, 1, 1e-4)
+        k_fit = np.array([self.k_bare_from_occ(kmer, P, o, **kwargs) for o in occ_est])
+        
+        import matplotlib.pyplot as pp
+        pp.figure()
+        pp.loglog(occ_est, k_fit)
+        pp.loglog(occ_est, P/occ_est - P, linestyle='dashed', color='k')
+        pp.xlabel(r'$\theta$')
+        pp.ylabel(r'$K_d$')
+        pp.savefig('occ_test.pdf')
+        
+        return occ_est, k_fit
 
 class RNAplfoldChunk(object):
     min_k = 3
