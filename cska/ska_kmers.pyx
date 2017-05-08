@@ -579,6 +579,82 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     return _counts
 
 
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] openen_lookup, FLOAT32_t [:] kmer_energies, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t N = len(seq_matrix)
+    cdef UINT64_t L = len(seq_matrix[0])
+    cdef UINT64_t l = L - k + 1
+
+    cdef int n_P = len(protein_conc)
+
+    # store predicted k-mer counts here, for each protein concentration
+    cdef FLOAT32_t [:,:] counts = np.zeros((n_P, 4**k), dtype = np.float32)
+    
+    # record indices of all occurring kmers
+    cdef UINT32_t [:] indices = np.zeros(l, dtype=np.uint32)
+    
+    # Single protein partition functions
+    cdef FLOAT64_t [:] Z1 = np.zeros(n_P, dtype=np.float64)
+    
+    # chemical potentials
+    cdef FLOAT64_t [:] mu = np.array(np.log(protein_conc*1e-9), dtype=np.float64)
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t index, i, j, m
+    cdef FLOAT64_t E, p_bound = 0 # effective binding energy
+    
+    with nogil:
+        for j in range(N):
+            
+            # prepare index from first k-1 positions
+            index = 0
+            for i in range(k-1):
+                index += seq_matrix[j, i] << 2 * (k - i - 2)
+
+            # zero out partition functions
+            for i in range(n_P):
+                Z1[i] = 0
+
+            # iterate over all k-mers, always adding next base to index
+            for i in range(0, l):
+                # get next "letter"
+                s = seq_matrix[j, i+k]
+                
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                # record index
+                indices[i] =  index
+                
+                # binding energy = sequence dep. + unfolding energy (binned)
+                E = kmer_energies[index] + openen_lookup[openen_matrix[j, i]]
+                
+                # Add Boltzmann weights
+                for m in range(0, n_P):
+                    Z1[m] += exp(-E + mu[m])
+            
+            # update expected frequencies in pull-down
+            for m in range(0, n_P):
+                p_bound = Z1[m] / (1. + Z1[m])
+                
+                # record each encountered kmer
+                for i in range(0, l):
+                    counts[m, indices[i]] += p_bound
+            
+    return counts.base
+
+
+
+
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
