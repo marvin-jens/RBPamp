@@ -283,10 +283,10 @@ class RBNSAnalysis(CachedBase):
     def get_optimal_kmer_ranking(self, k):
         # TODO: factor in consistently elevated scores with increasing protein concentration?
         from scipy.stats.mstats import gmean
-        all_ska_weights = self.SKA_weight_matrix(k)[0]
+        all_R = self.R_value_matrix(k)[0]
 
         #return gmean(all_ska_weights, axis=0).argsort()[::-1]
-        return np.median(all_ska_weights, axis=0).argsort()[::-1]
+        return np.median(all_R, axis=0).argsort()[::-1]
     
     def select_significant_kmers(self,k, z_cut=2, n_min=1, n_max=None):
         ska, ska_err = self.SKA_weight_matrix(k)
