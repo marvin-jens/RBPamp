@@ -447,15 +447,407 @@ def random_plfold_chunks(k, N=0, L=84):
             break
         
 
-     
+
+
+class RNAplfoldOutput(object):
+    min_k = 3
+    max_k = 8
+    start = 0
+    end = 1E6
+
+    def __init__(self):
+        self.n = 0
+        self.openen = defaultdict(lambda : defaultdict(list))
+        
+    def set_header(self, head):
+        self.seq = head[1:].rstrip().upper().replace('U','T')
+        
+    def add_line(self, line):
+        self.n += 1
+        if self.n < self.min_k:
+            return
+
+        if self.n < self.start:
+            return
+
+        if self.n >= self.end:
+            return
+        
+        for k in range(self.min_k, min(self.max_k+1, self.n+1)):
+            kmer = self.seq[self.n-k:self.n+1]
+            col = line.split('\t')[k]
+            self.openen[k][kmer].append(float(col) )
+
+    def get_dict(self, k):
+        return self.openen[k]
+        
+        
+def binned(src):
+    out = RNAplfoldOutput()
+    n = 0
+    for line in src:
+        if line.startswith('>'):
+            if out.n: 
+                n += 1
+                yield out
+                
+            out = RNAplfoldOutput()
+            out.set_header(line)
+        elif line.startswith('#'): continue
+        elif line.startswith(' #'): continue
+        else: 
+            out.add_line(line)
+    
+    if out.n: 
+        n += 1
+        yield out
+        
+    logger.info('binned(): no more data. exiting after {0} outs...'.format(n))
+
+
+class ViennaOpenen(object):
+    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", L=84, skip_adap=True, **kwargs):
+        cmd=[vienna_bin, "-O", "-u {0}".format(k_max), "-W {0}".format(L), "-L {0}".format(L), "-T {0}".format(temp)]
+        self.cmd = " ".join(cmd)
+        self.p = Popen(
+            cmd, 
+            stdin=PIPE, 
+            stdout=PIPE, 
+            bufsize=1, 
+            close_fds=True
+        )
+        
+        self.k_indices = np.arange(k_min, k_max+1)
+        
+        self.first = 0
+        self.last = L
+        
+        if skip_adap:
+            self.first = len(adap5)
+            self.last = L - len(adap3)
+
+        self.l_insert = self.last - self.first
+        self.krange = np.arange(k_min, k_max+1)
+        self.k_min = k_min
+        self.k_max = k_max
+        
+        self.adap5 = adap5
+        self.adap3 = adap3
+        
+        self.n_total = 0
+        self.logger = logging.getLogger('ViennaOpenen')
+
+    def process_sequences(self, seq_src):
+        n = 0
+        for seq in seq_src:
+            S = self.adap5 + seq.rstrip() + self.adap3
+            l = len(S)
+            #print "folding", S, len(S)
+            self.p.stdin.write("{0}\n".format(S) )
+            
+            data = [ np.zeros(self.l_insert - k + 1, dtype=np.float32) for k in self.krange ]
+            for i in range(l+2):
+                j = i - 1
+                
+                line = self.p.stdout.readline()
+                if j <= self.first:
+                    continue
+                
+                if j >= self.last:
+                    continue
+                
+                cols = line.split('\t')
+                for k in self.krange:
+                    if j >= k:
+                        data[k - self.k_min][j-k-self.first] = float(cols[k])
+
+            yield self.krange, data
+            n += 1
+
+        self.logger.debug('folded {0} sequences'.format(n))
+        self.n_total += n
+        
+
+    def close(self):
+        self.p.stdin.close()
+        self.p.stdin.close()
+        ex = self.p.wait()
+        self.logger.debug('close(): {0} exited with code {1} after folding {2} sequences'.format(self.cmd, ex, self.n_total) )
+    
+
+class OpenenStorage(object):
+    def __init__(self, path='./', name="openen", bins=None, dtype=np.float32):
+        self.path = path
+        self.name = name
+        self.bins = bins
+        self.dtype = dtype
+        
+        self.k_sinks = {}
+        self.k_bins = {}
+        self.logger = logging.getLogger('OpenenStorage')
+        self.n_sets = 0
+        
+    def get_or_create(self, k):
+        if self.bins:
+            fmt = "bins-{0}".format(self.dtype.__name__)
+        else:
+            fmt = "raw-{0}".format(self.dtype.__name__)
+
+        if not k in self.k_sinks:
+            fname = os.path.join(self.path, "{0}.{1}.{2}.bin".format(self.name,k,fmt) )
+            self.k_sinks[k] = file(fname,'wb')
+            self.logger.info("created '{0}'".format(fname))
+    
+        return self.k_sinks[k]
+    
+    def store(self, k, vec):
+        if self.bins:
+            vec = np.array(np.digitize(vec, self.bins)-1, dtype=self.dtype)
+
+        self.get_or_create(k).write(vec.tobytes())
+
+    def store_set(self, krange, data):
+        for k, vec in zip(krange, data):
+            self.store(k, vec)
+        self.n_sets += 1
+        
+    def close(self):
+        for sink in self.k_sinks.values():
+            sink.close()
+        self.logger.info("closed all files after writing {0} data sets".format(self.n_sets) )
+
+
+
+### TODO: Wrap up in a class that works together with OpenenStorage
+def gamma_bins(params,n=256):
+    """
+    Create histogram bins equally spanning the percentiles of a
+    gamma distribution with the given parameters.
+    Provided the data are (approximately) from this distribution, 
+    this binning would assign equal data points to each bin and thus 
+    reduce the loss of precision inherent in the binning to a minimum.
+    """
+    step = 1./n
+    q = np.arange(0,1.+step,step) # n+1 "percentiles"
+    return scipy.stats.gamma.ppf(q, *params)
+        
+def gamma_bins_k(k,dtype=np.uint8):
+    """
+    Get optimal bins for open energies of k-mers using predetermined 
+    parameters for the gamma distribution that best approximate the 
+    open energy distribution.
+    """
+    n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
+    params = opt_k_openen_gamma_params[k]
+    return gamma_bins(params, n=n)
+
+opt_k_openen_gamma_params = {
+    # for 40mer inserts
+    3 : (1.0628281681967706, -6.8214607159662128e-05, 1.2402078509734689),
+    4 : (1.2674929471836962, -0.0020650480683494271, 1.2929616570525289),
+    5 : (1.4888004568584394, -0.0081636662031228657, 1.3237981203329996),
+    6 : (1.7285627206360989, -0.021580429627936448, 1.3376752736147013),
+    7 : (2.0032560511697439, -0.046740618049563296, 1.3323232531823281),
+    8 : (2.2847020288586801, -0.086073860842223043, 1.3242768850690814),
+}
+
+
+def queue_iter(queue, stop_item = None):
+    """
+    Small generator/wrapper around multiprocessing.Queue allowing simple
+    for-loop semantics: 
+    
+        for item in queue_iter(queue):
+            ...
+
+    """
+    while True:
+        item = queue.get()
+        if item == stop_item:
+            # signals end->exit
+            break
+        else:
+            yield item
+
+
+def seq_dispatcher(src, queue, chunk_size=50, max_depth=20, throttle_sleep=1., **kwargs):
+
+    logger = logging.getLogger('seq_dispatcher')
+    chunk = []
+    n_chunk = 0
+    n_seqs = 0
+    for read in src:
+        chunk.append( read )
+        n_seqs += 1
+        if len(chunk) >= chunk_size:
+            # avoid overloading the queue
+            while queue.qsize() > max_depth:
+                logger.debug('qsize > {0} -> sleeping for {1} second'.format(max_depth, throttle_sleep) )
+                time.sleep(throttle_sleep)
+
+            queue.put( (n_chunk, chunk) )
+            n_chunk += 1
+            chunk = []
+
+    if chunk:
+        queue.put( (n_chunk, chunk) )
+        n_chunk += 1
+
+    logger.info('{0} sequences dispatched in {1} chunks. Closing down.'.format(n_seqs, n_chunk) )
+
+def fold_worker(seq_queue, data_queue, **vienna_kwargs):
+
+    vienna = ViennaOpenen(**vienna_kwargs)
+    for n_block, block in queue_iter(seq_queue):
+        # received a chunk of sequences. Fold them en-bloc
+        results = list(vienna.process_sequences(block))
+        
+        # and return results
+        data_queue.put( (n_block, results) )
+        
+    # cleaning up
+    vienna.close()
+
+
+def result_collector(storage, res_queue):
+    import heapq
+    heap = []
+    n_chunk_needed = 0
+    
+    for n_chunk, results in queue_iter(res_queue):
+        heapq.heappush(heap, (n_chunk, results) )
+        while(heap and (heap[0][0] == n_chunk_needed)):
+            n_chunk, results = heapq.heappop(heap)
+            for krange, data in results:
+                storage.store_set(krange, data)
+        
+            n_chunk_needed += 1
+
+    # by the time None pops from the queue, all chunks 
+    # should have been processed!
+    assert len(heap) == 0
+
+    # close all open files and make sure stuff is on disk
+    storage.close()
+    
+def parallel_fold(src, storage, n_parallel=8, **kwargs):
+    
+    import multiprocessing
+    seq_queue = multiprocessing.Queue()
+    res_queue = multiprocessing.Queue()
+    
+    dispatcher = multiprocessing.Process(
+        target = seq_dispatcher, 
+        name='seq_dispatcher', 
+        args=(src, seq_queue), 
+        kwargs=kwargs 
+    )
+    dispatcher.daemon = True
+    dispatcher.start()
+    
+    workers = []
+    for n in range(n_parallel):
+        worker = multiprocessing.Process(
+            target = fold_worker, 
+            name='fold_worker_{0}'.format(n), 
+            args=(seq_queue, res_queue), 
+            kwargs=kwargs
+        )
+        worker.daemon = True
+        worker.start()
+        workers.append(worker)
+
+    collector = multiprocessing.Process(
+        target = result_collector,
+        name = 'result_collector',
+        args = (storage, res_queue)
+    )
+    collector.daemon = True
+    collector.start()
+    
+    # wait until all sequences have been thrown onto seq_queue
+    dispatcher.join()
+    # signal all fold-workers to finish
+    for n in range(n_parallel):
+        seq_queue.put(None)
+
+    for worker in workers:
+        # make sure all results are on res_queue
+        worker.join()
+    
+    # signal the collector to stop
+    res_queue.put(None)
+    collector.join()
+   
+    
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
+
+    src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads').readlines()[:351]
+    storage = OpenenStorage(path='tmp')
+    parallel_fold(src, storage, n_parallel=8)
+    sys.exit(1)
+
     #test_memory_consumption()
+
+    k8 = np.fromfile('openen.8.raw-float32.bin', dtype=np.float32)
+    k7 = np.fromfile('openen.7.raw-float32.bin', dtype=np.float32)
+    k6 = np.fromfile('openen.6.raw-float32.bin', dtype=np.float32)
+    k5 = np.fromfile('openen.5.raw-float32.bin', dtype=np.float32)
+    k4 = np.fromfile('openen.4.raw-float32.bin', dtype=np.float32)
+    k3 = np.fromfile('openen.3.raw-float32.bin', dtype=np.float32)
     
-    oa = OpenenHistCollection(name=sys.argv[1])
     
-    tm = ThreadManager(n_threads=4)
-    tm.process_reads(sys.stdin, oa)
+    import scipy.stats
+    import matplotlib.pyplot as pp
+
+    #dist = scipy.stats.beta # gamma
+    dist = scipy.stats.gamma
+    data = k8
     
-    print oa['TGCATGT']
+    #params = dist.fit(data)
+    #print params
+    bins = gamma_bins_k(8,dtype=np.uint8)
+    print "low bins",bins[:10]
+    print "low data",sorted(data)[:10]
+    print "low data->bins", np.digitize(sorted(data)[:10], bins) -1
+    dig = np.digitize(data, bins) -1
+    
+    print dig.min(), dig.max()
+    print bins, np.bincount(dig)
+    
+    mid = 0.5*(bins[1:] + bins[:-1]) # mid-points
+    print len(bins)
+    x = np.arange(0, data.max(), .01)
+    #pp.hist(data, bins=bins, normed=True)
+    #pp.plot(x, dist.pdf(x, *params))
+    pp.loglog(data, mid[dig],'ob')
+    
+    RMSD = np.sqrt(np.mean((mid[dig] - data)**2))
+    print "RMSD",RMSD
+    pp.show()
+    sys.exit(1)
+    
+    print make_bins(5)
+    src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads')
+    store = OpenenStorage()
+    vienna = ViennaOpenen()
+
+    import time
+    t0 = time.time()
+    for n, krange, data in vienna.process_sequences(src):
+    #for n, krange, data in vienna_openen(src, L=64):
+        store.store_set(krange, data)
+        if n and not n % 1000:
+            t1 = time.time()
+            print "{0:.2f} seqs/second".format(1000./(t1-t0))
+            t0 = t1
+    
+    #oa = OpenenHistCollection(name=sys.argv[1])
+    
+    #tm = ThreadManager(n_threads=4)
+    #tm.process_reads(sys.stdin, oa)
+    
+    #print oa['TGCATGT']
              
