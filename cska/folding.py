@@ -564,7 +564,7 @@ class ViennaOpenen(object):
             yield self.krange, data
             n += 1
 
-        self.logger.debug('folded {0} sequences'.format(n))
+        #self.logger.debug('folded {0} sequences'.format(n))
         self.n_total += n
         
 
@@ -670,7 +670,7 @@ def queue_iter(queue, stop_item = None):
             yield item
 
 
-def seq_dispatcher(src, queue, chunk_size=50, max_depth=20, throttle_sleep=1., **kwargs):
+def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., **kwargs):
 
     logger = logging.getLogger('seq_dispatcher')
     chunk = []
@@ -682,7 +682,7 @@ def seq_dispatcher(src, queue, chunk_size=50, max_depth=20, throttle_sleep=1., *
         if len(chunk) >= chunk_size:
             # avoid overloading the queue
             while queue.qsize() > max_depth:
-                logger.debug('qsize > {0} -> sleeping for {1} second'.format(max_depth, throttle_sleep) )
+                #logger.debug('qsize > {0} -> sleeping for {1} second'.format(max_depth, throttle_sleep) )
                 time.sleep(throttle_sleep)
 
             queue.put( (n_chunk, chunk) )
@@ -713,22 +713,35 @@ def result_collector(storage, res_queue):
     import heapq
     heap = []
     n_chunk_needed = 0
-    
+    t0 = time.time()
+    t1 = t0
+    n_rec = 0
+
+    logger = logging.getLogger('result_collector')
     for n_chunk, results in queue_iter(res_queue):
         heapq.heappush(heap, (n_chunk, results) )
         while(heap and (heap[0][0] == n_chunk_needed)):
             n_chunk, results = heapq.heappop(heap)
             for krange, data in results:
                 storage.store_set(krange, data)
+                n_rec += 1
         
             n_chunk_needed += 1
 
+        t2 = time.time()
+        if t2-t1 > 10:
+            dT = t2 - t0
+            logger.debug("processed {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
+            t1 = t2
+        
     # by the time None pops from the queue, all chunks 
     # should have been processed!
     assert len(heap) == 0
 
     # close all open files and make sure stuff is on disk
     storage.close()
+    dT = time.time() - t0
+    logger.debug("finished processing {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
     
 def parallel_fold(src, storage, n_parallel=8, **kwargs):
     
@@ -784,9 +797,9 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
-    src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads').readlines()[:351]
+    src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads') #.readlines()[:30051]
     storage = OpenenStorage(path='tmp')
-    parallel_fold(src, storage, n_parallel=8)
+    parallel_fold(src, storage, n_parallel=10)
     sys.exit(1)
 
     #test_memory_consumption()
