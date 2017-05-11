@@ -15,6 +15,103 @@ from cska.caching import CachedBase, cached, pickled
 
 logger = logging.getLogger("cska.folding")
 
+        
+class RBNSOpenen(CachedBase):
+    """
+    Analogous to RBNSReads, which holds the raw sequences, instances of this class hold 
+    open-energies for all kmer start-positions inside the raw sequences.
+    """
+    def __init__(self, fname, rbns_reads, k, oem=[]):
+
+        CachedBase.__init__(self)
+
+        self.fname = fname
+        self.rbns_reads = rbns_reads
+        self.k = k
+        
+        self.logger = logging.getLogger('RBNSOpenen({self.fname} k={self.k})'.format(self=self))
+        if len(oem):
+            self.cache_preload("__cached_oem", oem)
+            N, L = oem.shape
+            self.cache_preload("__cached_N", N)
+            self.cache_preload("__cached_L", L)
+        else:
+            self.is_subsample = False
+        
+        self.discretized = ("discretized" in self.fname)
+        
+        if self.discretized:
+            # recovering discretization scheme from file-name
+            self.disc = OpenenDiscretization.from_filename(fname)
+            self.dtype = self.disc.dtype
+        else:
+            # we have the raw floating point values
+            self.disc = None
+            self.dtype = np.float32
+
+        self.logger.info("initialized")
+    @property
+    def cache_key(self):
+        return "{self.fname}".format(self=self)
+
+    @property
+    @cached
+    @pickled
+    def N(self):
+        N, L = self.oem.shape
+        return N
+
+    @property
+    @cached
+    @pickled
+    def L(self):
+        N, L = self.oem.shape
+        return L
+   
+    @property
+    @cached
+    def oem(self):
+        """
+        load and keep all open-energies in memory (optionally discretized)
+        """
+        L = self.rbns_reads.L - self.k + 1
+        oem = np.fromfile(self.fname, dtype=self.dtype)
+        if self.rbns_reads.n_max:
+            oem = oem[:L*self.rbns_reads.n_max]
+
+        N = len(oem) / L
+        
+        oem = np.reshape(oem, (N,L) )
+        #print oem.shape
+        return oem
+    
+    def discretize(self, disc=None):
+        if not disc:
+            disc = OpenenDiscretization(self.k, self.L+self.k-1, np.uint8)
+
+        d_oem = disc.discretize(self.oem)
+        path, fname = os.path.split(self.fname)
+        dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(), fname) )
+
+        print dname
+        doe = RBNSOpenen(
+            dname,
+            self.rbns_reads,
+            self.k,
+            oem = d_oem
+        )
+        
+        return doe
+    
+    def integrate(self, integrand, bin_weights):
+        assert self.discretized
+        return np.trapz(integrand * bin_weights, self.disc.x)
+
+    def store(self):
+        self.oem.tofile(self.fname)
+
+
+
 class OpenenHistCollection(object):
     def __init__(self, name="openen.hist", path=".", min_en=0., max_en=20., n_bins=100, n_chunk=100000):
         
@@ -137,7 +234,12 @@ class OpenenHistCollection(object):
 
 
 class ViennaOpenen(object):
+    """
+    Wrapper around an RNAplfold_cska (modified RNAplfold) subprocess.
+    """
     def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", L=84, skip_adap=True, **kwargs):
+        
+        # create the folding sub-process
         cmd=[vienna_bin, "-O", "-u {0}".format(k_max), "-W {0}".format(L), "-L {0}".format(L), "-T {0}".format(temp)]
         self.cmd = " ".join(cmd)
         self.p = Popen(
@@ -148,8 +250,10 @@ class ViennaOpenen(object):
             close_fds=True
         )
         
+        # prepare constant variables needed in batch-processing
         self.k_indices = np.arange(k_min, k_max+1)
         
+        # which part of the sequence we are actually interested in
         self.first = 0
         self.last = L
         
@@ -169,6 +273,14 @@ class ViennaOpenen(object):
         self.logger = logging.getLogger('ViennaOpenen')
 
     def process_sequences(self, seq_src):
+        """
+        Generator that folds the sequences from seq_src and yields (krange, data)
+        tuples for each sequence.
+        krange is range(self.k_min, self.k_max+1) as specified in __init__ and
+        data[k][i] is the open-energy for window of size k starting at position i (zero-based).
+        
+        Can be called multiple times. The subprocess will not be closed unless close() is called.
+        """
         n = 0
         for seq in seq_src:
             S = self.adap5 + seq.rstrip() + self.adap3
@@ -200,6 +312,9 @@ class ViennaOpenen(object):
         
 
     def close(self):
+        """
+        Close subprocess file-descriptors and wait for clean exit.
+        """
         self.p.stdin.close()
         self.p.stdin.close()
         ex = self.p.wait()
@@ -305,100 +420,6 @@ class OpenenDiscretization(object):
         bins = self.bins
         return np.digitize(data, bins) - 1
 
-        
-class RBNSOpenen(CachedBase):
-    """
-    Analogous to RBNSReads, which holds the raw sequences, instances of this class hold 
-    open-energies for all kmer start-positions inside the raw sequences.
-    """
-    def __init__(self, fname, rbns_reads, k, oem=[]):
-
-        CachedBase.__init__(self)
-
-        self.fname = fname
-        self.rbns_reads = rbns_reads
-        self.k = k
-        
-        self.logger = logging.getLogger('RBNSOpenen({self.fname} k={self.k})'.format(self=self))
-        if len(oem):
-            self.cache_preload("__cached_oem", oem)
-            N, L = oem.shape
-            self.cache_preload("__cached_N", N)
-            self.cache_preload("__cached_L", L)
-        else:
-            self.is_subsample = False
-        
-        self.discretized = ("discretized" in self.fname)
-        
-        if self.discretized:
-            # recovering discretization scheme from file-name
-            self.disc = OpenenDiscretization.from_filename(fname)
-            self.dtype = self.disc.dtype
-        else:
-            # we have the raw floating point values
-            self.disc = None
-            self.dtype = np.float32
-
-        self.logger.info("initialized")
-    @property
-    def cache_key(self):
-        return "{self.fname}".format(self=self)
-
-    @property
-    @cached
-    @pickled
-    def N(self):
-        N, L = self.oem.shape
-        return N
-
-    @property
-    @cached
-    @pickled
-    def L(self):
-        N, L = self.oem.shape
-        return L
-   
-    @property
-    @cached
-    def oem(self):
-        """
-        load and keep all open-energies in memory (optionally discretized)
-        """
-        L = self.rbns_reads.L - self.k + 1
-        oem = np.fromfile(self.fname, dtype=self.dtype)
-        if self.rbns_reads.n_max:
-            oem = oem[:L*self.rbns_reads.n_max]
-
-        N = len(oem) / L
-        
-        oem = np.reshape(oem, (N,L) )
-        #print oem.shape
-        return oem
-    
-    def discretize(self, disc=None):
-        if not disc:
-            disc = OpenenDiscretization(self.k, self.L+self.k-1, np.uint8)
-
-        d_oem = disc.discretize(self.oem)
-        path, fname = os.path.split(self.fname)
-        dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(), fname) )
-
-        print dname
-        doe = RBNSOpenen(
-            dname,
-            self.rbns_reads,
-            self.k,
-            oem = d_oem
-        )
-        
-        return doe
-    
-    def integrate(self, integrand, bin_weights):
-        assert self.discretized
-        return np.trapz(integrand * bin_weights, self.disc.x)
-
-    def store(self):
-        self.oem.tofile(self.fname)
 
 
 # Here come a couple of functions that allow parallel folding using the multiprocessing 
@@ -422,6 +443,12 @@ def queue_iter(queue, stop_item = None):
 
 
 def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., **kwargs):
+    """
+    Reads sequences from src and groups them in chunks of up to chunk_size.
+    Each chunk is enumerated and the tuple (n_chunk, chunk) is pushed to the queue 
+    for processing. Avoids overly inflating the queue by sleeping if max_depth chunks are
+    already queued.
+    """
 
     logger = logging.getLogger('seq_dispatcher')
     chunk = []
@@ -447,7 +474,13 @@ def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., 
     logger.info('{0} sequences dispatched in {1} chunks. Closing down.'.format(n_seqs, n_chunk) )
 
 def fold_worker(seq_queue, data_queue, **vienna_kwargs):
-
+    """
+    Use a ViennaOpenen RNAplfold wrapper instance to compute open-energies for
+    chunks of sequences from seq_queue. Results are also grouped into chunks and
+    pushed (with the original chunk number) onto data_queue. This allows to order 
+    the chunks later and write the results in the same order as the original 
+    sequences.
+    """
     vienna = ViennaOpenen(**vienna_kwargs)
     for n_block, block in queue_iter(seq_queue):
         # received a chunk of sequences. Fold them en-bloc
@@ -461,6 +494,12 @@ def fold_worker(seq_queue, data_queue, **vienna_kwargs):
 
 
 def result_collector(storage, res_queue):
+    """
+    Pops (n_chunk, results) from res_queue and inserts them into a heap
+    (sorted on n_chunk). Keeping track of how many chunks were already passed on
+    to storage, it uses the heap to make sure chunks are stored in the correct 
+    order and no chunk gets skipped.
+    """
     import heapq
     heap = []
     n_chunk_needed = 0
@@ -471,14 +510,18 @@ def result_collector(storage, res_queue):
     logger = logging.getLogger('result_collector')
     for n_chunk, results in queue_iter(res_queue):
         heapq.heappush(heap, (n_chunk, results) )
+        
+        # as long as the root of the heap is the next needed chunk
+        # pass results on to storage
         while(heap and (heap[0][0] == n_chunk_needed)):
-            n_chunk, results = heapq.heappop(heap)
+            n_chunk, results = heapq.heappop(heap) # retrieves heap[0]
             for krange, data in results:
                 storage.store_set(krange, data)
                 n_rec += 1
         
             n_chunk_needed += 1
 
+        # debug output on average throughput
         t2 = time.time()
         if t2-t1 > 10:
             dT = t2 - t0
@@ -560,7 +603,10 @@ if __name__ == "__main__":
     openen = RBNSOpenen('tmp/openen.7.raw-float32.bin', reads, 7)
     
     dopenen = openen.discretize()
-    print dopenen.oem[:10]
+    for i in range(10):
+        print dopenen.rbns_reads.seqm[i]
+        print dopenen.oem[i]
+    
     
     sys.exit(0)
     
