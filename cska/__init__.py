@@ -54,6 +54,7 @@ def main():
     parser.add_option("","--adap-5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap-3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("","--openen",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and build open-energy distributions")
+    parser.add_option("","--openen-discretize",dest="openen_discretize",default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
 
@@ -161,24 +162,31 @@ def main():
 
     fold_path = os.path.join(options.output,"openen")
     if options.folding:
-        from cska.folding import OpenenHistCollection, ThreadManager
+        from cska.folding import parallel_fold, OpenenStorage
+
         # prepare outout path
         if not os.path.exists(fold_path):
             os.makedirs(fold_path)
 
+        # fold the reads
         for reads in rbns.reads:
-            logger.info("folding {reads.name}".format(reads=reads) )
-            oa = OpenenHistCollection(name=reads.name, path=fold_path)
-            tm = ThreadManager(n_threads=options.parallel)
-            tm.process_reads(
+            logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
+            
+            if options.openen_discretize:
+                dtype = getattr(np, "uint{0}".format(options.openen_discretize))
+                storage = OpenenStorage(reads, path=fold_path, discretize=True, dtype=dtype)
+            else:
+                storage = OpenenStorage(reads, path=fold_path, discretize=False, dtype=np.float32)
+
+            parallel_fold(
                 file(reads.fname,'r'), 
-                oa, 
+                storage,
                 temp = options.temp,
                 adap5 = options.adap5,
                 adap3 = options.adap3,
                 min_k = options.min_k,
                 max_k = options.max_k,
-                n_max=options.n_max,
+                n_max = options.n_max,
             )
     else:
         for k in range(options.min_k, options.max_k + 1):

@@ -1,6 +1,7 @@
 import numpy as np
 import logging
 import time
+import sys
 
 import cska.ska_kmers 
 from cska.rbns_reads import RBNSReads
@@ -158,28 +159,33 @@ class CrosstalkMatrix(CachedBase):
             sum_pi = pi.sum()
             
             r = pi / sum_pi / kappa
-            return r
+            return r, sum_pi
             
         def err(r_predict, r_obs):
-            #return np.mean((r_predict - r_obs)**2)
-            return np.mean(np.log2(np.fabs(r_predict/r_obs))**2)
+            return np.mean((r_predict - r_obs)**2)
+            #return np.mean(np.log2(np.fabs(r_predict/r_obs))**2)
         
         def score(params):
             sum_pi, beta = params
             
             occ = r2occ(sum_pi, beta)
             print "occ top5", occ[-5:]
-            r_predict = occ2r(occ, beta)
+            r_predict, sum_pi_pred = occ2r(occ, beta)
+            print "sum_pi", sum_pi, "sum_pi_pred", sum_pi_pred
             print "r_predict top5", r_predict[-5:]
             print "r_value   top5", r_values[-5:]
             
-            e = err(r_predict, r_values)
+            e = err(r_predict, r_values) # super close to zero
+            e += (occ[occ < 0].sum())**2
+            e += (occ[occ > 1].sum())**2 
+            e += np.log(sum_pi/sum_pi_pred)**2
+
             print "score({0},{1}) -> err={2}".format(sum_pi, beta, e) 
             print occ[-20:]
-            return e + (occ[occ < 0]**2).sum() + (occ[occ > 1]**2).sum()
+            return e 
         
         from scipy.optimize import minimize
-        x0 = (0.01, 0.01)
+        x0 = (0.01, 0.0001)
         bounds = np.array([
             [1e-6, .9],
             [1e-6, .9]
@@ -191,7 +197,7 @@ class CrosstalkMatrix(CachedBase):
         
         
         opt_occ = r2occ(sum_pi, beta)
-        r_pred = occ2r()
+        #r_pred = occ2r()
         return opt_occ
 
 
@@ -333,9 +339,13 @@ class RBNSGenerator(CachedBase):
     def Kd_distribution(**kwargs):
         return kcal_to_Kd(RBNSGenerator.energy_distribution(**kwargs))
 
-    def assign_experimental_input(self, real_input):
+    @property
+    def Kd(self):
+        return np.exp(self.kmer_energies)*1e9
+        
+    def assign_experimental_input(self, real_input, pseudo_count=0):
         from cska.rbns_reads import RBNSReads
-        reads = RBNSReads(real_input)
+        reads = RBNSReads(real_input, pseudo_count=pseudo_count)
         nt_freq = reads.kmer_frequencies(1) / 4.
         di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
         di_freq /= di_freq.sum(axis=1)[:, np.newaxis] # normalize rows to one
@@ -348,7 +358,7 @@ class RBNSGenerator(CachedBase):
         
     def generate_input_reads(self, N=20000000, store=""):
         if self.input_reads:
-            self.logger.debug("generating random sequence matrix, mimicking '{0}'".format(self.input_reads.name))
+            self.logger.debug("generating random sequence matrix, mimicking '{0}'".format(self.input_reads.fname))
             t0 = time.time()
             seqm = cska.ska_kmers.generate_random_sequence_matrix_dinuc(self.l, N, self.input_nt_freq, self.input_di_freq)
             dt = time.time() - t0
@@ -372,21 +382,38 @@ class RBNSGenerator(CachedBase):
         return seqm
    
     def generate_bound_reads(self, N=20000000, P=320., p_ns=0.01, real_input="", store=""):
-        self.logger.debug("simulating bound sequence matrix, mimicking input from '{0}'".format(self.input_reads.name))
+        self.logger.debug("simulating bound sequence matrix, mimicking input from '{0}'".format(self.input_reads.fname))
         
         t0 = time.time()
-        seqm, n_bound, n_ns = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
+        seqm, bound_fraction = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
+        # Hacky wacky just to debug and troubleshoot!
+        #seqm, self.input_kmer_counts, self.pd_kmer_weights, self.pd_kmer_counts, self.bound_fraction, self.Z_full = cska.ska_kmers.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
+        
         dt = time.time() - t0
         
-        print "specific", n_bound, "non-specific", n_ns
+        print "bound fraction", bound_fraction #, "non-specific", n_ns
         rps = N / dt
         self.logger.debug("took {0:.3f} seconds. {1:.1f} reads per second".format(dt, rps) )
         
         if store:
             cska.ska_kmers.write_seqm(seqm, file(store, 'w') )
 
-        return seqm
+        reads = RBNSReads(store, seqm=seqm, rbp_conc=P, n_subsamples=0, pseudo_count=0)
+        # simulation results should be temporary or we run into trouble!
+        reads._do_not_unpickle = True
+        reads._do_not_pickle = True
+        return reads
+        #return seqm
 
+    @cached
+    def boltzmann_weights(self, P=320.):
+        # chemical potential in units of RT. 
+        # $\mu = \log(c/c_0)$ c_0=1M, P is in nM, hence 1e-9
+        mu = np.log(P*1e-9) 
+        
+        w = np.exp(- self.kmer_energies + mu)
+        return w
+        
     def predict_occupancies(self, P=320., store=""):
         Kd = np.exp(self.kmer_energies)*1e9
         occ = P / (P+Kd)
@@ -398,51 +425,108 @@ class RBNSGenerator(CachedBase):
             
         return occ
     
-    def predict_r_values(self, P=320., store=""):
+    def predict_r_values(self, P=320., store="", limit=True):
         occ = self.predict_occupancies(P)
-        k = self.k
-        kappa = self.input_reads.kmer_frequencies(k) / 4**k
-        omega = (occ * kappa).sum()
-        print "omega", omega
-        pi = np.empty(occ.shape, dtype=np.float32)
-        kfreqs = {}
-        for x in range(1,k):
-            kfreqs[x] = self.input_reads.kmer_frequencies(x) / 4**x
+        r, pi_sum, beta = self.predict_r_values_from_occ(occ, limit=limit)
         
-        I = occ.argsort()[::-1]
-        for i in I:
-            kmer = cska.ska_kmers.index_to_seq(i, k)
-            p = occ[i] * kappa[i]
-            #print "direct", kmer, occ[i], kappa[i], "pi_naked", p
-            
-            for x in range(1,k):
-                weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
-                for s,f in zip(shifts, weights):
-                    #print s, f, type(s), k 
-                    ks = cska.ska_kmers.index_to_seq(int(s), self.k)
-                    #print "shifted", ks, "weight", f, "abundance", kappa[s]
-                    p += occ[s] * f * kappa[i]
-
-                #print "pi_with_shift_{0}".format(x), p
-            #print "pi_with_all_shifts", p
-            pi[i] = p
-
-        # adding baseline
-        l = self.l - k + 1
-        pi += omega*(l-2.*(k-1)) * kappa 
-        
-        r = pi / pi.sum() / kappa
-        I = r.argsort()[::-1]
-        for i in I[:10]:
-            print i, cska.ska_kmers.index_to_seq(i, k), pi[i], r[i]
-
         if store:
             with file(store,'w') as f:
                 for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), r):
                     f.write("{0}\t{1}\n".format(kmer, o) )
-        
-        return r
 
+        return r, pi_sum, beta
+    
+    def predict_r_values_from_occ(self, occ, store="", limit=True):
+        k = self.k
+        kappa = self.input_reads.kmer_frequencies(k) / 4**k
+        omega = (occ * kappa).sum()
+        #print "omega", omega
+        l = self.l - self.k + 1
+        beta = omega*(l-2.*(self.k) + 1)
+        
+        M, M_inv = self.crosstalk_matrix_and_inverse()
+        
+        
+        vec = (np.dot(M, occ) + beta)
+        print "lin approx max expected binding", vec.max()
+        if limit:
+            #vec = np.where(vec > 1, 1, vec)  # hard cap
+            #vec = vec / (vec + 2.) # sigmoidal
+            
+            vec = np.arcsinh(vec*1.5 ) # log-like for high values
+            print "lin approx max binding regularized", vec.max()
+            
+        pi = kappa * vec
+            
+        r = pi / pi.sum() / kappa
+        return r, pi.sum(), beta
+    
+
+    def binding_constants_from_R_vec(self, r, k, P=320., limit=True):
+        # WORK IN PROGRESS!
+        print "correct Kd", self.Kd[-5:]
+
+        M, M_inv = self.crosstalk_matrix_and_inverse()
+        k = self.k
+        kappa = self.input_reads.kmer_frequencies(k) / 4**k
+
+        
+        r_inv = np.dot(M_inv, r)
+        ofs = np.dot(M_inv, np.ones(r.shape))
+
+        def get_occ(x):
+            a,b = x
+            return a*(r_inv + b)
+        
+        def err(x):
+            r_pred = self.predict_r_values_from_occ(get_occ(x))
+            E = ((r - r_pred)**2).mean()
+            print x, E
+            return E
+        
+        from scipy.optimize import minimize
+        res = minimize(err, (.01,.01))
+        print res.success, res.x
+        
+        inv_occ = get_occ(res.x)
+        
+        #import matplotlib.pyplot as pp
+        #pp.figure()
+        #pp.plot(self.predict_occupancies(P=P), inv_occ, 'ob')
+        #pp.show()
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+        
+        
+    
     @cached
     def crosstalk_matrix_and_inverse(self, store=""):
         k = self.k
@@ -621,7 +705,24 @@ class RBNSGenerator(CachedBase):
         
         return kmers, kd, dG
 
-
+class RBNSSimulator(object):
+    def __init__(self, reads, openen, k):
+        self.reads = reads
+        if openen.disc:
+            self.openen = openen
+        else:
+            # we need to discretize first
+            self.openen = openen.discretize()
+            self.openen.store()
+        self.k = k
+        self.L = reads.L
+        
+    def expected_kmer_counts(self, kmer_energies, protein_conc, n_max=0):
+        from cska.ska_kmers import eval_energy_model_on_seqs
+        kmer_count_matrix = eval_energy_model_on_seqs(self.reads.seqm, self.openen.oem, self.openen.disc.x, kmer_energies, np.array(protein_conc, dtype=np.float32), self.k)
+        
+        return kmer_count_matrix
+                             
     
 class KmerSoupModel(object):
     def __init__(self, k=5, min_E = -11., temp=22., seed=None):
@@ -1050,49 +1151,493 @@ class RBNSKmerModel(object):
         pp.savefig(path)
         
 
+class PartitionFunction(object):
+    def __init__(self, seq, P, dG_kmers, k):
+        self.seq = seq
+        self.l = len(seq)
+        dG = []
+        for i in range(0,self.l - k + 1):
+            s = seq[i:i+k]
+            index = cska.ska_kmers.seq_to_index(s)
+            dG.append(float(dG_kmers[index]))
+        
+        self.dG = np.array(dG, dtype=np.float128)
+        self.mu = np.ones(len(seq)-k+1, dtype=np.float128) * np.log(P*1e-9)
+        self.k = k
+        self.Z_table = {}
+
+        #print "dG", self.dG
+        #print "mu", self.mu
+        
+    def Z_i(self,i):
+        Z = np.exp(-self.dG[i] + self.mu[i]) + 1
+        #print i,Z
+        return Z
+
+    def Z_overlap(self):
+        Z = 1.
+        for i in range(0, self.l - self.k + 1):
+            Z *= self.Z_i(i)
+
+        return Z
+
+    def P_bound_rec(self, eps=1e-5):
+        Z0 = self.Z_recursive(0,self.l)
+        Pb = []
+        for i in range(0, self.l - self.k + 1):
+            self.mu[i] += eps
+            self.Z_table = {}
+            dZ = self.Z_recursive(0, self.l) - Z0
+            Pb.append(dZ/eps/Z0)
+            self.mu[i] -= eps
+            
+        return np.array(Pb)
+            
+    def P_bound_indep_exact(self, eps=1e-5):
+        Pb = []
+        for i in range(0, self.l - self.k + 1):
+            Pb.append((self.Z_i(i) - 1) / self.Z_i(i) )
+
+        return np.array(Pb)
+
+    def P_bound_single(self):
+        Z_bound = np.exp(-self.dG + self.mu).sum()
+        
+        return Z_bound / (Z_bound + 1)
+        
+    def P_bound_indep(self, eps=1e-5):
+    
+        Pb = []
+        for i in range(0, self.l - self.k + 1):
+            Z0 = self.Z_i(i)
+            self.mu[i] += eps
+            dZ = self.Z_i(i) - Z0
+            Pb.append(1./Z0 * dZ/eps)
+            self.mu[i] -= eps
+        
+        return np.array(Pb)
+        
+    def Z_recursive(self, s,e):
+        k = self.k
+        Z = 1.
+        if e >= s+k:
+            Z_left = 0
+            if e > 1:
+                left = (s,e-1)
+                if not left in self.Z_table:
+                    self.Z_table[left] = self.Z_recursive(s,e-1)
+                Z_left = self.Z_table[left]
+
+            Z_right = 1
+            if e > k:
+                right = (s, e-k)
+                if not right in self.Z_table:
+                    #print "calling right"
+                    self.Z_table[right] = self.Z_recursive(s,e-k)
+                
+                Z_right = self.Z_table[right]
+            
+            Z += Z_left + np.exp(-self.dG[e-k] + self.mu[e-k]) + Z_right
+            #print s,e,i,"Z",Z
+
+        self.Z_table[s,e] = Z
+        return Z 
+            
+
+
+
+def test_fastrand(N=10000000):
+    from cska.ska_kmers import fast_randint, fast_rand, rand_seed
+
+    frnd = fast_rand(N)
+    print "f minmax", frnd.min(), frnd.max()
+    import matplotlib.pyplot as pp
+    print frnd
+    pp.hist(frnd, bins=200)
+    pp.show()
+    
+    
+        
 if __name__ == "__main__":
+    import matplotlib.pyplot as pp
     logging.basicConfig(level=logging.DEBUG)
+
+    from cska.rbns_reads import RBNSReads
+    from cska.folding import RBNSOpenen
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=100000)
+    openen = RBNSOpenen('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/RBFOX2_input.discretized_gamma_L40_k5_uint8.bin', reads, 5)
     
     gen = RBNSGenerator(5,l=40, seed=47110815)
+    
+    sim = RBNSSimulator(reads, openen, 5)
+    
+    kmer_energies = gen.kmer_energies - 1.5 # non-specific binding
+    print "simulating binding"
+    counts = sim.expected_kmer_counts(kmer_energies, [.5,1.,10.,120.,360.], n_max=100000)
+    print counts.shape
+    freqs = counts * (4**5)/counts.sum(axis=1)[:,np.newaxis]
+    print freqs[:,-10:]
+    
+    R = freqs/reads.kmer_frequencies(5)
+    print "R-values"
+    print R[:,-10:]
+    
+    
+    
+    
+        
+    #test_fastrand()
+    sys.exit(0)
+    
+    
+    ### test partition function for overlap
+    gen = RBNSGenerator(5,l=40, seed=47110815)
+    #gen.assign_experimental_input("/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads")
+    gen.assign_experimental_input("bla.reads")
+    
+    #P = 3200.
+    #P = 320.
+    #P = 50.
+    P = 10.
+    
+    B = np.exp(- gen.kmer_energies + np.log(P*1e-9) )
+    print "Boltzmann weights for top sites", B[-5:]
+    
+    k = 5
+    N = 4**k
+        
+    # kmer overlap extension frequencies
+    kfreqs = {}
+    for x in range(1,k+1):
+        kfreqs[x] = gen.input_reads.kmer_frequencies(x) / 4**x
+        
+    # test using simulated reads
+    from cska.rbns_analysis import RBNSComparison
+    #reads = gen.generate_input_reads(N=1000000, store="6mer@0nM.reads")
+    reads = gen.generate_bound_reads(P=P, p_ns=0.00, N=10000, store="7mer@{0}nM.reads".format(P))
+    #print gen.Z_full
+    print ">>> most abundant kmer-frequencies in pulldown simulation", reads.kmer_frequencies(k)[-5:]
+    comp = RBNSComparison(gen.input_reads, reads)
+    R, R_err = comp.R_values(k, _do_not_unpickle=True)
+    print "simulation R-values", R[-5:]
+
+    def P_bound_given_kmer_nn(x):
+        P = 0
+        fx = kfreqs[k][x]
+        
+        for j in range(4):
+            fj = kfreqs[1][j]
+            
+            # overlapping kmers
+            ij = (x << 2 | j) & (N-1)
+            #print "kmer i={0:b} ij={1:b}".format(i,ij)
+            ji = j << ((k-1)*2) | x >> 2
+            #print "kmer i={0:b} ij={1:b} ji={2:b}".format(i,ij, ji)
+            
+            Zij = B[x] + B[ij]
+            Zji = B[x] + B[ji]
+                            
+            Pij = Zij / (Zij + 1)
+            Pji = Zji / (Zji + 1)
+            
+            P += fj * (Pij + Pji)
+
+        return fx * P/2.
+
+
+    def P_bound_given_kmer_nnn(x):
+        P = 0
+        fx = kfreqs[k][x]
+        
+        for l in range(4):
+            fl = kfreqs[1][l]
+            
+            for r in range(4):
+                fr = kfreqs[1][r]
+                
+                xr = (x << 2 | l) & (N-1)
+                lx = l << ((k-1)*2) | x >> 2
+                
+                Zlxr = B[lx] + B[x] + B[xr]
+                                
+                Plxr = Zlxr / (Zlxr + 1)
+                
+                P += fl * fr * Plxr
+
+        for l in range(16):
+            fl = kfreqs[2][l]
+            l1 = l & 3
+            
+            # overlapping kmers
+            lx = l << ((k-2)*2) | x >> 4
+            l1x = l1 << ((k-1)*2) | x >> 2
+            
+            Zlx = B[lx] + B[l1x] + B[x]
+            Plx = Zlx/ (Zlx + 1)
+            
+            P += fl * Plx
+
+        for r in range(16):
+            fr = kfreqs[2][r]
+            r1 = r >> 2
+            
+            # overlapping kmers
+            xr = (x << 4 | r) & (N-1)
+            xr1 = (x << 2 | r1) & (N-1)
+            
+            Zxr = B[x] + B[xr1] + B[xr]
+            Pxr = Zxr/ (Zxr + 1)
+            
+            P += fr * Pxr
+
+        return fx * P/3.
+
+
+    
+    def P_kmer_in_read():
+        Z = np.zeros(N)
+        
+        for i in range(N):
+            fi = kfreqs[k][i]
+            
+            #Z[i] += fi
+            
+            for j in range(4):
+                fj = kfreqs[1][j]
+                
+                # overlapping kmers
+                ij = (i << 2 | j) & (N-1)
+                
+                ji = j << ((k-1)*2) | i >> 2
+                
+                Z[ij] += fj * fi
+                Z[ji] += fj * fi
+
+        return Z / Z.sum()
+        
+       
+    kmer_occ = B / (B + 1)
+    naive_freq = kmer_occ * kfreqs[k]
+    naive_r = naive_freq / naive_freq.sum() / kfreqs[k]
+    print "naive r",naive_r[-5:]
+    
+    lin_approx_r, pisum, beta = gen.predict_r_values(P, limit=False)
+    print "lin matrix approx.", lin_approx_r[-5:]
+    print "factors pisum", pisum, "beta", beta
+    #p_in = kfreqs[k] * 2#P_kmer_in_read()
+    #p_in = P_kmer_in_read()
+    
+    M, M_inv = gen.crosstalk_matrix_and_inverse()
+    # inverting linear approximation and comparing to real occupancies
+    occ_approx = np.dot(M_inv, lin_approx_r * pisum - beta)
+    
+    pp.figure()
+    plot = pp.plot
+    plot(kmer_occ, np.dot(M_inv, R * pisum - beta), 'or')
+    plot(kmer_occ, np.dot(M_inv, R * 1.5*pisum - beta), 'oy')
+    plot(kmer_occ, np.dot(M_inv, lin_approx_r * pisum - beta), 'ok' ,label="pos. control")
+    
+    pp.xlabel('kmer occ')
+    pp.ylabel('lin approx occ')
+    
+    pp.show()
+    
+    nn_freq = np.array([P_bound_given_kmer_nn(x) for x in np.arange(N)])
+    nn_r = nn_freq / nn_freq.sum() / kfreqs[k]
+    print "nn r",nn_r[-5:]
+
+    nnn_freq = np.array([P_bound_given_kmer_nnn(x) for x in np.arange(N)])
+    nnn_r = nnn_freq / nnn_freq.sum() / kfreqs[k]
+    print "nnn r",nnn_r[-5:]
+
+    
+    pp.figure()
+    M = max(R.max(), nn_r.max(), nnn_r.max(), lin_approx_r.max(), naive_r.max() )
+    M = max(R.max(), lin_approx_r.max())
+    
+    plot = pp.loglog
+    plot = pp.plot
+    
+    plot(np.array([1.,M]),np.array([1., M]), '--', color='gray')
+
+    #plot(R, naive_r, 'ok', alpha=.2, label="naive kmer soup R={0:.2f}".format(np.corrcoef(np.log(R), np.log(naive_r))[0][1]) )
+    #plot(R, nn_r, 'oy', alpha=.5, label="nearest neighbor avg. R={0:.2f}".format(np.corrcoef(np.log(R), np.log(nn_r))[0][1]) )
+    #plot(R, nnn_r, 'or', alpha=.5, label="next-nearest neighbor avg. R={0:.2f}".format(np.corrcoef(np.log(R), np.log(nnn_r))[0][1]) )
+    plot(R, lin_approx_r, 'og', label="linear matrix R={0:.2f}".format(np.corrcoef(np.log(R), np.log(lin_approx_r))[0][1]) )
+    pp.xlim(1,M)
+    pp.ylim(1,M)
+    pp.legend(loc='upper left')
+    
+    gen.binding_constants_from_R_vec(R, k, P)
+    #pp.show()
+        #t0 = time.time()        
+        #for i in np.arange(N):
+            #M[i,i] = 1
+            #for x in range(1,k):
+                #weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                #for s,f in zip(shifts, weights):
+                    #M[i,s] += f
+
+        #t1 = time.time()
+        #M_inv = np.linalg.inv(M)
+        #t2 = time.time()
+        #self.logger.debug("computed crosstalk matrix for k={0} in {1:.3f}s, inverted in {2:.3f}s".format(self.k, t1-t0, t2-t1) )
+        #return M, M_inv
+
+    
+    #sys.exit(0)
+    
+    
+    
+    #gen = RBNSGenerator(5,l=40, seed=47110815)
+    #pp.figure()
+    
+    #colors = ['k','b','y','g','r']
+    #for P,c in zip([1., 10., 100., 500.], colors):
+        ##Q = PartitionFunction("GAATGGAGTTTTTTGTTTTC",P, gen.kmer_energies, 5)
+        #Q = PartitionFunction("TTTTT",P, gen.kmer_energies, 5)
+        #Pb_1 = Q.P_bound_single()
+        #Pb_ex = Q.P_bound_indep_exact()
+        ##print Q.P_bound_indep()
+        #Pb_corr = Q.P_bound_rec()
+        
+        #print "single protein unit binding",Pb_1
+        #P_bound_single = 1 - np.product( 1 - Pb_1)
+        #P_bound_indep = 1 - np.product( 1 - Pb_ex)
+        #P_bound_corr = 1 - np.product( 1- Pb_corr)
+        #print "P", P, "indep",P_bound_indep, "corr",P_bound_corr, "ratio", P_bound_indep/P_bound_corr
+        ##print Pb_ex
+        #pp.semilogy(Pb_1, '^-', color=c, label="P={0}".format(P))
+        #pp.semilogy(Pb_ex, 'x--', color=c, label="P={0}".format(P))
+        #pp.semilogy(Pb_corr, 'o-', color=c, label=None)
+    
+    #pp.legend(loc='lower right')
+    #pp.show()
+    #import sys
+    #sys.exit(0)
+
     gen.assign_experimental_input("/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads")
     print gen
-    gen.energy_plot()
-
     #gen.energy_plot()
-    #gen.generate_input_reads(store="input.reads")
+    #gen.generate_input_reads(store="input.reads", N=100)
+    # test different partition functions
+    
+    
 
+
+    
     #gen.generate_bound_reads(store="bound_320.reads", P=320., p_ns=0.00, N=20000000)
     #occ = gen.predict_occupancies(P=320., store="occ_320.tsv")
     
-    rbp_conc = np.array([40, 80, 160, 320])
-    rbp_conc = np.array([1.,5.])
+    
+    r_obs = []
+    mers = []
+    for line in file('ska_sim/RBP.R_value.5mer.tsv'):
+        if line.startswith('#'): 
+            continue
+        parts = line.rstrip().split('\t')
+        r_obs.append([float(parts[i]) for i in [1,3,5,7,9]])
+        mers.append(parts[0])
+            
+    mers = np.array(mers)
+    r_obs = np.array(r_obs).T[:,mers.argsort()]
+    
+    
+    rbp_conc = np.array([1., 40, 80, 160, 320])
+    #rbp_conc = np.array([1.,5.])
+    rbp_conc = np.array([1., 80, 320])
+    
+    pp.figure()
     r_matrix = []
-    for P in rbp_conc:
+    occ_matrix = []
+    for i,P in enumerate(rbp_conc):
         r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
         occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
         r_matrix.append(r)
-        #gen.generate_bound_reads(store="bound_{0}.reads".format(P), P=P, p_ns=0.00, N=20000000)
+        occ_matrix.append(occ)
+        #gen.generate_bound_reads(store="bound_{0}.reads".format(P), P=P, p_ns=0.00, N=1000000)
+        
+        pp.loglog(occ, r, 'o', alpha=.5, label="P={0:.0f}nM".format(P))
+        
+    pp.legend(loc='upper left')
+    pp.xlabel('predicted occupancy')
+    pp.ylabel('predicted R-value')
+    pp.savefig("R_pred_vs_occ.pdf")
+    pp.close()
+    
+    pp.figure()
+    rmin = 1.
+    rmax = 1.
+    for P, ro, r in zip(rbp_conc, r_obs, r_matrix):
+        pp.loglog(r, ro, 'o', alpha=.5, label="P={0:.0f}nM".format(P))
+
+        rmin = min(r.min(), ro.min(), rmin)
+        rmax = max(r.max(), ro.max(), rmax)
+    
+    rmin /= 2
+    rmax *= 2
+    pp.plot([rmin, rmax], [rmin, rmax], '--k')
+    #print "minmax", rmin, rmax
+    pp.legend(loc='upper left')
+    pp.xlabel('predicted R-value')
+    pp.ylabel('observed R-value')
+
+
+    M, M_inv = gen.crosstalk_matrix_and_inverse()
+
+    def inverse(r):
+        r_inv = np.dot(M_inv, r) 
+        ofs = np.dot(M_inv, np.ones(r.shape))
+
+        delta = r_inv - ofs
+        corr = max(- delta.min(), 0) # no negative terms allowed
+        
+        beta = corr / ofs
+        print (r_inv + beta*ofs).min()
+        
+        pre_scaled = r_inv + beta * ofs
+        scale = 1./pre_scaled.max()
+        
+        beta = beta * scale
+        inv = pre_scaled * scale
+        print "inv minmax", inv.min(), inv.max()
+        return inv
+        
+    pp.figure()
+    for P, ro, occ, r in zip(rbp_conc, r_obs, occ_matrix, r_matrix):
+        Z = 1
+        beta = 1
+        ro_inv = inverse(ro)
+        r_inv = inverse(r)
+
+        print r_inv[-10:]
+        pp.loglog(r_inv, ro_inv, 'o', alpha=.5, label="P={0:.0f}nM".format(P))
+
+    pp.legend(loc='upper left')
+    #pp.xlabel('predicted occupancy')
+    pp.xlabel(r'$M^{-1} \cdot r_{pred}$')
+    pp.ylabel(r'$M^{-1} \cdot r_{obs}$')
+    
+    #pp.show()
+        
         
     kmers, k_est, dG = gen.linear_fit(rbp_conc, np.array(r_matrix), n_top=20)
     
-    M, M_inv = gen.crosstalk_matrix_and_inverse()
-    nzero = (M == 0).nonzero()[0].size
-    print "sparseness of M", nzero / float(M.size)
 
     import matplotlib.pyplot as pp
-    #pp.figure()
-    #pp.loglog(r, rm, 'ok')
+    ##pp.figure()
+    ##pp.loglog(r, rm, 'ok')
     
-    pp.figure(figsize=(8,4))
-    pp.subplot(121)
-    pp.imshow(np.log10(M), cmap=pp.get_cmap('plasma'))
-    pp.colorbar(label=r'$\log_{10}(M)$',fraction=0.046, pad=0.04)
+    #pp.figure(figsize=(8,4))
+    #pp.subplot(121)
+    #pp.imshow(np.log10(M), cmap=pp.get_cmap('plasma'))
+    #pp.colorbar(label=r'$\log_{10}(M)$',fraction=0.046, pad=0.04)
 
-    pp.subplot(122)
-    pp.imshow(np.log10(M_inv), cmap=pp.get_cmap('plasma'))
-    pp.colorbar(label=r'$\log_{10}(M^{-1})$',fraction=0.046, pad=0.04)
-    pp.tight_layout()
-    pp.savefig('crosstalk_matrix.pdf')
+    #pp.subplot(122)
+    #pp.imshow(np.log10(M_inv), cmap=pp.get_cmap('plasma'))
+    #pp.colorbar(label=r'$\log_{10}(M^{-1})$',fraction=0.046, pad=0.04)
+    #pp.tight_layout()
+    #pp.savefig('crosstalk_matrix.pdf')
         
     pp.figure()
     pp.title("inferred binding energies")

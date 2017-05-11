@@ -29,7 +29,7 @@ class RBNSOpenen(CachedBase):
         self.rbns_reads = rbns_reads
         self.k = k
         
-        self.logger = logging.getLogger('RBNSOpenen({self.fname} k={self.k})'.format(self=self))
+        self.logger = logging.getLogger('RBNSOpenen({self.rbns_reads.fname} k={self.k})'.format(self=self))
         if len(oem):
             self.cache_preload("__cached_oem", oem)
             N, L = oem.shape
@@ -85,15 +85,19 @@ class RBNSOpenen(CachedBase):
         #print oem.shape
         return oem
     
-    def discretize(self, disc=None):
+    def discretize(self, disc=None, dname=None):
+        
         if not disc:
             disc = OpenenDiscretization(self.k, self.L+self.k-1, np.uint8)
 
+        self.logger.debug("discretizing {0} using {1}".format(self.fname, disc.to_filename()) )
+        t0 = time.time()
+        
         d_oem = disc.discretize(self.oem)
-        path, fname = os.path.split(self.fname)
-        dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(), fname) )
+        if not dname:
+            path, fname = os.path.split(self.fname)
+            dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(), fname) )
 
-        print dname
         doe = RBNSOpenen(
             dname,
             self.rbns_reads,
@@ -101,6 +105,8 @@ class RBNSOpenen(CachedBase):
             oem = d_oem
         )
         
+        dt = time.time() - t0
+        self.logger.debug("discretization took {0:.1f} seconds".format(dt) )
         return doe
     
     def integrate(self, integrand, bin_weights):
@@ -108,6 +114,7 @@ class RBNSOpenen(CachedBase):
         return np.trapz(integrand * bin_weights, self.disc.x)
 
     def store(self):
+        self.logger.info("storing open-energies as '{0}'".format(self.fname) )
         self.oem.tofile(self.fname)
 
 
@@ -322,35 +329,46 @@ class ViennaOpenen(object):
     
 
 class OpenenStorage(object):
-    def __init__(self, path='./', name="openen", bins=None, dtype=np.float32):
+    def __init__(self, reads, path='./', discretize=False, dtype=np.float32):
         self.path = path
-        self.name = name
-        self.bins = bins
+        self.reads = reads
         self.dtype = dtype
         
         self.k_sinks = {}
-        self.k_bins = {}
+        self.k_disc = {}
         self.logger = logging.getLogger('OpenenStorage')
         self.n_sets = 0
+        self.discretize = discretize
+
+    def load(self, k):
+        return RBNSOpenen(self.get_filename(k), self.reads, k)
+
+    def get_filename(self, k):
+        if self.discretize:
+            self.k_disc[k] = OpenenDiscretization(k, self.reads.L, self.dtype)
+            fmt = self.k_disc[k].to_filename()
+        else:
+            fmt = "raw_L{0}_k{1}_{2}".format(self.dtype.__name__)
+
+        base, ext = os.path.splitext(os.path.basename(self.reads.fname))
+        fname = os.path.join(self.path, "{0}.{1}.bin".format(base,fmt) )
+        
+        return fname
         
     def get_or_create(self, k):
-        if self.bins:
-            fmt = "bins-{0}".format(self.dtype.__name__)
-        else:
-            fmt = "raw-{0}".format(self.dtype.__name__)
-
         if not k in self.k_sinks:
-            fname = os.path.join(self.path, "{0}.{1}.{2}.bin".format(self.name,k,fmt) )
+            fname = self.get_filename(k)
             self.k_sinks[k] = file(fname,'wb')
             self.logger.info("created '{0}'".format(fname))
     
         return self.k_sinks[k]
     
     def store(self, k, vec):
-        if self.bins:
-            vec = np.array(np.digitize(vec, self.bins)-1, dtype=self.dtype)
+        sink = self.get_or_create(k)
+        if self.discretize:
+            vec = self.k_disc[k].discretize(vec)
 
-        self.get_or_create(k).write(vec.tobytes())
+        sink.write(vec.tobytes())
 
     def store_set(self, krange, data):
         for k, vec in zip(krange, data):
@@ -399,12 +417,12 @@ class OpenenDiscretization(object):
         
         # compute openen values that optimally represent each bin
         q_x = q[:-1] + 0.5*step
-        self.x = scipy.stats.gamma.ppf(q_x, *params)
+        self.x = np.array(scipy.stats.gamma.ppf(q_x, *params), dtype=np.float32)
 
     @staticmethod
     def from_filename(fname):
         import re
-        M = re.search(r'discretized_gamma_(?P<L>\d+)_(?P<k>\d+)_(?P<dtype>\w+)', fname)
+        M = re.search(r'discretized_gamma_L(?P<L>\d+)_k(?P<k>\d+)_(?P<dtype>\w+)', fname)
         d = M.groupdict()
         L = int(d['L'])
         k = int(d['k'])
@@ -414,11 +432,10 @@ class OpenenDiscretization(object):
         return OpenenDiscretization(k, L, dtype)
         
     def to_filename(self):
-        return "discretized_gamma_{0}_{1}_{2}".format(self.L, self.k, self.dtype.__name__)
+        return "discretized_gamma_L{0}_k{1}_{2}".format(self.L, self.k, self.dtype.__name__)
         
     def discretize(self, data):
-        bins = self.bins
-        return np.digitize(data, bins) - 1
+        return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
 
 
 
@@ -442,7 +459,7 @@ def queue_iter(queue, stop_item = None):
             yield item
 
 
-def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., **kwargs):
+def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., n_max=0, **kwargs):
     """
     Reads sequences from src and groups them in chunks of up to chunk_size.
     Each chunk is enumerated and the tuple (n_chunk, chunk) is pushed to the queue 
@@ -466,6 +483,9 @@ def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., 
             queue.put( (n_chunk, chunk) )
             n_chunk += 1
             chunk = []
+
+        if n_max and n_seqs >= n_max:
+            break
 
     if chunk:
         queue.put( (n_chunk, chunk) )
@@ -537,12 +557,24 @@ def result_collector(storage, res_queue):
     dT = time.time() - t0
     logger.debug("finished processing {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
     
+
 def parallel_fold(src, storage, n_parallel=8, **kwargs):
+    """
+    Top-level function for parallel folding. Constructs all the subprocesses
+    and ensures proper shutdown. kwargs are passed to ViennaRNA instances, 
+    as well as the dispatcher.
+    """
     
     import multiprocessing
     seq_queue = multiprocessing.Queue()
     res_queue = multiprocessing.Queue()
     
+    # fire up the dispatcher: 
+    #
+    #  seqs from src-> 
+    #  enumerated chunks->
+    #  seq_queue
+    #
     dispatcher = multiprocessing.Process(
         target = seq_dispatcher, 
         name='seq_dispatcher', 
@@ -552,6 +584,12 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     dispatcher.daemon = True
     dispatcher.start()
     
+    # fire up multiple workers: 
+    #
+    #  seq_queue-> enumerated seq. chunks-> \
+    #       ViennaOpenen(RNAplfold_cska)-> \
+    #  enumerated result chunks-> res_queue
+    #
     workers = []
     for n in range(n_parallel):
         worker = multiprocessing.Process(
@@ -564,6 +602,12 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
         worker.start()
         workers.append(worker)
 
+    # fire up result collector:
+    #
+    #  res_queue-> enumerated result chunks->
+    #           re-order->
+    #  write data using storage
+    #
     collector = multiprocessing.Process(
         target = result_collector,
         name = 'result_collector',
@@ -576,14 +620,17 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     dispatcher.join()
     # signal all fold-workers to finish
     for n in range(n_parallel):
-        seq_queue.put(None)
+        seq_queue.put(None) # each worker consumes exactly one None
 
     for worker in workers:
-        # make sure all results are on res_queue
+        # make sure all results are on res_queue by waiting for 
+        # workers to exit.
         worker.join()
     
     # signal the collector to stop
     res_queue.put(None)
+    # and wait until everything has reached storage. 
+    # collector calls storage.close() bc it is in its own subprocess.
     collector.join()
    
     
