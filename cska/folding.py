@@ -113,6 +113,18 @@ class RBNSOpenen(CachedBase):
         assert self.discretized
         return np.trapz(integrand * bin_weights, self.disc.x)
 
+    @cached
+    @pickled
+    def kmer_openen_counts(self):
+        import cska.ska_kmers
+        return cska.ska_kmers.kmer_openen_counts(self.rbns_reads.seqm, self.oem, self.k)
+        
+    @cached
+    @pickled
+    def kmer_mean_openen_profiles(self):
+        import cska.ska_kmers
+        return cska.ska_kmers.kmer_mean_openen_profiles(self.rbns_reads.seqm, self.oem, np.array(self.disc.x), self.k)
+
     def store(self):
         self.logger.info("storing open-energies as '{0}'".format(self.fname) )
         self.oem.tofile(self.fname)
@@ -244,7 +256,9 @@ class ViennaOpenen(object):
     """
     Wrapper around an RNAplfold_cska (modified RNAplfold) subprocess.
     """
-    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", L=84, skip_adap=True, **kwargs):
+    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", l_insert=20, skip_adap=True, **kwargs):
+        
+        L = len(adap5) + l_insert + len(adap3)
         
         # create the folding sub-process
         cmd=[vienna_bin, "-O", "-u {0}".format(k_max), "-W {0}".format(L), "-L {0}".format(L), "-T {0}".format(temp)]
@@ -348,7 +362,7 @@ class OpenenStorage(object):
             self.k_disc[k] = OpenenDiscretization(k, self.reads.L, self.dtype)
             fmt = self.k_disc[k].to_filename()
         else:
-            fmt = "raw_L{0}_k{1}_{2}".format(self.dtype.__name__)
+            fmt = "raw_L{0}_k{1}_{2}".format(self.reads.L, k, self.dtype.__name__)
 
         base, ext = os.path.splitext(os.path.basename(self.reads.fname))
         fname = os.path.join(self.path, "{0}.{1}.bin".format(base,fmt) )

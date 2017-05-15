@@ -36,8 +36,9 @@ def main():
 
     parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
+    parser.add_option("-L","--insert-length",dest="l_insert",default=20,type=int,help="length of random oligo insert in the reads (default=20)")
     
-    parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in micro molars (default=100uM)")
+    parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature",dest="temp",default=22,type=float,help="temperature of the experiment in Celsius (default=22.0)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
@@ -51,8 +52,8 @@ def main():
     parser.add_option("","--debug-caching",dest="debug_caching",default=False, action="store_true",help="DEBUG: enable detailed debug output from the caching framework")
 
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
-    parser.add_option("","--adap-5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--adap-3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
+    parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
+    parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("","--openen",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and build open-energy distributions")
     parser.add_option("","--openen-discretize",dest="openen_discretize",default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
@@ -172,7 +173,7 @@ def main():
         for reads in rbns.reads:
             logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
             
-            if options.openen_discretize:
+            if int(options.openen_discretize):
                 dtype = getattr(np, "uint{0}".format(options.openen_discretize))
                 storage = OpenenStorage(reads, path=fold_path, discretize=True, dtype=dtype)
             else:
@@ -187,6 +188,7 @@ def main():
                 min_k = options.min_k,
                 max_k = options.max_k,
                 n_max = options.n_max,
+                l_insert = options.l_insert,
             )
     else:
         for k in range(options.min_k, options.max_k + 1):
