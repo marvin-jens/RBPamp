@@ -147,7 +147,7 @@ def pickled(func):
 
         inst_key = self.cache_key
         argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ]).replace('/','__')
+        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kw.items()) ]).replace('/','__')
         
         path = self.pkl_path
         pkl_key = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}".format(**locals() )
