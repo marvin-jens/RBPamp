@@ -317,6 +317,28 @@ class RBNSGenerator(CachedBase):
         #pp.ylabel('frequency')
         
 
+    def store_invKd(self, fname):
+        """
+        write flat file with 7-mer 1./Kd as neede by RBPbind
+        """
+        def heptamers(mer):
+            k = len(mer)
+            if k > 7:
+                raise ValueError("not supported")
+            
+            for i in range(7-k+1):
+                # left padding:
+                for left in cska.ska_kmers.yield_kmers(i):
+                    for right in cska.ska_kmers.yield_kmers(7-i-k):
+                        yield left+mer+right
+            
+        invKd = 1./(np.exp(self.kmer_energies)*1e9)
+        with file(fname,'w') as f:
+            f.write(" Motifs invKd\n===================\n")
+            for kmer, ikd in zip(cska.ska_kmers.yield_kmers(self.k), invKd):
+                for hepta in heptamers(kmer):
+                    f.write("{0} {1}\n".format(hepta, ikd))
+        
 
     def __str__(self):
         top_kmers = []
@@ -494,37 +516,6 @@ class RBNSGenerator(CachedBase):
         #pp.figure()
         #pp.plot(self.predict_occupancies(P=P), inv_occ, 'ob')
         #pp.show()
-        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-        
         
     
     @cached
@@ -705,8 +696,10 @@ class RBNSGenerator(CachedBase):
         
         return kmers, kd, dG
 
-class RBNSSimulator(object):
+class RBNSSimulator(CachedBase):
     def __init__(self, reads, openen, k):
+        CachedBase.__init__(self)
+        
         self.reads = reads
         if openen.disc:
             self.openen = openen
@@ -716,12 +709,17 @@ class RBNSSimulator(object):
             self.openen.store()
         self.k = k
         self.L = reads.L
-        
-    def expected_kmer_counts(self, kmer_energies, protein_conc, n_max=0):
+
+    @property
+    def cache_key(self):
+        return "RBNSSimulator {self.reads.cache_key} {self.openen.cache_key} {self.k}".format(self=self)
+    
+    @pickled
+    def expected_kmer_counts(self, kmer_energies, protein_conc, n_max=0, E_ns = 0):
         from cska.ska_kmers import eval_energy_model_on_seqs
-        kmer_count_matrix = eval_energy_model_on_seqs(self.reads.seqm, self.openen.oem, self.openen.disc.x, kmer_energies, np.array(protein_conc, dtype=np.float32), self.k)
+        kmer_count_matrix, openen_kmer_bincount_matrix = eval_energy_model_on_seqs(self.reads.seqm, self.openen.oem, self.openen.disc.x, kmer_energies, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns)
         
-        return kmer_count_matrix
+        return kmer_count_matrix, openen_kmer_bincount_matrix
                              
     
 class KmerSoupModel(object):
@@ -1259,27 +1257,62 @@ def test_fastrand(N=10000000):
     
         
 if __name__ == "__main__":
+    import matplotlib
+    matplotlib.use('pdf')
     import matplotlib.pyplot as pp
     logging.basicConfig(level=logging.DEBUG)
 
     from cska.rbns_reads import RBNSReads
-    from cska.folding import RBNSOpenen
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=100000)
-    openen = RBNSOpenen('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/RBFOX2_input.discretized_gamma_L40_k5_uint8.bin', reads, 5)
+    from cska.folding import RBNSOpenen, OpenenStorage
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000000)
+    storage = OpenenStorage(reads, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma')
+    openen = storage.get_discretized(5)
+    openen._do_not_unpickle = True
+    disc = openen.disc
+
+    sim = RBNSSimulator(reads, openen, 5)    
     
+    print "joint frequencies"
+    kmer_openen = openen.kmer_openen_counts()
+
     gen = RBNSGenerator(5,l=40, seed=47110815)
+    gen.store_invKd("/home/mjens/git/RBPbind/server/proteinfiles/RBNSGenerator_rev.txt")
+    #sys.exit(1)
     
-    sim = RBNSSimulator(reads, openen, 5)
-    
-    kmer_energies = gen.kmer_energies - 1.5 # non-specific binding
+    kmer_energies = np.random.permutation(gen.kmer_energies) #- 1.5 # non-specific binding
+
+
+    print kmer_energies
     print "simulating binding"
-    counts = sim.expected_kmer_counts(kmer_energies, [.5,1.,10.,120.,360.], n_max=100000)
-    print counts.shape
+    rbp_conc = [.5,1.,10.,120.,360.]
+    sim._do_not_unpickle=True
+    counts, openen_bincounts = sim.expected_kmer_counts(kmer_energies, rbp_conc, E_ns=-4/gen.RT)
+    print counts.shape, openen_bincounts.shape
+    print ">>>openen-bins"
+    
+    best_i = kmer_energies.argmin()
+    ref = kmer_openen[best_i]
+    x, ref_y = disc.get_hist_xy(ref)
+    
+    pp.figure(figsize=(10,8) )
+    for i in range(len(openen_bincounts)):
+        bc = openen_bincounts[i,best_i,:]
+        x, y = disc.get_hist_xy(bc)
+        
+        lratio = np.log(y, ref_y)
+        pp.plot(disc.x, lratio, label="P={0}".format(rbp_conc[i]))
+        
+    #pp.show()
+    pp.xlabel(r"$\Delta U$ [kcal/mol]")
+    pp.ylabel(r"$\log(\frac{pd}{input})$")
+    pp.savefig('simulated.pdf')
+    
+    
     freqs = counts * (4**5)/counts.sum(axis=1)[:,np.newaxis]
     print freqs[:,-10:]
     
     R = freqs/reads.kmer_frequencies(5)
-    print "R-values"
+    print "R-values", R.min(), R.max()
     print R[:,-10:]
     
     
