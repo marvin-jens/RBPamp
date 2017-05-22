@@ -11,6 +11,31 @@ import hashlib
 
 def key_to_hash(key):
     return hashlib.md5(key).hexdigest()
+
+def array_to_hash(a):
+    return "array_{0}_{1}".format(a.shape, hashlib.md5(a.tobytes()).hexdigest())
+
+def args_to_key(argc, kwargs, self, func_name):
+    kw = dict(kwargs)
+    kw = dict(kwargs)
+    kw.pop('_do_not_cache', None)
+    kw.pop('_do_not_pickle', None)
+    kw.pop('_do_not_unpickle', None)
+    
+    def to_str(x):
+        if type(x) == np.ndarray:
+            return array_to_hash(x)
+        else:
+            return str(x)
+
+    argc_key = "_".join([to_str(a) for a in argc])
+    kw_key = "__".join(["{0}={1}".format(k,to_str(v)) for k,v in sorted(kwargs.items()) ])
+    
+    key = "{self.cache_key}.{func_name}.{argc_key}.{kw_key}".format(**locals() )
+    
+    return key, kw
+
+    
     
 class CachedBase(object):
     """
@@ -28,9 +53,15 @@ class CachedBase(object):
     _do_not_pickle = False
     _do_not_unpickle = False
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         self._cache_names = []
         self.logger = logging.getLogger('CachedBase')
+        
+        for k,v in kwargs.items():
+            if k.startswith('_'):
+                #print "setting",k,v
+                setattr(self, k, v)
+
         #self._do_not_cache = True # DEBUG!!
 
     @property
@@ -41,10 +72,14 @@ class CachedBase(object):
         """
         return self.__class__.__name__
     
-    def cache_preload(self, cache_name, value, key="."):
+    def cache_preload(self, func_name, value, argc=(), kwargs={}):
+        
+        cache_name = "__cached_{name}".format(name=func_name)
+        
         if not hasattr(self, cache_name):
             setattr(self, cache_name, dict() )
 
+        key, kw = args_to_key(argc, kwargs, self, func_name)
         getattr(self, cache_name)[key] = value
         if self.debug_caching:
             self.logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, key, value) )
@@ -69,16 +104,11 @@ def cached(func):
     "__cached_<func_name>" dictionary to the decorated method's class instance.
     """
     # TODO: 
-    # * mechanism to pre-populate cache (for subsample seqm)
     # * clean up into baseclass (or meta class?) of its own
-    # * better handling of arrays as keys: Use hash function on data rather than shape.
     
     cache_name = "__cached_{name}".format(name=func.__name__)
     
     def cached_func(self, *argc, **kwargs):
-        kw = dict(kwargs)
-        kw.pop('_do_not_cache', None)
-        
         if not hasattr(self, cache_name):
             setattr(self, cache_name, dict() )
             self._cache_names.append(cache_name)
@@ -87,16 +117,7 @@ def cached(func):
             self.logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
                 
         cache = getattr(self, cache_name)
-        
-        def to_str(x):
-            if type(x) == np.ndarray:
-                return "array_{0}".format(x.shape)
-            else:
-                return str(x)
-
-        argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kwargs.items()) ]).replace('/','__')
-        key = argc_key + "." + kw_key
+        key, kw = args_to_key(argc, kwargs, self, func.__name__)
         
         if not key in cache:
             if self.debug_caching:
@@ -132,38 +153,23 @@ def pickled(func):
     """
     
     def pickled_func(self, *argc, **kwargs):
-        kw = dict(kwargs)
-        kw.pop('_do_not_pickle', None)
-        kw.pop('_do_not_unpickle', None)
-        
-        def to_str(x):
-            if type(x) == np.ndarray:
-                return "array_{0}".format(x.shape)
-            else:
-                return str(x)
-        
         res = None
         new = False
 
-        inst_key = self.cache_key
-        argc_key = "_".join([to_str(a) for a in argc])
-        kw_key = "__".join(["{0}={1}".format(k,v) for k,v in sorted(kw.items()) ]).replace('/','__')
-        
-        path = self.pkl_path
-        pkl_key = "{inst_key}.{func.__name__}.{argc_key}.{kw_key}".format(**locals() )
-        pkl_name = "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key))
+        pkl_key, kw = args_to_key(argc, kwargs, self, func.__name__)
 
         # allow override
-        pkl_name = getattr(func, "pkl_name", pkl_name)
+        pkl_name = getattr(func, "pkl_name", "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key)))
         
         # get the result from call or un-pickle
+        fname = os.path.join(self.pkl_path, pkl_name)
         if getattr(self, '_do_not_unpickle', False) or kwargs.get('_do_not_unpickle', False):
             res = func(self, *argc, **kw)
             new = True
-
-        elif os.path.exists(os.path.join(path,pkl_name)):
+        
+        elif os.path.exists(fname):
             self.logger.debug("un-pickling '{0}' as '{1}'".format(pkl_key, pkl_name) )
-            res = pickle.load(file(os.path.join(path,pkl_name),'rb'))
+            res = pickle.load(file(fname,'rb'))
             new = False
             
         else:
@@ -174,11 +180,11 @@ def pickled(func):
         if new and (not (getattr(self, '_do_not_pickle', False) or kwargs.get('_do_not_pickle', False))):
             self.logger.debug("storing pickle of '{0}' as '{1}'".format(pkl_key, pkl_name) )
             try:
-                os.makedirs(path)
+                os.makedirs(self.pkl_path)
             except OSError:
                 # already exists
                 pass
-            pickle.dump(res, file(os.path.join(path,pkl_name),'wb'), protocol=-1)
+            pickle.dump(res, file(fname,'wb'), protocol=-1)
         
         return res
     
