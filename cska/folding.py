@@ -19,26 +19,21 @@ logger = logging.getLogger("cska.folding")
 class RBNSOpenen(CachedBase):
     """
     Analogous to RBNSReads, which holds the raw sequences, instances of this class hold 
-    open-energies for all kmer start-positions inside the raw sequences.
+    open-energies for all kmer start-positions inside the raw sequences. 
+    Since one file with reads produces multiple openen files (one for each k) and
+    these furthermore may exist in raw or discretized form, an OpenenStorage instance
+    should be used to encapsulate transparent access to the underlying 
+    files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[]):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, **kwargs):
 
-        CachedBase.__init__(self)
+        CachedBase.__init__(self, **kwargs)
 
         self.fname = fname
         self.rbns_reads = rbns_reads
         self.k = k
-        
-        self.logger = logging.getLogger('RBNSOpenen({self.rbns_reads.fname} k={self.k})'.format(self=self))
-        if len(oem):
-            self.cache_preload("__cached_oem", oem)
-            N, L = oem.shape
-            self.cache_preload("__cached_N", N)
-            self.cache_preload("__cached_L", L)
-        else:
-            self.is_subsample = False
-        
         self.discretized = ("discretized" in self.fname)
+        self.logger = logging.getLogger('RBNSOpenen({self.fname})'.format(self=self))
         
         if self.discretized:
             # recovering discretization scheme from file-name
@@ -49,10 +44,19 @@ class RBNSOpenen(CachedBase):
             self.disc = None
             self.dtype = np.float32
 
+        if len(oem):
+            self.cache_preload("oem", oem)
+            N, L = oem.shape
+            self.cache_preload("N", N)
+            self.cache_preload("L", L)
+        else:
+            self.is_subsample = False
+
         self.logger.info("initialized")
+        
     @property
     def cache_key(self):
-        return "{self.fname}".format(self=self)
+        return "{self.rbns_reads.cache_key} k={self.k} disc={self.disc}".format(self=self)
 
     @property
     @cached
@@ -74,6 +78,7 @@ class RBNSOpenen(CachedBase):
         """
         load and keep all open-energies in memory (optionally discretized)
         """
+        self.logger.debug("loading open energies from {self.fname}".format(self=self) )
         L = self.rbns_reads.L - self.k + 1
         oem = np.fromfile(self.fname, dtype=self.dtype)
         if self.rbns_reads.n_max:
@@ -88,7 +93,7 @@ class RBNSOpenen(CachedBase):
     def discretize(self, disc=None, dname=None):
         
         if not disc:
-            disc = OpenenDiscretization(self.k, self.L+self.k-1, np.uint8)
+            disc = OpenenDiscretization.from_filename(dname)
 
         self.logger.debug("discretizing {0} using {1}".format(self.fname, disc.to_filename()) )
         t0 = time.time()
@@ -130,126 +135,6 @@ class RBNSOpenen(CachedBase):
         self.oem.tofile(self.fname)
 
 
-
-class OpenenHistCollection(object):
-    def __init__(self, name="openen.hist", path=".", min_en=0., max_en=20., n_bins=100, n_chunk=100000):
-        
-        self.path = path
-        self.name = name
-        self.n_chunk = n_chunk
-
-        step = (max_en-min_en)/n_bins
-        self.bins = np.arange(min_en, max_en+step, step)
-        self.bins[-1] = np.inf
-
-        #self.kmer_raw = defaultdict(lambda : defaultdict(list))
-        self.kmer_binned = {}
-
-        self.n_raw = 0
-        self.logger = logging.getLogger("OpenenHistCollection({0})".format(self.name) )
-        self.pickles_completed = {}
-        self.digest_completed = {}
-    
-    def add_binned(self, k , binned_data):
-        if not k in self.kmer_binned:
-            self.kmer_binned[k] = {}
-            
-        for kmer, counts in binned_data.items():
-            if not kmer in self.kmer_binned[k]:
-                self.kmer_binned[k][kmer] = counts
-            else:
-                self.kmer_binned[k][kmer] += counts
-        
-    def store_pickle(self, suffix="", skip=False, sync=True):
-            
-        for k in sorted(self.kmer_binned.keys()):
-            fname = os.path.join(self.path, "{self.name}{suffix}.{k}mers.pkl".format(**locals()) )
-            self.logger.debug("store_pickle('{0}')".format(fname) )
-            pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
-
-    @classmethod
-    def from_pickle(cls, k, name="openen.hist", path="./", suffix=""):
-        OC = cls(name=name, path=path)
-        fname = os.path.join(path, "{name}{suffix}.{k}mers.pkl".format(**locals()) )
-        OC.load_pickle(fname)
-        return OC
-        
-    def load_pickle(self, path):
-        self.logger.debug("load_pickle('{0}')".format(path) )
-        self.bins, k, kmer_binned = pickle.load(file(path, 'rb') )
-        #print kmer_binned.keys()[0]
-        # HACK, CLUDGE, WORKAROUND, HOTFIX, REMOVE!!!!
-        self.kmer_binned[k+1] = kmer_binned # TODO: clean up OpenenHistCollection creation to fix this bug!
-   
-    def __getitem__(self, kmer):
-        k = len(kmer)
-        return self.kmer_binned[k][kmer]
-
-   
-    def occ(self, kmer, P, k_bare, disable=False, temp=22.):
-        """
-        mid-point integration of the binding equation over the empirical 
-        open-energy distribution.
-        """
-        k = len(kmer)
-        counts = self.kmer_binned[k][kmer]
-
-        RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
-        #U = (self.bins[:-1] + self.bins[1:]) / 2.
-        U = self.bins[:-1]
-        acc = np.exp(-U/RT)
-
-        Z = np.trapz(counts, U)
-        fU = counts / Z
-        
-        integrand = fU * P/ (P + k_bare / acc)
-        return np.trapz(integrand, U)
-
-
-    def k_bare_from_occ(self, kmer, P, occ_est, min_k = 1e-9, max_k=1e6, temp=22.):
-        """
-        Given the observed open-energy distrubtion for the kmer, find the 
-        Kd_bare that best predicts the observed (or estimated) occupancy at 
-        the given concentration.
-        Uses `brentq` root finding from scipy.optimize
-        """
-        k = len(kmer)
-        counts = self.kmer_binned[k][kmer]
-
-        RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
-        #U = (self.bins[:-1] + self.bins[1:]) / 2.
-        U = self.bins[:-1]
-        acc = np.exp(-U/RT)
-
-        Z = np.trapz(counts, U)
-        fU = counts / Z
-        
-        def err(k_bare):
-            integrand = fU * P / (P + k_bare / acc)
-            predict = np.trapz(integrand, U)
-            #print k_bare, predict, occ_est
-            return occ_est - predict
-        
-        #print kmer, P, occ_est, "err", err(min_k), err(max_k)
-        from scipy.optimize import minimize, newton, brentq
-        fit = brentq(err, min_k, max_k)
-        #print "optimum kd", fit
-        
-        return fit
-    
-    def test_k_bare_from_occ(self, kmer, P, **kwargs):
-        occ_est = np.arange(1e-4, 1, 1e-4)
-        k_fit = np.array([self.k_bare_from_occ(kmer, P, o, **kwargs) for o in occ_est])
-        
-        import matplotlib.pyplot as pp
-        pp.figure()
-        pp.loglog(occ_est, k_fit)
-        pp.loglog(occ_est, P/occ_est - P, linestyle='dashed', color='k')
-        pp.xlabel(r'$\theta$')
-        pp.ylabel(r'$K_d$')
-        pp.savefig('occ_test.pdf')
-        
-        return occ_est, k_fit
 
 
 class ViennaOpenen(object):
@@ -342,27 +227,103 @@ class ViennaOpenen(object):
         self.logger.debug('close(): {0} exited with code {1} after folding {2} sequences'.format(self.cmd, ex, self.n_total) )
     
 
-class OpenenStorage(object):
-    def __init__(self, reads, path='./', discretize=False, dtype=np.float32):
+class OpenenStorage(CachedBase):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False):
+        
+        CachedBase.__init__(self)
+        
         self.path = path
         self.reads = reads
-        self.dtype = dtype
+        self.raw_dtype = raw_dtype
+        self.disc_dtype = disc_dtype
+        self.disc_mode = disc_mode
+        self.overwrite = overwrite
         
         self.k_sinks = {}
         self.k_disc = {}
-        self.logger = logging.getLogger('OpenenStorage')
+        self.logger = logging.getLogger('OpenenStorage({self.reads})'.format(self=self))
         self.n_sets = 0
         self.discretize = discretize
 
-    def load(self, k):
-        return RBNSOpenen(self.get_filename(k), self.reads, k)
+    def fix_skipped_reads(self, krange):
+        keep = []
+        for i, line in enumerate(file(self.reads.fname,'r')):
+            if 'N' in line.upper():
+                keep.append(False)
+            else:
+                keep.append(True)
+        
+        keep = np.array(keep, dtype=bool)
 
-    def get_filename(self, k):
-        if self.discretize:
-            self.k_disc[k] = OpenenDiscretization(k, self.reads.L, self.dtype)
-            fmt = self.k_disc[k].to_filename()
+        n_skip = (keep == False).sum()
+        print "rows to drop", n_skip
+        
+        n_reads = self.reads.N
+        
+        def fixit(openen):
+            openen._do_not_unpickle = True
+            print "checking", openen.fname
+            if openen.N - n_skip == n_reads:
+                print "removing extra rows!"
+                oem = openen.oem[keep]
+                assert len(oem) == n_reads
+                
+                new = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc)
+                new.debug_caching = True
+                new._do_not_unpickle = True
+                assert len(new.oem) == n_reads
+                assert new.N == n_reads
+                new.store()
+                
+                check = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc, _do_not_unpickle=True)
+                assert len(check.oem) == n_reads
+                assert check.N == n_reads
+                
+            else:
+                print "File is already correct!"
+        
+        for k in krange:
+            try:
+                fixit(self.get_raw(k))
+            except IOError:
+                pass
+            
+            try:
+                fixit(self.get_discretized(k))
+            except IOError:
+                pass
+        
+            self.cache_flush()
+            
+    @cached
+    def get_raw(self, k):
+        return RBNSOpenen(self._make_filename(k), self.reads, k)
+        
+    @cached
+    def get_discretized(self, k):
+        
+        disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=self.disc_mode)
+        self.k_disc[k] = disc
+        fname_disc = self._make_filename(k, disc=disc)
+        fname_raw = self._make_filename(k)
+        
+        if os.path.exists(fname_disc):
+            return RBNSOpenen(fname_disc, self.reads, k)
         else:
-            fmt = "raw_L{0}_k{1}_{2}".format(self.reads.L, k, self.dtype.__name__)
+            self.logger.info("discretizing '{0}' to satisfy get_discretized({1}) request".format(fname_raw, k) )
+            
+            raw = RBNSOpenen(fname_raw, self.reads, k)
+            discretized = raw.discretize(disc=disc, dname=fname_disc)
+            discretized.store()
+
+            return discretized
+            
+    def _make_filename(self, k, disc=None):
+        if disc:
+            #self.k_disc[k] = OpenenDiscretization(k, self.reads.L, self.dtype)
+            fmt = disc.to_filename()
+        else:
+            fmt = "raw_L{0}_k{1}_{2}".format(self.reads.L, k, self.raw_dtype.__name__)
 
         base, ext = os.path.splitext(os.path.basename(self.reads.fname))
         fname = os.path.join(self.path, "{0}.{1}.bin".format(base,fmt) )
@@ -371,22 +332,25 @@ class OpenenStorage(object):
         
     def get_or_create(self, k):
         if not k in self.k_sinks:
-            fname = self.get_filename(k)
-            self.k_sinks[k] = file(fname,'wb')
-            self.logger.info("created '{0}'".format(fname))
+            fname = self._make_filename(k)
+            if os.path.exists(fname) and not self.overwrite:
+                raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
+            else:
+                self.k_sinks[k] = file(fname,'wb')
+                self.logger.info("created '{0}'".format(fname))
     
         return self.k_sinks[k]
     
-    def store(self, k, vec):
+    def write(self, k, vec):
         sink = self.get_or_create(k)
         if self.discretize:
             vec = self.k_disc[k].discretize(vec)
 
         sink.write(vec.tobytes())
 
-    def store_set(self, krange, data):
+    def write_set(self, krange, data):
         for k, vec in zip(krange, data):
-            self.store(k, vec)
+            self.write(k, vec)
         self.n_sets += 1
         
     def close(self):
@@ -406,6 +370,13 @@ class OpenenDiscretization(object):
     # distribution observed for a sample of real RBNS input reads of length L. 
     # key is (L, k)
     opt_gamma_params = {
+        (20,3) : (0.81302029638841211, -4.8516107653608754e-11, 1.6349961361376417),
+        (20,4) : (0.76963400095617862, 5.0499197572751555e-12, 2.4086755693934219),
+        (20,5) : (0.94430616311716076, -5.4020522985407265e-08, 3.1066652289455501),
+        (20,6) : (1.3817737299304014, -0.064612855898649235, 2.4524518251440384),
+        (20,7) : (2.2979596639625823, -0.41897928143131891, 1.8285816311839422),
+        (20,8) : (3.3450059235858616, -0.88683930998285865, 1.5279577374464515),
+
         (40,3) : (1.0628281681967706, -6.8214607159662128e-05, 1.2402078509734689),
         (40,4) : (1.2674929471836962, -0.0020650480683494271, 1.2929616570525289),
         (40,5) : (1.4888004568584394, -0.0081636662031228657, 1.3237981203329996),
@@ -414,48 +385,98 @@ class OpenenDiscretization(object):
         (40,8) : (2.2847020288586801, -0.086073860842223043, 1.3242768850690814),
     }
 
-    def __init__(self, k, L, dtype):
+    def __init__(self, k, L, dtype, mode='gamma'):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
         self.k = k
         self.L = L
         self.dtype = dtype
+        self.mode = mode
         
-        step = 1./self.n
-        q = np.arange(0,1.+step,step) # n+1 "percentiles"
-    
-        import scipy.stats
-        params = OpenenDiscretization.opt_gamma_params[(L, k)]
+        if mode == 'gamma':
+            import scipy.stats
+            step = 1./self.n
+            q = np.arange(0,1.+step,step) # n+1 "percentiles"
+            params = OpenenDiscretization.opt_gamma_params[(L, k)]
+            
+            # compute optimal bin boundaries
+            self.bins = scipy.stats.gamma.ppf(q, *params)
+            
+            # compute openen values that optimally represent each bin
+            q_x = q[:-1] + 0.5*step
+            self.x = np.array(scipy.stats.gamma.ppf(q_x, *params), dtype=np.float32)
         
-        # compute optimal bin boundaries
-        self.bins = scipy.stats.gamma.ppf(q, *params)
-        
-        # compute openen values that optimally represent each bin
-        q_x = q[:-1] + 0.5*step
-        self.x = np.array(scipy.stats.gamma.ppf(q_x, *params), dtype=np.float32)
+        elif mode == 'linear':
+            E_max = 30.
+            step = E_max / self.n
+            self.bins = np.arange(0, E_max + step, step)
+            self.bins[0] -= step
+            self.x = 0.5*(self.bins[1:] + self.bins[:-1])
+        else:
+            raise ValueError("unknown discretization mode '{0}'".format(mode))
+                                  
+        self.dx = self.bins[1:] - self.bins[:-1]
 
+    def __str__(self):
+        return "OpenenDiscretization(L={self.L} k={self.k} dtype={self.dtype} mode={self.mode})".format(self=self)
+
+    @staticmethod
+    def optimal_gamma_params_from_raw(openen, n_max=0):
+        L = openen.rbns_reads.L
+        k = openen.k
+        import scipy.stats
+        if n_max:
+            data = openen.oem[:n_max]
+        else:
+            data = openen.oem
+        opt = scipy.stats.gamma.fit(data)
+        
+        return (L,k),opt
+        
     @staticmethod
     def from_filename(fname):
         import re
-        M = re.search(r'discretized_gamma_L(?P<L>\d+)_k(?P<k>\d+)_(?P<dtype>\w+)', fname)
+        M = re.search(r'discretized_(?P<mode>\w+)_L(?P<L>\d+)_k(?P<k>\d+)_(?P<dtype>\w+)', fname)
         d = M.groupdict()
         L = int(d['L'])
         k = int(d['k'])
+        mode = d['mode']
         dtype_name = d['dtype']
         dtype = getattr(np, dtype_name)
         
-        return OpenenDiscretization(k, L, dtype)
+        return OpenenDiscretization(k, L, dtype, mode=mode)
         
     def to_filename(self):
-        return "discretized_gamma_L{0}_k{1}_{2}".format(self.L, self.k, self.dtype.__name__)
+        return "discretized_{self.mode}_L{self.L}_k{self.k}_{self.dtype.__name__}".format(self = self)
         
     def discretize(self, data):
         return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
 
+    def get_hist_xy(self, counts, normed=False):
+        """
+        Takes a vector with bin-counts.
+        Returns x and y coordinates that represent the underlying density 
+        (ready for plotting). If normed==True, the trapz integral is 1. 
+        If normed==False, the integral is counts.sum().
+        """
+        y = counts/self.dx
+        y /= np.trapz(y, self.x)
 
+        if not normed:
+            y *= counts.sum()
+
+        return self.x, y
+        
+
+interrupt_folding = Event()
+
+def interrupt():
+    logger = logging.getLogger('interrupt')
+    interrupt_folding.set()
+    logger.warning("parallel folding run interrupted")
 
 # Here come a couple of functions that allow parallel folding using the multiprocessing 
 # module and RNAplfold
-def queue_iter(queue, stop_item = None):
+def queue_iter(queue, stop_item = None, interrupt_event=interrupt_folding):
     """
     Small generator/wrapper around multiprocessing.Queue allowing simple
     for-loop semantics: 
@@ -465,6 +486,9 @@ def queue_iter(queue, stop_item = None):
 
     """
     while True:
+        if interrupt_event.is_set():
+            break
+        
         item = queue.get()
         if item == stop_item:
             # signals end->exit
@@ -473,7 +497,7 @@ def queue_iter(queue, stop_item = None):
             yield item
 
 
-def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., n_max=0, **kwargs):
+def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., n_max=0, interrupt_event=interrupt_folding, **kwargs):
     """
     Reads sequences from src and groups them in chunks of up to chunk_size.
     Each chunk is enumerated and the tuple (n_chunk, chunk) is pushed to the queue 
@@ -485,7 +509,13 @@ def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., 
     chunk = []
     n_chunk = 0
     n_seqs = 0
+    n_skipped = 0
     for read in src:
+        read = read.upper()
+        if 'N' in read:
+            n_skipped += 1
+            continue
+
         chunk.append( read )
         n_seqs += 1
         if len(chunk) >= chunk_size:
@@ -501,13 +531,20 @@ def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., 
         if n_max and n_seqs >= n_max:
             break
 
+        if interrupt_event.is_set():
+            logger.info('interrupted after {0} sequences dispatched ({2} skipped bc of non-ACGT letters) in {1} chunks. Removing unprocessed chunks from the queue.'.format(n_seqs, n_chunk, n_skipped) )
+            while not queue.empty():
+                queue.get(False)
+
+            return
+        
     if chunk:
         queue.put( (n_chunk, chunk) )
         n_chunk += 1
 
-    logger.info('{0} sequences dispatched in {1} chunks. Closing down.'.format(n_seqs, n_chunk) )
+    logger.info('{0} sequences dispatched ({2} skipped bc of non-ACGT letters) in {1} chunks. Closing down.'.format(n_seqs, n_chunk, n_skipped) )
 
-def fold_worker(seq_queue, data_queue, **vienna_kwargs):
+def fold_worker(seq_queue, data_queue, interrupt_event=interrupt_folding, **vienna_kwargs):
     """
     Use a ViennaOpenen RNAplfold wrapper instance to compute open-energies for
     chunks of sequences from seq_queue. Results are also grouped into chunks and
@@ -516,7 +553,7 @@ def fold_worker(seq_queue, data_queue, **vienna_kwargs):
     sequences.
     """
     vienna = ViennaOpenen(**vienna_kwargs)
-    for n_block, block in queue_iter(seq_queue):
+    for n_block, block in queue_iter(seq_queue, interrupt_event):
         # received a chunk of sequences. Fold them en-bloc
         results = list(vienna.process_sequences(block))
         
@@ -527,7 +564,7 @@ def fold_worker(seq_queue, data_queue, **vienna_kwargs):
     vienna.close()
 
 
-def result_collector(storage, res_queue):
+def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
     """
     Pops (n_chunk, results) from res_queue and inserts them into a heap
     (sorted on n_chunk). Keeping track of how many chunks were already passed on
@@ -542,7 +579,7 @@ def result_collector(storage, res_queue):
     n_rec = 0
 
     logger = logging.getLogger('result_collector')
-    for n_chunk, results in queue_iter(res_queue):
+    for n_chunk, results in queue_iter(res_queue, interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         
         # as long as the root of the heap is the next needed chunk
@@ -550,7 +587,7 @@ def result_collector(storage, res_queue):
         while(heap and (heap[0][0] == n_chunk_needed)):
             n_chunk, results = heapq.heappop(heap) # retrieves heap[0]
             for krange, data in results:
-                storage.store_set(krange, data)
+                storage.write_set(krange, data)
                 n_rec += 1
         
             n_chunk_needed += 1
@@ -561,10 +598,11 @@ def result_collector(storage, res_queue):
             dT = t2 - t0
             logger.debug("processed {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
             t1 = t2
-        
+    
     # by the time None pops from the queue, all chunks 
     # should have been processed!
-    assert len(heap) == 0
+    if not interrupt_event.is_set():
+        assert len(heap) == 0
 
     # close all open files and make sure stuff is on disk
     storage.close()
@@ -589,6 +627,7 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     #  enumerated chunks->
     #  seq_queue
     #
+    kwargs['interrupt_event'] = interrupt_folding
     dispatcher = multiprocessing.Process(
         target = seq_dispatcher, 
         name='seq_dispatcher', 
@@ -647,10 +686,30 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     # collector calls storage.close() bc it is in its own subprocess.
     collector.join()
    
+   
+   
+def test_discretization(N=10000):
+    import matplotlib.pyplot as pp
+    x = np.random.gamma(3, size=N)
+    print pp.hist(x, bins=100, normed=True)
+    #print hcounts, hbins
+    
+    disc = OpenenDiscretization(3, 20, np.uint8, 'gamma')
+    counts = np.bincount(disc.discretize(x), minlength=256)
+    print disc.x.shape, disc.dx.shape, counts
+    y = counts/disc.dx
+    y *= counts.sum() / np.trapz(y, disc.x)
+
+    print np.trapz(y, disc.x), len(x)
+    pp.plot(disc.x, y)
+    
+    pp.show()
     
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
+    test_discretization()
+    sys.exit(0)
 
     #src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads') #.readlines()[:30051]
     #storage = OpenenStorage(path='tmp')
@@ -740,3 +799,124 @@ if __name__ == "__main__":
     
     #print oa['TGCATGT']
              
+
+
+#class OpenenHistCollection(object):
+    #def __init__(self, name="openen.hist", path=".", min_en=0., max_en=20., n_bins=100, n_chunk=100000):
+        
+        #self.path = path
+        #self.name = name
+        #self.n_chunk = n_chunk
+
+        #step = (max_en-min_en)/n_bins
+        #self.bins = np.arange(min_en, max_en+step, step)
+        #self.bins[-1] = np.inf
+
+        ##self.kmer_raw = defaultdict(lambda : defaultdict(list))
+        #self.kmer_binned = {}
+
+        #self.n_raw = 0
+        #self.logger = logging.getLogger("OpenenHistCollection({0})".format(self.name) )
+        #self.pickles_completed = {}
+        #self.digest_completed = {}
+    
+    #def add_binned(self, k , binned_data):
+        #if not k in self.kmer_binned:
+            #self.kmer_binned[k] = {}
+            
+        #for kmer, counts in binned_data.items():
+            #if not kmer in self.kmer_binned[k]:
+                #self.kmer_binned[k][kmer] = counts
+            #else:
+                #self.kmer_binned[k][kmer] += counts
+        
+    #def store_pickle(self, suffix="", skip=False, sync=True):
+            
+        #for k in sorted(self.kmer_binned.keys()):
+            #fname = os.path.join(self.path, "{self.name}{suffix}.{k}mers.pkl".format(**locals()) )
+            #self.logger.debug("store_pickle('{0}')".format(fname) )
+            #pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
+
+    #@classmethod
+    #def from_pickle(cls, k, name="openen.hist", path="./", suffix=""):
+        #OC = cls(name=name, path=path)
+        #fname = os.path.join(path, "{name}{suffix}.{k}mers.pkl".format(**locals()) )
+        #OC.load_pickle(fname)
+        #return OC
+        
+    #def load_pickle(self, path):
+        #self.logger.debug("load_pickle('{0}')".format(path) )
+        #self.bins, k, kmer_binned = pickle.load(file(path, 'rb') )
+        ##print kmer_binned.keys()[0]
+        ## HACK, CLUDGE, WORKAROUND, HOTFIX, REMOVE!!!!
+        #self.kmer_binned[k+1] = kmer_binned # TODO: clean up OpenenHistCollection creation to fix this bug!
+   
+    #def __getitem__(self, kmer):
+        #k = len(kmer)
+        #return self.kmer_binned[k][kmer]
+
+   
+    #def occ(self, kmer, P, k_bare, disable=False, temp=22.):
+        #"""
+        #mid-point integration of the binding equation over the empirical 
+        #open-energy distribution.
+        #"""
+        #k = len(kmer)
+        #counts = self.kmer_binned[k][kmer]
+
+        #RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
+        ##U = (self.bins[:-1] + self.bins[1:]) / 2.
+        #U = self.bins[:-1]
+        #acc = np.exp(-U/RT)
+
+        #Z = np.trapz(counts, U)
+        #fU = counts / Z
+        
+        #integrand = fU * P/ (P + k_bare / acc)
+        #return np.trapz(integrand, U)
+
+
+    #def k_bare_from_occ(self, kmer, P, occ_est, min_k = 1e-9, max_k=1e6, temp=22.):
+        #"""
+        #Given the observed open-energy distrubtion for the kmer, find the 
+        #Kd_bare that best predicts the observed (or estimated) occupancy at 
+        #the given concentration.
+        #Uses `brentq` root finding from scipy.optimize
+        #"""
+        #k = len(kmer)
+        #counts = self.kmer_binned[k][kmer]
+
+        #RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
+        ##U = (self.bins[:-1] + self.bins[1:]) / 2.
+        #U = self.bins[:-1]
+        #acc = np.exp(-U/RT)
+
+        #Z = np.trapz(counts, U)
+        #fU = counts / Z
+        
+        #def err(k_bare):
+            #integrand = fU * P / (P + k_bare / acc)
+            #predict = np.trapz(integrand, U)
+            ##print k_bare, predict, occ_est
+            #return occ_est - predict
+        
+        ##print kmer, P, occ_est, "err", err(min_k), err(max_k)
+        #from scipy.optimize import minimize, newton, brentq
+        #fit = brentq(err, min_k, max_k)
+        ##print "optimum kd", fit
+        
+        #return fit
+    
+    #def test_k_bare_from_occ(self, kmer, P, **kwargs):
+        #occ_est = np.arange(1e-4, 1, 1e-4)
+        #k_fit = np.array([self.k_bare_from_occ(kmer, P, o, **kwargs) for o in occ_est])
+        
+        #import matplotlib.pyplot as pp
+        #pp.figure()
+        #pp.loglog(occ_est, k_fit)
+        #pp.loglog(occ_est, P/occ_est - P, linestyle='dashed', color='k')
+        #pp.xlabel(r'$\theta$')
+        #pp.ylabel(r'$K_d$')
+        #pp.savefig('occ_test.pdf')
+        
+        #return occ_est, k_fit
