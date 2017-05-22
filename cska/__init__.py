@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.6"
+__version__ = "0.9.7"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -11,6 +11,7 @@ import time
 import os
 import logging
 import collections
+import traceback
 import cska.ska_kmers
 import matplotlib
 #matplotlib.use('pdf')
@@ -29,6 +30,7 @@ def main():
     parser = OptionParser(usage=usage)
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
+    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--compute-results",dest="results",default="R_values,SKA_weights,F_ratios",help="list of RBNS metrics to compute and store (default='R_values,SKA_weights,F_ratios')")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
@@ -108,115 +110,130 @@ def main():
     logger.info("version {0}".format(__version__))
     logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
 
-    # parametrize SKA algorithm
-    ska = SKARunner(
-        max_iterations = options.n_passes,
-        convergence = options.convergence, 
-    )
-    
-    # where to put/find transparent pickle/unpickle objects
-    CachedBase.pkl_path = os.path.join(options.output, ".pkl")
-
-    # start a new analysis
-    rbns = RBNSAnalysis(
-        rbp_name = options.name,
-        out_path = options.output,
-        ska_runner = ska,
-        known_kd = options.known_kd,
-    )
-
-    # TODO: properly integrate simulation
-    if options.simulate == "reads":
-        from cska.rbns_model import RBNSGenerator
-        for k in range(options.min_k, options.max_k + 1):
-            gen = RBNSGenerator(k,l=40, seed=options.seed)
-            gen.assign_experimental_input(args[0])
-            gen.energy_plot()
-
-            r_matrix = []
-            for P in np.array(rbp_concentrations[1:]):
-                r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
-                r_matrix.append(r)
-                
-                read_path = os.path.join(self.out_path,"sim_bound_{0}.reads".format(P) )
-                gen.generate_bound_reads(read_path, P=P, p_ns=0.00, N=20000000)
-                occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
-                
-
-    
-    # populate with experimental data
-    for fname, rbp_conc in zip(args, rbp_concentrations):
-        reads = RBNSReads(
-            fname, 
-            rbp_conc=rbp_conc,
-            rbp_name = options.name,
-            n_max=options.n_max, 
-            pseudo_count=options.pseudo, 
-            rna_conc = options.rna_conc,
-            n_subsamples = options.subsamples,
-            adap5=options.adap5,
-            adap3=options.adap3
+    try:
+        # parametrize SKA algorithm
+        ska = SKARunner(
+            max_iterations = options.n_passes,
+            convergence = options.convergence, 
         )
         
-        rbns.add_reads(reads)
+        # where to put/find transparent pickle/unpickle objects
+        CachedBase.pkl_path = os.path.join(options.output, ".pkl")
 
+        # start a new analysis
+        rbns = RBNSAnalysis(
+            rbp_name = options.name,
+            out_path = options.output,
+            ska_runner = ska,
+            known_kd = options.known_kd,
+        )
 
-    fold_path = os.path.join(options.output,"openen")
-    if options.folding:
-        from cska.folding import parallel_fold, OpenenStorage
+        # TODO: properly integrate simulation
+        if options.simulate == "reads":
+            from cska.rbns_model import RBNSGenerator
+            for k in range(options.min_k, options.max_k + 1):
+                gen = RBNSGenerator(k,l=40, seed=options.seed)
+                gen.assign_experimental_input(args[0])
+                gen.energy_plot()
 
-        # prepare outout path
-        if not os.path.exists(fold_path):
-            os.makedirs(fold_path)
+                r_matrix = []
+                for P in np.array(rbp_concentrations[1:]):
+                    r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
+                    r_matrix.append(r)
+                    
+                    read_path = os.path.join(self.out_path,"sim_bound_{0}.reads".format(P) )
+                    gen.generate_bound_reads(read_path, P=P, p_ns=0.00, N=20000000)
+                    occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
+                    
 
-        # fold the reads
-        for reads in rbns.reads:
-            logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
-            
-            if int(options.openen_discretize):
-                dtype = getattr(np, "uint{0}".format(options.openen_discretize))
-                storage = OpenenStorage(reads, path=fold_path, discretize=True, dtype=dtype)
-            else:
-                storage = OpenenStorage(reads, path=fold_path, discretize=False, dtype=np.float32)
-
-            parallel_fold(
-                file(reads.fname,'r'), 
-                storage,
-                temp = options.temp,
-                adap5 = options.adap5,
-                adap3 = options.adap3,
-                min_k = options.min_k,
-                max_k = options.max_k,
-                n_max = options.n_max,
-                l_insert = options.l_insert,
-            )
-    else:
-        for k in range(options.min_k, options.max_k + 1):
-            rbns.compute_results(k, results=options.results.split(',') )
-            rbns.flush()
-    
-
-    ###rbns.compare_k()
-    ##rbns.run_ROC()
-    
-    ## screen for multi-part motifs
-    #if options.interactions:
-        #tensors = rbns.get_cooccurrence_tensor(2)
-        #rbns.cooccurrence_tensor_analysis(*tensors)
         
-        #tensors = rbns.get_cooccurrence_tensor(3)
-        #rbns.cooccurrence_tensor_analysis(*tensors)
+        # populate with experimental data
+        for fname, rbp_conc in zip(args, rbp_concentrations):
+            reads = RBNSReads(
+                fname, 
+                rbp_conc=rbp_conc,
+                rbp_name = options.name,
+                n_max=options.n_max, 
+                pseudo_count=options.pseudo, 
+                rna_conc = options.rna_conc,
+                n_subsamples = options.subsamples,
+                adap5=options.adap5,
+                adap3=options.adap3
+            )
+            
+            rbns.add_reads(reads)
 
-        #tensors = rbns.get_cooccurrence_tensor(4)
-        #rbns.cooccurrence_tensor_analysis(*tensors)
+        # open energy prediction from folding
+        fold_path = os.path.join(options.output,"openen")
+        if options.folding:
+            from cska.folding import parallel_fold, OpenenStorage
 
-        #tensors = rbns.get_cooccurrence_tensor(5)
-        #rbns.cooccurrence_tensor_analysis(*tensors)
+            # prepare outout path
+            if not os.path.exists(fold_path):
+                os.makedirs(fold_path)
 
-        #tensors = rbns.get_cooccurrence_tensor(6)
-        #rbns.cooccurrence_tensor_analysis(*tensors)
+            # fold the reads
+            for reads in rbns.reads:
+                logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
+                
+                if int(options.openen_discretize):
+                    dtype = getattr(np, "uint{0}".format(options.openen_discretize))
+                    storage = OpenenStorage(reads, path=fold_path, discretize=True, disc_dtype=dtype, overwrite = options.overwrite)
+                else:
+                    storage = OpenenStorage(reads, path=fold_path, discretize=False, raw_dtype=np.float32, overwrite = options.overwrite)
 
-        ##rbns.find_interactors(5, k_flank_max=3, n_top=2)
+                parallel_fold(
+                    file(reads.fname,'r'), 
+                    storage,
+                    temp = options.temp,
+                    adap5 = options.adap5,
+                    adap3 = options.adap3,
+                    min_k = options.min_k,
+                    max_k = options.max_k,
+                    n_max = options.n_max,
+                    l_insert = options.l_insert,
+                )
+        else:
+            for k in range(options.min_k, options.max_k + 1):
+                rbns.compute_results(k, results=options.results.split(',') )
+                rbns.flush()
+        
 
+        ###rbns.compare_k()
+        ##rbns.run_ROC()
+        
+        ## screen for multi-part motifs
+        #if options.interactions:
+            #tensors = rbns.get_cooccurrence_tensor(2)
+            #rbns.cooccurrence_tensor_analysis(*tensors)
+            
+            #tensors = rbns.get_cooccurrence_tensor(3)
+            #rbns.cooccurrence_tensor_analysis(*tensors)
+
+            #tensors = rbns.get_cooccurrence_tensor(4)
+            #rbns.cooccurrence_tensor_analysis(*tensors)
+
+            #tensors = rbns.get_cooccurrence_tensor(5)
+            #rbns.cooccurrence_tensor_analysis(*tensors)
+
+            #tensors = rbns.get_cooccurrence_tensor(6)
+            #rbns.cooccurrence_tensor_analysis(*tensors)
+
+            ##rbns.find_interactors(5, k_flank_max=3, n_top=2)
+    except:        
+        logger.error("Caught exception. Gathering traceback")
+        exc = traceback.format_exc()
+        logger.error(exc)
+        sys.stderr.write(exc)
+        
+        # in case we have child processes, try to end them gracefully
+        import cska.folding
+        folding.interrupt()
+        
+        sys.exit(1)
+    else:
+        logger.info("run completed.")
+        sys.exit(0)
+        
 if __name__ == '__main__':
     main()
