@@ -126,9 +126,12 @@ class RBNSOpenen(CachedBase):
         
     @cached
     @pickled
-    def kmer_mean_openen_profiles(self):
+    def kmer_mean_openen_profiles(self, k_seq=None):
         import cska.ska_kmers
-        return cska.ska_kmers.kmer_mean_openen_profiles(self.rbns_reads.seqm, self.oem, np.array(self.disc.x), self.k)
+        if k_seq == None:
+            k_seq = self.k
+
+        return cska.ska_kmers.kmer_mean_openen_profiles(self.rbns_reads.seqm, self.oem, np.array(self.disc.x), k_seq, self.k)
 
     def store(self):
         self.logger.info("storing open-energies as '{0}'".format(self.fname) )
@@ -196,7 +199,7 @@ class ViennaOpenen(object):
             
             data = [ np.zeros(self.l_insert - k + 1, dtype=np.float32) for k in self.krange ]
             for i in range(l+2):
-                j = i - 1
+                j = i - 2
                 
                 line = self.p.stdout.readline()
                 if j <= self.first:
@@ -208,7 +211,7 @@ class ViennaOpenen(object):
                 cols = line.split('\t')
                 for k in self.krange:
                     if j >= k:
-                        data[k - self.k_min][j-k-self.first] = float(cols[k])
+                        data[k - self.k_min][j-k-self.first+1] = float(cols[k])
 
             yield self.krange, data
             n += 1
@@ -228,7 +231,7 @@ class ViennaOpenen(object):
     
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False):
         
         CachedBase.__init__(self)
         
@@ -244,6 +247,9 @@ class OpenenStorage(CachedBase):
         self.logger = logging.getLogger('OpenenStorage({self.reads})'.format(self=self))
         self.n_sets = 0
         self.discretize = discretize
+        self.dummy = dummy
+        if dummy:
+            self.write = self.dummy_write
 
     def fix_skipped_reads(self, krange):
         keep = []
@@ -347,6 +353,9 @@ class OpenenStorage(CachedBase):
             vec = self.k_disc[k].discretize(vec)
 
         sink.write(vec.tobytes())
+
+    def dummy_write(self, k, vec):
+        print "writing", k, vec
 
     def write_set(self, krange, data):
         for k, vec in zip(krange, data):
@@ -553,7 +562,7 @@ def fold_worker(seq_queue, data_queue, interrupt_event=interrupt_folding, **vien
     sequences.
     """
     vienna = ViennaOpenen(**vienna_kwargs)
-    for n_block, block in queue_iter(seq_queue, interrupt_event):
+    for n_block, block in queue_iter(seq_queue, interrupt_event=interrupt_event):
         # received a chunk of sequences. Fold them en-bloc
         results = list(vienna.process_sequences(block))
         
@@ -579,7 +588,7 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
     n_rec = 0
 
     logger = logging.getLogger('result_collector')
-    for n_chunk, results in queue_iter(res_queue, interrupt_event):
+    for n_chunk, results in queue_iter(res_queue, interrupt_event=interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         
         # as long as the root of the heap is the next needed chunk
@@ -705,10 +714,18 @@ def test_discretization(N=10000):
     
     pp.show()
     
+def test_vienna():
+    V = ViennaOpenen(k_min=5, k_max=5, l_insert = 40)
+    print V
+    seqs = ['TATACACGCCAGGATGAGCATAGAATCCGCTATCTTTTTT',]
+    for krange, data in V.process_sequences(seqs):
+        print krange
+        print data
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    test_discretization()
+    #test_discretization()
+    test_vienna()
     sys.exit(0)
 
     #src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads') #.readlines()[:30051]
