@@ -716,11 +716,28 @@ def test_discretization(N=10000):
     
 def test_vienna():
     V = ViennaOpenen(k_min=5, k_max=5, l_insert = 40)
-    print V
-    seqs = ['TATACACGCCAGGATGAGCATAGAATCCGCTATCTTTTTT',]
-    for krange, data in V.process_sequences(seqs):
-        print krange
-        print data
+    seqs = [
+        'TATACACGCCAGGATGAGCATAGAATCCGCTATCTTTTTT',
+    ]
+    
+    correct_data = [
+        np.array([  1.37758803e+00,   4.65885401e-02,   4.44491990e-02,
+         4.44544517e-02,   4.37189484e+00,   5.28840590e+00,
+         5.44863987e+00,   6.44182396e+00,   6.40045404e+00,
+         6.11836720e+00,   6.08953190e+00,   6.57561302e+00,
+         6.58033609e+00,   7.80855417e+00,   5.67592812e+00,
+         6.03012180e+00,   6.29798985e+00,   6.51980209e+00,
+         6.32596684e+00,   5.20592594e+00,   5.21245909e+00,
+         5.19603205e+00,   3.84870291e+00,   6.88292726e-04,
+         7.41391385e-04,   3.55043197e+00,   4.00692511e+00,
+         4.00891781e+00,   4.00772381e+00,   4.01971483e+00,
+         4.02041817e+00,   5.34093809e+00,   5.63969707e+00,
+         5.71804190e+00,   5.54887295e+00,   4.88211823e+00], dtype=np.float32
+        ),
+    ]
+
+    for (krange, data), correct in zip(V.process_sequences(seqs), correct_data):
+        assert (data == correct).all()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
