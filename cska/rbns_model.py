@@ -85,6 +85,11 @@ class CrosstalkMatrix(CachedBase):
         return nzero / float(M.size)
 
 
+    def get_shadow(self, kmer_index):
+        row = (self.M - np.identity(4**self.k))[kmer_index]
+        shadow = [(i, row[i]) for i in row.argsort()[::-1] if row[i] > 0]
+        return shadow
+    
     def matrix_plot(self, fname='crosstalk_matrix.pdf'):
         M = self.M
         M_inv = self.M_inv
@@ -113,7 +118,7 @@ class CrosstalkMatrix(CachedBase):
         if bg == None:
             bg = omega*(l-2.*(k-1))
         
-        pi = kappa * (np.dot(M, occ ) + bg )
+        pi = kappa * (np.dot(self.M, occ ) + bg )
         sum_pi = pi.sum()
         
         r = pi / sum_pi / kappa
@@ -282,7 +287,7 @@ class CrosstalkMatrix(CachedBase):
         return kmers, kd, dG
 
 class RBNSGenerator(CachedBase):
-    def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, **kwargs):
+    def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, mode='ordered', **kwargs):
         
         CachedBase.__init__(self)
 
@@ -296,7 +301,13 @@ class RBNSGenerator(CachedBase):
             np.random.seed(seed)
             cska.ska_kmers.rand_seed(seed)
 
-        self.kmer_energies = np.array(sorted(RBNSGenerator.energy_distribution(min_E=min_E, N=4**k, **kwargs))[::-1], dtype=np.float32) / self.RT
+        raw_energies = RBNSGenerator.energy_distribution(min_E=min_E, N=4**k, **kwargs)
+        if mode == 'ordered':
+            self.kmer_energies = np.array(sorted(raw_energies)[::-1], dtype=np.float32) / self.RT
+        else:
+            self.kmer_energies = np.array(raw_energies, dtype=np.float32) / self.RT
+            
+        self.kmer_invkd = np.exp(-self.kmer_energies)*1e-9
         self.logger = logging.getLogger("RBNSGenerator")
         self.input_reads = None
 
@@ -319,25 +330,14 @@ class RBNSGenerator(CachedBase):
 
     def store_invKd(self, fname):
         """
-        write flat file with 7-mer 1./Kd as neede by RBPbind
+        write flat file with kmer 1./Kd as neede by RBPbind
         """
-        def heptamers(mer):
-            k = len(mer)
-            if k > 7:
-                raise ValueError("not supported")
-            
-            for i in range(7-k+1):
-                # left padding:
-                for left in cska.ska_kmers.yield_kmers(i):
-                    for right in cska.ska_kmers.yield_kmers(7-i-k):
-                        yield left+mer+right
             
         invKd = 1./(np.exp(self.kmer_energies)*1e9)
         with file(fname,'w') as f:
             f.write(" Motifs invKd\n===================\n")
             for kmer, ikd in zip(cska.ska_kmers.yield_kmers(self.k), invKd):
-                for hepta in heptamers(kmer):
-                    f.write("{0} {1}\n".format(hepta, ikd))
+                f.write("{0} {1}\n".format(kmer, ikd))
         
 
     def __str__(self):
@@ -697,9 +697,12 @@ class RBNSGenerator(CachedBase):
         return kmers, kd, dG
 
 class RBNSSimulator(CachedBase):
-    def __init__(self, reads, openen, k):
+    def __init__(self, reads, openen, k, temp=22.):
         CachedBase.__init__(self)
         
+        self.logger = logging.getLogger("RBNSSimulator")
+        self.temp = temp
+        self.RT = (temp + 273.15) * 8.314459848/4.184E3
         self.reads = reads
         if openen.disc:
             self.openen = openen
@@ -707,6 +710,10 @@ class RBNSSimulator(CachedBase):
             # we need to discretize first
             self.openen = openen.discretize()
             self.openen.store()
+
+        self.openen_lookup = self.openen.disc.x/self.RT # open energies in units of RT for each discretization level
+        self.acc_lookup = np.exp(-self.openen_lookup)
+        
         self.k = k
         self.L = reads.L
 
@@ -714,12 +721,38 @@ class RBNSSimulator(CachedBase):
     def cache_key(self):
         return "RBNSSimulator {self.reads.cache_key} {self.openen.cache_key} {self.k}".format(self=self)
     
+    #@pickled
+    #def expected_kmer_counts(self, kmer_energies, protein_conc, n_max=0, E_ns = 0, seqm=None):
+        #from cska.ska_kmers import eval_energy_model_on_seqs
+        #if seqm == None:
+            #seqm = self.reads.seqm
+        #p_bound, kmer_count_matrix, openen_kmer_bincount_matrix = eval_energy_model_on_seqs(seqm, self.openen.oem, self.openen_lookup, kmer_energies, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns, n_max=n_max)
+        #return p_bound, kmer_count_matrix, openen_kmer_bincount_matrix
+
     @pickled
-    def expected_kmer_counts(self, kmer_energies, protein_conc, n_max=0, E_ns = 0):
+    def expected_kmer_counts(self, kmer_invkd, protein_conc, n_max=0, E_ns = 0, indices=None, seq_only=False):
         from cska.ska_kmers import eval_energy_model_on_seqs
-        kmer_count_matrix, openen_kmer_bincount_matrix = eval_energy_model_on_seqs(self.reads.seqm, self.openen.oem, self.openen.disc.x, kmer_energies, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns)
-        
-        return kmer_count_matrix, openen_kmer_bincount_matrix
+        if indices == None:
+            seqm = self.reads.seqm
+            oem = self.openen.oem
+        else:
+            seqm = self.reads.seqm[indices]
+            oem = self.openen.oem[indices]
+
+        if seq_only:
+            acc_lookup = np.ones(self.acc_lookup.shape, dtype = np.float32)
+        else:
+            acc_lookup = self.acc_lookup
+            
+        t0 = time.time()
+        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix = eval_energy_model_on_seqs(seqm, oem, acc_lookup, kmer_invkd, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns, n_max=n_max)
+        t1 = time.time()
+        if n_max:
+            n = n_max
+        else:
+            n = len(seqm)
+        #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+        return p_bound, kmer_count_matrix, openen_kmer_bincount_matrix
                              
     
 class KmerSoupModel(object):
@@ -1258,16 +1291,17 @@ def test_fastrand(N=10000000):
         
 if __name__ == "__main__":
     import matplotlib
-    matplotlib.use('pdf')
+    #matplotlib.use('pdf')
     import matplotlib.pyplot as pp
     logging.basicConfig(level=logging.DEBUG)
 
     from cska.rbns_reads import RBNSReads
     from cska.folding import RBNSOpenen, OpenenStorage
+    import cska.folding
     reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000000)
     storage = OpenenStorage(reads, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma')
     openen = storage.get_discretized(5)
-    openen._do_not_unpickle = True
+    #openen._do_not_unpickle = True
     disc = openen.disc
 
     sim = RBNSSimulator(reads, openen, 5)    
@@ -1280,31 +1314,42 @@ if __name__ == "__main__":
     #sys.exit(1)
     
     kmer_energies = np.random.permutation(gen.kmer_energies) #- 1.5 # non-specific binding
+    kmer_energies = gen.kmer_energies #- 1.5 # non-specific binding
 
 
     print kmer_energies
     print "simulating binding"
     rbp_conc = [.5,1.,10.,120.,360.]
-    sim._do_not_unpickle=True
-    counts, openen_bincounts = sim.expected_kmer_counts(kmer_energies, rbp_conc, E_ns=-4/gen.RT)
+    #sim._do_not_unpickle=True
+    counts, openen_bincounts = sim.expected_kmer_counts(kmer_energies, rbp_conc, E_ns=-2/gen.RT)
     print counts.shape, openen_bincounts.shape
     print ">>>openen-bins"
     
     best_i = kmer_energies.argmin()
-    ref = kmer_openen[best_i]
-    x, ref_y = disc.get_hist_xy(ref)
+    med_i = (kmer_energies == np.median(kmer_energies)).argmax()
+
+    print "median kmer energy", kmer_energies[med_i]*gen.RT, "kcal/mol"
+    colors = ['k','r','g','y','c']
+    styles = ['x','*','^','.','o']
     
     pp.figure(figsize=(10,8) )
-    for i in range(len(openen_bincounts)):
-        bc = openen_bincounts[i,best_i,:]
-        x, y = disc.get_hist_xy(bc)
+    for I,color in zip([best_i, med_i], colors):
+        ref = kmer_openen[I]
+        x, ref_y = disc.get_hist_xy(ref)
         
-        lratio = np.log(y, ref_y)
-        pp.plot(disc.x, lratio, label="P={0}".format(rbp_conc[i]))
+        for i,style in zip(range(len(openen_bincounts)), styles):
+            bc = openen_bincounts[i,I,:]
+            x, y = disc.get_hist_xy(bc)
+            
+            lratio = np.log(y, ref_y)
+            seq = cska.ska_kmers.index_to_seq(I, 5)
+            pp.plot(disc.x, lratio, color+style, label="{1} P={0}".format(rbp_conc[i], seq))
+
         
     #pp.show()
     pp.xlabel(r"$\Delta U$ [kcal/mol]")
     pp.ylabel(r"$\log(\frac{pd}{input})$")
+    pp.legend()
     pp.savefig('simulated.pdf')
     
     
@@ -1315,6 +1360,7 @@ if __name__ == "__main__":
     print "R-values", R.min(), R.max()
     print R[:,-10:]
     
+    pp.show()    
     
     
     
