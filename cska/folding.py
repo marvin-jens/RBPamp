@@ -127,11 +127,21 @@ class RBNSOpenen(CachedBase):
     @cached
     @pickled
     def kmer_mean_openen_profiles(self, k_seq=None):
+        self.logger.debug("computing kmer_mean_openen_profiles..." )
+        
         import cska.ska_kmers
         if k_seq == None:
             k_seq = self.k
 
-        return cska.ska_kmers.kmer_mean_openen_profiles(self.rbns_reads.seqm, self.oem, np.array(self.disc.x), k_seq, self.k)
+        seqm = self.rbns_reads.seqm
+        oem = self.oem
+
+        t0 = time.time()
+        res = cska.ska_kmers.kmer_mean_openen_profiles(seqm, oem, np.array(self.disc.x), k_seq, self.k)
+        dt = time.time() - t0
+        self.logger.debug("kmer_mean_openen_profiles took {0:.1f} seconds".format(dt) )
+
+        return res
 
     def store(self):
         self.logger.info("storing open-energies as '{0}'".format(self.fname) )
@@ -180,6 +190,7 @@ class ViennaOpenen(object):
         
         self.n_total = 0
         self.logger = logging.getLogger('ViennaOpenen')
+        self.logger.info("initialized for adap5='{self.adap5}' adap3='{self.adap3}' l_insert = {self.l_insert} k_min={self.k_min} k_max={self.k_max} first={self.first} last={self.last}".format(self=self) )
 
     def process_sequences(self, seq_src):
         """
@@ -386,6 +397,7 @@ class OpenenDiscretization(object):
         (20,7) : (2.2979596639625823, -0.41897928143131891, 1.8285816311839422),
         (20,8) : (3.3450059235858616, -0.88683930998285865, 1.5279577374464515),
 
+        (40,1) : (0.56359570197492048, -5.8776308767500606e-30, 0.86206668592641167),
         (40,3) : (1.0628281681967706, -6.8214607159662128e-05, 1.2402078509734689),
         (40,4) : (1.2674929471836962, -0.0020650480683494271, 1.2929616570525289),
         (40,5) : (1.4888004568584394, -0.0081636662031228657, 1.3237981203329996),
@@ -717,7 +729,9 @@ def test_discretization(N=10000):
 def test_vienna():
     V = ViennaOpenen(k_min=5, k_max=5, l_insert = 40)
     seqs = [
-        'TATACACGCCAGGATGAGCATAGAATCCGCTATCTTTTTT',
+        #'TATACACGCCAGGATGAGCATAGAATCCGCTATCTTTTTT',
+        #'AACCGGCTAGTGTATCTAGAGTGGACCAATATTCTTTTGT',
+        'AATTATACCCAACACTTTTTTCCGCATCAAAGATATATAG',
     ]
     
     correct_data = [
@@ -734,10 +748,26 @@ def test_vienna():
          4.02041817e+00,   5.34093809e+00,   5.63969707e+00,
          5.71804190e+00,   5.54887295e+00,   4.88211823e+00], dtype=np.float32
         ),
+        np.array([ 1.21388996,  1.29570901,  3.08945203,  1.72082102,  1.58345401,                                                                                                                                          
+        2.14634705,  2.86216402,  2.59196711,  2.52647901,  2.56132007,                                                                                                                                           
+        0.1191803 ,  2.34980106,  2.32055211,  2.19572902,  2.50372696,                                                                                                                                           
+        2.59294009,  2.074687  ,  3.11443305,  4.6174159 ,  2.78021598,                                                                                                                                           
+        2.777704  ,  3.70185995,  3.6581161 ,  1.99287498,  1.13532197,
+        1.26033103,  0.69037437,  0.70658243,  0.75592059,  0.71988487,
+        0.69261771,  0.07472514,  0.1399269 ,  2.3060441 ,  3.10272098,
+        2.76067591], dtype=np.float32),
     ]
 
-    for (krange, data), correct in zip(V.process_sequences(seqs), correct_data):
-        assert (data == correct).all()
+    U5a = seqs[0].index('TTTTT')
+    print U5a
+    U5b = U5a + 1
+    for kr, data in V.process_sequences(seqs):
+        
+        print data[0][U5a], data[0][U5b]
+        
+    #for (krange, data), correct in zip(V.process_sequences(seqs), correct_data):
+        #print data
+        #assert (data == correct).all()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
@@ -833,124 +863,3 @@ if __name__ == "__main__":
     
     #print oa['TGCATGT']
              
-
-
-#class OpenenHistCollection(object):
-    #def __init__(self, name="openen.hist", path=".", min_en=0., max_en=20., n_bins=100, n_chunk=100000):
-        
-        #self.path = path
-        #self.name = name
-        #self.n_chunk = n_chunk
-
-        #step = (max_en-min_en)/n_bins
-        #self.bins = np.arange(min_en, max_en+step, step)
-        #self.bins[-1] = np.inf
-
-        ##self.kmer_raw = defaultdict(lambda : defaultdict(list))
-        #self.kmer_binned = {}
-
-        #self.n_raw = 0
-        #self.logger = logging.getLogger("OpenenHistCollection({0})".format(self.name) )
-        #self.pickles_completed = {}
-        #self.digest_completed = {}
-    
-    #def add_binned(self, k , binned_data):
-        #if not k in self.kmer_binned:
-            #self.kmer_binned[k] = {}
-            
-        #for kmer, counts in binned_data.items():
-            #if not kmer in self.kmer_binned[k]:
-                #self.kmer_binned[k][kmer] = counts
-            #else:
-                #self.kmer_binned[k][kmer] += counts
-        
-    #def store_pickle(self, suffix="", skip=False, sync=True):
-            
-        #for k in sorted(self.kmer_binned.keys()):
-            #fname = os.path.join(self.path, "{self.name}{suffix}.{k}mers.pkl".format(**locals()) )
-            #self.logger.debug("store_pickle('{0}')".format(fname) )
-            #pickle.dump( (self.bins, k, self.kmer_binned[k]), file(fname, 'wb') )
-
-    #@classmethod
-    #def from_pickle(cls, k, name="openen.hist", path="./", suffix=""):
-        #OC = cls(name=name, path=path)
-        #fname = os.path.join(path, "{name}{suffix}.{k}mers.pkl".format(**locals()) )
-        #OC.load_pickle(fname)
-        #return OC
-        
-    #def load_pickle(self, path):
-        #self.logger.debug("load_pickle('{0}')".format(path) )
-        #self.bins, k, kmer_binned = pickle.load(file(path, 'rb') )
-        ##print kmer_binned.keys()[0]
-        ## HACK, CLUDGE, WORKAROUND, HOTFIX, REMOVE!!!!
-        #self.kmer_binned[k+1] = kmer_binned # TODO: clean up OpenenHistCollection creation to fix this bug!
-   
-    #def __getitem__(self, kmer):
-        #k = len(kmer)
-        #return self.kmer_binned[k][kmer]
-
-   
-    #def occ(self, kmer, P, k_bare, disable=False, temp=22.):
-        #"""
-        #mid-point integration of the binding equation over the empirical 
-        #open-energy distribution.
-        #"""
-        #k = len(kmer)
-        #counts = self.kmer_binned[k][kmer]
-
-        #RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
-        ##U = (self.bins[:-1] + self.bins[1:]) / 2.
-        #U = self.bins[:-1]
-        #acc = np.exp(-U/RT)
-
-        #Z = np.trapz(counts, U)
-        #fU = counts / Z
-        
-        #integrand = fU * P/ (P + k_bare / acc)
-        #return np.trapz(integrand, U)
-
-
-    #def k_bare_from_occ(self, kmer, P, occ_est, min_k = 1e-9, max_k=1e6, temp=22.):
-        #"""
-        #Given the observed open-energy distrubtion for the kmer, find the 
-        #Kd_bare that best predicts the observed (or estimated) occupancy at 
-        #the given concentration.
-        #Uses `brentq` root finding from scipy.optimize
-        #"""
-        #k = len(kmer)
-        #counts = self.kmer_binned[k][kmer]
-
-        #RT = (temp + 273.15) * 8.314459848/4.184E3# RT in kcal/mol
-        ##U = (self.bins[:-1] + self.bins[1:]) / 2.
-        #U = self.bins[:-1]
-        #acc = np.exp(-U/RT)
-
-        #Z = np.trapz(counts, U)
-        #fU = counts / Z
-        
-        #def err(k_bare):
-            #integrand = fU * P / (P + k_bare / acc)
-            #predict = np.trapz(integrand, U)
-            ##print k_bare, predict, occ_est
-            #return occ_est - predict
-        
-        ##print kmer, P, occ_est, "err", err(min_k), err(max_k)
-        #from scipy.optimize import minimize, newton, brentq
-        #fit = brentq(err, min_k, max_k)
-        ##print "optimum kd", fit
-        
-        #return fit
-    
-    #def test_k_bare_from_occ(self, kmer, P, **kwargs):
-        #occ_est = np.arange(1e-4, 1, 1e-4)
-        #k_fit = np.array([self.k_bare_from_occ(kmer, P, o, **kwargs) for o in occ_est])
-        
-        #import matplotlib.pyplot as pp
-        #pp.figure()
-        #pp.loglog(occ_est, k_fit)
-        #pp.loglog(occ_est, P/occ_est - P, linestyle='dashed', color='k')
-        #pp.xlabel(r'$\theta$')
-        #pp.ylabel(r'$K_d$')
-        #pp.savefig('occ_test.pdf')
-        
-        #return occ_est, k_fit

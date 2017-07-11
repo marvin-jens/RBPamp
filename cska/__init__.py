@@ -31,6 +31,7 @@ def main():
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
+    parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--compute-results",dest="results",default="R_values,SKA_weights,F_ratios",help="list of RBNS metrics to compute and store (default='R_values,SKA_weights,F_ratios')")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
@@ -38,7 +39,6 @@ def main():
 
     parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
-    parser.add_option("-L","--insert-length",dest="l_insert",default=20,type=int,help="length of random oligo insert in the reads (default=20)")
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
@@ -188,14 +188,14 @@ def main():
                     temp = options.temp,
                     adap5 = options.adap5,
                     adap3 = options.adap3,
-                    min_k = options.min_k,
-                    max_k = options.max_k,
+                    k_min = options.min_k,
+                    k_max = options.max_k,
                     n_max = options.n_max,
-                    l_insert = options.l_insert,
+                    l_insert = rbns.reads[0].L,
                 )
         else:
             for k in range(options.min_k, options.max_k + 1):
-                rbns.compute_results(k, results=options.results.split(',') )
+                rbns.compute_results(k, results=options.results.split(','), report=options.reports )
                 rbns.flush()
         
 
