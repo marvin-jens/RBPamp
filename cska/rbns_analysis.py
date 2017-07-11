@@ -327,7 +327,7 @@ class RBNSAnalysis(CachedBase):
         #pp.plot( sratio[2,2,:] ) 
         #pp.show()
         
-    def compute_results(self, k, results=["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"]):
+    def compute_results(self, k, results=["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"], report=False):
         order = self.get_optimal_kmer_ranking(k)
         all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
 
@@ -392,6 +392,15 @@ class RBNSAnalysis(CachedBase):
             else:
                 values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
                 self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
+                if report and name == "R_value":
+                    from cska.rbns_reports import EnrichmentBarPlot
+                    for comp in self.comparisons:
+                        path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
+                        if not os.path.exists(path):
+                            os.makedirs(path)
+                        plot = EnrichmentBarPlot(comp)
+                        plot.make_plot(k, dest=path)
+                    
 
 
     def write_kmer_matrix(self, out_path, kmers, values, errors, order=[], err_str='error', header=None):
