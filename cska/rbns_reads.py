@@ -12,7 +12,7 @@ from cska.caching import cached, pickled, CachedBase
 
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5='', adap3=''):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg"):
         
         CachedBase.__init__(self)
         
@@ -32,16 +32,16 @@ class RBNSReads(CachedBase):
         
         if len(seqm):
             self.is_subsample = True
-            self.cache_preload("__cached_seqm", seqm)
+            self.cache_preload("seqm", seqm)
             N, L = seqm.shape
-            self.cache_preload("__cached_N", N)
-            self.cache_preload("__cached_L", L)
+            self.cache_preload("N", N)
+            self.cache_preload("L", L)
         else:
             self.is_subsample = False
     
     @property
     def cache_key(self):
-        return "{self.name}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
+        return "{self.fname}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)
 
     def _subsample(self, i, N):
         """
@@ -107,7 +107,21 @@ class RBNSReads(CachedBase):
     def L(self):
         N, L = self.seqm.shape
         return L
-    
+
+    @cached
+    def first_index(self, k):
+        """
+        kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
+        """
+        return cska.ska_kmers.seq_to_index(self.adap5[-k+1:],k-1)
+
+    @cached
+    def last_index(self, k):
+        """
+        kmer-index corresponding to k-1 nt into the 3'-adapter.
+        """
+        return cska.ska_kmers.seq_to_index(self.adap3[:k-1],k-1)
+        
     @cached
     @pickled
     def kmer_counts(self, k):
@@ -136,6 +150,15 @@ class RBNSReads(CachedBase):
 
     @cached
     @pickled
+    def joint_kmer_profiles(self, k_core, k_flank):
+        t0 = time.time()
+        counts = cska.ska_kmers.joint_kmer_profiles(self.seqm, k_core, k_flank)
+        t = time.time() - t0
+        self.logger.debug("counted joint occurrences of flanking {1}mers around core {0}mers in {2:.3f} ms".format( k_core, k_flank, 1000.*t ) )
+        return counts 
+
+    @cached
+    @pickled
     def reads_with_kmers(self, k):
         t0 = time.time()
         res = cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
@@ -144,6 +167,15 @@ class RBNSReads(CachedBase):
         
         return res
 
+    @cached
+    def kmer_presence(self, kmer):
+        k = len(kmer)
+        kmer_index = cska.ska_kmers.kmer_to_index(kmer)
+        
+        res = cska.ska_kmers.seq_set_kmer_flag(self.seqm, k, kmer_index)
+        
+        return res
+    
     @cached
     @pickled
     def fraction_of_reads_with_kmers(self, k):

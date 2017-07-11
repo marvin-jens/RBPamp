@@ -17,10 +17,11 @@ def array_to_hash(a):
 
 def args_to_key(argc, kwargs, self, func_name):
     kw = dict(kwargs)
-    kw = dict(kwargs)
     kw.pop('_do_not_cache', None)
     kw.pop('_do_not_pickle', None)
     kw.pop('_do_not_unpickle', None)
+    kw.pop('_argc_key', None)
+    kw.pop('_kw_key', None)
     
     def to_str(x):
         if type(x) == np.ndarray:
@@ -28,8 +29,8 @@ def args_to_key(argc, kwargs, self, func_name):
         else:
             return str(x)
 
-    argc_key = "_".join([to_str(a) for a in argc])
-    kw_key = "__".join(["{0}={1}".format(k,to_str(v)) for k,v in sorted(kwargs.items()) ])
+    argc_key = kwargs.get("_argc_key", "_".join([to_str(a) for a in argc]) )
+    kw_key = kwargs.get("_kw_key", "__".join(["{0}={1}".format(k,to_str(v)) for k,v in sorted(kwargs.items()) ]))
     
     key = "{self.cache_key}.{func_name}.{argc_key}.{kw_key}".format(**locals() )
     
