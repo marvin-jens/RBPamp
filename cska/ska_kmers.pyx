@@ -545,6 +545,9 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     # store predicted k-mer counts here, for each protein concentration
     cdef FLOAT32_t [:,:] counts = np.zeros((n_P, 4**k), dtype = np.float32)
 
+    # store predicted k-mer *count gradient* here, for each protein concentration
+    cdef FLOAT32_t [:,:] gradient = np.zeros((n_P, 4**k), dtype = np.float32)
+
     # store predicted openen counts here, for each protein concentration
     cdef FLOAT32_t [:,:,:] openen_bin_counts = np.zeros((n_P, 4**k, 256), dtype = np.float32)
     
@@ -557,13 +560,14 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     # Single protein partition functions
     cdef FLOAT64_t [:] Z1 = np.zeros(n_P, dtype=np.float64)
     cdef FLOAT64_t * Z1_thread
+    cdef FLOAT64_t * grad_thread
     cdef UINT32_t * indices_thread
     cdef UINT8_t * openens_thread
     
     # helper variables to tell cython the types
     cdef UINT8_t s, o
     cdef UINT64_t index, i, j, m
-    cdef FLOAT64_t w, pb = 0 # Boltzmann weight, Prob(seq is bound)
+    cdef FLOAT64_t w, pb, g = 0 # Boltzmann weight, Prob(seq is bound), gradient
     
     if n_max:
         N = n_max
@@ -573,6 +577,9 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
         for j in prange(N, schedule='guided'):
             Z1_thread = <FLOAT64_t *> malloc(sizeof(FLOAT64_t) * n_P)
             if Z1_thread == NULL: abort()
+
+            #grad_thread = <FLOAT64_t *> malloc(sizeof(FLOAT64_t) * l)
+            #if grad_thread == NULL: abort()
 
             indices_thread = <UINT32_t *> malloc(sizeof(UINT32_t) * l)
             if indices_thread == NULL: abort()
@@ -607,6 +614,7 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                 #openens[i] = o
                 openens_thread[i] = o
                 
+                #grad_thread[i] = acc_lookup[o]
                 w = kmer_invkd[index] * acc_lookup[o]
                 
                 # Add Boltzmann weights
@@ -625,15 +633,18 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                     #openen_bin_counts[m, indices[i], openens[i]] += pb
 
                     counts[m, indices_thread[i]] += pb
+                    g = acc_lookup[openens_thread[i]] * protein_conc[m] * (pb - pb*pb) / Z1_thread[m]
+                    gradient[m, indices_thread[i]] += g
                     openen_bin_counts[m, indices_thread[i], openens_thread[i]] += pb
             
                 p_bound[m,j] = pb
             
             free(Z1_thread)
+            #free(grad_thread)
             free(indices_thread)
             free(openens_thread)
             
-    return p_bound.base, counts.base, openen_bin_counts.base
+    return p_bound.base, counts.base, openen_bin_counts.base, gradient.base
 
 
 @cython.boundscheck(False)
@@ -692,6 +703,7 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     (into different position).
     """
     
+    print k_seq, k_openen
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX_SEQ = 4**k_seq - 1
     cdef UINT64_t MAX_INDEX_OE = 4**k_openen - 1
@@ -701,9 +713,10 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     cdef int l_openen = L - k_openen + 1
 
     # store observations here to compute means upon exit
-    cdef UINT32_t [:,:] counts = np.zeros((4**k_seq, 2*l_openen+1), dtype = np.uint32)
-    cdef FLOAT32_t [:,:] sums = np.zeros((4**k_seq, 2*l_openen+1), dtype = np.float32)
-    cdef FLOAT32_t [:] openens = np.zeros(l_openen, dtype=np.float32)
+    cdef UINT32_t [:,:,:] counts = np.zeros((4**k_seq, 2*l_openen+1, 256), dtype = np.uint32)
+    #cdef FLOAT32_t [:,:] sums = np.zeros((4**k_seq, 2*l_openen+1), dtype = np.float32)
+    #cdef FLOAT32_t [:] openens = np.zeros(l_openen, dtype=np.float32)
+    cdef UINT8_t [:] openens = np.zeros(l_openen, dtype=np.uint8)
     cdef UINT64_t [:] indices = np.zeros(l_seq, dtype=np.uint64)
     
     # helper variables to tell cython the tqypes
@@ -725,7 +738,8 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                 
             if i >= k_openen-1:
                 index_oe = index & MAX_INDEX_OE
-                openens[i-k_openen+1] = openen_lookup[openen_matrix[j,i-k_openen+1]]
+                #openens[i-k_openen+1] = openen_lookup[openen_matrix[j,i-k_openen+1]]
+                openens[i-k_openen+1] = openen_matrix[j,i-k_openen+1]
 
         for i in range(0,l_seq):
             index = indices[i]
@@ -737,10 +751,10 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                 #if index == 0b1001001110:
                     #print "i={0}, x={1}, pos={2}, openens[x+i] = {3}, sums[index, pos] = {4}, counts[index,pos]={5}".format(i, x, pos, openens[x+i], sums[index, pos], counts[index, pos])
 
-                sums[index, pos] += openens[m]
-                counts[index, pos] += 1
+                #sums[index, pos] += openens[m]
+                counts[index, pos, openens[m]] += 1
             
-    return sums.base / counts.base
+    return counts.base
 
 
 
