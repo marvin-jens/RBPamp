@@ -213,7 +213,7 @@ class ViennaOpenen(object):
                 j = i - 2
                 
                 line = self.p.stdout.readline()
-                if j <= self.first:
+                if j < self.first:
                     continue
                 
                 if j >= self.last:
@@ -221,7 +221,7 @@ class ViennaOpenen(object):
                 
                 cols = line.split('\t')
                 for k in self.krange:
-                    if j >= k:
+                    if j >= (k-1):
                         data[k - self.k_min][j-k-self.first+1] = float(cols[k])
 
             yield self.krange, data
