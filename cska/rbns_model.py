@@ -286,6 +286,34 @@ class CrosstalkMatrix(CachedBase):
         
         return kmers, kd, dG
 
+
+class AffinityDistribution(object):
+    def __init__(self, invkd, T=22):
+        self.RT = (T + 273.15) * 8.314459848 / 4.184E3 # RT in kcal/mol
+        self.invkd = invkd
+        
+    @classmethod
+    def singleton(cls, best = 'GCATG', best_kd=1., bg_kd=1e6, T = 22):
+        k = len(best)
+        invkd = np.ones(4**k, dtype=np.float32) / bg_kd
+
+        best_i = cska.ska_kmers.seq_to_index(best)
+        invkd[best_i] = 1./best_kd
+        
+        return cls(invkd, T=T)
+    
+    @classmethod
+    def doublet(cls, a = 'GCATG', b='GCACG', a_kd=1., b_kd=20., bg_kd=1e6, T=22):
+        k = len(best)
+        invkd = np.ones(4**k, dtype=np.float32) / bg_kd
+
+        invkd[cska.ska_kmers.seq_to_index(a)] = 1./a_kd
+        invkd[cska.ska_kmers.seq_to_index(b)] = 1./b_kd
+        
+        return cls(invkd, T=T)
+        
+
+
 class RBNSGenerator(CachedBase):
     def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, mode='ordered', **kwargs):
         
@@ -745,13 +773,13 @@ class RBNSSimulator(CachedBase):
             acc_lookup = self.acc_lookup
             
         t0 = time.time()
-        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix = eval_energy_model_on_seqs(seqm, oem, acc_lookup, kmer_invkd, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns, n_max=n_max)
+        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi = eval_energy_model_on_seqs(seqm, oem, acc_lookup, kmer_invkd, np.array(protein_conc, dtype=np.float32), self.k, E_ns = E_ns, n_max=n_max)
         t1 = time.time()
         if n_max:
             n = n_max
         else:
             n = len(seqm)
-        #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+        self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
         return p_bound, kmer_count_matrix, openen_kmer_bincount_matrix
                              
     
