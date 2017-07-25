@@ -36,6 +36,7 @@ def main():
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
+    parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
 
     parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
@@ -192,6 +193,7 @@ def main():
                     k_max = options.max_k,
                     n_max = options.n_max,
                     l_insert = rbns.reads[0].L,
+                    skip_adap = options.skip_adap,
                 )
         else:
             for k in range(options.min_k, options.max_k + 1):

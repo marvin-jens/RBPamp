@@ -744,7 +744,7 @@ rep = OptReporting(opt, 'opt_plots_rnd')
 try:
     while not opt.converged():
         print "optimization step"
-        opt.step()
+        #opt.step()
         opt.step_gradient()
         #opt.ripple_down()
         print "="*40
