@@ -615,9 +615,13 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
 
         # debug output on average throughput
         t2 = time.time()
-        if t2-t1 > 10:
+        if t2-t1 > 30:
             dT = t2 - t0
-            logger.debug("processed {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
+            rate = n_rec/dT
+            
+            n_remain = storage.reads.N - n_rec
+            eta = n_remain / rate / 60 / 60
+            logger.debug("processed {0} records in {1:.0f} seconds (average {2:.3f} records/second). ETA={3:.2f} hours".format(n_rec, dT, rate, eta) )
             t1 = t2
     
     # by the time None pops from the queue, all chunks 
