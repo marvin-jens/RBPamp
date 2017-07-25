@@ -484,6 +484,40 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
+def seq_set_kmer_count_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t MAX_INDEX = 4**k - 1
+    cdef int N = len(seq_matrix.base)
+    cdef int L = len(seq_matrix.base[0])
+
+    # store k-mer counts here
+    cdef UINT32_t [:,:] counts = np.zeros((N, 4**k), dtype = np.uint32)
+
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t index, i, j
+    
+    with nogil:
+        for j in range(N):
+            index = 0
+            for i in range(L):
+                # get next "letter"
+                s = seq_matrix[j, i]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                if i >= k-1:
+                    # count
+                    counts[j, index] += 1
+            
+    return counts.base
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def seq_set_kmer_flag(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT64_t kmer_index):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
