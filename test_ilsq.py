@@ -27,8 +27,8 @@ class Optimizer(object):
         self.reads = reads
         self.openen_storage = openen_storage
         self.openen = self.openen_storage.get_discretized(self.k)
-        self.protein_conc = np.array(protein_conc, dtype=np.float32)
-        self.n_conc = len(self.protein_conc)
+        self.rbp_conc = np.array(protein_conc, dtype=np.float32)
+        self.n_conc = len(self.rbp_conc)
         
         if not len(known_invkd):
             self.known_invkd = np.ones(4**k, dtype=np.float32) * np.nan
@@ -83,6 +83,10 @@ class Optimizer(object):
         
         from cska.rbns_model import CrosstalkMatrix
         self.cm = CrosstalkMatrix(self.k, self.reads)
+        self.update_history = []
+        
+        self.global_errors = []
+        self.update_projections = []
     
     def new_subsample(self):
         #return np.arange(self.n_subsample)
@@ -122,7 +126,7 @@ class Optimizer(object):
             kmer_invkd = self.trial_invkd
 
         if not len(protein_conc):
-            protein_conc = self.protein_conc
+            protein_conc = self.rbp_conc
             
         if not len(indices):
             indices = self.subsample_indices
@@ -150,8 +154,8 @@ class Optimizer(object):
         t1 = time.time()
         n = p_bound.shape[1]
 
-        if self.debug:
-            self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+        #if self.debug:
+            #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
 
         return p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi
         
@@ -208,7 +212,7 @@ class Optimizer(object):
             * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
         """
         badness = np.fabs(self.kmer_error_new.mean(axis=0)) #+ np.fabs(self.kmer_rel_error_new).mean(axis=0)
-        score  = np.sqrt(badness) / (self.heat + 1)
+        score  = np.sqrt(badness) #/ (self.heat + 1)
         
         if self.debug:
             print "!!!!! kmers with max residual error"
@@ -258,7 +262,7 @@ class Optimizer(object):
         # evaluate the model at only one specific concentration
         pb, kmer_counts, openen_kmer_bincount, jacobi = self.eval_thermodynamic_model(
             kmer_invkd = invkd, 
-            protein_conc = np.array([self.protein_conc[conc_i],], dtype=np.float32)
+            protein_conc = np.array([self.rbp_conc[conc_i],], dtype=np.float32)
         )
         kmer_counts = kmer_counts[0,:]
         R_pred = (kmer_counts / kmer_counts.sum()) / self.f0
@@ -322,7 +326,7 @@ class Optimizer(object):
         return res, invkd_opt
 
     def predict_occ(self):
-        theta = 1./ (1. + 1./ (self.protein_conc[:,np.newaxis] / self.trial_invkd[np.newaxis,:]) )
+        theta = 1./ (1. + 1./ (self.rbp_conc[:,np.newaxis] / self.trial_invkd[np.newaxis,:]) )
         return theta
     
     def predict_R_from_cm(self):
@@ -380,7 +384,8 @@ class Optimizer(object):
             self.heat *= 0.75
             self.heat[kmer_index] += 3
             break
-
+    
+        
     def update_from_jacobi(self):
         t0 = time.time()
         p_bound, pi, openen_kmer_bincount_matrix, jac_pi = self.eval_thermodynamic_model(do_jacobi=True)
@@ -389,27 +394,85 @@ class Optimizer(object):
         pi_sum = pi.sum(axis=1)
         R = (pi / pi_sum[:, np.newaxis] ) / self.f0
         
-        direct = jac_pi / pi_sum[:, np.newaxis, np.newaxis]
+        #direct = jac_pi / pi_sum[:, np.newaxis, np.newaxis]
         diag = np.diagonal(jac_pi, axis1=1, axis2=2)
-        indirect = - pi[:, np.newaxis, :] / (pi_sum * pi_sum)[:, np.newaxis, np.newaxis] * diag[:,:, np.newaxis]
-        jac_R = direct + indirect
+        #indirect = - pi[:, np.newaxis, :] / (pi_sum * pi_sum)[:, np.newaxis, np.newaxis] * diag[:,:, np.newaxis]
+        #jac_R = direct + indirect
+
+        jac_R = 1/pi[:, :, np.newaxis] * (R[:, :, np.newaxis] * jac_pi - (self.f0[np.newaxis,:]*R*R)[:, :, np.newaxis] * diag[:, np.newaxis, :] )
+
+        from numpy.linalg import norm
+        corr = self.known_invkd - self.trial_invkd
+        corr /= norm(corr)
         
-        update = np.zeros(self.trial_invkd.shape)
-        for jac, R_obs, R_curr in zip(jac_R, self.R_obs, self.R_new): #jac_R:
-            indices = (R_obs > 2).nonzero()[0]
+        updates = []
+        for jac, R_obs, R_curr, conc in zip(jac_R, self.R_obs, self.R_new, self.rbp_conc):
+            
+            x = R_obs - R_curr
+            indices = np.fabs(x).argsort()[::-1][:100]
             
             J = jac[indices,:][:, indices]
             jac_inv = np.linalg.inv(J)    
             x = R_obs - R_curr
             res = np.dot(jac_inv, x[indices])
             
-            update[indices] += res
+            u = np.zeros(self.trial_invkd.shape, dtype=np.float32)
+            u[indices] = res / norm(res)
 
-        t2 = time.time()
-        self.logger.debug("computed Jacobi matrix in {0:.2f}ms, inverted and computed gradient vector in {1:.2f}ms, total={2:.2f}ms".format(t1-t0, t2-t1, t2-t0) )
-        return update
+            cos = np.dot(u, corr)
+            angle = np.arccos(np.clip(cos, -1, 1) ) * 180./np.pi
+            print "projection of update vector from {0} onto ideal update={1} and angle={2}".format(conc, cos, angle)
+            
+            updates.append(u)
 
         self.jacobi_new = jac_R
+        t2 = time.time()
+        self.logger.debug("computed Jacobi matrix in {0:.2f}ms, inverted and computed gradient vector in {1:.2f}ms, total={2:.2f}ms".format(t1-t0, t2-t1, t2-t0) )
+        return np.array(updates, dtype=np.float32)
+
+    def line_search(self, vec, smin=0., smax=1.):
+        from scipy.optimize import minimize, brentq, minimize_scalar
+            
+        # find optimal scale for line-search
+        def to_optimize(scale):
+            err = self.global_error(self.predict_R(np.clip(self.trial_invkd + scale * vec, 1e-9, 1e3) ))
+            #print "ls {0} -> err={1}".format(scale, err)
+            return err
+            
+        t0 = time.time()
+        res = minimize_scalar(to_optimize, bounds = [smin, smax], method='Bounded')
+        print "line search optimization result", res.success, res.x, res.fun
+        self.logger.debug("optimal line search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
+
+        return vec*res.x, res.fun
+
+    def combination_search(self, vecs, smin=0., smax=1.):
+        from scipy.optimize import minimize, brentq, minimize_scalar
+            
+        # find optimal scale for line-search
+        def to_optimize(coeff):
+            coeff = np.array(coeff, dtype=np.float32)
+            err = self.global_error(self.predict_R(np.clip(self.trial_invkd + np.dot(coeff, vecs), 1e-9, 1e3) ))
+            print "cs {0} -> err={1}".format(coeff, err)
+            return err
+            
+        t0 = time.time()
+        
+        n = len(vecs)
+        bounds = np.ones((n,2), dtype=np.float32) * np.array([smin, smax], dtype=np.float32)[np.newaxis,:]
+        c0 = np.ones(n, dtype=np.float32) * .25
+        res = minimize(to_optimize, c0, bounds = bounds, method='L-BFGS-B')
+        print "combination search optimization result", res.success, res.x, res.fun
+        self.logger.debug("combination search success={0} coeff={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
+
+        return np.dot(np.array(res.x, dtype=np.float32), vecs), res.fun
+
+        
+    def annotate_update_vector(self, vec, n=10):
+        print "-----------update vector------------"
+        for i in np.fabs(vec).argsort()[::-1][:n]:
+            print "    ", cska.ska_kmers.index_to_seq(i, self.k), self.trial_invkd[i], "->", self.trial_invkd[i] + vec[i], "known=", self.known_invkd[i]
+        
 
     def step_gradient(self):
         self.t += 1
@@ -426,51 +489,52 @@ class Optimizer(object):
         self.kmer_error_old[:] = self.kmer_error_new[:]
         self.prev_invkd[:] = self.trial_invkd[:]
 
-        update = self.update_from_jacobi()
-        print "update vector strongest magnitude elements"
-        amp = np.fabs(update)
-        update = np.array(update / amp.max(), dtype=np.float32)
+        updates = self.update_from_jacobi()
+
+        ls_results = []
+        for u, rbp_conc in zip(updates, self.rbp_conc):
+            ls_results.append(self.line_search(u))
+            #self.annotate_update_vector(ls_results[-1][0])
+    
+        scaled_updates, errors = np.array(ls_results).T
+        i = errors.argmin()
+        print "best concentration is ",self.rbp_conc[i], "with global error", errors[i]
+        update = scaled_updates[i]
+    
+        #update, err = self.combination_search(updates)
+        #print "best linear combination update vector reaches global error", err
+        self.annotate_update_vector(update)
         
-        from scipy.optimize import minimize, brentq, minimize_scalar
-            
-        # find optimal scale for line-search
-        def to_optimize(scale):
-            return self.global_error(self.predict_R(np.clip(self.trial_invkd + scale * update, 1e-9, 1e3) ))
-            
-        t0 = time.time()
-        res = minimize_scalar(to_optimize, bounds = [-1., 1.], method='Bounded')
-        print "scale optimization result", res.success
-        self.logger.debug("optimal line search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
-        #print res.x
-        update *= res.x
         new_invkd = np.clip(self.trial_invkd + update, 1e-9, 1e3)
-        
+
         residual = self.known_invkd - self.trial_invkd
 
         R_opt = self.predict_R(new_invkd)
-        for i in amp.argsort()[::-1][:20]:
+        #for i in np.fabs(update).argsort()[::-1][:20]:
             
-            if np.fabs(residual[i]) > np.fabs(residual[i] - update[i]):
-                status = 'GOOD'
-            else:
-                status = 'BAD'
+            #if np.fabs(residual[i]) > np.fabs(residual[i] - update[i]):
+                #status = 'GOOD'
+            #else:
+                #status = 'BAD'
                 
-            print cska.ska_kmers.index_to_seq(i, 5), status, update[i], self.trial_invkd[i], self.known_invkd[i], self.R_obs[:,i], self.R_new[:,i], R_opt[:,i]
+            #print cska.ska_kmers.index_to_seq(i, 5), status, update[i], self.trial_invkd[i], self.known_invkd[i], self.R_obs[:,i], self.R_new[:,i], R_opt[:,i]
 
         print "finding optimal scaling of all affinities"
         # find optimal global scale
         def to_optimize(scale):
             return self.global_error(self.predict_R(np.clip(new_invkd * scale, 1e-9, 1e3) ))
 
-        t0 = time.time()
-        res = minimize_scalar(to_optimize, bounds = [1e-3, 1], method='Bounded')
-        print "scale optimization result", res.success, res.x
-        self.logger.debug("optimal global scale search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
+        ##t0 = time.time()
+        ##res = minimize_scalar(to_optimize, bounds = [1e-3, 1], method='Bounded')
+        ##print "scale optimization result", res.success, res.x
+        ##self.logger.debug("optimal global scale search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
         
-        new_invkd *= res.x
+        ##new_invkd *= res.x
+
         #print "update vector elements that should actually matter"
         #for i in np.fabs(self.known_invkd - self.trial_invkd).argsort()[::-1][:20]:
             #print cska.ska_kmers.index_to_seq(i, 5), update[i], self.R_obs[:,i], self.R_old[:,i], self.known_invkd[i], self.trial_invkd[i]
+        
         
         self.trial_invkd = new_invkd
         self.R_new = R_opt
@@ -496,11 +560,9 @@ class Optimizer(object):
             self.trial_invkd[i] *= rel_change
         
 
-        
-        
     def converged(self):
         # this is a stub. Make depend on np.fabs(self.kmer_error_new - self.kmer_error_old)
-        if self.t > 50:
+        if self.t > 100:
             return True
 
 
@@ -510,19 +572,38 @@ class OptReporting(object):
         self.path = path
         from matplotlib.backends.backend_pdf import PdfPages
         self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
+        self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
         self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
         self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
         self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
 
     def close(self):
         self.sweep_pdf.close()
+        self.descent_pdf.close()
         self.R_pdf.close()
         self.invkd_pdf.close()
         self.err_pdf.close()
+
+    def plot_gradient_descent(self, n_top=100):
+        I = self.opt.R_obs.argsort()[::-1][:n_top]
+        
+        x = np.arange(len(I))
+        pp.figure()
+        t = self.opt.t
+        pp.title("gradient-descent at step {0}".format(t))
+        
+        plot = pp.semilogy
+        plot(x, self.opt.known_invkd[I], 'k', label='known affinities')
+        plot(x, self.opt.prev_invkd[I], '.b', label='prev. delta')
+        plot(x, self.opt.trial_invkd[I], '.r', label='last delta')
+        pp.xlim(-1, len(x))
+        self.descent_pdf.savefig()
+        pp.savefig(os.path.join(self.path, "descent_t{0}.pdf".format(t)) )
+
         
     def plot_jacobi(self):
         
-        for conc, jac in zip(self.opt.protein_conc, self.opt.jacobi_new):
+        for conc, jac in zip(self.opt.rbp_conc, self.opt.jacobi_new):
             pp.figure()
             pp.title("Jacobi matrix @{1}nM at t={0}".format(self.opt.t, conc))
             pp.imshow(np.arcsinh(jac), cmap='hot')
@@ -552,7 +633,7 @@ class OptReporting(object):
         pp.figure()
         pp.title("kmer-fit for {0} at step {1}".format(kmer, self.opt.t) )
         
-        for P, err in zip(self.opt.protein_conc, errors):
+        for P, err in zip(self.opt.rbp_conc, errors):
             pp.semilogx(x, err, label="P={0}nM".format(P))
 
         pp.axvline(self.opt.known_invkd[kmer_index], color='r', label="correct value")
@@ -581,7 +662,7 @@ class OptReporting(object):
         pp.title('R-value fit after step {0}'.format(self.opt.t) )
         R_a = self.opt.R_obs
         R_b = self.opt.R_new
-        for i,rbp_conc in enumerate(self.opt.protein_conc):
+        for i,rbp_conc in enumerate(self.opt.rbp_conc):
             corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
             patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=5, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
             
@@ -613,7 +694,7 @@ class OptReporting(object):
         y = A_b
         
         max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
-        for i,rbp_conc in enumerate(self.opt.protein_conc):
+        for i,rbp_conc in enumerate(self.opt.rbp_conc):
             ind = max_error_conc == i
             #print ind.shape, ind, x[ind]
             patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
@@ -647,7 +728,7 @@ class OptReporting(object):
         abs_err = np.arcsinh(self.opt.kmer_error_new)
         #abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
         
-        for i,rbp_conc in enumerate(self.opt.protein_conc):
+        for i,rbp_conc in enumerate(self.opt.rbp_conc):
             patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
             
         mark_x = self.opt.known_invkd[to_mark_i]
@@ -657,7 +738,7 @@ class OptReporting(object):
 
         #pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
 
-        pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.protein_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+        pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         
         pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
@@ -724,28 +805,87 @@ sources = [
     #('/scratch/data/RBNS/RBFOX2/RBFOX2_365.reads',365),
 ]
 
-reads = [RBNSReads(src, rbp_name='RBFOX2', rbp_conc=P, pseudo_count = 10, n_max=2000000) for src,P in sources]
+reads = [RBNSReads(src, rbp_name='RBFOX2', rbp_conc=P, pseudo_count = 10) for src,P in sources]
 storages = [OpenenStorage(r, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma') for r in reads]
 
 #protein_conc = [40., ]
 
-k = 5
-protein_conc = [.01, 40., 160., 3300.]
+#k = 5
+#protein_conc = [.01, 40., 160., 3300.]
 
-sim_invkd, R_obs, f0 = sim_rbp_ordered(k=k, protein_conc=protein_conc, mode='ordered')
-#sim_invkd, R_obs, f0 = sim_rbp_singleton(k=k, protein_conc=protein_conc)
+#sim_invkd, R_obs, f0 = sim_rbp_ordered(k=k, protein_conc=protein_conc, mode='ordered')
+##sim_invkd, R_obs, f0 = sim_rbp_singleton(k=k, protein_conc=protein_conc)
+
+#print "creating optimizer"
+#opt = Optimizer(k, reads[0], storages[0], protein_conc, R_obs, known_invkd=sim_invkd, n_subsample=1000000, sub_replace=False, aff0=1e-6, temp=22, debug=True, min_invkd=1e-12, max_invkd=1e1, n_blocked=0)
+#rep = OptReporting(opt, 'opt_plots_rnd')
+
+def load_table(src):
+    kmers = []
+    values = []
+    errors = []
+    
+    for line in file(src):
+        parts = np.array(line.split('\t'))
+        if line.startswith('#'):
+            continue
+        n = len(parts)
+        val_i = np.arange(1,n,2)
+        err_i = np.arange(2,n,2)
+        
+        kmers.append(parts[0])
+        values.append(parts[val_i])
+        errors.append(parts[err_i])
+        
+    indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmers])
+    k = len(kmers[0])
+    
+    l = len(values[0])
+    
+    values = np.array(values)
+    errors = np.array(errors)
+
+    print values.shape
+    print errors.shape
+    
+    vals = np.zeros( (4**k, l), dtype=np.float32)
+    errs = np.zeros( (4**k, l), dtype=np.float32)
+    
+    
+    vals[indices, :] = values[:,:]
+    errs[indices, :] = errors[:,:]
+    
+    return vals.T, errs.T
+
+
+k = 5#7
+protein_conc = [40., 121., 365., 1100.]
+R_obs, R_err = load_table('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/RBFOX2.R_value.{0}mer.tsv'.format(k))
+print R_obs.shape
+f0 = reads[0].kmer_frequencies(k)
+f0 /= f0.sum()
 
 print "creating optimizer"
-opt = Optimizer(k, reads[0], storages[0], protein_conc, R_obs, known_invkd=sim_invkd, n_subsample=100000, sub_replace=False, aff0=1e-6, temp=22, debug=True, min_invkd=1e-12, max_invkd=1e1, n_blocked=1)
-rep = OptReporting(opt, 'opt_plots_rnd')
+opt = Optimizer(k, reads[0], storages[0], protein_conc, R_obs, n_subsample=100000, sub_replace=False, aff0=1e-6, temp=22, debug=True, min_invkd=1e-12, max_invkd=1e1, n_blocked=0)
+rep = OptReporting(opt, 'opt_plots_RBFOX2')
+
 #opt.test_jacobi()
 #rep.plot_jacobi()
 #sys.exit(0)
+#opt.step()
+#rep.plot_R_value_agreement()
+#rep.plot_invkd_agreement()
+#rep.plot_errors()
+#rep.plot_gradient_descent()
+
 try:
     while not opt.converged():
         print "optimization step"
-        #opt.step()
-        opt.step_gradient()
+        if opt.t % 2:
+            opt.step_gradient()
+        else:
+            opt.step()
+            
         #opt.ripple_down()
         print "="*40
         print "rendering plots"
@@ -754,8 +894,9 @@ try:
         #rep.plot_jacobi()
 
         rep.plot_R_value_agreement()
-        rep.plot_invkd_agreement()
-        rep.plot_errors()
+        #rep.plot_invkd_agreement()
+        #rep.plot_errors()
+        #rep.plot_gradient_descent()
         print "done rendering"
 except KeyboardInterrupt:
     pass
