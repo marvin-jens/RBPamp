@@ -579,10 +579,10 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     cdef FLOAT32_t [:,:] p_bound = np.zeros((n_P, N), dtype = np.float32)
     
     # store predicted k-mer counts here, for each protein concentration
-    cdef FLOAT32_t [:,:] counts = np.zeros((n_P, 4**k), dtype = np.float32)
+    cdef FLOAT32_t [:,:,:] counts = np.zeros((n_threads, n_P, 4**k), dtype = np.float32)
 
     # store predicted k-mer *Jacobi matrix* here, for each protein concentration
-    cdef FLOAT32_t [:,:,:] jacobi = np.zeros((n_P, 4**k, 4**k), dtype = np.float32)
+    cdef FLOAT32_t [:,:,:,:] jacobi = np.zeros((n_threads, n_P, 4**k, 4**k), dtype = np.float32)
 
     # store predicted openen counts here, for each protein concentration
     cdef FLOAT32_t [:,:,:] openen_bin_counts = np.zeros((n_P, 4**k, 256), dtype = np.float32)
@@ -664,19 +664,20 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                     #counts[m, indices[i]] += pb
                     #openen_bin_counts[m, indices[i], openens[i]] += pb
 
-                    counts[m, indices[thread_num, i]] += pb
+                    counts[thread_num, m, indices[thread_num, i]] += pb
                     if do_jacobi:
+                        jac = g * acc_lookup[openens[thread_num, i]]
+                        index = indices[thread_num, i]
                         for n in range(0, l): 
                             # i is \delta A_i, n is \delta \pi_n
-                            jac = g * acc_lookup[openens[thread_num, i]]
-                            jacobi[m, indices[thread_num, i], indices[thread_num, n]] += jac
+                            jacobi[thread_num, m, indices[thread_num, n], index] += jac
 
                     if do_openen:
                         openen_bin_counts[m, indices[thread_num, i], openens[thread_num, i]] += pb
             
                 p_bound[m,j] = pb
             
-    return p_bound.base, counts.base, openen_bin_counts.base, jacobi.base
+    return p_bound.base, counts.base.sum(axis=0), openen_bin_counts.base, jacobi.base.sum(axis=0)
 
 
 @cython.boundscheck(False)
