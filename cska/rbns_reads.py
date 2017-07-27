@@ -39,6 +39,22 @@ class RBNSReads(CachedBase):
         else:
             self.is_subsample = False
     
+    @classmethod
+    def from_seqs(cls, seqs, **kwargs):
+        
+        reads = cls(None, **kwargs)
+        reads._do_not_unpickle = True
+        reads._do_not_pickle = True
+        
+        seqm = cska.ska_kmers.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
+        N, L = seqm.shape
+
+        reads.cache_preload("seqm", seqm)
+        reads.cache_preload("N", N)
+        reads.cache_preload("L", L)
+        
+        return reads
+
     @property
     def cache_key(self):
         return "{self.fname}.nmax{self.n_max}.pseudo{self.pseudo_count}".format(self=self)

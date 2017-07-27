@@ -53,6 +53,21 @@ class RBNSOpenen(CachedBase):
             self.is_subsample = False
 
         self.logger.info("initialized")
+    
+    @classmethod
+    def from_array(cls, reads, k, oem, L=40, dtype=np.uint8, mode='gamma', **kwargs):
+        
+        fname = "discretized_{mode}_L{L}_k{k}_{dtype.__name__}".format(**locals())
+        openen = cls(fname, reads, k, **kwargs)
+        openen._do_not_unpickle = True
+        openen._do_not_pickle = True
+        N, L = oem.shape
+        
+        openen.cache_preload("oem", oem)
+        openen.cache_preload("N", N)
+        openen.cache_preload("L", L)
+        
+        return openen
         
     @property
     def cache_key(self):
@@ -406,7 +421,7 @@ class OpenenDiscretization(object):
         (40,8) : (2.2847020288586801, -0.086073860842223043, 1.3242768850690814),
     }
 
-    def __init__(self, k, L, dtype, mode='gamma'):
+    def __init__(self, k, L, dtype=np.uint8, mode='gamma'):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
         self.k = k
         self.L = L
