@@ -22,7 +22,6 @@ def kcal_to_Kd(E,temp=22):
     # kcal/mol to Kd in nM
     return np.exp(E*kcal/RT)*1e9
 
-
 class CrosstalkMatrix(CachedBase):
     def __init__(self, k, input_reads):
         CachedBase.__init__(self)
@@ -286,7 +285,6 @@ class CrosstalkMatrix(CachedBase):
         
         return kmers, kd, dG
 
-
 class AffinityDistribution(object):
     def __init__(self, invkd, T=22):
         self.RT = (T + 273.15) * 8.314459848 / 4.184E3 # RT in kcal/mol
@@ -312,8 +310,6 @@ class AffinityDistribution(object):
         
         return cls(invkd, T=T)
         
-
-
 class RBNSGenerator(CachedBase):
     def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, mode='ordered', **kwargs):
         
@@ -782,7 +778,6 @@ class RBNSSimulator(CachedBase):
         self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
         return p_bound, kmer_count_matrix, openen_kmer_bincount_matrix
                              
-    
 class KmerSoupModel(object):
     def __init__(self, k=5, min_E = -11., temp=22., seed=None):
         self.k=5
@@ -807,7 +802,6 @@ class KmerSoupModel(object):
     
     def estimate_k(self, P, beta, r, r_ns):
         return P / (beta * (r/r_ns - 1)) - P
-
 
 class RBNSKmerModel(object):
     def __init__(self, kmers, r_matrix, rbp_conc, rna_conc=1000., temp=22., unfolding_energies=None, tracked_kmers=[], out_path= './', rbp_name="RBP"):
@@ -1209,114 +1203,301 @@ class RBNSKmerModel(object):
         self.logger.info("plot_k: rendering PDF '{0}'".format(path) )
         pp.savefig(path)
         
+class SPAState(object):
+    def __init__(self, mdl, params, p_bound, pi_kmer, openen_bin_counts = [], jacobi = []):
+        self.mdl = mdl
 
-class PartitionFunction(object):
-    def __init__(self, seq, P, dG_kmers, k):
-        self.seq = seq
-        self.l = len(seq)
-        dG = []
-        for i in range(0,self.l - k + 1):
-            s = seq[i:i+k]
-            index = cska.ska_kmers.seq_to_index(s)
-            dG.append(float(dG_kmers[index]))
+        self.params = params
+        self.A = params[:self.mdl.n_A] # affinities
+        self.betas = params[self.mdl.n_A:] # background coefficients
+        self.p_bound = p_bound
+        self.pi_kmer = pi_kmer
+        self.openen_bin_counts = openen_bin_counts
+        self.jacobi = jacobi
+
+        self.N = self.mdl.n_subsample
+        if not self.N:
+            self.N = self.mdl.reads.N
+            
+        print "BETAS", self.betas
+        self.pd_freq = self.pi_kmer + self.betas[:, np.newaxis] * self.mdl.f0 * self.N
+        self.pd_sum = self.pd_freq.sum(axis=1)
         
-        self.dG = np.array(dG, dtype=np.float128)
-        self.mu = np.ones(len(seq)-k+1, dtype=np.float128) * np.log(P*1e-9)
+    #def __str__(self):
+        
+    @property
+    def R_values(self):
+        return (self.pd_freq/ self.pd_sum[:, np.newaxis] ) / self.mdl.f0[np.newaxis,:]
+
+    @property
+    def jacobi_matrix(self):
+        R = self.R_values
+        pi = self.pi_kmer
+        jac_pi = self.jacobi
+        
+        diag = np.diagonal(jac_pi, axis1=1, axis2=2)
+        jac_R = 1/pi[:, :, np.newaxis] * (R[:, :, np.newaxis] * jac_pi - (self.mdl.f0[np.newaxis,:]*R*R)[:, :, np.newaxis] * diag[:, np.newaxis, :] )
+        jac_betas = self.N * self.mdl.f0[np.newaxis, :] / self.pd_sum[:, np.newaxis] * (1 - R)
+        
+        jac = np.concatenate( (jac_R, jac_betas[:,:,np.newaxis]), axis=2)
+        return jac
+    
+class SPAModel(object):
+    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, n_subsample=100000):
         self.k = k
-        self.Z_table = {}
+        self.n_A = 4**k
 
-        #print "dG", self.dG
-        #print "mu", self.mu
+        self.rbp_conc = np.array(protein_conc, dtype=np.float32)
+        self.n_conc = len(self.rbp_conc)
+
+        self.T = T
+        self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
+        self.logger = logging.getLogger('SPAModel')
+
+        # secondary structure accessibility
+        self.openen = openen
+        self.openen_lookup = self.openen.disc.x/self.RT # open energies in units of RT for each discretization level
+        self.acc_lookup = np.exp( - self.openen_lookup) # accessibilities
+
+        # reads from RBNS random RNA pool and corresonding kmer-frequencies
+        self.reads = reads
+        self.f0 = self.reads.kmer_frequencies(self.k)
+        self.f0 /= self.f0.sum()
         
-    def Z_i(self,i):
-        Z = np.exp(-self.dG[i] + self.mu[i]) + 1
-        #print i,Z
-        return Z
+        # subsampling related stuff
+        self.sub_replace = sub_replace
+        self.n_subsample = n_subsample
+        self.subsample_indices = self.new_subsample()
 
-    def Z_overlap(self):
-        Z = 1.
-        for i in range(0, self.l - self.k + 1):
-            Z *= self.Z_i(i)
+        # current state of the model
+        self.state = None
+        self.params = None
 
-        return Z
+    def new_subsample(self):
+        if not self.n_subsample:
+            return np.arange(self.reads.N)
 
-    def P_bound_rec(self, eps=1e-5):
-        Z0 = self.Z_recursive(0,self.l)
-        Pb = []
-        for i in range(0, self.l - self.k + 1):
-            self.mu[i] += eps
-            self.Z_table = {}
-            dZ = self.Z_recursive(0, self.l) - Z0
-            Pb.append(dZ/eps/Z0)
-            self.mu[i] -= eps
+        self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
+        return np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+       
+    def evaluate(self, params, keep=False, indices = [], protein_conc = [], seq_only=False, do_jacobi=False):
+        """
+        Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
+        """
+        from cska.ska_kmers import eval_energy_model_on_seqs
+        import time
+        
+        # prepare all variables
+        kmer_invkd = params[:self.n_A]
+           
+        if not len(indices):
+            indices = self.subsample_indices
+
+        seqm = self.reads.seqm[indices]
+        oem = self.openen.oem[indices]
+
+        if seq_only:
+            acc_lookup = np.ones(self.acc_lookup.shape, dtype = np.float32)
+        else:
+            acc_lookup = self.acc_lookup
+
+        if not len(protein_conc):
+            protein_conc = self.rbp_conc
             
-        return np.array(Pb)
-            
-    def P_bound_indep_exact(self, eps=1e-5):
-        Pb = []
-        for i in range(0, self.l - self.k + 1):
-            Pb.append((self.Z_i(i) - 1) / self.Z_i(i) )
+        t0 = time.time()
+        # the model itself is implemented in Cython
+        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi = eval_energy_model_on_seqs(
+            seqm, 
+            oem, 
+            acc_lookup,
+            kmer_invkd, 
+            protein_conc, 
+            self.k, 
+            n_max = self.n_subsample,
+            do_jacobi = do_jacobi
+        )
+        t1 = time.time()
+        n = p_bound.shape[1]
 
-        return np.array(Pb)
+        #if self.debug:
+            #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
 
-    def P_bound_single(self):
-        Z_bound = np.exp(-self.dG + self.mu).sum()
-        
-        return Z_bound / (Z_bound + 1)
-        
-    def P_bound_indep(self, eps=1e-5):
+        state = SPAState(self, params, p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi)
+        if keep:
+            self.params = params
+            self.state = state
+
+        return state
     
-        Pb = []
-        for i in range(0, self.l - self.k + 1):
-            Z0 = self.Z_i(i)
-            self.mu[i] += eps
-            dZ = self.Z_i(i) - Z0
-            Pb.append(1./Z0 * dZ/eps)
-            self.mu[i] -= eps
-        
-        return np.array(Pb)
-        
-    def Z_recursive(self, s,e):
-        k = self.k
-        Z = 1.
-        if e >= s+k:
-            Z_left = 0
-            if e > 1:
-                left = (s,e-1)
-                if not left in self.Z_table:
-                    self.Z_table[left] = self.Z_recursive(s,e-1)
-                Z_left = self.Z_table[left]
+class Stepper(object):
+    def __init__(self, opt, mdl):
+        self.opt = opt
+        self.mdl = mdl
+        self.logger = logging.getLogger('Stepper')
+        self.t = 0
 
-            Z_right = 1
-            if e > k:
-                right = (s, e-k)
-                if not right in self.Z_table:
-                    #print "calling right"
-                    self.Z_table[right] = self.Z_recursive(s,e-k)
+    def kmer_errors(self, R_new):
+        return R_new - self.opt.R_obs
+        
+    def kmer_error_conc(self, kmer_index, R_new, conc_i):
+        return R_new[kmer_index] - self.opt.R_obs[conc_i, kmer_index]
+        
+    def global_error(self, R_new):
+        return np.mean((self.opt.R_obs - R_new)**2)
+
+    def line_search(self, vec, smin=0., smax=1.):
+        from scipy.optimize import minimize, brentq, minimize_scalar
+            
+        # find optimal scale for line-search
+        def to_optimize(scale):
+            params = np.clip(self.trial_invkd + scale * vec, 1e-9, 1e3)
+            state = self.mdl.evaluate(params)
+            err = self.global_error(state.estimate_R_values( ))
+            #print "ls {0} -> err={1}".format(scale, err)
+            return err
+            
+        t0 = time.time()
+        res = minimize_scalar(to_optimize, bounds = [smin, smax], method='Bounded')
+        print "line search optimization result", res.success, res.x, res.fun
+        self.logger.debug("optimal line search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
+
+        return vec*res.x, res.fun
+
+    def update_from_jacobi(self):
+        t0 = time.time()
+        state = self.mdl.evaluate(self.trial_params, do_jacobi=True)
+        t1 = time.time()
+        
+        pi_sum = pi.sum(axis=1)
+        R = (pi / pi_sum[:, np.newaxis] ) / self.f0
+        
+        #direct = jac_pi / pi_sum[:, np.newaxis, np.newaxis]
+        diag = np.diagonal(jac_pi, axis1=1, axis2=2)
+        #indirect = - pi[:, np.newaxis, :] / (pi_sum * pi_sum)[:, np.newaxis, np.newaxis] * diag[:,:, np.newaxis]
+        #jac_R = direct + indirect
+
+        jac_R = 1/pi[:, :, np.newaxis] * (R[:, :, np.newaxis] * jac_pi - (self.f0[np.newaxis,:]*R*R)[:, :, np.newaxis] * diag[:, np.newaxis, :] )
+
+        from numpy.linalg import norm
+        corr = self.known_invkd - self.trial_invkd
+        corr /= norm(corr)
+        
+        updates = []
+        for jac, R_obs, R_curr, conc in zip(jac_R, self.R_obs, self.R_new, self.rbp_conc):
+            
+            x = R_obs - R_curr
+            indices = np.fabs(x).argsort()[::-1][:100]
+            
+            J = jac[indices,:][:, indices]
+            jac_inv = np.linalg.inv(J)    
+            x = R_obs - R_curr
+            res = np.dot(jac_inv, x[indices])
+            
+            u = np.zeros(self.trial_invkd.shape, dtype=np.float32)
+            u[indices] = res / norm(res)
+
+            cos = np.dot(u, corr)
+            angle = np.arccos(np.clip(cos, -1, 1) ) * 180./np.pi
+            print "projection of update vector from {0} onto ideal update={1} and angle={2}".format(conc, cos, angle)
+            
+            updates.append(u)
+
+        self.jacobi_new = jac_R
+        t2 = time.time()
+        self.logger.debug("computed Jacobi matrix in {0:.2f}ms, inverted and computed gradient vector in {1:.2f}ms, total={2:.2f}ms".format(t1-t0, t2-t1, t2-t0) )
+        return np.array(updates, dtype=np.float32)
+
+    def annotate_update_vector(self, vec, n=10):
+        print "-----------update vector------------"
+        for i in np.fabs(vec).argsort()[::-1][:n]:
+            print "    ", cska.ska_kmers.index_to_seq(i, self.k), self.trial_invkd[i], "->", self.trial_invkd[i] + vec[i], "known=", self.known_invkd[i]
+        
+
+    def step_gradient(self):
+        self.t += 1
+
+        self.logger.debug("gradient descent iteration {self.t}".format(self=self) )
+        
+        # subsamples should remain stable throughout one iteration step!
+        self.subsample_indices = self.new_subsample()
+
+        print "gradient descent at iteration", self.t
+        #self.highest_ranked_unoptimized_kmers()
+
+        self.R_old[:] = self.R_new[:]
+        self.kmer_error_old[:] = self.kmer_error_new[:]
+        self.prev_invkd[:] = self.trial_invkd[:]
+
+        updates = self.update_from_jacobi()
+
+        ls_results = []
+        for u, rbp_conc in zip(updates, self.rbp_conc):
+            ls_results.append(self.line_search(u))
+            #self.annotate_update_vector(ls_results[-1][0])
+    
+        scaled_updates, errors = np.array(ls_results).T
+        i = errors.argmin()
+        print "best concentration is ",self.rbp_conc[i], "with global error", errors[i]
+        update = scaled_updates[i]
+    
+        #update, err = self.combination_search(updates)
+        #print "best linear combination update vector reaches global error", err
+        self.annotate_update_vector(update)
+        
+        new_invkd = np.clip(self.trial_invkd + update, 1e-9, 1e3)
+
+        residual = self.known_invkd - self.trial_invkd
+
+        R_opt = self.predict_R(new_invkd)
+        #for i in np.fabs(update).argsort()[::-1][:20]:
+            
+            #if np.fabs(residual[i]) > np.fabs(residual[i] - update[i]):
+                #status = 'GOOD'
+            #else:
+                #status = 'BAD'
                 
-                Z_right = self.Z_table[right]
-            
-            Z += Z_left + np.exp(-self.dG[e-k] + self.mu[e-k]) + Z_right
-            #print s,e,i,"Z",Z
+            #print cska.ska_kmers.index_to_seq(i, 5), status, update[i], self.trial_invkd[i], self.known_invkd[i], self.R_obs[:,i], self.R_new[:,i], R_opt[:,i]
 
-        self.Z_table[s,e] = Z
-        return Z 
-            
+        print "finding optimal scaling of all affinities"
+        # find optimal global scale
+        def to_optimize(scale):
+            return self.global_error(self.predict_R(np.clip(new_invkd * scale, 1e-9, 1e3) ))
 
+        ##t0 = time.time()
+        ##res = minimize_scalar(to_optimize, bounds = [1e-3, 1], method='Bounded')
+        ##print "scale optimization result", res.success, res.x
+        ##self.logger.debug("optimal global scale search success={0} scale={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0) )
+        
+        ##new_invkd *= res.x
 
+        #print "update vector elements that should actually matter"
+        #for i in np.fabs(self.known_invkd - self.trial_invkd).argsort()[::-1][:20]:
+            #print cska.ska_kmers.index_to_seq(i, 5), update[i], self.R_obs[:,i], self.R_old[:,i], self.known_invkd[i], self.trial_invkd[i]
+        
+        
+        self.trial_invkd = new_invkd
+        self.R_new = R_opt
+        #self.jacobi_new = self.jacobi # self.jacobi got updated implicitly by self.predict_R
+        self.kmer_error_new = self.kmer_errors(self.R_new)
+        self.kmer_rel_error_new = self.kmer_rel_errors(self.R_new)
 
-def test_fastrand(N=10000000):
-    from cska.ska_kmers import fast_randint, fast_rand, rand_seed
-
-    frnd = fast_rand(N)
-    print "f minmax", frnd.min(), frnd.max()
-    import matplotlib.pyplot as pp
-    print frnd
-    pp.hist(frnd, bins=200)
-    pp.show()
     
+class ModelOptimization(object):
+    def __init__(self, reads, openen_storage, k, R_obs, R_err=[], protein_conc=[40.]):
+        self.k = k
+
+        self.reads = reads
+        self.openen_storage = storage
+        self.openen = self.openen_storage.get_discretized(self.k)
+        self.rbp_conc = np.array(protein_conc, dtype=np.float32)
+        self.n_conc = len(self.rbp_conc)
+
+        self.R_obs = R_obs
+        self.R_err = R_err
+
     
         
+       
 if __name__ == "__main__":
     import matplotlib
     #matplotlib.use('pdf')
