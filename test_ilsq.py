@@ -4,7 +4,7 @@ from cska.rbns_model import RBNSSimulator, RBNSGenerator
 from cska.folding import RBNSOpenen, OpenenStorage, OpenenDiscretization
 
 import matplotlib
-matplotlib.use('pdf')
+#matplotlib.use('pdf')
 import matplotlib.pyplot as pp
 
 #pp.style.use('ggplot')
@@ -566,190 +566,190 @@ class Optimizer(object):
             return True
 
 
-class OptReporting(object):
-    def __init__(self, opt, path='./'):
-        self.opt = opt
-        self.path = path
-        from matplotlib.backends.backend_pdf import PdfPages
-        self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
-        self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
-        self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
-        self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
-        self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
+#class OptReporting(object):
+    #def __init__(self, opt, path='./'):
+        #self.opt = opt
+        #self.path = path
+        #from matplotlib.backends.backend_pdf import PdfPages
+        #self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
+        #self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
+        #self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
+        #self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
+        #self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
 
-    def close(self):
-        self.sweep_pdf.close()
-        self.descent_pdf.close()
-        self.R_pdf.close()
-        self.invkd_pdf.close()
-        self.err_pdf.close()
+    #def close(self):
+        #self.sweep_pdf.close()
+        #self.descent_pdf.close()
+        #self.R_pdf.close()
+        #self.invkd_pdf.close()
+        #self.err_pdf.close()
 
-    def plot_gradient_descent(self, n_top=100):
-        I = self.opt.R_obs.argsort()[::-1][:n_top]
+    #def plot_gradient_descent(self, n_top=100):
+        #I = self.opt.R_obs.argsort()[::-1][:n_top]
         
-        x = np.arange(len(I))
-        pp.figure()
-        t = self.opt.t
-        pp.title("gradient-descent at step {0}".format(t))
+        #x = np.arange(len(I))
+        #pp.figure()
+        #t = self.opt.t
+        #pp.title("gradient-descent at step {0}".format(t))
         
-        plot = pp.semilogy
-        plot(x, self.opt.known_invkd[I], 'k', label='known affinities')
-        plot(x, self.opt.prev_invkd[I], '.b', label='prev. delta')
-        plot(x, self.opt.trial_invkd[I], '.r', label='last delta')
-        pp.xlim(-1, len(x))
-        self.descent_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "descent_t{0}.pdf".format(t)) )
+        #plot = pp.semilogy
+        #plot(x, self.opt.known_invkd[I], 'k', label='known affinities')
+        #plot(x, self.opt.prev_invkd[I], '.b', label='prev. delta')
+        #plot(x, self.opt.trial_invkd[I], '.r', label='last delta')
+        #pp.xlim(-1, len(x))
+        #self.descent_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "descent_t{0}.pdf".format(t)) )
 
         
-    def plot_jacobi(self):
+    #def plot_jacobi(self):
         
-        for conc, jac in zip(self.opt.rbp_conc, self.opt.jacobi_new):
-            pp.figure()
-            pp.title("Jacobi matrix @{1}nM at t={0}".format(self.opt.t, conc))
-            pp.imshow(np.arcsinh(jac), cmap='hot')
-            pp.colorbar(label='arcsinh(jacobi matrix)')
-            pp.savefig('jacobi_{1}nM_t{0}.pdf'.format(self.opt.t, conc))
+        #for conc, jac in zip(self.opt.rbp_conc, self.opt.jacobi_new):
+            #pp.figure()
+            #pp.title("Jacobi matrix @{1}nM at t={0}".format(self.opt.t, conc))
+            #pp.imshow(np.arcsinh(jac), cmap='hot')
+            #pp.colorbar(label='arcsinh(jacobi matrix)')
+            #pp.savefig('jacobi_{1}nM_t{0}.pdf'.format(self.opt.t, conc))
 
-        pp.show()
-        pp.close()
-        
-    def plot_sweep(self, kmer_index=None, min_invkd = 1e-12, max_invkd = 1e2, steps=100):
-  
-        if kmer_index == None:
-            kmer_index = self.opt.last_kmer_update
-
-        invkd = np.copy(opt.trial_invkd)
-        x = np.exp(np.linspace(np.log(min_invkd), np.log(max_invkd), steps))
-        errors = []
-        for ikd in x:
-            invkd[kmer_index] = ikd
-            R_trial = self.opt.predict_R(invkd)
-            err = R_trial[:,kmer_index] - self.opt.R_obs[:,kmer_index]
-            errors.append(err)
-            
-        errors = np.array(errors).T
-        
-        kmer = self.opt.kmers[kmer_index]
-        pp.figure()
-        pp.title("kmer-fit for {0} at step {1}".format(kmer, self.opt.t) )
-        
-        for P, err in zip(self.opt.rbp_conc, errors):
-            pp.semilogx(x, err, label="P={0}nM".format(P))
-
-        pp.axvline(self.opt.known_invkd[kmer_index], color='r', label="correct value")
-        pp.axvline(self.opt.trial_invkd[kmer_index], color='k', label="fitted root")
-        pp.axhline(0, color='k')
-        if opt.kmer_updates[kmer] > 1:
-            pp.axvline(self.opt.prev_invkd[kmer_index], color='gray', label="previous value")
-                
-        pp.xlabel(r"$\frac{1}{K_d}$ [nM]")
-        pp.ylabel(r"expected R - observed R")
-        pp.legend(loc='upper left')
-        pp.tight_layout()
-        self.sweep_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "sweep_{0}_t{1}.pdf".format(kmer, self.opt.t)) )
         #pp.show()
-        pp.close()
+        #pp.close()
+        
+    #def plot_sweep(self, kmer_index=None, min_invkd = 1e-12, max_invkd = 1e2, steps=100):
+  
+        #if kmer_index == None:
+            #kmer_index = self.opt.last_kmer_update
 
-    def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
-        
-        kmer_i = self.opt.last_kmer_update
-        kmer = self.opt.kmers[kmer_i]
-        
-        
-        pp.figure()
-        pp.title('R-value fit after step {0}'.format(self.opt.t) )
-        R_a = self.opt.R_obs
-        R_b = self.opt.R_new
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
-            patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=5, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
+        #invkd = np.copy(opt.trial_invkd)
+        #x = np.exp(np.linspace(np.log(min_invkd), np.log(max_invkd), steps))
+        #errors = []
+        #for ikd in x:
+            #invkd[kmer_index] = ikd
+            #R_trial = self.opt.predict_R(invkd)
+            #err = R_trial[:,kmer_index] - self.opt.R_obs[:,kmer_index]
+            #errors.append(err)
             
-        pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+        #errors = np.array(errors).T
+        
+        #kmer = self.opt.kmers[kmer_index]
+        #pp.figure()
+        #pp.title("kmer-fit for {0} at step {1}".format(kmer, self.opt.t) )
+        
+        #for P, err in zip(self.opt.rbp_conc, errors):
+            #pp.semilogx(x, err, label="P={0}nM".format(P))
 
-        m = min(R_a.min(), R_b.min())
-        M = max(R_a.max(), R_b.max())
-        pp.plot([m,M],[m,M], '--k', zorder=np.inf)
-        pp.xlabel(r'{0} [R-value]'.format("observed/simulated") )
-        pp.ylabel(r'{0} [R-value]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
-        pp.legend(loc='upper left')
-        pp.tight_layout()
-        self.R_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "predicted_vs_obs_R_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-        pp.close()
-        
-    def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
-        
-        kmer_i = self.opt.last_kmer_update
-        kmer = self.opt.kmers[kmer_i]
-        
-        
-        pp.figure()
-        pp.title('affinity agreement after step {0}'.format(self.opt.t) )
-        A_a = self.opt.known_invkd
-        A_b = self.opt.trial_invkd
-        x = A_a
-        y = A_b
-        
-        max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            ind = max_error_conc == i
-            #print ind.shape, ind, x[ind]
-            patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
+        #pp.axvline(self.opt.known_invkd[kmer_index], color='r', label="correct value")
+        #pp.axvline(self.opt.trial_invkd[kmer_index], color='k', label="fitted root")
+        #pp.axhline(0, color='k')
+        #if opt.kmer_updates[kmer] > 1:
+            #pp.axvline(self.opt.prev_invkd[kmer_index], color='gray', label="previous value")
+                
+        #pp.xlabel(r"$\frac{1}{K_d}$ [nM]")
+        #pp.ylabel(r"expected R - observed R")
+        #pp.legend(loc='upper left')
+        #pp.tight_layout()
+        #self.sweep_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "sweep_{0}_t{1}.pdf".format(kmer, self.opt.t)) )
+        ##pp.show()
+        #pp.close()
 
-        corr = np.corrcoef(np.log(A_a), np.log(A_b))[0][1]
-        pp.loglog(x[kmer_i], self.opt.prev_invkd[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='gray', label="previous values" )
-        pp.loglog(A_a[kmer_i], A_b[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
-
-        m = min(A_a.min(), A_b.min())
-        M = max(A_a.max(), A_b.max())
-        pp.plot([m,M],[m,M], '--k', zorder=np.inf)
-        pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-        pp.ylabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
-        pp.legend(loc='lower right')
-        #pp.xlim(1e-1,1e2)
-        #pp.ylim(1e-1,1e2)
-        pp.tight_layout()
-        self.invkd_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-        pp.close()
+    #def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
+        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-    def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
-
-        kmer_i = self.opt.last_kmer_update
-        kmer = self.opt.kmers[kmer_i]
+        #kmer_i = self.opt.last_kmer_update
+        #kmer = self.opt.kmers[kmer_i]
         
-        pp.figure()
-        pp.title('residual errors after step {0}'.format(self.opt.t) )
-
-        abs_err = np.arcsinh(self.opt.kmer_error_new)
-        #abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
         
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
+        #pp.figure()
+        #pp.title('R-value fit after step {0}'.format(self.opt.t) )
+        #R_a = self.opt.R_obs
+        #R_b = self.opt.R_new
+        #for i,rbp_conc in enumerate(self.opt.rbp_conc):
+            #corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
+            #patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=5, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
             
-        mark_x = self.opt.known_invkd[to_mark_i]
-        mark_y = abs_err[:,to_mark_i].max(axis=0)
-        for mer, index, x, y in zip(to_mark, to_mark_i, mark_x, mark_y):
-            pp.text(x*2, y, mer)
+        #pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
-        #pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
+        #m = min(R_a.min(), R_b.min())
+        #M = max(R_a.max(), R_b.max())
+        #pp.plot([m,M],[m,M], '--k', zorder=np.inf)
+        #pp.xlabel(r'{0} [R-value]'.format("observed/simulated") )
+        #pp.ylabel(r'{0} [R-value]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
+        #pp.legend(loc='upper left')
+        #pp.tight_layout()
+        #self.R_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "predicted_vs_obs_R_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
+        #pp.close()
+        
+    #def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
+        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        
+        #kmer_i = self.opt.last_kmer_update
+        #kmer = self.opt.kmers[kmer_i]
+        
+        
+        #pp.figure()
+        #pp.title('affinity agreement after step {0}'.format(self.opt.t) )
+        #A_a = self.opt.known_invkd
+        #A_b = self.opt.trial_invkd
+        #x = A_a
+        #y = A_b
+        
+        #max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
+        #for i,rbp_conc in enumerate(self.opt.rbp_conc):
+            #ind = max_error_conc == i
+            ##print ind.shape, ind, x[ind]
+            #patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
 
-        pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+        #corr = np.corrcoef(np.log(A_a), np.log(A_b))[0][1]
+        #pp.loglog(x[kmer_i], self.opt.prev_invkd[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='gray', label="previous values" )
+        #pp.loglog(A_a[kmer_i], A_b[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+
+        #m = min(A_a.min(), A_b.min())
+        #M = max(A_a.max(), A_b.max())
+        #pp.plot([m,M],[m,M], '--k', zorder=np.inf)
+        #pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
+        #pp.ylabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
+        #pp.legend(loc='lower right')
+        ##pp.xlim(1e-1,1e2)
+        ##pp.ylim(1e-1,1e2)
+        #pp.tight_layout()
+        #self.invkd_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
+        #pp.close()
+        
+    #def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
+        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+
+        #kmer_i = self.opt.last_kmer_update
+        #kmer = self.opt.kmers[kmer_i]
+        
+        #pp.figure()
+        #pp.title('residual errors after step {0}'.format(self.opt.t) )
+
+        #abs_err = np.arcsinh(self.opt.kmer_error_new)
+        ##abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
+        
+        #for i,rbp_conc in enumerate(self.opt.rbp_conc):
+            #patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
+            
+        #mark_x = self.opt.known_invkd[to_mark_i]
+        #mark_y = abs_err[:,to_mark_i].max(axis=0)
+        #for mer, index, x, y in zip(to_mark, to_mark_i, mark_x, mark_y):
+            #pp.text(x*2, y, mer)
+
+        ##pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
+
+        #pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         
-        pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-        pp.ylabel(r'arcsinh(residual error) [a.u.]')
-        pp.legend(loc='upper left')
-        #pp.xlim(1e-1,1e2)
-        #pp.ylim(1e-1,1e2)
-        pp.tight_layout()
-        self.err_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "err_vs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-        pp.close()
+        #pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
+        #pp.ylabel(r'arcsinh(residual error) [a.u.]')
+        #pp.legend(loc='upper left')
+        ##pp.xlim(1e-1,1e2)
+        ##pp.ylim(1e-1,1e2)
+        #pp.tight_layout()
+        #self.err_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "err_vs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
+        #pp.close()
 
 
 def sim_rbp_ordered(k=5, seed=47110815, mode='ordered', protein_conc=[5., 40.]):
@@ -805,18 +805,19 @@ sources = [
     #('/scratch/data/RBNS/RBFOX2/RBFOX2_365.reads',365),
 ]
 
+#reads = [RBNSReads(src, rbp_name='RBFOX2', rbp_conc=P, pseudo_count = 10, n_max=1000000) for src,P in sources]
 reads = [RBNSReads(src, rbp_name='RBFOX2', rbp_conc=P, pseudo_count = 10) for src,P in sources]
 storages = [OpenenStorage(r, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma') for r in reads]
 
 #protein_conc = [40., ]
 
-#k = 5
-#protein_conc = [.01, 40., 160., 3300.]
+k = 5
+protein_conc = [.01, 40., 160., 3300.]
 
 #sim_invkd, R_obs, f0 = sim_rbp_ordered(k=k, protein_conc=protein_conc, mode='ordered')
-##sim_invkd, R_obs, f0 = sim_rbp_singleton(k=k, protein_conc=protein_conc)
+#sim_invkd, R_obs, f0 = sim_rbp_singleton(k=k, protein_conc=protein_conc)
 
-#print "creating optimizer"
+print "creating optimizer"
 #opt = Optimizer(k, reads[0], storages[0], protein_conc, R_obs, known_invkd=sim_invkd, n_subsample=1000000, sub_replace=False, aff0=1e-6, temp=22, debug=True, min_invkd=1e-12, max_invkd=1e1, n_blocked=0)
 #rep = OptReporting(opt, 'opt_plots_rnd')
 
@@ -858,9 +859,38 @@ def load_table(src):
     return vals.T, errs.T
 
 
-k = 5#7
 protein_conc = [40., 121., 365., 1100.]
 R_obs, R_err = load_table('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/RBFOX2.R_value.{0}mer.tsv'.format(k))
+
+
+from cska.rbns_model import ModelOptimization
+openen = storages[0].get_discretized(k)
+opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=100000) # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
+print opt.estimate_background()
+from cska.rbns_reports import OptReporting
+rep = OptReporting(opt, 'plots')
+try:
+    opt.optimize(reporter = rep)
+except KeyboardInterrupt:
+    pass
+
+print "converged/interrupted after {0} steps.".format(opt.t)
+opt.print_summary()
+import matplotlib.pyplot as pp
+#pp.figure()
+#params = sim_invkd
+#pp.loglog(params, params, 'x', label='reference')
+#pp.loglog(params, opt.current.params, '.', label='fit')
+
+pp.figure()
+pp.semilogy(opt.errors)
+pp.ylabel('global optimization error')
+
+pp.show()
+
+sys.exit(0)
+
+
 print R_obs.shape
 f0 = reads[0].kmer_frequencies(k)
 f0 /= f0.sum()
