@@ -756,9 +756,6 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
     # indices and openens are thread-local buffers. As cython does not support 
     # this keyword yet, we add an n_threads dimension
     
-    # record openen bins of all kmers occurring in one sequence
-    cdef UINT8_t [:,:] openens = np.zeros( (n_threads, l), dtype=np.uint8)
-    
     cdef int thread_num
     
     # helper variables to tell cython the types
@@ -780,12 +777,9 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
             Z1 = 0
             # iterate over all k-mers, always adding next base to index
             for i in range(0, l):
-                # binding energy = sequence dep. + unfolding energy (binned) + non-specific binding
-                o = openen_matrix[j, i]
-                openens[thread_num, i] = o
-                
-                #grad_thread[i] = acc_lookup[o]
                 index = index_matrix[j,i]
+                o = openen_matrix[j, i]
+
                 w = kmer_invkd[index] * acc_lookup[o]
                 Z1 = Z1 + w
             
@@ -805,15 +799,16 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
                     #openen_bin_counts[m, indices[i], openens[i]] += pb
 
                     index = index_matrix[j, i]
+                    o = openen_matrix[j, i]
                     counts[thread_num, m, index] += pb
                     if do_jacobi:
-                        jac = g * acc_lookup[openens[thread_num, i]]
+                        jac = g * acc_lookup[o]
                         for n in range(0, l): 
                             # i is \delta A_i, n is \delta \pi_n
                             jacobi[thread_num, m, index_matrix[j, n], index] += jac
 
                     if do_openen:
-                        openen_bin_counts[m, index, openens[thread_num, i]] += pb
+                        openen_bin_counts[m, index, o] += pb
             
                 p_bound[m,j] = pb
             

@@ -1307,8 +1307,11 @@ class SPAModel(object):
         # subsampling related stuff
         self.sub_replace = sub_replace
         self.n_subsample = n_subsample
+        
+        # all subsample fields are set by new_subsample
         self.subsample_indices = []
         self.subsample_index_matrix = []
+        self.subsample_oem = []
         self.new_subsample()
 
         # current state of the model
@@ -1316,17 +1319,32 @@ class SPAModel(object):
         self.params = None
         
     def new_subsample(self):
-        if not self.n_subsample:
-            return np.arange(self.reads.N)
+        from cska.ska_kmers import fast_randint
+        t0 = time.time()
 
-        self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
-        indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+        if not self.n_subsample:
+            indices = np.arange(self.reads.N)
+        else:
+            self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
+            if self.sub_replace:
+                indices = fast_randint(self.n_subsample, self.reads.N)
+            else:
+                indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+            t1 = time.time()
+            self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
+
         self.subsample_indices = indices
-        
+
         seqm = self.reads.seqm[indices]
+        t2 = time.time()
         self.subsample_index_matrix = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
+        t3 = time.time()
+        self.logger.debug('converting subsample to index-matrix took {0:.2f} ms'.format(1000* (t2-t3)) )
+
+        self.subsample_oem = self.openen.oem[indices]
+        self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
        
-    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False):
+    def evaluate(self, params, keep=False, indices = [], sub_indices = [], rbp_conc = [], seq_only=None, do_jacobi=False):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
@@ -1339,11 +1357,16 @@ class SPAModel(object):
         if not len(indices):
             indices = self.subsample_indices
             im = self.subsample_index_matrix
+            oem = self.subsample_oem
+            # TODO: for fractional runs, needs further planning in building "merged states"?
+            if len(sub_indices):
+                im = im[sub_indices]
+                oem = oem[sub_indices]
         else:
             seqm = self.reads.seqm[indices]
             im = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
-        
-        oem = self.openen.oem[indices]
+            oem = self.openen.oem[indices]
+
 
         if seq_only == None:
             seq_only = self.seq_only # use SPAModel instance setting
@@ -1371,8 +1394,7 @@ class SPAModel(object):
         t1 = time.time()
         n = p_bound.shape[1]
 
-        #if self.debug:
-            #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+        self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
 
         state = SPAState(self, params, p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi)
         if keep:

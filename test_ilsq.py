@@ -812,7 +812,7 @@ storages = [OpenenStorage(r, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', dis
 #protein_conc = [40., ]
 
 k = 5
-protein_conc = [.01, 40., 160., 3300.]
+#protein_conc = [.01, 40., 160., 3300.]
 
 #sim_invkd, R_obs, f0 = sim_rbp_ordered(k=k, protein_conc=protein_conc, mode='ordered')
 #sim_invkd, R_obs, f0 = sim_rbp_singleton(k=k, protein_conc=protein_conc)
@@ -861,14 +861,26 @@ def load_table(src):
 
 protein_conc = [40., 121., 365., 1100.]
 R_obs, R_err = load_table('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/RBFOX2.R_value.{0}mer.tsv'.format(k))
+#protein_conc = [5., 20., 80., 320., 1300.,]
+#R_obs, R_err = load_table('/scratch/data/RBNS/HNRNPA0/ska_HNRNPA0/HNRNPA0.R_value.{0}mer.tsv'.format(k))
 
 
 from cska.rbns_model import ModelOptimization
 openen = storages[0].get_discretized(k)
-opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=100000) # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
-print opt.estimate_background()
+#opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=100000, param_file='params_t276.tsv') # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
+param_file = sys.argv[1]
+opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=1000000, seq_only=False, sub_replace=True,param_file=param_file) # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
+
+#opt.step_beta()
+
 from cska.rbns_reports import OptReporting
-rep = OptReporting(opt, 'plots')
+#rep = OptReporting(opt, 'plots_HNRNPA0')
+#rep = OptReporting(opt, 'plots_RBFOX2_seq_only')
+rep = OptReporting(opt, 'plots_RBFOX2')
+#rep.plot_R_value_agreement()
+#sys.exit(1)
+
+
 try:
     opt.optimize(reporter = rep)
 except KeyboardInterrupt:
