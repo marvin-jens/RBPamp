@@ -1281,7 +1281,7 @@ class SPAState(object):
         
         
 class SPAModel(object):
-    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, n_subsample=100000):
+    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, n_subsample=100000):
         self.k = k
         self.nA = 4**k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
@@ -1300,30 +1300,37 @@ class SPAModel(object):
 
         # reads from RBNS random RNA pool and corresonding kmer-frequencies
         self.reads = reads
+        self.seq_only = seq_only
         self.f0 = self.reads.kmer_frequencies(self.k)
         self.f0 /= self.f0.sum()
         
         # subsampling related stuff
         self.sub_replace = sub_replace
         self.n_subsample = n_subsample
-        self.subsample_indices = self.new_subsample()
+        self.subsample_indices = []
+        self.subsample_index_matrix = []
+        self.new_subsample()
 
         # current state of the model
         self.state = None
         self.params = None
-
+        
     def new_subsample(self):
         if not self.n_subsample:
             return np.arange(self.reads.N)
 
         self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
-        return np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+        indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+        self.subsample_indices = indices
+        
+        seqm = self.reads.seqm[indices]
+        self.subsample_index_matrix = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
        
-    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=False, do_jacobi=False):
+    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
-        from cska.ska_kmers import eval_energy_model_on_seqs
+        from cska.ska_kmers import eval_energy_model_on_index_matrix 
         import time
         
         # prepare all variables
@@ -1331,9 +1338,15 @@ class SPAModel(object):
            
         if not len(indices):
             indices = self.subsample_indices
-
-        seqm = self.reads.seqm[indices]
+            im = self.subsample_index_matrix
+        else:
+            seqm = self.reads.seqm[indices]
+            im = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
+        
         oem = self.openen.oem[indices]
+
+        if seq_only == None:
+            seq_only = self.seq_only # use SPAModel instance setting
 
         if seq_only:
             acc_lookup = np.ones(self.acc_lookup.shape, dtype = np.float32)
@@ -1345,8 +1358,8 @@ class SPAModel(object):
             
         t0 = time.time()
         # the model itself is implemented in Cython
-        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi = eval_energy_model_on_seqs(
-            seqm, 
+        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi = eval_energy_model_on_index_matrix(
+            im, 
             oem, 
             acc_lookup,
             kmer_invkd, 
@@ -1380,6 +1393,16 @@ class SPAModel(object):
             for i in xrange(len(self.params)):
                 f.write('{0}\t{1}\n'.format(self.param_name(i), self.params[i]))
 
+    def load_params(self, fname):
+        params = []
+        self.logger.info("reading parameters from '{0}'".format(fname))
+        with file(fname, 'r') as f:
+            for line in f:
+                params.append(float(line.split('\t')[1]))
+
+        #self.evaluate(np.array(params, dtype=np.float32), keep=True)
+        return np.array(params, dtype=np.float32)
+
 #class Stepper(object):
     #def __init__(self, opt, mdl):
         #self.opt = opt
@@ -1387,7 +1410,7 @@ class SPAModel(object):
  
     
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False):
         self.k = k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
@@ -1409,7 +1432,7 @@ class ModelOptimization(object):
         self.aff_max = aff_max
 
         # the model to be trained
-        self.mdl = SPAModel(reads, openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace)
+        self.mdl = SPAModel(reads, openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]
@@ -1417,14 +1440,20 @@ class ModelOptimization(object):
         
         # initialize parameters: flat affinity vector and background from lowest percentile
         self.nA = 4**k
-        params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
-        params[0:self.nA] += aff0
-        betas = self.estimate_background()
-        params[-len(betas):] = betas
+        
         
         # set initial state of the model
         self.current = None
-        self.update(params, np.Inf, "initialize")
+        if param_file:
+            self.update(self.mdl.load_params(param_file), np.Inf, "resuming from {0}".format(param_file))
+        else:
+            params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
+            params[0:self.nA] += aff0
+            betas = self.estimate_background()
+            params[-len(betas):] = betas
+            self.update(params, np.Inf, "initialize")
+        
+        
 
         # in case we know some parameters, use this as a reference
         if len(known_params):
@@ -1436,6 +1465,7 @@ class ModelOptimization(object):
         self.blocked_kmers = []
         self.kmer_last_improvement = {}
         self.kmer_last_updated = defaultdict(int)
+        self.last_kmer_update = None
 
     def estimate_background(self, q=1.):
         return np.nanpercentile(self.R_obs, q, axis=1)
@@ -1513,25 +1543,25 @@ class ModelOptimization(object):
         self.logger.debug("selected {0}".format(self.kmers[pick]) )
         return pick
 
-    def optimize_single_kmer(self, kmer_i):
+    def optimize_single_param(self, param_i):
         params = np.array(self.current.params)
 
         def to_optimize(aff):
-            params[kmer_i] = aff
+            params[param_i] = aff
             state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
             err = self.global_error(state.R)
-            #err = (self.kmer_errors(state.R)[:,kmer_i]**2).mean()
-            #print aff, "->", err, state.R[:, kmer_i], self.R_obs[:, kmer_i]
+            #err = (self.param_errors(state.R)[:,param_i]**2).mean()
+            #print aff, "->", err, state.R[:, param_i], self.R_obs[:, param_i]
             return err
             
         t0 = time.time()
         res = minimize_scalar(to_optimize, bounds = [self.aff_min, self.aff_max], method='Bounded')
         #print "line search optimization result", res.success, res.x, res.fun
         dt = time.time() - t0
-        kmer = self.kmers[kmer_i]
-        A0 = self.current.params[kmer_i]
+        name = self.mdl.param_name(param_i)
+        A0 = self.current.params[param_i]
         rel_change = (res.x - A0) / A0
-        self.logger.debug("optimal {kmer} affinity search success={res.success} A={res.x} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
+        self.logger.debug("optimal {name} affinity/value search success={res.success} A={res.x} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
         return res.x, res.fun
 
     def sweep_ls(self, vec, x0=1.):
@@ -1553,6 +1583,26 @@ class ModelOptimization(object):
         pp.show()
         pp.close()
     
+    def sweep_param(self, i, x0=1.):
+        import matplotlib.pyplot as pp
+        pp.figure()
+        #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
+        params = np.array(self.current.params)
+        scale = 10**np.arange(-6,3,.1)
+        err = []
+        for s in scale:
+            params[i] = s
+            state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
+            #err.append(self.global_error_conc(state.R, conc_i))
+            err.append(self.global_error(state.R))
+         
+        #print err
+        pp.loglog(scale, err)
+        pp.axvline(x0)
+        pp.axhline(self.errors[-1])
+        pp.show()
+        pp.close()
+
         
     def line_search(self, vec, smin=0., smax=10.):
         #err0 = self.global_error_conc(self.current.R, conc_i)
@@ -1591,22 +1641,22 @@ class ModelOptimization(object):
         self.logger.debug("optimal line search success={0} scale={1} took {2:.2f}ms".format(opt_succ, opt_x, time.time() - t0) )
         return opt_x, opt_err
 
-    def optimal_beta(self, conc_i, smin=0, smax=10.):
-        params = np.array(self.current.params)
-        rbp_conc = np.array([self.rbp_conc[conc_i],])
+    #def optimal_beta(self, conc_i, smin=0, smax=10.):
+        #params = np.array(self.current.params)
+        #rbp_conc = np.array([self.rbp_conc[conc_i],])
 
-        def to_optimize(beta):
-            params[self.nA+conc_i] = beta
-            state = self.mdl.evaluate(params, do_jacobi=False, rbp_conc=rbp_conc, keep=False)
-            err = ((self.R_obs[conc_i] - state.R[0])**2).sum()
+        #def to_optimize(beta):
+            #params[self.nA+conc_i] = beta
+            #state = self.mdl.evaluate(params, do_jacobi=False, rbp_conc=rbp_conc, keep=False)
+            #err = ((self.R_obs[conc_i] - state.R[0])**2).sum()
             
-            return err
+            #return err
             
-        t0 = time.time()
-        res = minimize_scalar(to_optimize, bounds = [smin, smax], method='Bounded')
-        #print "line search optimization result", res.success, res.x, res.fun
-        self.logger.debug("optimal beta search for {3}nM success={0} beta={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0, self.rbp_conc[conc_i] ) )
-        return res.x
+        #t0 = time.time()
+        #res = minimize_scalar(to_optimize, bounds = [smin, smax], method='Bounded')
+        ##print "line search optimization result", res.success, res.x, res.fun
+        #self.logger.debug("optimal beta search for {3}nM success={0} beta={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0, self.rbp_conc[conc_i] ) )
+        #return res.x
         
     def print_update_vector(self, vec, n=-1):
  
@@ -1686,8 +1736,8 @@ class ModelOptimization(object):
             better = err
 
         # subsamples should remain stable throughout one iteration step!
-        self.mdl.subsample_indices = self.mdl.new_subsample()
-        self.current = self.mdl.evaluate(params, keep = True, do_jacobi = True)
+        self.mdl.new_subsample()
+        self.current = self.mdl.evaluate(params, keep = True)#, do_jacobi = True) # dont use gradient for now!
         self.errors.append(self.global_error(self.current.R))
         
         self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2f}%".format(name, self.t, better))
@@ -1734,10 +1784,10 @@ class ModelOptimization(object):
     def step_kmer(self, show_sweep = False):
         self.logger.info("===kmer fit step===")
         kmer_i = self.find_worst_kmer()
-        best, err = self.optimize_single_kmer(kmer_i)
+        best, err = self.optimize_single_param(kmer_i)
         
         if show_sweep:
-            self.sweep_kmer(kmer_i, best)
+            self.sweep_param(kmer_i, best)
             
         params = np.array(self.current.params)
         params[kmer_i] = best
@@ -1784,13 +1834,12 @@ class ModelOptimization(object):
 
 
     def step_beta(self, smin=0, smax=10.):
-        betas = []
-        for i in range(self.n_conc):
-            betas.append(self.optimal_beta(i, smin=smin, smax=smax))
-
-        betas = np.array(betas, dtype=np.float32)
         params = np.array(self.current.params)
-        params[self.nA:] = betas
+        for beta_i in range(self.nA, self.nA+self.n_conc):
+            val, err = self.optimize_single_param(beta_i)
+            if err < self.errors[-1]:
+                params[beta_i] = val
+
         state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
         err = self.global_error(state.R)
         

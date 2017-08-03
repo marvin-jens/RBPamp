@@ -150,7 +150,11 @@ class OptReporting(object):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
         kmer_i = self.opt.last_kmer_update
-        kmer = self.opt.kmers[kmer_i]
+
+        if kmer_i != None:
+            kmer = self.opt.kmers[kmer_i]
+        else:
+            kmer = "none"
         
         
         pp.figure()
@@ -160,8 +164,9 @@ class OptReporting(object):
         for i,rbp_conc in enumerate(self.opt.rbp_conc):
             corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
             patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=5, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
-            
-        pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+
+        if kmer_i != None:
+            pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         m = min(R_a.min(), R_b.min())
         M = max(R_a.max(), R_b.max())
