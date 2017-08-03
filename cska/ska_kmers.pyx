@@ -17,9 +17,10 @@ from libc.math cimport exp, log
 from libc.stdlib cimport abort, malloc, free
 
 ctypedef np.uint8_t UINT8_t
+ctypedef np.uint16_t UINT16_t
 ctypedef np.uint32_t UINT32_t
-ctypedef np.int32_t INT32_t
 ctypedef np.uint64_t UINT64_t
+ctypedef np.int32_t INT32_t
 ctypedef np.float32_t FLOAT32_t
 ctypedef np.float64_t FLOAT64_t
 
@@ -678,6 +679,147 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                 p_bound[m,j] = pb
             
     return p_bound.base, counts.base.sum(axis=0), openen_bin_counts.base, jacobi.base.sum(axis=0)
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
+    """
+    Converts a matrix of nucleotide values (0..3 instead of ACGT) into
+    a matrix of kmer index values. (AAA -> 0, AAC -> 1, ..., TTT -> 63).
+    """
+    assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
+
+    cdef UINT64_t N = len(seq_matrix)
+    cdef UINT64_t L = len(seq_matrix[0])
+    cdef UINT64_t l = L - k + 1
+
+    # store k-mer indices here
+    cdef UINT16_t [:,:] indices = np.zeros( (N, l), dtype=np.uint16)
+
+    # helper variables to tell cython the types
+    cdef UINT64_t i, j
+    cdef UINT16_t index, s
+
+    # largest kmer index 
+    cdef UINT16_t MAX_INDEX = 4**k - 1
+    with nogil, parallel(num_threads=8):
+        for j in prange(N):
+            index = 0 # make thread-local
+            for i in range(0, L):
+                # get next "letter"
+                s = seq_matrix[j, i]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                if i >= k-1:
+                    indices[j, i - k + 1] = index
+            
+    return indices.base
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k, int n_max=0, FLOAT32_t E_ns=0, int do_jacobi=False, int do_openen=False):
+    assert k <= 8 # must fit into UINT16 kmer-indices!
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT16_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    if n_max:
+        N = min(N, n_max)
+
+    cdef UINT64_t l = index_matrix.base.shape[1]
+
+    cdef int n_P = len(protein_conc)
+    cdef n_threads = 8
+
+    # store predicted binding probabilty for each sequence here
+    cdef FLOAT32_t [:,:] p_bound = np.zeros((n_P, N), dtype = np.float32)
+    
+    # store predicted k-mer counts here, for each protein concentration
+    cdef FLOAT32_t [:,:,:] counts = np.zeros((n_threads, n_P, 4**k), dtype = np.float32)
+
+    # store predicted k-mer *Jacobi matrix* here, for each protein concentration
+    cdef FLOAT32_t [:,:,:,:] jacobi = np.zeros((n_threads, n_P, 4**k, 4**k), dtype = np.float32)
+
+    # store predicted openen counts here, for each protein concentration
+    cdef FLOAT32_t [:,:,:] openen_bin_counts = np.zeros((n_P, 4**k, 256), dtype = np.float32)
+    
+    # indices and openens are thread-local buffers. As cython does not support 
+    # this keyword yet, we add an n_threads dimension
+    
+    # record openen bins of all kmers occurring in one sequence
+    cdef UINT8_t [:,:] openens = np.zeros( (n_threads, l), dtype=np.uint8)
+    
+    cdef int thread_num
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t o
+    cdef UINT64_t i=0, j=0, m=0, n=0
+    cdef UINT16_t index
+    cdef FLOAT64_t w=0, pb=0, g=0, jac = 0 # Boltzmann weight, Prob(seq is bound), gradient
+    cdef FLOAT64_t Z1, Z1_m   # Single protein partition functions
+
+    
+    if n_max:
+        N = n_max
+
+    with nogil, parallel(num_threads=8):
+        #for j in prange(N):
+        for j in prange(N, schedule='guided'):
+            thread_num = openmp.omp_get_thread_num()
+
+            Z1 = 0
+            # iterate over all k-mers, always adding next base to index
+            for i in range(0, l):
+                # binding energy = sequence dep. + unfolding energy (binned) + non-specific binding
+                o = openen_matrix[j, i]
+                openens[thread_num, i] = o
+                
+                #grad_thread[i] = acc_lookup[o]
+                index = index_matrix[j,i]
+                w = kmer_invkd[index] * acc_lookup[o]
+                Z1 = Z1 + w
+            
+            # update expected frequencies in pull-down
+            for m in range(0, n_P):
+                Z1_m = Z1 * protein_conc[m]
+                pb = Z1_m / (1. + Z1_m)
+                #pb = Z1_thread[m] / (1. + Z1_thread[m])
+                
+                
+                # for gradient/jacobi computation
+                g = protein_conc[m] * (pb - pb*pb) / Z1_m
+                
+                # record each encountered kmer
+                for i in range(0, l):
+                    #counts[m, indices[i]] += pb
+                    #openen_bin_counts[m, indices[i], openens[i]] += pb
+
+                    index = index_matrix[j, i]
+                    counts[thread_num, m, index] += pb
+                    if do_jacobi:
+                        jac = g * acc_lookup[openens[thread_num, i]]
+                        for n in range(0, l): 
+                            # i is \delta A_i, n is \delta \pi_n
+                            jacobi[thread_num, m, index_matrix[j, n], index] += jac
+
+                    if do_openen:
+                        openen_bin_counts[m, index, openens[thread_num, i]] += pb
+            
+                p_bound[m,j] = pb
+            
+    return p_bound.base, counts.base.sum(axis=0), openen_bin_counts.base, jacobi.base.sum(axis=0)
+
+
 
 
 @cython.boundscheck(False)
