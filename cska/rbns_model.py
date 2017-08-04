@@ -1344,7 +1344,7 @@ class SPAModel(object):
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
        
-    def evaluate(self, params, keep=False, indices = [], sub_indices = [], rbp_conc = [], seq_only=None, do_jacobi=False):
+    def evaluate(self, params, keep=False, indices = [], sub_indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
@@ -1379,24 +1379,31 @@ class SPAModel(object):
         if not len(rbp_conc):
             rbp_conc = self.rbp_conc
             
-        t0 = time.time()
-        # the model itself is implemented in Cython
-        p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi = eval_energy_model_on_index_matrix(
-            im, 
-            oem, 
-            acc_lookup,
-            kmer_invkd, 
-            rbp_conc, 
-            self.k, 
-            n_max = self.n_subsample,
-            do_jacobi = do_jacobi
-        )
-        t1 = time.time()
-        n = p_bound.shape[1]
+        if tm_update:
+            t0 = time.time()
+            # the model itself is implemented in Cython
+            
+            p_bound, pi_kmer, openen_bin_counts, jacobi = eval_energy_model_on_index_matrix(
+                im, 
+                oem, 
+                acc_lookup,
+                kmer_invkd, 
+                rbp_conc, 
+                self.k, 
+                n_max = self.n_subsample,
+                do_jacobi = do_jacobi
+            )
+            t1 = time.time()
+            n = p_bound.shape[1]
 
-        self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+            self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+            state = SPAState(self, params, p_bound, pi_kmer, openen_bin_counts, jacobi)
+        else:
+            # skip thermodynamic model. 
+            # Useful when changed parameter is not affinity (i.e. betas)
+            # copy all thermodynamic model results from previous state.
+            state = SPAState(self, params, self.state.p_bound, self.state.pi_kmer, self.state.openen_bin_counts, self.state.jacobi)
 
-        state = SPAState(self, params, p_bound, kmer_count_matrix, openen_kmer_bincount_matrix, jacobi)
         if keep:
             self.params = params
             self.state = state
@@ -1565,12 +1572,12 @@ class ModelOptimization(object):
         self.logger.debug("selected {0}".format(self.kmers[pick]) )
         return pick
 
-    def optimize_single_param(self, param_i):
+    def optimize_single_param(self, param_i, tm_update=True):
         params = np.array(self.current.params)
 
         def to_optimize(aff):
             params[param_i] = aff
-            state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
+            state = self.mdl.evaluate(params, do_jacobi=False, keep=False, tm_update=tm_update)
             err = self.global_error(state.R)
             #err = (self.param_errors(state.R)[:,param_i]**2).mean()
             #print aff, "->", err, state.R[:, param_i], self.R_obs[:, param_i]
@@ -1858,7 +1865,7 @@ class ModelOptimization(object):
     def step_beta(self, smin=0, smax=10.):
         params = np.array(self.current.params)
         for beta_i in range(self.nA, self.nA+self.n_conc):
-            val, err = self.optimize_single_param(beta_i)
+            val, err = self.optimize_single_param(beta_i, tm_update=False)
             if err < self.errors[-1]:
                 params[beta_i] = val
 
