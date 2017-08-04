@@ -1323,6 +1323,10 @@ class SPAModel(object):
         t0 = time.time()
 
         if not self.n_subsample:
+            if self.subsample_indices:
+                # de-activated subsampling and we already have everything in place!
+                return
+            
             indices = np.arange(self.reads.N)
         else:
             self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
@@ -1343,14 +1347,35 @@ class SPAModel(object):
 
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
-       
-    def evaluate(self, params, keep=False, indices = [], sub_indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True):
+        
+    def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
+        from cska.ska_kmers import eval_energy_model_on_index_matrix, SPA_partition_function, weighted_kmer_counts
+        import time
+
+        #t0 = time.time()
+        # the model itself is implemented in Cython
+        Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample)
+        n = len(Z1)
+        n_conc = len(rbp_conc)
+
+        p_bound = np.zeros( (n_conc, n), dtype=np.float32)
+        pi = np.zeros( (n_conc, self.nA), dtype=np.float32)
+
+        for i in range(n_conc):
+            Z = rbp_conc[i] * Z1
+            p_bound[i] = Z / (Z + 1)
+            pi[i] = weighted_kmer_counts(im, p_bound[i], self.k)
+
+        #t1 = time.time()
+
+        #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+        return p_bound, pi
+
+        
+    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
-        from cska.ska_kmers import eval_energy_model_on_index_matrix, SPA_partition_function, weighted_kmer_counts
-        import time
-        
         # prepare all variables
         kmer_invkd = params[:self.nA]
            
@@ -1358,10 +1383,6 @@ class SPAModel(object):
             indices = self.subsample_indices
             im = self.subsample_index_matrix
             oem = self.subsample_oem
-            # TODO: for fractional runs, needs further planning in building "merged states"?
-            if len(sub_indices):
-                im = im[sub_indices]
-                oem = oem[sub_indices]
         else:
             seqm = self.reads.seqm[indices]
             im = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
@@ -1379,36 +1400,11 @@ class SPAModel(object):
         if not len(rbp_conc):
             rbp_conc = self.rbp_conc
             
+        n_conc = len(rbp_conc)
         if tm_update:
-            t0 = time.time()
-            # the model itself is implemented in Cython
-            
-            #p_bound, pi_kmer, openen_bin_counts, jacobi = eval_energy_model_on_index_matrix(
-                #im, 
-                #oem, 
-                #acc_lookup,
-                #kmer_invkd, 
-                #rbp_conc, 
-                #self.k, 
-                #n_max = self.n_subsample,
-                #do_jacobi = do_jacobi
-            #)
-            
-            Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample)
-            n = len(Z1)
-
-            p_bound = np.zeros( (self.n_conc, n), dtype=np.float32)
-            pi_kmer = np.zeros( (self.n_conc, self.nA), dtype=np.float32)
-
-            for i in range(self.n_conc):
-                Z = self.rbp_conc[i] * Z1
-                p_bound[i] = Z / (Z + 1)
-                pi_kmer[i] = weighted_kmer_counts(im, p_bound[i], self.k)
-
-            t1 = time.time()
-
-            self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+            p_bound, pi_kmer = self._eval_tm(im, oem, acc_lookup, kmer_invkd, rbp_conc)
             state = SPAState(self, params, p_bound, pi_kmer)
+
         else:
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)
@@ -1443,6 +1439,39 @@ class SPAModel(object):
         #self.evaluate(np.array(params, dtype=np.float32), keep=True)
         return np.array(params, dtype=np.float32)
 
+
+class SPAPartition(object):
+    """
+    breaks up the data into reads that *contain* kmer_i and those that do not. Allows very fast single k-mer optimization.
+    """
+
+    def __init__(self, mdl, kmer_i):
+        self.mdl = mdl
+        #self.params = np.array(mdl.params)
+        self.kmer_i = kmer_i
+        
+        from cska.ska_kmers import index_matrix_rows_with_kmer
+        kmer_hits = index_matrix_rows_with_kmer(self.mdl.subsample_index_matrix, self.mdl.k, kmer_i)
+        
+        self.im_kmer = self.mdl.subsample_index_matrix[kmer_hits]
+        self.oem_kmer = self.mdl.subsample_oem[kmer_hits]
+        
+        pi = self.mdl.state.pi_kmer
+        
+        kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA], self.mdl.rbp_conc)
+        self.other_pi = pi - kmer_pi
+        self.mdl.logger.debug('SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
+        
+    def evaluate(self, params, **kwargs):
+        # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
+        kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA], self.mdl.rbp_conc)
+        # pi is pi from the non kmer-containing + pi from the kmer-containing subset of sequences
+        pi = self.other_pi + kmer_pi
+        # p_bound is not needed for R value computation. 
+        # So we keep the unchanged value. Incorrect but convenient and not used anyway.
+        return SPAState(self.mdl, params, self.mdl.state.p_bound, pi)
+        
+        
 #class Stepper(object):
     #def __init__(self, opt, mdl):
         #self.opt = opt
@@ -1583,17 +1612,24 @@ class ModelOptimization(object):
         self.logger.debug("selected {0}".format(self.kmers[pick]) )
         return pick
 
-    def optimize_single_param(self, param_i, tm_update=True):
+    def optimize_single_param(self, param_i):
         params = np.array(self.current.params)
 
+        if param_i < self.nA:
+            # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
+            tm_update = True
+            opt = SPAPartition(self.mdl, param_i)
+        else:
+            # do not evaluate the thermodynamic model, only re-compute R-values
+            tm_update = False
+            opt = self.mdl
+            
         def to_optimize(aff):
             params[param_i] = aff
-            state = self.mdl.evaluate(params, do_jacobi=False, keep=False, tm_update=tm_update)
+            state = opt.evaluate(params, tm_update=tm_update)
             err = self.global_error(state.R)
-            #err = (self.param_errors(state.R)[:,param_i]**2).mean()
-            #print aff, "->", err, state.R[:, param_i], self.R_obs[:, param_i]
             return err
-            
+
         t0 = time.time()
         res = minimize_scalar(to_optimize, bounds = [self.aff_min, self.aff_max], method='Bounded')
         #print "line search optimization result", res.success, res.x, res.fun
@@ -1875,15 +1911,17 @@ class ModelOptimization(object):
 
     def step_beta(self, smin=0, smax=10.):
         params = np.array(self.current.params)
+        last_err = self.errors[-1]
         for beta_i in range(self.nA, self.nA+self.n_conc):
-            val, err = self.optimize_single_param(beta_i, tm_update=False)
-            if err < self.errors[-1]:
+            val, err = self.optimize_single_param(beta_i)
+            if err < last_err:
                 params[beta_i] = val
+                last_err = err
 
-        state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
-        err = self.global_error(state.R)
+        #state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
+        #err = self.global_error(state.R)
         
-        return self.update(params, err, "beta optimization")
+        return self.update(params, last_err, "beta optimization")
 
 
       

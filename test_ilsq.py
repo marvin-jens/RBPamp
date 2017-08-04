@@ -868,8 +868,11 @@ R_obs, R_err = load_table('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/RBFOX2.R_value.{
 from cska.rbns_model import ModelOptimization
 openen = storages[0].get_discretized(k)
 #opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=100000, param_file='params_t276.tsv') # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
-param_file = sys.argv[1]
-opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=1000000, seq_only=False, sub_replace=True,param_file=param_file) # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
+if len(sys.argv) > 1:
+    param_file = sys.argv[1]
+else:
+    param_file = None
+opt = ModelOptimization(reads[0], openen, k, R_obs, R_err=[], rbp_conc=protein_conc, n_subsample=0, seq_only=False, sub_replace=True,param_file=param_file) # known_params = np.concatenate((sim_invkd,[0,0,0,0]))
 
 #opt.step_beta()
 
