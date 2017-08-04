@@ -1348,7 +1348,7 @@ class SPAModel(object):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
-        from cska.ska_kmers import eval_energy_model_on_index_matrix 
+        from cska.ska_kmers import eval_energy_model_on_index_matrix, SPA_partition_function, weighted_kmer_counts
         import time
         
         # prepare all variables
@@ -1383,21 +1383,32 @@ class SPAModel(object):
             t0 = time.time()
             # the model itself is implemented in Cython
             
-            p_bound, pi_kmer, openen_bin_counts, jacobi = eval_energy_model_on_index_matrix(
-                im, 
-                oem, 
-                acc_lookup,
-                kmer_invkd, 
-                rbp_conc, 
-                self.k, 
-                n_max = self.n_subsample,
-                do_jacobi = do_jacobi
-            )
+            #p_bound, pi_kmer, openen_bin_counts, jacobi = eval_energy_model_on_index_matrix(
+                #im, 
+                #oem, 
+                #acc_lookup,
+                #kmer_invkd, 
+                #rbp_conc, 
+                #self.k, 
+                #n_max = self.n_subsample,
+                #do_jacobi = do_jacobi
+            #)
+            
+            Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample)
+            n = len(Z1)
+
+            p_bound = np.zeros( (self.n_conc, n), dtype=np.float32)
+            pi_kmer = np.zeros( (self.n_conc, self.nA), dtype=np.float32)
+
+            for i in range(self.n_conc):
+                Z = self.rbp_conc[i] * Z1
+                p_bound[i] = Z / (Z + 1)
+                pi_kmer[i] = weighted_kmer_counts(im, p_bound[i], self.k)
+
             t1 = time.time()
-            n = p_bound.shape[1]
 
             self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
-            state = SPAState(self, params, p_bound, pi_kmer, openen_bin_counts, jacobi)
+            state = SPAState(self, params, p_bound, pi_kmer)
         else:
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)

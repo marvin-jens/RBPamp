@@ -721,6 +721,43 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
             
     return indices.base
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def index_matrix_rows_with_kmer(UINT16_t [:,:] index_matrix, UINT64_t k, UINT16_t kmer_index, int n_threads=8):
+    """
+    searches for sequences that contain the desired kmer at least once.
+    returns a vector with row-indices into the index-matrix with hits.
+    Used to speed up updating of the thermodynamic model by restricting
+    updates to the sequences that actually change their contribution.
+    """
+    assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
+
+    cdef UINT64_t N = len(index_matrix)
+    cdef UINT64_t l = len(index_matrix[0])
+
+    # store row indices here.
+    cdef UINT32_t [:,:] row_indices = np.zeros((n_threads, N), dtype=np.uint32)
+    cdef UINT32_t [:] n_hits = np.zeros(n_threads, dtype=np.uint32)
+    
+    # helper variables to tell cython the types
+    cdef UINT64_t i, j, t
+    cdef UINT16_t index, s
+
+    with nogil, parallel(num_threads=8):
+        for j in prange(N):
+            t = openmp.omp_get_thread_num()
+            for i in range(0, l):
+                if index_matrix[j,i] == kmer_index:
+                    row_indices[t, n_hits[t]] = j
+                    n_hits[t] += 1
+                    break
+
+    # merge results
+    res = [row_indices.base[t,:n_hits[t]] for t in range(n_threads)]
+    return np.concatenate(res)
 
 
 @cython.boundscheck(False)
@@ -813,6 +850,82 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
                 p_bound[m,j] = pb
             
     return p_bound.base, counts.base.sum(axis=0), openen_bin_counts.base, jacobi.base.sum(axis=0)
+
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0):
+    assert k <= 8 # must fit into UINT16 kmer-indices!
+
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+    
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t o=0
+    cdef UINT64_t i=0, j=0
+    cdef UINT16_t index=0
+    cdef FLOAT64_t w=0
+    cdef FLOAT64_t Z1=0 # Single protein partition function
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            Z1 = 0
+            # iterate over all k-mers, always adding next base to index
+            for i in range(0, l):
+                # assigned variables are thread-local
+                index = index_matrix[j, i]
+                o = openen_matrix[j, i]
+                w = kmer_invkd[index] * acc_lookup[o]
+                Z1 = Z1 + w
+            
+            Z[j] = Z1
+
+    return Z.base
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def weighted_kmer_counts(UINT16_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
+    assert k <= 8 # must fit into UINT16 kmer-indices!
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT16_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+
+    # store weighted k-mer counts here (for each thread)
+    cdef FLOAT32_t [:,:] counts = np.zeros((n_threads, 4**k), dtype = np.float32)
+
+    # helper variables to tell cython the types
+    cdef int thread_num
+    cdef UINT64_t i=0, j=0
+    cdef UINT16_t index
+    cdef FLOAT32_t w=0
+
+    with nogil, parallel(num_threads=8):
+        for j in prange(N, schedule='guided'):
+            thread_num = openmp.omp_get_thread_num()
+
+            w = weights[j]
+            for i in range(0, l):
+                index = index_matrix[j, i]
+                counts[thread_num, index] += w
+            
+    return counts.base.sum(axis=0)
+
 
 
 
