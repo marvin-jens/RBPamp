@@ -1323,7 +1323,7 @@ class SPAModel(object):
         t0 = time.time()
 
         if not self.n_subsample:
-            if self.subsample_indices:
+            if len(self.subsample_indices):
                 # de-activated subsampling and we already have everything in place!
                 return
             
