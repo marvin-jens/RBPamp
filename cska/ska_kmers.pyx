@@ -563,7 +563,7 @@ cimport openmp
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k, int n_max=0, FLOAT32_t E_ns=0, int do_jacobi=False, int do_openen=False):
+def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k, int n_max=0, FLOAT32_t E_ns=0, int do_jacobi=False, int do_openen=False, int openen_ofs=0):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
     cdef UINT64_t N = seq_matrix.base.shape[0]
@@ -638,7 +638,7 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
                 indices[thread_num, i] = index
                 
                 # binding energy = sequence dep. + unfolding energy (binned) + non-specific binding
-                o = openen_matrix[j, i]
+                o = openen_matrix[j, i+openen_ofs]
                 openens[thread_num, i] = o
                 
                 #grad_thread[i] = acc_lookup[o]
@@ -859,7 +859,7 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0):
+def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
     assert k <= 8 # must fit into UINT16 kmer-indices!
 
     cdef UINT64_t N = index_matrix.base.shape[0]
@@ -885,7 +885,7 @@ def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
             for i in range(0, l):
                 # assigned variables are thread-local
                 index = index_matrix[j, i]
-                o = openen_matrix[j, i]
+                o = openen_matrix[j, i + openen_ofs]
                 w = kmer_invkd[index] * acc_lookup[o]
                 Z1 = Z1 + w
             

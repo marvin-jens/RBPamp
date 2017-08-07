@@ -22,6 +22,8 @@ class RBNSReads(CachedBase):
         self.rna_conc = rna_conc
         self.adap5 = adap5
         self.adap3 = adap3
+        self.l5 = len(adap5)
+        self.l3 = len(adap3)
         self.fname = fname
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
