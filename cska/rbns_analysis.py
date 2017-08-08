@@ -157,6 +157,7 @@ class RBNSAnalysis(CachedBase):
         CachedBase.__init__(self)
         
         self.reads = []
+        self.acc_storages = []
         self.rbp_name = rbp_name
         self.out_path = out_path
         self.ska_runner = ska_runner
@@ -180,6 +181,11 @@ class RBNSAnalysis(CachedBase):
     def add_reads(self, rbns_reads):
         self.logger.info("adding {0}".format(rbns_reads.name) )
         self.reads.append(rbns_reads)
+
+        # secondary structure open-energies/accessibility storage
+        from cska.folding import OpenenStorage
+        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='gamma'))
+        
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
@@ -208,43 +214,6 @@ class RBNSAnalysis(CachedBase):
     def O_value_matrix(self, k):
         return self._make_matrices("O_values", k)
 
-        #self.logger.debug("computing M-value matrix by fitting R-values to linear overlap model")
-        
-        #from cska.rbns_model import CrosstalkMatrix
-        #cm = CrosstalkMatrix(k, self.reads[0])
-        ##cm.matrix_plot()
-        #R_matrix, R_err_matrix = self.R_value_matrix(k)
-        
-        #I = self.get_optimal_kmer_ranking(k)[:20]
-        #print self.rbp_conc
-        #kmers, kd, dG = cm.linear_fit(np.array(self.rbp_conc), R_matrix, I)
-        
-        ##C = np.dot(cm.M_inv, R)
-        ##C_err = np.dot(cm.M_inv, R_err)
-        ##print "C-range", C.min(), C.max()
-        
-        ##c_ofs = C.min()
-        ##C -= c_ofs
-        ##c_scale = 4**k / C.sum()
-        ##C *= c_scale
-        
-        ##C_err = np.abs(np.dot(cm.M_inv, R_err)  * c_scale)
-        
-        ##print "C-range", C.min(), C.max()
-        ##print "Cerr-range", C_err.min(), C_err.max()
-        ##for mer, c, err, r in zip(C, C_err, R, cska.ska_kmers.yield_kmers(k) ):
-            ##print mer, c, err, r
-        ###print C
-        ###print C_err
-        
-        #for mer, k, E in zip(kmers, kd.T, dG):
-            #print mer, k.min(), E
-            
-        #return C, C_err
-        
-        
-        return self._make_matrices("C_values", k)
-            
     def SKA_weight_matrix(self, k):
         return self._make_matrices("SKA_weights", k)
 
@@ -266,14 +235,6 @@ class RBNSAnalysis(CachedBase):
         i_cut = (Rm > 2).argmin()
         candidates = np.zeros(4**k, dtype=np.uint32)
         candidates[order[:i_cut]] = np.arange(i_cut) + 1
-        
-        #for i,o in enumerate(order[:i_cut]):
-            #print cska.ska_kmers.index_to_seq(o, k), candidates[o], Rm[i]
-            
-        #if self.write_fasta:
-            #out_path = self.out_path
-        #else:
-            #out_path = None
 
         out_path = None
         return self._make_matrices("pure_F_ratios", k, candidates, out_path=out_path, n_sample = self.n_pure_samples)
@@ -305,6 +266,57 @@ class RBNSAnalysis(CachedBase):
         best_sample_i = ska[:,order[0]].argmax()
         kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
         return kmers, order[:rank_cut], best_sample_i+1
+        
+    def compute_results(self, k, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"], report=False):
+        order = self.get_optimal_kmer_ranking(k)
+        all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
+
+        for name in results:
+            fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
+            path = os.path.join(self.out_path, fname)
+
+            if name == 'affinity':
+                from cska.rbns_model import ModelOptimization
+                # first sample is input!
+                reads = self.reads[0]
+                openen = self.acc_storages[0].get_discretized(k)
+
+                param_file = None
+                param_file = '5mer.tsv'
+                R_obs, R_err = self.R_value_matrix(k)
+                
+                opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
+                opt = ModelOptimization(reads, openen, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file)
+                opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
+                
+                from cska.rbns_reports import OptReporting
+                rep = OptReporting(opt, os.path.join(opt_path, 'plots') )
+
+                try:
+                    opt.optimize(reporter = rep)
+                except KeyboardInterrupt:
+                    opt.logger.warning("Keyboard interrupt")
+
+                opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
+                opt.mdl.store_params(os.path.join(self.out_path, fname))
+
+
+            elif name == 'cooccurrence_tensor':
+                rbns.cooccurrence_tensor_analysis(k)
+                continue
+
+            else:
+                values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
+                self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
+                if report and name == "R_value":
+                    from cska.rbns_reports import EnrichmentBarPlot
+                    for comp in self.comparisons:
+                        path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
+                        if not os.path.exists(path):
+                            os.makedirs(path)
+                        plot = EnrichmentBarPlot(comp)
+                        plot.make_plot(k, dest=path)
+                    
 
     def cooccurrence_tensor_analysis(self, k):
         kmers, indices, best_sample_i = self.select_significant_kmers(k)
@@ -326,81 +338,6 @@ class RBNSAnalysis(CachedBase):
         #pp.plot( lratio[2,2,:] ) 
         #pp.plot( sratio[2,2,:] ) 
         #pp.show()
-        
-    def compute_results(self, k, results=["pure_F_ratio", "recall_ratio", "SKA_weight", "R_value", "F_ratio"], report=False):
-        order = self.get_optimal_kmer_ranking(k)
-        all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
-
-        for name in results:
-            fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
-            path = os.path.join(self.out_path, fname)
-
-            if name == 'binding_constants':
-                from cska.rbns_model import RBNSKmerModel, RBNSGenerator
-                from cska.folding import OpenenHistCollection, ThreadManager
-
-                #fold_path = os.path.join(self.out_path, "openen")
-                #oc = OpenenHistCollection.from_pickle(k, name = self.reads[0].name, path=fold_path)
-
-                ###oc = OpenenHistCollection()
-                ###oc.load_pickle('/scratch/data/RBNS/RBFOX2/openen/RBP@0.0nM_temp.6mers.pkl')
-                ###theta = oc.occ('TGCATGT', 121., 1.8)
-                ###print "THETA", theta
-
-                #mdl = RBNSKmerModel.from_analysis(self, k, unfolding_energies = oc )
-                ##mdl = RBNSKmerModel.from_file('/scratch/data/RBNS/RBFOX2/ska_RBFOX2/7mer_f_ratio.tsv', col_start=1, col_end=6)
-                ##mdl.unfolding = oc
-
-                #if self.known_kd:
-                    #mdl.test_known_kds()
-
-                #kmers, betas, k_est = mdl.fit_full()
-                #print "full model: omegas", betas
-                #print "full model: k_est", k_est.mean(axis=0)
-                #print k_est
-
-                gen = RBNSGenerator(k, l=40, seed=47110815)
-                gen.assign_experimental_input("bla.reads")
-                r, r_err = self.R_value_matrix(k)
-                
-                print "RBP_CONC", np.array(self.rbp_conc)
-                kmers, k_est, dG = gen.linear_fit(np.array(self.rbp_conc), r, n_top=20)
-                print "BINDING ENERGIES AFTER FIT", dG
-                print "simulated binding energies", gen.kmer_energies[-20:]*gen.RT
-                
-                import matplotlib.pyplot as pp
-                pp.figure()
-                pp.plot(gen.kmer_energies[-20:]*gen.RT, dG, 'ok', alpha=.5)
-                pp.xlabel("simulated, exact binding energies")
-                pp.ylabel("fitted binding energies from measured R values")
-                pp.plot([-11,0],[-11,0], '-', linestyle='dashed', color='gray')
-                pp.show()
-
-                N = len(kmers)
-                values = np.reshape(k_est.mean(axis=0), (N,1) )
-                errors = np.reshape(k_est.std(axis=0), (N,1) )
-                
-                #errors = betas[:, np.newaxis] #np.zeros(values.shape) * np.NaN
-                
-                header = ['# kmer', 'Kd_est', 'Kd_err']
-                self.write_kmer_matrix(path, kmers, values, errors, header=header)
-                
-            elif name == 'cooccurrence_tensor':
-                rbns.cooccurrence_tensor_analysis(k)
-                continue
-
-            else:
-                values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
-                self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
-                if report and name == "R_value":
-                    from cska.rbns_reports import EnrichmentBarPlot
-                    for comp in self.comparisons:
-                        path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
-                        if not os.path.exists(path):
-                            os.makedirs(path)
-                        plot = EnrichmentBarPlot(comp)
-                        plot.make_plot(k, dest=path)
-                    
 
 
     def write_kmer_matrix(self, out_path, kmers, values, errors, order=[], err_str='error', header=None):
