@@ -2,6 +2,7 @@ import numpy as np
 import logging
 import time
 import sys
+import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
@@ -1281,7 +1282,7 @@ class SPAState(object):
         
         
 class SPAModel(object):
-    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, n_subsample=100000):
+    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
         self.k = k
         self.nA = 4**k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
@@ -1293,16 +1294,20 @@ class SPAModel(object):
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.logger = logging.getLogger('SPAModel')
 
-        # secondary structure accessibility
-        self.openen = openen
-        self.openen_lookup = self.openen.disc.x/self.RT # open energies in units of RT for each discretization level
-        self.acc_lookup = np.exp( - self.openen_lookup) # accessibilities
-
+        self.out_path = out_path
+        if not os.path.exists(out_path):
+            os.makedirs(out_path)
+      
         # reads from RBNS random RNA pool and corresonding kmer-frequencies
         self.reads = reads
         self.seq_only = seq_only
         self.f0 = self.reads.kmer_frequencies(self.k)
         self.f0 /= self.f0.sum()
+
+        # secondary structure accessibility
+        self.openen = openen
+        self.openen_lookup = self.openen.disc.x/self.RT # open energies in units of RT for each discretization level
+        self.acc_lookup = np.exp( - self.openen_lookup) # accessibilities
         
         # subsampling related stuff
         self.sub_replace = sub_replace
@@ -1316,7 +1321,7 @@ class SPAModel(object):
 
         # current state of the model
         self.state = None
-        self.params = None
+        self.params = params
         
     def new_subsample(self):
         from cska.ska_kmers import fast_randint
@@ -1343,18 +1348,18 @@ class SPAModel(object):
         t2 = time.time()
         self.subsample_index_matrix = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
         t3 = time.time()
-        self.logger.debug('converting subsample to index-matrix took {0:.2f} ms'.format(1000* (t2-t3)) )
+        self.logger.debug('converting subsample to index-matrix took {0:.2f} ms'.format(1000* (t3-t2)) )
 
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
     def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
-        from cska.ska_kmers import eval_energy_model_on_index_matrix, SPA_partition_function, weighted_kmer_counts
+        from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
         import time
 
         #t0 = time.time()
         # the model itself is implemented in Cython
-        Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample)
+        Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs)
         n = len(Z1)
         n_conc = len(rbp_conc)
 
@@ -1423,12 +1428,31 @@ class SPAModel(object):
         else:
             return "beta{0}".format(i - self.nA)
 
-    def store_params(self, fname):
+    def store_params(self, fname, params=[]):
         self.logger.info("storing current parameters to '{0}'".format(fname))
         with file(fname, 'w') as f:
             for i in xrange(len(self.params)):
                 f.write('{0}\t{1}\n'.format(self.param_name(i), self.params[i]))
 
+    def extrapolation(self, k, fname=""):
+        """
+        Using current affinities, extrapolate expected affinties for k > self.k
+        """
+        assert k > self.k
+        kmers = list(cska.ska_kmers.yield_kmers(k))
+        seqm = cska.ska_kmers.read_raw_seqs_chunked(kmers, chunklines=len(kmers))
+        index_matrix = cska.ska_kmers.seq_matrix_to_index_matrix(seqm, self.k)
+        affinities = self.params[index_matrix].sum(axis=1)
+        
+        params = np.concatenate((affinities, self.params[self.nA:]))
+        mdl = SPAModel(self.reads, self.openen, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
+        if fname:
+            mdl.store_params(fname)
+        
+        return mdl
+        
+        
+        
     def load_params(self, fname):
         params = []
         self.logger.info("reading parameters from '{0}'".format(fname))
@@ -1479,11 +1503,14 @@ class SPAPartition(object):
  
     
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False):
         self.k = k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
         self.logger = logging.getLogger('ModelOptimization')
+        self.out_path = out_path
+        if not os.path.exists(self.out_path):
+            os.makedirs(self.out_path)
 
         # RBNS input sample to iterate on
         self.reads = reads
@@ -1830,7 +1857,7 @@ class ModelOptimization(object):
             self.rel_improvements.append(better)
         return better
        
-    def optimize(self, reporter = None, max_iter=1000, report_interval=5, **kwargs):
+    def optimize(self, reporter = None, max_iter=1000, report_interval=5, snapshots=False, **kwargs):
         if reporter:
             reporter.plot_R_value_agreement()
         last_report = self.t
@@ -1848,7 +1875,9 @@ class ModelOptimization(object):
                 imp = self.step_beta()
                 self.logger.info("improvements were betas: {0:.4f}%".format(imp))
 
-            self.mdl.store_params('params_t{0}.tsv'.format(self.t) )
+            if snapshots:
+                self.mdl.store_params(os.path.join(self.out_path, 'params_t{0}.tsv'.format(self.t)) )
+
             if reporter and self.t > last_report + report_interval:
                 reporter.plot_R_value_agreement()
                 last_report = self.t

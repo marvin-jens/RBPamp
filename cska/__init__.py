@@ -32,7 +32,7 @@ def main():
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
-    parser.add_option("","--compute-results",dest="results",default="R_values,SKA_weights,F_ratios",help="list of RBNS metrics to compute and store (default='R_values,SKA_weights,F_ratios')")
+    parser.add_option("","--compute-results",dest="results",default="R_value,affinity",help="list of RBNS metrics to compute and store (options='*R_value,*affinity,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
@@ -43,7 +43,7 @@ def main():
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
-    parser.add_option("-T","--temperature",dest="temp",default=22,type=float,help="temperature of the experiment in Celsius (default=22.0)")
+    parser.add_option("-T","--temperature",dest="temp",default=22.,type=float,help="temperature of the experiment in degrees Celsius (default=22.0)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
@@ -103,7 +103,7 @@ def main():
     formatter = logging.Formatter(FORMAT)
     logging.basicConfig(level=lvl, format=FORMAT)    
     root = logging.getLogger('')
-    fh = logging.FileHandler(filename=log_path, mode='w')
+    fh = logging.FileHandler(filename=log_path, mode='a')
     fh.setFormatter(logging.Formatter(FORMAT))
     root.addHandler(fh)
     
