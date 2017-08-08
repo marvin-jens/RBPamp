@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 import logging
 import time
 import sys
@@ -1429,7 +1430,7 @@ class SPAModel(object):
             return "beta{0}".format(i - self.nA)
 
     def store_params(self, fname, params=[]):
-        self.logger.info("storing current parameters to '{0}'".format(fname))
+        self.logger.info("storing current parameters in '{0}'".format(fname))
         with file(fname, 'w') as f:
             for i in xrange(len(self.params)):
                 f.write('{0}\t{1}\n'.format(self.param_name(i), self.params[i]))
@@ -1503,10 +1504,13 @@ class SPAPartition(object):
  
     
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10):
         self.k = k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
+        self.tm_refresh = tm_refresh
+        self.last_tm_refresh = 0
+
         self.logger = logging.getLogger('ModelOptimization')
         self.out_path = out_path
         if not os.path.exists(self.out_path):
@@ -1539,17 +1543,19 @@ class ModelOptimization(object):
         
         
         # set initial state of the model
+        self.previous = None
         self.current = None
         if param_file:
-            self.update(self.mdl.load_params(param_file), np.Inf, "resuming from {0}".format(param_file))
+            #self.update(self.mdl.load_params(param_file), np.Inf, "resuming from {0}".format(param_file))
+            self.logger.info("resuming from {0}".format(param_file))
+            self.current = self.mdl.evaluate(self.mdl.load_params(param_file), keep = True)
         else:
             params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
             params[0:self.nA] += aff0
             betas = self.estimate_background()
             params[-len(betas):] = betas
-            self.update(params, np.Inf, "initialize")
-        
-        
+            self.current = self.mdl.evaluate(params, keep = True)
+            #self.update(params, np.Inf, "initialize")
 
         # in case we know some parameters, use this as a reference
         if len(known_params):
@@ -1558,10 +1564,10 @@ class ModelOptimization(object):
             self.known_params = np.ones(self.current.params.shape, dtype=np.float32) * np.nan
 
         # iterative kmer selection 
-        self.blocked_kmers = []
-        self.kmer_last_improvement = {}
-        self.kmer_last_updated = defaultdict(int)
-        self.last_kmer_update = None
+        self.blocked_params = []
+        self.param_last_improvement = {}
+        self.param_last_updated = defaultdict(int)
+        self.last_param_update = None
 
     def estimate_background(self, q=1.):
         return np.nanpercentile(self.R_obs, q, axis=1)
@@ -1583,7 +1589,7 @@ class ModelOptimization(object):
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).sum()
 
-    def find_worst_kmer(self, n_max=100, n_blocked=5, n_avg=5, ttl=10):
+    def find_worst_param(self, n_max=100, n_blocked=5, n_avg=5, ttl=10):
         
         """
         ideas: 
@@ -1591,55 +1597,76 @@ class ModelOptimization(object):
             * start preferring kmers whose error peaks at low concentrations (high affinity), then move to kmers whose error peaks at intermediate or high concentrations (lower affinity)
             * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
         """
-        badness = np.fabs(self.kmer_errors(self.current.R)).mean(axis=0)
-        
-        #score  = np.sqrt(badness) #/ (self.heat + 1)
-        self.logger.debug("kmer\tscore\tbadness\tdt\texpect\t")
+
+        ## mismatch between predicted and observed R-values
+        residual_R = np.fabs(self.kmer_errors(self.current.R)).mean(axis=0)
+        residual_beta = []
+        for i in range(self.n_conc):
+            slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(self.current.R[i,:], self.R_obs[i,:])
+            print "LINREGRESS", self.rbp_conc[i], slope, intercept, r_value, p_value, std_err
+            #residual_beta.append(0)
+            residual_beta.append( 10*(np.fabs(1 - slope) + np.fabs(intercept) ) )
+            
+        print "residual_beta", residual_beta
+        residual = np.concatenate( (residual_R, np.array(residual_beta)) )
+
+        ## expected improvement upon parameter optimization
+        if len(self.rel_improvements):
+            # default = average over past improvements + 10% benefit
+            exp0 = np.array(self.rel_improvements[-n_avg:]).mean() * 1.1
+        else:
+            # fallback
+            exp0 = 1
+            
+        exp0 = max(.01, exp0)
+
+        expect = np.ones(residual.shape) * exp0
+        for i in self.param_last_improvement.keys():
+            expect[i] = self.param_last_improvement[i]
+
+        ## time since last update
+        dt = np.ones(residual.shape, dtype=int) * self.t
+        for i in self.param_last_updated.keys():
+            dt[i] -= self.param_last_updated[i]
+
+        score = residual * dt * expect
+        self.logger.debug("kmer\tscore\tresidual\tdt\texpect\t")
         cand = []
-        for j,i in enumerate(badness.argsort()[::-1][:n_max]):          
-            if i in self.blocked_kmers:
+        for j,i in enumerate(score.argsort()[::-1][:n_max]):
+            if i in self.blocked_params:
                 state = 'B'
             else:
                 state = ' '
-            
-            if i in self.kmer_last_improvement:
-                rel = self.kmer_last_improvement[i]
-            elif len(self.rel_improvements):
-                rel = np.array(self.rel_improvements[-n_avg:]).mean()
-            else:
-                rel = 1
-                           
-            dt = self.t - self.kmer_last_updated[i]
-            
-            score = badness[i] * dt * rel
-            if j < 20:
-                self.logger.debug("{0} {1}\t{2:.2f}\t{3:.2f}\t{4}\t{5:.2f}\t{6}\t{7}\t{8}".format( self.kmers[i], state, score, badness[i], dt, rel, self.current.params[i], self.known_params[i], self.current.R[:,i] - self.R_obs[:,i] ) )
-            if state != 'B':
                 cand.append( (score, i) )
+            
+            if j < 20:
+                if i < self.nA:
+                    R_str = ",".join(["{0:.2f}".format(x) for x in self.current.R[:,i] - self.R_obs[:,i]])
+                else:
+                    R_str = 'n/a'
+                
+                self.logger.debug("{0} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8}".format( self.mdl.param_name(i), state, score[i], residual[i], dt[i], expect[i], self.current.params[i], self.known_params[i], R_str ) )
 
-        score, pick = sorted(cand, reverse=True)[0]
+        score, pick = cand[0]
         
         # kmer blocked list
-        self.blocked_kmers.append(pick)
-        while len(self.blocked_kmers) > n_blocked:
-            self.blocked_kmers.pop(0)
+        self.blocked_params.append(pick)
+        while len(self.blocked_params) > n_blocked:
+            self.blocked_params.pop(0)
 
         # kmer selection data structure maintenance
-        for i,rel in self.kmer_last_improvement.items():
-            if self.t - self.kmer_last_updated[i] > ttl:
-                del self.kmer_last_improvement[i]
-
-            #if rel < 1:
-                ## bring low expectations back to 1. in 10 iterations.
-                #self.kmer_rel_improvement[i] += .1
-            #else:
-                ## bring high expectations exponentially down, back to 1.
-                #self.kmer_rel_improvement[i] *= .5
+        for i,rel in self.param_last_improvement.items():
+            if self.t - self.param_last_updated[i] > ttl:
+                del self.param_last_improvement[i]
             
-        self.logger.debug("selected {0}".format(self.kmers[pick]) )
+        self.logger.debug("selected {0} {1}".format(pick, self.mdl.param_name(pick)) )
         return pick
 
-    def optimize_single_param(self, param_i):
+    
+    def sweep_param(self, param_i, x0=1.):
+        import matplotlib.pyplot as pp
+        pp.figure()
+        #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
         params = np.array(self.current.params)
 
         if param_i < self.nA:
@@ -1651,51 +1678,11 @@ class ModelOptimization(object):
             tm_update = False
             opt = self.mdl
             
-        def to_optimize(aff):
-            params[param_i] = aff
+        scale = 10**np.arange(-9,3,.1)
+        err = []
+        for s in scale:
+            params[param_i] = s
             state = opt.evaluate(params, tm_update=tm_update)
-            err = self.global_error(state.R)
-            return err
-
-        t0 = time.time()
-        res = minimize_scalar(to_optimize, bounds = [self.aff_min, self.aff_max], method='Bounded')
-        #print "line search optimization result", res.success, res.x, res.fun
-        dt = time.time() - t0
-        name = self.mdl.param_name(param_i)
-        A0 = self.current.params[param_i]
-        rel_change = (res.x - A0) / A0
-        self.logger.debug("optimal {name} affinity/value search success={res.success} A={res.x} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
-        return res.x, res.fun
-
-    def sweep_ls(self, vec, x0=1.):
-        import matplotlib.pyplot as pp
-        pp.figure()
-        #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
-        scale = np.arange(-1,1,.02)
-        err = []
-        for s in scale:
-            params = np.clip(self.current.params + s * vec, 1e-9, 1e3)
-            state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
-            #err.append(self.global_error_conc(state.R, conc_i))
-            err.append(self.global_error(state.R))
-         
-        #print err
-        pp.semilogy(scale, err)
-        pp.axvline(x0)
-        pp.axhline(self.errors[-1])
-        pp.show()
-        pp.close()
-    
-    def sweep_param(self, i, x0=1.):
-        import matplotlib.pyplot as pp
-        pp.figure()
-        #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
-        params = np.array(self.current.params)
-        scale = 10**np.arange(-6,3,.1)
-        err = []
-        for s in scale:
-            params[i] = s
-            state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
             #err.append(self.global_error_conc(state.R, conc_i))
             err.append(self.global_error(state.R))
          
@@ -1706,61 +1693,6 @@ class ModelOptimization(object):
         pp.show()
         pp.close()
 
-        
-    def line_search(self, vec, smin=0., smax=10.):
-        #err0 = self.global_error_conc(self.current.R, conc_i)
-        err0 = self.errors[-1]
-        #rbp_conc = np.array([self.rbp_conc[conc_i],])
-        
-        def to_optimize(scale):
-            params = np.clip(self.current.params + scale * vec, 1e-9, 1e3)
-            #state = self.mdl.evaluate(params, rbp_conc=rbp_conc, do_jacobi=False, keep=False)
-            #err = self.global_error_conc(state.R, conc_i)
-            state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
-            err = self.global_error(state.R)
-
-            return err
-            
-        t0 = time.time()
-        smid = (smin+smax)/2.
-        res0 = minimize_scalar(to_optimize, bounds = [smin, smid], method='Bounded')
-        res1 = minimize_scalar(to_optimize, bounds = [smid, smax], method='Bounded')
-        if res0.fun < res1.fun:
-            res = res0
-        else:
-            res = res1
-        
-        if err0 < res.fun:
-            self.logger.warning("WARNING: line_search optimum *raises* global error!!!")
-            #opt_x = 0
-            #opt_err = err0
-            opt_succ = False
-        else:
-            opt_succ = True
-
-        opt_x = res.x
-        opt_err = res.fun
-        self.sweep_ls(vec, x0=opt_x)
-        self.logger.debug("optimal line search success={0} scale={1} took {2:.2f}ms".format(opt_succ, opt_x, time.time() - t0) )
-        return opt_x, opt_err
-
-    #def optimal_beta(self, conc_i, smin=0, smax=10.):
-        #params = np.array(self.current.params)
-        #rbp_conc = np.array([self.rbp_conc[conc_i],])
-
-        #def to_optimize(beta):
-            #params[self.nA+conc_i] = beta
-            #state = self.mdl.evaluate(params, do_jacobi=False, rbp_conc=rbp_conc, keep=False)
-            #err = ((self.R_obs[conc_i] - state.R[0])**2).sum()
-            
-            #return err
-            
-        #t0 = time.time()
-        #res = minimize_scalar(to_optimize, bounds = [smin, smax], method='Bounded')
-        ##print "line search optimization result", res.success, res.x, res.fun
-        #self.logger.debug("optimal beta search for {3}nM success={0} beta={1} took {2:.2f}ms".format(res.success, res.x, time.time() - t0, self.rbp_conc[conc_i] ) )
-        #return res.x
-        
     def print_update_vector(self, vec, n=-1):
  
         print "-----------update vector------------"
@@ -1790,26 +1722,6 @@ class ModelOptimization(object):
             out =  ["    ", self.mdl.param_name(i), str(self.current.params[i]), "known=", str(self.known_params[i]), status, "last grad=", str(delta[i]), R_dev]
             print "\t".join(out)
         
-            
-    #def update_from_jacobi(self):
-
-        #from numpy.linalg import norm
-        #corr = self.known_params - self.current.params
-        #corr /= norm(corr)
-
-        #t0 = time.time()
-        #updates = []
-        #for grad, R_obs, R_curr, conc in zip(self.current.sum_square_gradients(self.R_obs), self.R_obs, self.current.R, self.rbp_conc):
-            ##x = R_obs - R_curr
-            #u = grad / norm(grad)
-            ##cos = np.dot(u, corr)
-            ##angle = np.arccos(np.clip(cos, -1, 1) ) * 180./np.pi
-            ###print "projection of update vector from {0} onto ideal update={1} and angle={2}".format(conc, cos, angle)
-            #updates.append(u)
-
-        #t1 = time.time()
-        ##self.logger.debug("inverted Jacobi matrices and computed gradient vectors in {0:.2f}ms".format(t1-t0) )
-        #return np.array(updates, dtype=np.float32)
 
     def converged(self, last=10, tol=1e-5):
         if len(self.rel_improvements) < last:
@@ -1825,25 +1737,125 @@ class ModelOptimization(object):
         
         return False
     
-    def update(self, params, err, name):
-        self.previous = self.current
+    def optimize(self, reporter = None, max_iter=1000, report_interval=50, snapshots=False, **kwargs):
+        if reporter:
+            reporter.plot_R_value_agreement()
+        last_report = self.t
+        
+        while not self.converged() and self.t < max_iter:
+            imp, new_state = self.step_param()
+            #imp_b = self.step_gradient()
+            #imp_b = self.step_beta()
+            
+            #if imp_a < 1: #and imp_b < 1:
+                #self.logger.warning( "Got stuck. Optimizing background parameters")
+                #imp = self.step_beta()
+                #self.logger.info("improvements were betas: {0:.4f}%".format(imp))
+
+            if snapshots:
+                self.mdl.store_params(os.path.join(self.out_path, 'params_t{0}.tsv'.format(self.t)) )
+
+            if reporter and self.t > last_report + report_interval:
+                self.logger.info('rendering plots...')
+                reporter.plot_R_value_agreement()
+                last_report = self.t
+
+        if reporter:
+            reporter.plot_R_value_agreement()              
+
+    def step_param(self, show_sweep = False):
+        self.logger.info("===parameter optimization===")
+        param_i = self.find_worst_param()
+        best, err, new_state = self.optimize_single_param(param_i)
+
+        update = new_state.params - self.current.params
+        
+        self.last_param_update = param_i
+        self.param_last_updated[param_i] = self.t
+        imp = self.update(new_state, err, "k-mer optimization")
+        self.param_last_improvement[param_i] = imp
+
+        if not imp or show_sweep:
+            self.sweep_param(param_i, best)
+
+        return imp, new_state
+
+    def optimize_single_param(self, param_i):
+        params = np.array(self.current.params)
+
+        if param_i < self.nA:
+            # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
+            tm_update = True
+            opt = SPAPartition(self.mdl, param_i)
+        else:
+            # do not evaluate the thermodynamic model, only re-compute R-values
+            tm_update = False
+            opt = self.mdl
+            
+        def to_optimize(aff):
+            params[param_i] = aff * .001
+            state = opt.evaluate(params, tm_update=tm_update)
+            err = self.global_error(state.R)
+            return err
+
+        t0 = time.time()
+        s_mid = (self.aff_max + self.aff_min)/2.
+        res_a = minimize_scalar(to_optimize, bounds = 1000 * np.array([self.aff_min, s_mid]), method='Bounded')
+        res_b = minimize_scalar(to_optimize, bounds = 1000. * np.array([s_mid, self.aff_max]), method='Bounded')
+        if res_a.fun < res_b.fun:
+            res = res_a
+        else:
+            res = res_b
+
+        best = res.x * 0.001
+        dt = time.time() - t0
+        name = self.mdl.param_name(param_i)
+        A0 = self.current.params[param_i]
+        rel_change = (best - A0) / A0
+        self.logger.debug("optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
+
+        params[param_i] = best
+        new_state = opt.evaluate(params, tm_update=tm_update)
+        
+        return best, res.fun, new_state
+
+
+    def update(self, new_state, err, name):
+        from copy import copy
+        self.previous = copy(self.current)
         
         if self.errors:
             better = (self.errors[-1] - err)* 100./self.errors[-1]
             if better <= 0:
                 self.logger.warning("unable to lower error in {1} step at t={0}".format(self.t, name))
                 # reject the changes!
-                params = np.array(self.current.params)
+                #params = np.array(self.current.params)
                 better = 0
+                new_state = self.current
         else:
             better = err
-
+            
+        print new_state.params[590]
+        self.current = new_state
+        self.mdl.state = new_state
+        self.mdl.params = new_state.params
+        
         # subsamples should remain stable throughout one iteration step!
-        self.mdl.new_subsample()
-        self.current = self.mdl.evaluate(params, keep = True)#, do_jacobi = True) # dont use gradient for now!
+        if self.t - self.last_tm_refresh > self.tm_refresh:
+            R_before = self.current.R
+            self.current = self.mdl.evaluate(self.current.params, keep = True)#, do_jacobi = True) # dont use gradient for now!
+            R_after = self.current.R
+            
+            round_err = np.fabs(R_before - R_after).sum()
+            self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+            self.last_tm_refresh = self.t
+            
+        #self.mdl.new_subsample()
+            
+
         self.errors.append(self.global_error(self.current.R))
         
-        self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2f}%".format(name, self.t, better))
+        self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2e}%".format(name, self.t, better))
         self.logger.info("correlations: {0}".format(self.correlation()) )
         self.logger.info("most recent errors: {0}".format( self.errors[-5:] ))
         
@@ -1857,102 +1869,6 @@ class ModelOptimization(object):
             self.rel_improvements.append(better)
         return better
        
-    def optimize(self, reporter = None, max_iter=1000, report_interval=5, snapshots=False, **kwargs):
-        if reporter:
-            reporter.plot_R_value_agreement()
-        last_report = self.t
-        
-        while not self.converged() and self.t < max_iter:
-            imp_a = self.step_kmer()
-            #imp_b = self.step_gradient()
-            #imp_b = self.step_beta()
-            
-            #self.logger.info("improvements were kmer_step: {0:.4f}% gradient: {1:.4f}%".format(imp_a, imp_b))
-            #self.logger.info("improvements were kmer_step: {0:.4f}% beta: {1:.4f}%".format(imp_a, imp_b))
-            
-            if imp_a < 1: #and imp_b < 1:
-                self.logger.warning( "Got stuck. Optimizing background parameters")
-                imp = self.step_beta()
-                self.logger.info("improvements were betas: {0:.4f}%".format(imp))
-
-            if snapshots:
-                self.mdl.store_params(os.path.join(self.out_path, 'params_t{0}.tsv'.format(self.t)) )
-
-            if reporter and self.t > last_report + report_interval:
-                reporter.plot_R_value_agreement()
-                last_report = self.t
-
-        if reporter:
-            reporter.plot_R_value_agreement()
-                
-
-    def step_kmer(self, show_sweep = False):
-        self.logger.info("===kmer fit step===")
-        kmer_i = self.find_worst_kmer()
-        best, err = self.optimize_single_param(kmer_i)
-        
-        if show_sweep:
-            self.sweep_param(kmer_i, best)
-            
-        params = np.array(self.current.params)
-        params[kmer_i] = best
-        update = params - self.current.params
-        
-        self.last_kmer_update = kmer_i
-        self.kmer_last_updated[kmer_i] = self.t
-        imp = self.update(params, err, "k-mer optimization")
-        self.kmer_last_improvement[kmer_i] =  imp
-        
-
-        return imp
-
-        
-    def step_gradient(self):
-        self.logger.info("===gradient descent step===")
-        
-        #updates = self.update_from_jacobi()
-        #ls_results = []
-        #for conc_i, (u, rbp_conc) in enumerate(zip(updates, self.rbp_conc)):
-
-            #scale, err = self.line_search(u)#, conc_i)
-            #ls_results.append((u*scale, err))
-            ##self.sweep_ls(u, scale, conc_i)
-
-            #self.logger.debug("line search finds minimal error={err} for scale={scale}".format(**locals()))
-            ##self.print_update_vector(ls_results[-1][0])
-    
-        #scaled_updates, errors = np.array(ls_results).T
-        #i = errors.argmin()
-        #err = errors[i]
-
-        grad = self.current.sum_square_gradient(self.R_obs)
-        grad /= np.linalg.norm(grad)
-        self.print_update_vector(grad)
-        
-        scale, err = self.line_search(grad)
-                
-        #self.logger.debug("best concentration is {0} nM with global error {1}".format(self.rbp_conc[i], errors[i]) )
-        #update = scaled_updates[i]
-        params = np.clip(self.current.params + grad*scale, 1e-9, 1e3)
-
-        return self.update(params, err, "gradient descent")
-
-
-    def step_beta(self, smin=0, smax=10.):
-        params = np.array(self.current.params)
-        last_err = self.errors[-1]
-        for beta_i in range(self.nA, self.nA+self.n_conc):
-            val, err = self.optimize_single_param(beta_i)
-            if err < last_err:
-                params[beta_i] = val
-                last_err = err
-
-        #state = self.mdl.evaluate(params, do_jacobi=False, keep=False)
-        #err = self.global_error(state.R)
-        
-        return self.update(params, last_err, "beta optimization")
-
-
       
 if __name__ == "__main__":
     import matplotlib

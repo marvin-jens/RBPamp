@@ -114,7 +114,7 @@ class OptReporting(object):
     def plot_sweep(self, kmer_index=None, min_invkd = 1e-12, max_invkd = 1e2, steps=100):
   
         if kmer_index == None:
-            kmer_index = self.opt.last_kmer_update
+            kmer_index = self.opt.last_param_update
 
         invkd = np.copy(opt.trial_invkd)
         x = np.exp(np.linspace(np.log(min_invkd), np.log(max_invkd), steps))
@@ -152,13 +152,11 @@ class OptReporting(object):
     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-        kmer_i = self.opt.last_kmer_update
-
-        if kmer_i != None:
-            kmer = self.opt.kmers[kmer_i]
-        else:
+        kmer_i = self.opt.last_param_update
+        if kmer_i == None:
             kmer = "none"
-        
+        else:
+            kmer = self.opt.mdl.param_name(kmer_i)
         
         pp.figure()
         pp.title('R-value fit after step {0}'.format(self.opt.t) )
@@ -168,7 +166,7 @@ class OptReporting(object):
             corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
             patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
 
-        if kmer_i != None:
+        if kmer_i < self.opt.nA and kmer_i != None:
             pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=5, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         m = min(R_a.min(), R_b.min())
@@ -187,7 +185,7 @@ class OptReporting(object):
     def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-        kmer_i = self.opt.last_kmer_update
+        kmer_i = self.opt.last_param_update
         kmer = self.opt.kmers[kmer_i]
         
         
@@ -224,7 +222,7 @@ class OptReporting(object):
     def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
 
-        kmer_i = self.opt.last_kmer_update
+        kmer_i = self.opt.last_param_update
         kmer = self.opt.kmers[kmer_i]
         
         pp.figure()
