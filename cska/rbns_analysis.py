@@ -267,7 +267,7 @@ class RBNSAnalysis(CachedBase):
         kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
         return kmers, order[:rank_cut], best_sample_i+1
         
-    def compute_results(self, k, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"], report=False):
+    def compute_results(self, k, options, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"], report=False ):
         order = self.get_optimal_kmer_ranking(k)
         all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
 
@@ -281,13 +281,12 @@ class RBNSAnalysis(CachedBase):
                 reads = self.reads[0]
                 openen = self.acc_storages[0].get_discretized(k)
 
-                param_file = None
-                param_file = '5mer.tsv'
+                param_file = options.mdl_resume
                 R_obs, R_err = self.R_value_matrix(k)
                 
                 opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
                 opt = ModelOptimization(reads, openen, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file)
-                opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
+                #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
                 from cska.rbns_reports import OptReporting
                 rep = OptReporting(opt, os.path.join(opt_path, 'plots') )
