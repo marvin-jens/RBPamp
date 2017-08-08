@@ -15,6 +15,9 @@ from cska.caching import CachedBase, cached, pickled
 
 logger = logging.getLogger("cska.folding")
 
+# This global variable is used by the keyboard interrupt 
+# handler to decide if we need to flush stuff to disk
+folding_in_progress = False
         
 class RBNSOpenen(CachedBase):
     """
@@ -25,17 +28,20 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, include_adapters=True, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
         self.fname = fname
         self.rbns_reads = rbns_reads
-        self.include_adapters = include_adapters
+        
         self.k = k
         self.discretized = ("discretized" in self.fname)
         self.logger = logging.getLogger('RBNSOpenen({self.fname})'.format(self=self))
-        self.logger.debug("include_adapters = {0}".format(include_adapters))
+        
+        # to be initialized upon first access to oem
+        self.include_adapters = None
+        self.ofs = 0
         
         if self.discretized:
             # recovering discretization scheme from file-name
@@ -97,19 +103,30 @@ class RBNSOpenen(CachedBase):
         load and keep all open-energies in memory (optionally discretized)
         """
         self.logger.debug("loading open energies from {self.fname}".format(self=self) )
-        L = self.rbns_reads.L - self.k + 1
-        if self.include_adapters:
-            L += self.rbns_reads.l5 + self.rbns_reads.l3
-            self.logger.debug("effective L-{1}+1 (taking care of adapters) ={0}".format(L, self.k) )
-
-        oem = np.fromfile(self.fname, dtype=self.dtype)
-        if self.rbns_reads.n_max:
-            oem = oem[:L*self.rbns_reads.n_max]
-
-        N = len(oem) / L
+        #oem = np.fromfile(self.fname, dtype=self.dtype)
+        oem = np.memmap(self.fname, dtype=self.dtype, mode='c') # FIXME: should be read only but Cython MemoryViews currently don't support that! :(
+        N = self.rbns_reads.N
+        L = len(oem)/float(N)
+        self.logger.debug("open-energy row l={0}".format(L))
         
-        oem = np.reshape(oem, (N,L) )
-        #print oem.shape
+        l = self.rbns_reads.L - self.k + 1
+        if L == l:
+            self.logger.info("data excludes adapters L={0}".format(L))
+            self.include_adapters = False
+            self.ofs = 0
+        
+        elif L == l + self.rbns_reads.l5 + self.rbns_reads.l3:
+            self.logger.info("data covers adapters L={0}".format(L))
+            self.include_adapters = True
+            self.ofs = self.rbns_reads.l5
+        else:
+            raise ValueError("size of open energy matrix does not match the reads!")
+            
+        oem = oem.reshape( (N,L) )
+        if self.rbns_reads.n_max:
+            self.logger.debug("truncating to reads.n_max={0}".format(self.rbns_reads.n_max) )
+            oem = oem[:self.rbns_reads.n_max]
+
         return oem
     
     def discretize(self, disc=None, dname=None):
@@ -130,8 +147,9 @@ class RBNSOpenen(CachedBase):
             self.rbns_reads,
             self.k,
             oem = d_oem,
-            include_adapters = self.include_adapters
         )
+        doe.include_adapters = self.include_adapters
+        doe.ofs = self.ofs
         
         dt = time.time() - t0
         self.logger.debug("discretization took {0:.1f} seconds".format(dt) )
@@ -265,7 +283,7 @@ class ViennaOpenen(object):
     
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, include_adapters=True):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False):
         
         CachedBase.__init__(self)
         
@@ -275,12 +293,10 @@ class OpenenStorage(CachedBase):
         self.disc_dtype = disc_dtype
         self.disc_mode = disc_mode
         self.overwrite = overwrite
-        self.include_adapters = include_adapters
         
         self.k_sinks = {}
         self.k_disc = {}
         self.logger = logging.getLogger('OpenenStorage({self.reads})'.format(self=self))
-        print "storage", self.include_adapters
         self.n_sets = 0
         self.discretize = discretize
         self.dummy = dummy
@@ -339,7 +355,7 @@ class OpenenStorage(CachedBase):
             
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k, include_adapters = self.include_adapters)
+        return RBNSOpenen(self._make_filename(k), self.reads, k)
         
     @cached
     def get_discretized(self, k):
@@ -349,7 +365,7 @@ class OpenenStorage(CachedBase):
         fname_disc = self._make_filename(k, disc=disc)
         
         if os.path.exists(fname_disc):
-            return RBNSOpenen(fname_disc, self.reads, k, include_adapters = self.include_adapters)
+            return RBNSOpenen(fname_disc, self.reads, k)
         else:
             raw = self.get_raw(k)
             self.logger.info("discretizing '{0}' to satisfy get_discretized({1}) request".format(raw.fname, k) )
@@ -516,7 +532,8 @@ interrupt_folding = Event()
 def interrupt():
     logger = logging.getLogger('interrupt')
     interrupt_folding.set()
-    logger.warning("parallel folding run interrupted")
+    if folding_in_progress:
+        logger.warning("parallel folding run interrupted")
 
 # Here come a couple of functions that allow parallel folding using the multiprocessing 
 # module and RNAplfold
@@ -665,6 +682,11 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     as well as the dispatcher.
     """
     
+    # This global variable is used by the keyboard interrupt 
+    # handler to decide if we need to flush stuff to disk
+    global folding_in_progress
+    folding_in_progress = True
+    
     import multiprocessing
     seq_queue = multiprocessing.Queue()
     res_queue = multiprocessing.Queue()
@@ -734,7 +756,7 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     # collector calls storage.close() bc it is in its own subprocess.
     collector.join()
    
-   
+    folding_in_progress = False
    
 def test_discretization(N=10000):
     import matplotlib.pyplot as pp
