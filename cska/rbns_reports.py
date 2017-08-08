@@ -65,6 +65,9 @@ class OptReporting(object):
     def __init__(self, opt, path='./'):
         self.opt = opt
         self.path = path
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
         from matplotlib.backends.backend_pdf import PdfPages
         self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
         self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
@@ -161,16 +164,18 @@ class OptReporting(object):
         pp.title('R-value fit after step {0}'.format(self.opt.t) )
         R_a = self.opt.R_obs
         R_b = self.opt.current.R
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
+        for i,rbp_conc in reversed(list(enumerate(self.opt.rbp_conc))):
             corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
-            patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=5, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
+            patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
 
         if kmer_i != None:
-            pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+            pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=5, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         m = min(R_a.min(), R_b.min())
         M = max(R_a.max(), R_b.max())
         pp.plot([m,M],[m,M], '--k', zorder=np.inf)
+        pp.xlim(m,M)
+        pp.ylim(m,M)
         pp.xlabel(r'{0} [R-value]'.format("observed/simulated") )
         pp.ylabel(r'{0} [R-value]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
         pp.legend(loc='upper left')
