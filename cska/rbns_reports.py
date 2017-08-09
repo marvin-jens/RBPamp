@@ -152,7 +152,7 @@ class OptReporting(object):
     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-        kmer_i = self.opt.last_param_update
+        kmer_i = self.opt.sched.last_param_update
         if kmer_i == None:
             kmer = "none"
         else:
@@ -185,8 +185,8 @@ class OptReporting(object):
     def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-        kmer_i = self.opt.last_param_update
-        kmer = self.opt.kmers[kmer_i]
+        kmer_i = self.opt.sched.last_param_update
+        kmer = self.opt.mdl.param_name(kmer_i)
         
         
         pp.figure()

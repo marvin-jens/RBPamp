@@ -1319,7 +1319,9 @@ class SPAModel(object):
         self.subsample_index_matrix = []
         self.subsample_oem = []
         self.new_subsample()
-
+        # useful to normalize the kmer_pi's into quasi-occupancies
+        self.n_kmers_in_sample = self.reads.N * (self.reads.L - self.k + 1) 
+        
         # current state of the model
         self.state = None
         self.params = params
@@ -1342,6 +1344,7 @@ class SPAModel(object):
                 indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
             t1 = time.time()
             self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
+            self.n_kmers_in_sample = self.n_subsample * (self.reads.L - self.k + 1)
 
         self.subsample_indices = indices
 
@@ -1503,8 +1506,144 @@ class SPAPartition(object):
         #self.mdl = mdl
  
     
+class ParamUpdateScheduler(object):
+    #def __init__(self, opt, n_blocked=5, ttl=10, n_max=100, n_avg=5, beta_burn_in=True):
+    def __init__(self, opt, n_blocked=20, ttl=20, n_max=100, n_avg=5, beta_burn_in=True):
+        # iterative kmer selection 
+        self.opt = opt
+        self.logger = logging.getLogger("ParamUpdateScheduler")
+        self.n_blocked = n_blocked
+        self.n_max = n_max
+        self.n_avg = n_avg
+        self.ttl = ttl
+        self.N = len(self.opt.current.params)
+        
+        if beta_burn_in:
+            self.blocked_params = range(self.opt.nA, len(self.opt.current.params))
+        else:
+            self.blocked_params = []
+
+        self.param_last_improvement = {}
+        self.param_last_updated = defaultdict(int)
+        self.last_param_update = None
+        self.R_max = self.opt.R_obs.max(axis=1)
+        
+    def update(self, pick):
+        """
+        param selection data structure maintenance
+        """
+
+        # param blocked list
+        self.blocked_params.append(pick)
+        while len(self.blocked_params) > self.n_blocked:
+            self.blocked_params.pop(0)
+
+        for i,rel in self.param_last_improvement.items():
+            if self.opt.t - self.param_last_updated[i] > self.ttl:
+                del self.param_last_improvement[i]
+
+    def param_changed(self, param_i, t, better):
+        self.last_param_update = param_i
+        self.param_last_updated[param_i] = t
+        self.param_last_improvement[param_i] = better
+        
+    @property
+    def kmer_residuals(self):
+        ## mismatch between predicted and observed R-values
+        return np.fabs(self.opt.kmer_errors(self.opt.current.R)).sum(axis=0)
+
+    @property
+    def beta_residuals(self):
+        residual_beta = []
+        for i in range(self.opt.n_conc):
+            slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(self.opt.current.R[i,:], self.opt.R_obs[i,:])
+            #print "LINREGRESS", self.rbp_conc[i], slope, intercept, r_value, p_value, std_err
+            #residual_beta.append(0)
+            residual_beta.append( self.R_max[i] * (np.fabs(1 - slope) + np.fabs(intercept) ) ) 
+
+        return np.array(residual_beta)
+  
+    @property
+    def susceptibility(self):
+        # high affinity kmers are more susceptible to changes, unless we look at under-estimation
+        error = self.opt.kmer_errors(self.opt.current.R)
+        affinities = self.opt.current.params[:self.opt.nA]
+        a = affinities / affinities.mean() 
+        suscept = (error > 0).all(axis=0) * a + (error < 0).sum(axis=0)
+        suscept = np.concatenate( (suscept, np.ones(self.opt.n_conc)) )
+        #caccc = cska.ska_kmers.seq_to_index('CACCC')
+        #print "suscept of GCATG", suscept[590]
+        #print "suscept of CACCC", suscept[caccc], a[caccc]
+
+        return suscept
+
+    @property
+    def expectation(self):
+        ## expected improvement upon parameter optimization
+        if len(self.opt.rel_improvements):
+            # default = average over past improvements + 10% benefit
+            exp0 = np.array(self.opt.rel_improvements[-self.n_avg:]).mean()
+        else:
+            # fallback
+            exp0 = 1
+            
+        exp0 = max(.01, exp0)
+
+        expect = np.ones(self.N) * exp0
+        for i in self.param_last_improvement.keys():
+            expect[i] = self.param_last_improvement[i]
+
+        return expect
+
+    @property
+    def time_passed(self):
+        ## time since last update
+        dt = np.ones(self.N, dtype=int) * (self.opt.t + 1)
+        for i in self.param_last_updated.keys():
+            dt[i] -= self.param_last_updated[i]
+        
+        return dt
+    
+    def find_worst_param(self):
+        """
+        ideas: 
+            * take into account if over-under-representation is systematic or only seen at some concentrations (contradicted at others?)
+            * start preferring kmers whose error peaks at low concentrations (high affinity), then move to kmers whose error peaks at intermediate or high concentrations (lower affinity)
+            * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
+        """
+
+        residual = np.concatenate( (self.kmer_residuals, self.beta_residuals) )
+        dt = self.time_passed
+        expect = self.expectation
+
+        score = residual * dt * expect * self.susceptibility
+
+        self.logger.debug("kmer\tscore\tresidual\tdt\texpect\t")
+        cand = []
+        for j,i in enumerate(score.argsort()[::-1][:self.n_max]):
+            if i in self.blocked_params:
+                state = 'B'
+            else:
+                state = ' '
+                cand.append( (score, i) )
+            
+            if j < 20:
+                if i < self.opt.nA:
+                    R_str = ",".join(["{0:.2f}".format(x) for x in self.opt.current.R[:,i] - self.opt.R_obs[:,i]])
+                else:
+                    R_str = 'n/a'
+                
+                self.logger.debug("{0} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8}".format( self.opt.mdl.param_name(i), state, score[i], residual[i], dt[i], expect[i], self.opt.current.params[i], self.opt.known_params[i], R_str ) )
+
+        score, pick = cand[0]
+        self.update(pick)
+        self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name(pick)) )
+        return pick
+        
+        
+                 
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}):
         self.k = k
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
@@ -1541,7 +1680,6 @@ class ModelOptimization(object):
         # initialize parameters: flat affinity vector and background from lowest percentile
         self.nA = 4**k
         
-        
         # set initial state of the model
         self.previous = None
         self.current = None
@@ -1563,11 +1701,8 @@ class ModelOptimization(object):
         else:
             self.known_params = np.ones(self.current.params.shape, dtype=np.float32) * np.nan
 
-        # iterative kmer selection 
-        self.blocked_params = []
-        self.param_last_improvement = {}
-        self.param_last_updated = defaultdict(int)
-        self.last_param_update = None
+        # lastly, initialize the parameter update scheduler
+        self.sched = ParamUpdateScheduler(self, **sched_params)
 
     def estimate_background(self, q=1.):
         return np.nanpercentile(self.R_obs, q, axis=1)
@@ -1588,80 +1723,6 @@ class ModelOptimization(object):
     
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).sum()
-
-    def find_worst_param(self, n_max=100, n_blocked=5, n_avg=5, ttl=10):
-        
-        """
-        ideas: 
-            * take into account if over-under-representation is systematic or only seen at some concentrations (contradicted at others?)
-            * start preferring kmers whose error peaks at low concentrations (high affinity), then move to kmers whose error peaks at intermediate or high concentrations (lower affinity)
-            * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
-        """
-
-        ## mismatch between predicted and observed R-values
-        residual_R = np.fabs(self.kmer_errors(self.current.R)).mean(axis=0)
-        residual_beta = []
-        for i in range(self.n_conc):
-            slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(self.current.R[i,:], self.R_obs[i,:])
-            print "LINREGRESS", self.rbp_conc[i], slope, intercept, r_value, p_value, std_err
-            #residual_beta.append(0)
-            residual_beta.append( 10*(np.fabs(1 - slope) + np.fabs(intercept) ) )
-            
-        print "residual_beta", residual_beta
-        residual = np.concatenate( (residual_R, np.array(residual_beta)) )
-
-        ## expected improvement upon parameter optimization
-        if len(self.rel_improvements):
-            # default = average over past improvements + 10% benefit
-            exp0 = np.array(self.rel_improvements[-n_avg:]).mean() * 1.1
-        else:
-            # fallback
-            exp0 = 1
-            
-        exp0 = max(.01, exp0)
-
-        expect = np.ones(residual.shape) * exp0
-        for i in self.param_last_improvement.keys():
-            expect[i] = self.param_last_improvement[i]
-
-        ## time since last update
-        dt = np.ones(residual.shape, dtype=int) * self.t
-        for i in self.param_last_updated.keys():
-            dt[i] -= self.param_last_updated[i]
-
-        score = residual * dt * expect
-        self.logger.debug("kmer\tscore\tresidual\tdt\texpect\t")
-        cand = []
-        for j,i in enumerate(score.argsort()[::-1][:n_max]):
-            if i in self.blocked_params:
-                state = 'B'
-            else:
-                state = ' '
-                cand.append( (score, i) )
-            
-            if j < 20:
-                if i < self.nA:
-                    R_str = ",".join(["{0:.2f}".format(x) for x in self.current.R[:,i] - self.R_obs[:,i]])
-                else:
-                    R_str = 'n/a'
-                
-                self.logger.debug("{0} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8}".format( self.mdl.param_name(i), state, score[i], residual[i], dt[i], expect[i], self.current.params[i], self.known_params[i], R_str ) )
-
-        score, pick = cand[0]
-        
-        # kmer blocked list
-        self.blocked_params.append(pick)
-        while len(self.blocked_params) > n_blocked:
-            self.blocked_params.pop(0)
-
-        # kmer selection data structure maintenance
-        for i,rel in self.param_last_improvement.items():
-            if self.t - self.param_last_updated[i] > ttl:
-                del self.param_last_improvement[i]
-            
-        self.logger.debug("selected {0} {1}".format(pick, self.mdl.param_name(pick)) )
-        return pick
-
     
     def sweep_param(self, param_i, x0=1.):
         import matplotlib.pyplot as pp
@@ -1765,17 +1826,16 @@ class ModelOptimization(object):
 
     def step_param(self, show_sweep = False):
         self.logger.info("===parameter optimization===")
-        param_i = self.find_worst_param()
+        param_i = self.sched.find_worst_param()
         best, err, new_state = self.optimize_single_param(param_i)
 
         update = new_state.params - self.current.params
         
-        self.last_param_update = param_i
-        self.param_last_updated[param_i] = self.t
-        imp = self.update(new_state, err, "k-mer optimization")
-        self.param_last_improvement[param_i] = imp
+        imp = self.update(new_state, err, "single parameter optimization")
+        # notify the scheduler of the param change and its consequences
+        self.sched.param_changed(param_i, self.t, imp)
 
-        if not imp or show_sweep:
+        if not imp and show_sweep:
             self.sweep_param(param_i, best)
 
         return imp, new_state
@@ -1793,21 +1853,21 @@ class ModelOptimization(object):
             opt = self.mdl
             
         def to_optimize(aff):
-            params[param_i] = aff * .001
+            params[param_i] = aff * .0001
             state = opt.evaluate(params, tm_update=tm_update)
             err = self.global_error(state.R)
             return err
 
         t0 = time.time()
         s_mid = (self.aff_max + self.aff_min)/2.
-        res_a = minimize_scalar(to_optimize, bounds = 1000 * np.array([self.aff_min, s_mid]), method='Bounded')
-        res_b = minimize_scalar(to_optimize, bounds = 1000. * np.array([s_mid, self.aff_max]), method='Bounded')
+        res_a = minimize_scalar(to_optimize, bounds = 10000 * np.array([self.aff_min, s_mid]), method='Bounded')
+        res_b = minimize_scalar(to_optimize, bounds = 10000. * np.array([s_mid, self.aff_max]), method='Bounded')
         if res_a.fun < res_b.fun:
             res = res_a
         else:
             res = res_b
 
-        best = res.x * 0.001
+        best = res.x * 0.0001
         dt = time.time() - t0
         name = self.mdl.param_name(param_i)
         A0 = self.current.params[param_i]
@@ -1835,7 +1895,6 @@ class ModelOptimization(object):
         else:
             better = err
             
-        print new_state.params[590]
         self.current = new_state
         self.mdl.state = new_state
         self.mdl.params = new_state.params
