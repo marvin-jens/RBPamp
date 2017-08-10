@@ -1286,10 +1286,15 @@ class SPAModel(object):
     def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
         self.k = k
         self.nA = 4**k
-        self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
-
         self.rbp_conc = np.array(protein_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
+
+        self.param_name = np.array(list(cska.ska_kmers.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_conc)])
+        self.param_index = {}
+        for i, name in enumerate(self.param_name):
+            self.param_index[name] = i
+
+        self.kmers = self.param_name
 
         self.T = T
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
@@ -1426,17 +1431,11 @@ class SPAModel(object):
 
         return state
     
-    def param_name(self, i):
-        if i < self.nA:
-            return self.kmers[i]
-        else:
-            return "beta{0}".format(i - self.nA)
-
     def store_params(self, fname, params=[]):
         self.logger.info("storing current parameters in '{0}'".format(fname))
         with file(fname, 'w') as f:
             for i in xrange(len(self.params)):
-                f.write('{0}\t{1}\n'.format(self.param_name(i), self.params[i]))
+                f.write('{0}\t{1}\n'.format(self.param_name[i], self.params[i]))
 
     def extrapolation(self, k, fname=""):
         """
@@ -1500,15 +1499,9 @@ class SPAPartition(object):
         return SPAState(self.mdl, params, self.mdl.state.p_bound, pi)
         
         
-#class Stepper(object):
-    #def __init__(self, opt, mdl):
-        #self.opt = opt
-        #self.mdl = mdl
- 
-    
 class ParamUpdateScheduler(object):
     #def __init__(self, opt, n_blocked=5, ttl=10, n_max=100, n_avg=5, beta_burn_in=True):
-    def __init__(self, opt, n_blocked=20, ttl=20, n_max=100, n_avg=5, beta_burn_in=True):
+    def __init__(self, opt, n_blocked=5, ttl=5, n_max=100, n_avg=5, beta_burn_in=True, monitor_params=[]):
         # iterative kmer selection 
         self.opt = opt
         self.logger = logging.getLogger("ParamUpdateScheduler")
@@ -1517,6 +1510,7 @@ class ParamUpdateScheduler(object):
         self.n_avg = n_avg
         self.ttl = ttl
         self.N = len(self.opt.current.params)
+        self.monitor_params = [self.opt.mdl.param_index[p] for p in monitor_params]
         
         if beta_burn_in:
             self.blocked_params = range(self.opt.nA, len(self.opt.current.params))
@@ -1524,6 +1518,7 @@ class ParamUpdateScheduler(object):
             self.blocked_params = []
 
         self.param_last_improvement = {}
+        self.param_last_error = {}
         self.param_last_updated = defaultdict(int)
         self.last_param_update = None
         self.R_max = self.opt.R_obs.max(axis=1)
@@ -1549,8 +1544,8 @@ class ParamUpdateScheduler(object):
         
     @property
     def kmer_residuals(self):
-        ## mismatch between predicted and observed R-values
-        return np.fabs(self.opt.kmer_errors(self.opt.current.R)).sum(axis=0)
+        ## max mismatch between predicted and observed R-values
+        return np.fabs(self.opt.kmer_errors(self.opt.current.R)).max(axis=0)
 
     @property
     def beta_residuals(self):
@@ -1558,9 +1553,11 @@ class ParamUpdateScheduler(object):
         for i in range(self.opt.n_conc):
             slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(self.opt.current.R[i,:], self.opt.R_obs[i,:])
             #print "LINREGRESS", self.rbp_conc[i], slope, intercept, r_value, p_value, std_err
+            self.logger.debug("beta{i} slope={slope:.3e} intercept={intercept:.3e} r_value={r_value:.3e} p_value={p_value:.3e} std_err={std_err:.3e}".format(**locals()) )
             #residual_beta.append(0)
             residual_beta.append( self.R_max[i] * (np.fabs(1 - slope) + np.fabs(intercept) ) ) 
 
+        self.logger.debug("beta residuals: {0}".format(residual_beta) )
         return np.array(residual_beta)
   
     @property
@@ -1568,7 +1565,7 @@ class ParamUpdateScheduler(object):
         # high affinity kmers are more susceptible to changes, unless we look at under-estimation
         error = self.opt.kmer_errors(self.opt.current.R)
         affinities = self.opt.current.params[:self.opt.nA]
-        a = affinities / affinities.mean() 
+        a = affinities / affinities.max()
         suscept = (error > 0).all(axis=0) * a + (error < 0).sum(axis=0)
         suscept = np.concatenate( (suscept, np.ones(self.opt.n_conc)) )
         #caccc = cska.ska_kmers.seq_to_index('CACCC')
@@ -1602,8 +1599,40 @@ class ParamUpdateScheduler(object):
         for i in self.param_last_updated.keys():
             dt[i] -= self.param_last_updated[i]
         
+        dt[self.opt.nA:] *= 10 # make beta updates 10 times more often
         return dt
     
+    def debug_monitor(self):
+        self.logger.debug(">>>>> monitored parameters <<<<<")
+        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tcurrent\tknown\tdR")
+
+        for i in self.monitor_params:
+            self.logger.debug(self.debug_str_from_param(i))
+
+    def debug_str_from_param(self, i):
+        if i in self.blocked_params:
+            state = 'B'
+        else:
+            state = ' '
+
+        if i < self.opt.nA:
+            R_str = ",".join(["{0:.2f}".format(x) for x in self.opt.current.R[:,i] - self.opt.R_obs[:,i]])
+        else:
+            R_str = 'n/a'
+        
+        return "{0:10s} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8:.3e}\t{9}".format( 
+            self.opt.mdl.param_name[i], 
+            state, 
+            self._score[i], 
+            self._residual[i], 
+            self._dt[i], 
+            self._expect[i], 
+            self._suscept[i],
+            self.opt.current.params[i], 
+            self.opt.known_params[i], 
+            R_str 
+        )
+        
     def find_worst_param(self):
         """
         ideas: 
@@ -1612,32 +1641,32 @@ class ParamUpdateScheduler(object):
             * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
         """
 
-        residual = np.concatenate( (self.kmer_residuals, self.beta_residuals) )
-        dt = self.time_passed
-        expect = self.expectation
-
-        score = residual * dt * expect * self.susceptibility
-
-        self.logger.debug("kmer\tscore\tresidual\tdt\texpect\t")
+        self._residual = np.concatenate( (self.kmer_residuals, self.beta_residuals) )
+        self._dt = self.time_passed
+        self._expect = self.expectation
+        self._suscept = self.susceptibility
+        #score = residual * dt * expect * self.susceptibility
+        self._score = self._residual * self._dt * self._expect * self._suscept
+        #self.logger.debug("beta expect {0}".format(expect[self.opt.nA:]))
+        #self.logger.debug("beta scores {0}".format(score[self.opt.nA:]))
+        
+        self.debug_monitor()
+        
+        self.logger.debug(">>>>> candidate search <<<<<")
+        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
+        
         cand = []
-        for j,i in enumerate(score.argsort()[::-1][:self.n_max]):
-            if i in self.blocked_params:
-                state = 'B'
-            else:
-                state = ' '
-                cand.append( (score, i) )
+        choices = list(self._score.argsort()[::-1][:self.n_max]) + range(self.opt.nA, self.N)
+        for j,i in enumerate(choices):
+            if not i in self.blocked_params:
+                cand.append(i)
             
             if j < 20:
-                if i < self.opt.nA:
-                    R_str = ",".join(["{0:.2f}".format(x) for x in self.opt.current.R[:,i] - self.opt.R_obs[:,i]])
-                else:
-                    R_str = 'n/a'
-                
-                self.logger.debug("{0} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8}".format( self.opt.mdl.param_name(i), state, score[i], residual[i], dt[i], expect[i], self.opt.current.params[i], self.opt.known_params[i], R_str ) )
+                self.logger.debug(self.debug_str_from_param(i))
 
-        score, pick = cand[0]
+        pick = cand[0]
         self.update(pick)
-        self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name(pick)) )
+        self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
         return pick
         
         
@@ -1694,7 +1723,9 @@ class ModelOptimization(object):
             params[-len(betas):] = betas
             self.current = self.mdl.evaluate(params, keep = True)
             #self.update(params, np.Inf, "initialize")
-
+        
+        self.errors.append(self.global_error(self.current.R))
+        
         # in case we know some parameters, use this as a reference
         if len(known_params):
             self.known_params = known_params
@@ -1761,7 +1792,7 @@ class ModelOptimization(object):
         #for i in vec.nonzero()[0]:
             if vec[i] == 0:
                 break
-            print "    ", self.mdl.param_name(i), self.current.params[i], "+", vec[i], "known=", self.known_params[i]
+            print "    ", self.mdl.param_name[i], self.current.params[i], "+", vec[i], "known=", self.known_params[i]
         
     def print_summary(self):
         print "-----------optimization results------------"
@@ -1780,14 +1811,31 @@ class ModelOptimization(object):
             else:
                 R_dev = 'N/A'
 
-            out =  ["    ", self.mdl.param_name(i), str(self.current.params[i]), "known=", str(self.known_params[i]), status, "last grad=", str(delta[i]), R_dev]
+            out =  ["    ", self.mdl.param_name[i], str(self.current.params[i]), "known=", str(self.known_params[i]), status, "last grad=", str(delta[i]), R_dev]
             print "\t".join(out)
+    
+    def debug_output_parameters(self, n=20):
         
+        self.logger.debug(">>> current highest affinities/beta values <<<")
+        for i in self.current.params.argsort()[::-1][:n]:
+            if i in self.blocked_params:
+                state = 'B'
+            else:
+                state = ' '
+            
+            if i < self.nA:
+                R_str = ",".join(["{0:.2f}".format(x) for x in self.current.R[:,i] - self.R_obs[:,i]])
+            else:
+                R_str = 'n/a'
+            
+            self.logger.debug("{0} {1}\t{2:.3e}\t{3:.3e}\t{4}".format( self.mdl.param_name[i], state, self.current.params[i], self.known_params[i], R_str ) )
+      
 
     def converged(self, last=10, tol=1e-5):
         if len(self.rel_improvements) < last:
             return False
         
+        tol *= 4**(- (self.k-5) ) # expect slower convergence for higher k, bc each kmer alone will have less to explain
         recent = np.array(self.rel_improvements[-last:])
         #avg = recent.mean()
         dev = np.mean(recent)
@@ -1798,11 +1846,16 @@ class ModelOptimization(object):
         
         return False
     
-    def optimize(self, reporter = None, max_iter=1000, report_interval=50, snapshots=False, **kwargs):
+    def optimize(self, reporter = None, max_iter=None, report_interval=50, snapshots=False, **kwargs):
         if reporter:
             reporter.plot_R_value_agreement()
         last_report = self.t
         
+        if max_iter == None:
+            # roughly, expect ~10% of kmers to have relevant affinity. 
+            # So this gives the chance of updating each ~10 times.
+            max_iter = self.nA 
+            
         while not self.converged() and self.t < max_iter:
             imp, new_state = self.step_param()
             #imp_b = self.step_gradient()
@@ -1869,7 +1922,7 @@ class ModelOptimization(object):
 
         best = res.x * 0.0001
         dt = time.time() - t0
-        name = self.mdl.param_name(param_i)
+        name = self.mdl.param_name[param_i]
         A0 = self.current.params[param_i]
         rel_change = (best - A0) / A0
         self.logger.debug("optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )

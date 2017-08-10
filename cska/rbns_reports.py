@@ -156,7 +156,7 @@ class OptReporting(object):
         if kmer_i == None:
             kmer = "none"
         else:
-            kmer = self.opt.mdl.param_name(kmer_i)
+            kmer = self.opt.mdl.param_name[kmer_i]
         
         pp.figure()
         pp.title('R-value fit after step {0}'.format(self.opt.t) )
@@ -186,7 +186,7 @@ class OptReporting(object):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
         kmer_i = self.opt.sched.last_param_update
-        kmer = self.opt.mdl.param_name(kmer_i)
+        kmer = self.opt.mdl.param_name[kmer_i]
         
         
         pp.figure()
