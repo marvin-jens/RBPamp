@@ -1209,12 +1209,13 @@ class RBNSKmerModel(object):
         pp.savefig(path)
         
 class SPAState(object):
-    def __init__(self, mdl, params, p_bound, pi_kmer, openen_bin_counts = [], jacobi = []):
+    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, openen_bin_counts = [], jacobi = []):
         self.mdl = mdl
 
         self.params = params
         self.A = params[:self.mdl.nA] # affinities
         self.betas = params[self.mdl.nA:] # background coefficients
+        self.Z1 = Z1
         self.p_bound = p_bound
         self.pi_kmer = pi_kmer
         self.openen_bin_counts = openen_bin_counts
@@ -1383,7 +1384,7 @@ class SPAModel(object):
         #t1 = time.time()
 
         #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
-        return p_bound, pi
+        return Z1, p_bound, pi
 
         
     def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True):
@@ -1416,14 +1417,14 @@ class SPAModel(object):
             
         n_conc = len(rbp_conc)
         if tm_update:
-            p_bound, pi_kmer = self._eval_tm(im, oem, acc_lookup, kmer_invkd, rbp_conc)
-            state = SPAState(self, params, p_bound, pi_kmer)
+            Z1, p_bound, pi_kmer = self._eval_tm(im, oem, acc_lookup, kmer_invkd, rbp_conc)
+            state = SPAState(self, params, Z1, p_bound, pi_kmer)
 
         else:
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)
             # copy all thermodynamic model results from previous state.
-            state = SPAState(self, params, self.state.p_bound, self.state.pi_kmer, self.state.openen_bin_counts, self.state.jacobi)
+            state = SPAState(self, params, self.state.Z1, self.state.p_bound, self.state.pi_kmer, self.state.openen_bin_counts, self.state.jacobi)
 
         if keep:
             self.params = params
@@ -1479,24 +1480,27 @@ class SPAPartition(object):
         
         from cska.ska_kmers import index_matrix_rows_with_kmer
         kmer_hits = index_matrix_rows_with_kmer(self.mdl.subsample_index_matrix, self.mdl.k, kmer_i)
-        
+        self.kmer_indices = kmer_hits
         self.im_kmer = self.mdl.subsample_index_matrix[kmer_hits]
         self.oem_kmer = self.mdl.subsample_oem[kmer_hits]
         
         pi = self.mdl.state.pi_kmer
+        self.Z1 = self.mdl.state.Z1
         
-        kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA], self.mdl.rbp_conc)
+        kmer_Z1, kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA], self.mdl.rbp_conc)
         self.other_pi = pi - kmer_pi
+        
         self.mdl.logger.debug('SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
         
     def evaluate(self, params, **kwargs):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
-        kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA], self.mdl.rbp_conc)
+        kmer_Z1, kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA], self.mdl.rbp_conc)
         # pi is pi from the non kmer-containing + pi from the kmer-containing subset of sequences
         pi = self.other_pi + kmer_pi
         # p_bound is not needed for R value computation. 
         # So we keep the unchanged value. Incorrect but convenient and not used anyway.
-        return SPAState(self.mdl, params, self.mdl.state.p_bound, pi)
+        self.Z1[self.kmer_indices] = kmer_Z1
+        return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi)
         
         
 class ParamUpdateScheduler(object):
@@ -1511,6 +1515,11 @@ class ParamUpdateScheduler(object):
         self.ttl = ttl
         self.N = len(self.opt.current.params)
         self.monitor_params = [self.opt.mdl.param_index[p] for p in monitor_params]
+        if not self.monitor_params:
+            # top 10 R-value k-mers
+            self.monitor_params = list(self.opt.R_obs.max(axis=0).argsort()[::-1][:10])
+            # betas
+            self.monitor_params += range(self.opt.nA, self.N)
         
         if beta_burn_in:
             self.blocked_params = range(self.opt.nA, len(self.opt.current.params))
@@ -1545,7 +1554,7 @@ class ParamUpdateScheduler(object):
     @property
     def kmer_residuals(self):
         ## max mismatch between predicted and observed R-values
-        return np.fabs(self.opt.kmer_errors(self.opt.current.R)).max(axis=0)
+        return (self.opt.kmer_errors(self.opt.current.R)**2).sum(axis=0)
 
     @property
     def beta_residuals(self):
@@ -1641,7 +1650,7 @@ class ParamUpdateScheduler(object):
             * perhaps overall R-value correlation can serve as guide? (> .9 do a round of low affinity optimizations in fixed energy background?)
         """
 
-        self._residual = np.concatenate( (self.kmer_residuals, self.beta_residuals) )
+        self._residual = np.concatenate( (self.kmer_residuals, 0*self.beta_residuals) ) # HACK: de-activate beta updates from inside same framework
         self._dt = self.time_passed
         self._expect = self.expectation
         self._suscept = self.susceptibility
@@ -1656,13 +1665,13 @@ class ParamUpdateScheduler(object):
         self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
         
         cand = []
-        choices = list(self._score.argsort()[::-1][:self.n_max]) + range(self.opt.nA, self.N)
-        for j,i in enumerate(choices):
+        for j,i in enumerate(self._score.argsort()[::-1]):
             if not i in self.blocked_params:
                 cand.append(i)
-            
             if j < 20:
                 self.logger.debug(self.debug_str_from_param(i))
+            if j > 20 and cand:
+                break
 
         pick = cand[0]
         self.update(pick)
@@ -1672,8 +1681,23 @@ class ParamUpdateScheduler(object):
         
                  
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=.02):
         self.k = k
+        self.nA = 4**k
+
+        # RBNS input sample to iterate on
+        self.reads = reads
+        self.openen = openen
+        self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
+        self.n_conc = len(self.rbp_conc)
+
+        self.n_params = self.nA + self.n_conc
+
+        self.beta_interval = int(beta_interval * self.nA)
+        self.scale_interval = int(scale_interval * self.nA)
+        self.last_beta = 0
+        self.last_scale = 0
+        
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
         self.tm_refresh = tm_refresh
@@ -1684,11 +1708,6 @@ class ModelOptimization(object):
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
 
-        # RBNS input sample to iterate on
-        self.reads = reads
-        self.openen = openen
-        self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
-        self.n_conc = len(self.rbp_conc)
 
         # observations to fit to
         self.R_obs = R_obs
@@ -1705,9 +1724,6 @@ class ModelOptimization(object):
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]
         self.rel_improvements = []
-        
-        # initialize parameters: flat affinity vector and background from lowest percentile
-        self.nA = 4**k
         
         # set initial state of the model
         self.previous = None
@@ -1856,7 +1872,10 @@ class ModelOptimization(object):
             # So this gives the chance of updating each ~10 times.
             max_iter = self.nA 
             
+        imp, new_state = self.step_betas()
+        
         while not self.converged() and self.t < max_iter:
+            #imp, new_state = self.step_scale()
             imp, new_state = self.step_param()
             #imp_b = self.step_gradient()
             #imp_b = self.step_beta()
@@ -1874,6 +1893,17 @@ class ModelOptimization(object):
                 reporter.plot_R_value_agreement()
                 last_report = self.t
 
+            if self.t - self.last_scale > self.scale_interval:
+                self.step_scale()
+                self.step_betas()
+                self.last_scale = self.t
+                self.last_beta = self.t
+
+            if self.t - self.last_beta > self.beta_interval:
+                self.step_betas()
+                self.last_beta = self.t
+
+
         if reporter:
             reporter.plot_R_value_agreement()              
 
@@ -1883,8 +1913,8 @@ class ModelOptimization(object):
         best, err, new_state = self.optimize_single_param(param_i)
 
         update = new_state.params - self.current.params
-        
-        imp = self.update(new_state, err, "single parameter optimization")
+        name = self.mdl.param_name[param_i]
+        imp = self.update(new_state, err, "single parameter optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
         # notify the scheduler of the param change and its consequences
         self.sched.param_changed(param_i, self.t, imp)
 
@@ -1893,8 +1923,59 @@ class ModelOptimization(object):
 
         return imp, new_state
 
-    def optimize_single_param(self, param_i):
+    def step_betas(self, ground_state=None):
+        for param_i in range(self.nA, self.n_params):
+            best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state)
+            better = self.update(new_state, err, "beta{0} parameter optimization".format(param_i - self.nA), tick=False)
+
+        return better, new_state
+    
+    def step_scale(self):
+        from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
+        import time
+        t0 = time.time()
         params = np.array(self.current.params)
+        Z1 = self.current.Z1
+        im = self.mdl.subsample_index_matrix
+        n = len(Z1)
+        p_bound = np.zeros( (self.n_conc, n), dtype=np.float32)
+        pi = np.zeros( (self.n_conc, self.nA), dtype=np.float32)
+       
+        def to_optimize(scale):
+            # scale the partition function and only update pi (weighted kmer-counts)
+            params[:self.nA] = self.current.params[:self.nA] * scale
+            for i in range(self.n_conc):
+                Z_scaled = Z1 * scale
+                Z = self.rbp_conc[i] * Z_scaled
+                p_bound[i] = Z / (Z + 1)
+                pi[i] = weighted_kmer_counts(im, p_bound[i], self.k)
+            
+            # construct a new state object from that, by-passing evaluate
+            # TODO: integrate into evaluate by better re-factor.
+            state = SPAState(self.mdl, params, Z_scaled, p_bound, pi)
+            
+            # find optimal betas at each step
+            better, new_state = self.step_betas(ground_state = state)
+            return self.global_error(new_state.R)
+
+        res = minimize_scalar(to_optimize, bounds = (.1,10), method='Bounded')
+        dt = time.time() - t0
+        self.logger.debug("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
+
+        params[:self.nA] = self.current.params[:self.nA] * res.x
+        new_state = self.mdl.evaluate(params, tm_update=True)
+
+        better = self.update(new_state, res.fun, "affinity re-scaling")
+        if better > 0:
+            # un-block all affinities to allow unbiased optimization.
+            self.sched.n_blocked = []
+        return better, new_state
+            
+    def optimize_single_param(self, param_i, ground_state=None):
+        if ground_state == None:
+            ground_state = self.current
+        
+        params = np.array(ground_state.params)
 
         if param_i < self.nA:
             # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
@@ -1923,7 +2004,7 @@ class ModelOptimization(object):
         best = res.x * 0.0001
         dt = time.time() - t0
         name = self.mdl.param_name[param_i]
-        A0 = self.current.params[param_i]
+        A0 = ground_state.params[param_i]
         rel_change = (best - A0) / A0
         self.logger.debug("optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
 
@@ -1933,7 +2014,7 @@ class ModelOptimization(object):
         return best, res.fun, new_state
 
 
-    def update(self, new_state, err, name):
+    def update(self, new_state, err, name, tick=True):
         from copy import copy
         self.previous = copy(self.current)
         
@@ -1976,7 +2057,8 @@ class ModelOptimization(object):
             print "{0} step at t={1}".format(name, self.t)
             self.print_update_vector(update)
 
-        self.t += 1
+        if tick:
+            self.t += 1
         if self.t > 1:
             self.rel_improvements.append(better)
         return better
