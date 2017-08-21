@@ -276,7 +276,7 @@ class RBNSAnalysis(CachedBase):
             path = os.path.join(self.out_path, fname)
 
             if name == 'affinity':
-                from cska.rbns_model import ModelOptimization
+                from cska.rbns_model import ModelOptimization, ReferenceComparison
                 # first sample is input!
                 reads = self.reads[0]
                 openen = self.acc_storages[0].get_discretized(k)
@@ -291,8 +291,14 @@ class RBNSAnalysis(CachedBase):
                 opt = ModelOptimization(reads, openen, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
                 #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
+                if options.known_kd:
+                    comp = ReferenceComparison(opt, options.known_kd)
+                else:
+                    comp = None
+
                 from cska.rbns_reports import OptReporting
-                rep = OptReporting(opt, os.path.join(opt_path, 'plots') )
+                rep = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
+                
 
                 try:
                     opt.optimize(reporter = rep)

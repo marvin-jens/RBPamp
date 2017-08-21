@@ -3,6 +3,8 @@ import cska
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as pp
+import logging
+from collections import defaultdict
 
 class EnrichmentBarPlot(object):
     def __init__(self, rbns_comparison):
@@ -62,7 +64,7 @@ class EnrichmentBarPlot(object):
         
 
 class OptReporting(object):
-    def __init__(self, opt, path='./'):
+    def __init__(self, opt, path='./', track=[], report_interval=50, comp=None):
         self.opt = opt
         self.path = path
         if not os.path.exists(path):
@@ -74,6 +76,37 @@ class OptReporting(object):
         self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
         self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
         self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
+        
+        self.comp = comp
+        if comp and not track:
+            track = sorted(comp.uniq_kmers)
+
+        self.tracked_kmers = [t for t in track if len(t)== self.opt.k]
+        import cska.ska_kmers
+        self.tracked_indices = [cska.ska_kmers.seq_to_index(t) for t in self.tracked_kmers]
+        self.tracked = set(self.tracked_indices)
+        self.tracked_history = defaultdict(list)
+        self.tracked_updated = defaultdict(list)
+        for param_i in self.tracked_indices:
+            self.tracked_history[param_i].append( (self.opt.t, self.opt.current.params[param_i]) )
+
+        self.report_interval = report_interval
+        self.last_report = 0
+        self.logger = logging.getLogger('OptReporting')
+    
+    def tick(self, t):
+        if t > self.last_report + self.report_interval:
+            self.plot_R_value_agreement()
+            self.plot_tracked_kmer_histories()
+            self.plot_known_comparison()
+            for param_i in self.tracked_indices:
+                self.plot_sweep(param_i)
+            self.last_report = t
+        
+        for param_i in self.tracked_indices:
+            self.tracked_history[param_i].append( (t, self.opt.current.params[param_i]) )
+            if param_i == self.opt.sched.last_param_update:
+                self.tracked_updated[param_i].append(t)
 
     def close(self):
         self.sweep_pdf.close()
@@ -82,6 +115,43 @@ class OptReporting(object):
         self.invkd_pdf.close()
         self.err_pdf.close()
 
+    def plot_tracked_kmer_histories(self):
+        self.logger.info("rendering tracked kmer affinity history plots")
+        pp.figure()
+        for i, param_i in enumerate(self.tracked_indices):
+            kmer = self.tracked_kmers[i]
+            t, param = np.array(self.tracked_history[param_i]).T
+            
+            pp.semilogy(t, param, label=kmer)
+            known = self.opt.known_params[param_i]
+            if np.isfinite(known):
+                pp.axhline(known, label='{0} reference'.format(kmer))
+
+            #for t_update in self.tracked_updated[param_i]:
+                #pp.axvline(t_update)
+                
+        pp.xlabel('optimization step')
+        pp.ylabel('affinity [1/nM]')
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.path, "tracked_kmers.pdf"))
+        pp.close()
+
+    def plot_known_comparison(self):
+        if not self.comp:
+            return
+        
+        x = self.comp.observed_affinities
+        y = self.comp.expected_affinities
+        R = np.corrcoef(np.log(x), np.log(y))[0][1]
+        pp.figure()
+        pp.loglog(x, y, '.r', label="R={:.3f}".format(R))
+        pp.xlabel("observed/known affinity [1/nM]")
+        pp.ylabel("expected from fit [1/nM]")
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.path, "known_affinity_comparison.pdf"))
+        pp.close()
+        
+        
     def plot_gradient_descent(self, n_top=100):
         I = self.opt.R_obs.argsort()[::-1][:n_top]
         
@@ -111,47 +181,64 @@ class OptReporting(object):
         pp.show()
         pp.close()
         
-    def plot_sweep(self, kmer_index=None, min_invkd = 1e-12, max_invkd = 1e2, steps=100):
+    def plot_sweep(self, param_i=None, param= None, min_val = 1e-12, max_val = 1e3, steps=100, errors = [], x = []):
   
-        if kmer_index == None:
-            kmer_index = self.opt.last_param_update
+        if param_i == None:
+            param_i = self.opt.sched.last_param_update
 
-        invkd = np.copy(opt.trial_invkd)
-        x = np.exp(np.linspace(np.log(min_invkd), np.log(max_invkd), steps))
-        errors = []
-        for ikd in x:
-            invkd[kmer_index] = ikd
-            R_trial = self.opt.predict_R(invkd)
-            err = R_trial[:,kmer_index] - self.opt.R_obs[:,kmer_index]
-            errors.append(err)
-            
-        errors = np.array(errors).T
-        
-        kmer = self.opt.kmers[kmer_index]
+        if param == None:
+            param = self.opt.mdl.param_name[param_i]
+
+        if not len(errors):
+            params = np.copy(self.opt.current.params)
+            x = np.exp(np.linspace(np.log(min_val), np.log(max_val), steps))
+            if param_i < self.opt.mdl.nA:
+                # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
+                tm_update = True
+                from cska.rbns_model import SPAPartition
+                opt = SPAPartition(self.opt.mdl, param_i)
+            else:
+                # do not evaluate the thermodynamic model, only re-compute R-values
+                tm_update = force_tm
+                opt = self.opt.mdl
+
+            for ikd in x:
+                params[param_i] = ikd
+                state = opt.evaluate(params, tm_update=tm_update)
+                err = self.opt.global_error(state.R)
+                errors.append(err)
+
+            errors = np.array(errors)
+
         pp.figure()
-        pp.title("kmer-fit for {0} at step {1}".format(kmer, self.opt.t) )
+        pp.title("param-fit for {0} at step {1}".format(param, self.opt.t) )
         
-        for P, err in zip(self.opt.rbp_conc, errors):
-            pp.semilogx(x, err, label="P={0}nM".format(P))
+        print x
+        print errors
+        pp.semilogx(x, errors)
 
-        pp.axvline(self.opt.known_invkd[kmer_index], color='r', label="correct value")
-        pp.axvline(self.opt.trial_invkd[kmer_index], color='k', label="fitted root")
+        #pp.axvline(self.opt.mdl.known_params[param_i], color='r', label="correct value")
+        #pp.axvline(self.opt.trial_val[param_i], color='k', label="fitted root")
+
         pp.axhline(0, color='k')
-        if opt.kmer_updates[kmer] > 1:
-            pp.axvline(self.opt.prev_invkd[kmer_index], color='gray', label="previous value")
+        #if opt.param_updates[param] > 1:
+            #pp.axvline(self.opt.prev_val[param_i], color='gray', label="previous value")
                 
         pp.xlabel(r"$\frac{1}{K_d}$ [nM]")
-        pp.ylabel(r"expected R - observed R")
+        #pp.ylabel(r"expected R - observed R")
+        pp.ylabel(r"global error")
+        
         pp.legend(loc='upper left')
         pp.tight_layout()
-        self.sweep_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "sweep_{0}_t{1}.pdf".format(kmer, self.opt.t)) )
-        #pp.show()
+        #self.sweep_pdf.savefig()
+        pp.savefig(os.path.join(self.path, "sweep_{0}_t{1}.pdf".format(param, self.opt.t)) )
+        pp.show()
         pp.close()
 
     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
+        self.logger.info('rendering R-value agreement plot')
         kmer_i = self.opt.sched.last_param_update
         if kmer_i == None:
             kmer = "none"

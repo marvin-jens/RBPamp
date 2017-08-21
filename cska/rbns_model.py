@@ -573,41 +573,6 @@ class RBNSGenerator(CachedBase):
         self.logger.debug("computed crosstalk matrix for k={0} in {1:.3f}s, inverted in {2:.3f}s".format(self.k, t1-t0, t2-t1) )
         return M, M_inv
     
-        #occ = self.predict_occupancies(P)
-        #kappa = self.input_reads.kmer_frequencies(k) / 4**k
-        #omega = (occ * kappa).sum()
-
-        ## adding baseline
-        #l = self.l - k + 1
-        #bg = omega*(l-2.*(k-1)) #* kappa 
-        
-        ##pi = np.dot(M, occ ) * kappa + base
-
-        #pi = kappa * (np.dot(M, occ ) + bg )
-        
-        #sum_pi = pi.sum()
-        
-        #print "background terms", bg, sum_pi
-        #r = pi / sum_pi / kappa
-        ##import matplotlib.pyplot as pp
-        ##pp.figure()
-        ##pp.loglog(pi / kappa, r,'ok')
-        ##pp.show()
-        #I = r.argsort()[::-1]
-        #for i in I[:10]:
-            #print i, cska.ska_kmers.index_to_seq(i, k), pi[i], r[i]
-
-        #if store:
-            #with file(store,'w') as f:
-                #for kmer, o in zip(cska.ska_kmers.yield_kmers(self.k), r):
-                    #f.write("{0}\t{1}\n".format(kmer, o) )
-        
-        ## all the expensive matrix multiplications are 
-        ## done *once*
-        #M_inv = np.linalg.inv(M)
-        #r_inv = np.dot(M_inv, r)
-        #bg_vec = np.dot(M_inv,np.ones(4**k)) 
-
     
     def linear_fit(self, rbp_conc, r_matrix, n_top=20):
 
@@ -1209,7 +1174,7 @@ class RBNSKmerModel(object):
         pp.savefig(path)
         
 class SPAState(object):
-    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, openen_bin_counts = [], jacobi = []):
+    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, openen_bin_counts = [], jacobi = []):
         self.mdl = mdl
 
         self.params = params
@@ -1218,6 +1183,7 @@ class SPAState(object):
         self.Z1 = Z1
         self.p_bound = p_bound
         self.pi_kmer = pi_kmer
+        self.rbp_free = rbp_free
         self.openen_bin_counts = openen_bin_counts
         self.jacobi = jacobi
 
@@ -1280,7 +1246,81 @@ class SPAState(object):
 
         return grad
         
+class ReferenceComparison(object):
+    
+    def __init__(self, opt, ref_file):
+        self.opt = opt
+        self.sequences = []
+        self.kmer_sets = []
+        self.names = []
+        self.seqs = []
+        self.affinities = []
+        self.affinity_errs = []
+        self.uniq_kmers = set()
         
+        self.logger = logging.getLogger("ReferenceComparison")
+        import cska.ska_kmers
+        for line in file(ref_file):
+            if line.startswith("#"):
+                continue
+
+            if not line.strip():
+                continue
+            
+            parts = line.rstrip().split('\t')
+            if len(parts) < 5:
+                continue
+
+            rbp, name, seq, kd, kd_err = parts[:5]
+            if not rbp == self.opt.reads.rbp_name:
+                continue
+            
+            kmers = self.split_kmers(seq)
+            if not kmers:
+                # can not predict affinity for sequence with non-canonical bases
+                continue
+
+            self.uniq_kmers |= set(kmers)
+            self.seqs.append(seq)
+            self.kmer_sets.append(np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmers]))
+            
+            self.logger.debug("{seq} {kmers}".format(**locals()) )
+
+            a = 1./float(kd)
+            self.affinities.append(a)
+            self.affinity_errs.append(a**2 * float(kd_err))
+            self.names.append(name)
+            
+        self.observed_affinities = np.array(self.affinities)
+        self.observed_affinity_errors = np.array(self.affinity_errs)
+        
+        self.logger.info("read {0} reference affinities".format(len(self.seqs)) )
+
+    def split_kmers(self, seq):
+        kmers = []
+        k = self.opt.k
+        seq = seq.upper()
+        for i in range(len(seq) - k + 1):
+            kmer = seq[i:i+k]
+            if kmer.count('A') + kmer.count('C') + kmer.count('G') + kmer.count('U') < k:
+                # discovered non-canonical nucleotide
+                continue
+            kmers.append(kmer)
+            
+        return kmers
+
+    @property
+    def expected_affinities(self):
+        a = []
+        for s in self.kmer_sets:
+            a.append(self.opt.current.params[s].sum())
+
+        return np.array(a)
+            
+            
+        
+            
+            
         
         
 class SPAModel(object):
@@ -1363,31 +1403,74 @@ class SPAModel(object):
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
-    def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
-        from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
+    def self_consistent_free_rbp(self, Z1, rbp_total):
+        from scipy.optimize import minimize_scalar
+        rna_conc = self.reads.rna_conc
+        N = len(Z1)
+        
+        t0 = time.time()
+        def to_optimize(p_free):
+            Z = p_free * Z1
+            p = Z / (Z + 1.)
+            
+            rbp_bound = (p * rna_conc).sum() / N
+            
+            return ((rbp_total - rbp_bound) - p_free)**2
+            
+        res = minimize_scalar(to_optimize, bounds = (0, rbp_total), method='Bounded')
+        t1 = time.time()
+        perc = res.x / rbp_total
+        self.logger.debug("self consistency: total={0:.1f} free={1:.1f} ({2:.2f}%) in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0)) )
+        
+        return res.x
+        
+        
+    def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
+        from cska.ska_kmers import SPA_partition_function
         import time
 
         #t0 = time.time()
         # the model itself is implemented in Cython
         Z1 = SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs)
+        return Z1
+    
+    def _spa_free_protein(self, Z1, rbp_conc):
+        rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
+        return np.array(rbp_free, dtype= np.float32)
+
+    def _spa_p_rna_bound(self, Z1, rbp_free):
         n = len(Z1)
-        n_conc = len(rbp_conc)
-
+        n_conc = len(rbp_free)
         p_bound = np.zeros( (n_conc, n), dtype=np.float32)
-        pi = np.zeros( (n_conc, self.nA), dtype=np.float32)
-
+        
         for i in range(n_conc):
-            Z = rbp_conc[i] * Z1
+            Z = rbp_free[i] * Z1
             p_bound[i] = Z / (Z + 1)
+        
+        return p_bound
+        
+
+    def _spa_kmer_pi(self, p_bound, im):
+        from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
+        n_conc, n = p_bound.shape
+        
+        pi = np.zeros( (n_conc, self.nA), dtype=np.float32)
+        for i in range(n_conc):
             pi[i] = weighted_kmer_counts(im, p_bound[i], self.k)
 
-        #t1 = time.time()
+        return pi
 
-        #self.logger.debug("evaluated energy model on {0} sequences in {1:.2f} ms".format(n, 1000*(t1-t0)) )
+    def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
+        """ LEGACY: WILL BE REMOVED"""
+        self.logger.debug("_eval_tm called!")
+        Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+        p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
+        pi = self._spa_kmer_pi(p_bound, im)
+
         return Z1, p_bound, pi
 
         
-    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True):
+    def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True, ground_state=None):
         """
         Evaluate the thermodynamic model (single protein approximation) on a sub-sample of reads. Return an SPAState instance
         """
@@ -1416,15 +1499,24 @@ class SPAModel(object):
             rbp_conc = self.rbp_conc
             
         n_conc = len(rbp_conc)
+        if ground_state == None:
+            ground_state = self.state
+
         if tm_update:
-            Z1, p_bound, pi_kmer = self._eval_tm(im, oem, acc_lookup, kmer_invkd, rbp_conc)
-            state = SPAState(self, params, Z1, p_bound, pi_kmer)
+            Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+            rbp_free = self._spa_free_protein(Z1, rbp_conc)
+                
+            p_bound = self._spa_p_rna_bound(Z1, rbp_free)
+            pi_kmer = self._spa_kmer_pi(p_bound, im)
+
+            state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free)
 
         else:
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)
             # copy all thermodynamic model results from previous state.
-            state = SPAState(self, params, self.state.Z1, self.state.p_bound, self.state.pi_kmer, self.state.openen_bin_counts, self.state.jacobi)
+
+            state = SPAState(self, params, ground_state.Z1, ground_state.p_bound, ground_state.pi_kmer, ground_state.rbp_free, ground_state.openen_bin_counts, ground_state.jacobi)
 
         if keep:
             self.params = params
@@ -1485,22 +1577,41 @@ class SPAPartition(object):
         self.oem_kmer = self.mdl.subsample_oem[kmer_hits]
         
         pi = self.mdl.state.pi_kmer
+        rbp_free = self.mdl.state.rbp_free
         self.Z1 = self.mdl.state.Z1
+        self.p_bound = self.mdl.state.p_bound
+        self.rbp_free = self.mdl.state.rbp_free
         
-        kmer_Z1, kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA], self.mdl.rbp_conc)
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA])
+        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
+        kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
+
         self.other_pi = pi - kmer_pi
         
         self.mdl.logger.debug('SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
         
     def evaluate(self, params, **kwargs):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
-        kmer_Z1, kmer_p_bound, kmer_pi = self.mdl._eval_tm(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA], self.mdl.rbp_conc)
+
+        # update relevant partition functions
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA])
+        self.Z1[self.kmer_indices] = kmer_Z1
+
+        # update free protein concentrations (probably not necessary)
+        #rbp_free = self.mdl._spa_free_protein(self.Z1, self.mdl.rbp_conc)
+        rbp_free = self.rbp_free
+
+        # and re-compute expected pulldown kmer abundances
+        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
+        kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
+
         # pi is pi from the non kmer-containing + pi from the kmer-containing subset of sequences
         pi = self.other_pi + kmer_pi
         # p_bound is not needed for R value computation. 
         # So we keep the unchanged value. Incorrect but convenient and not used anyway.
         self.Z1[self.kmer_indices] = kmer_Z1
-        return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi)
+
+        return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi, rbp_free)
         
         
 class ParamUpdateScheduler(object):
@@ -1681,7 +1792,7 @@ class ParamUpdateScheduler(object):
         
                  
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=.02):
+    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=100000000.): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
@@ -1754,9 +1865,22 @@ class ModelOptimization(object):
     def estimate_background(self, q=1.):
         return np.nanpercentile(self.R_obs, q, axis=1)
         
-    def correlation(self):
-        return np.array([np.corrcoef(np.log(Ro), np.log(Rp))[0][1] for Ro, Rp in zip(self.R_obs, self.current.R)])
+    def correlation(self, R_new=[]):
+        if not len(R_new):
+            R_new = self.current.R
+        return np.array([np.corrcoef(np.log(Ro), np.log(Rp))[0][1] for Ro, Rp in zip(self.R_obs, R_new)])
     
+    def linearity_err(self, R_new=[]):
+        if not len(R_new):
+            R_new = self.current.R
+
+        lin = []
+        for i in range(self.n_conc):
+            slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(R_new[i,:], self.R_obs[i,:])
+            lin.append( np.fabs(1 - slope) + np.fabs(intercept) )
+
+        return np.array(lin)
+ 
     def kmer_errors(self, R_new):
         return R_new - self.R_obs
         
@@ -1766,7 +1890,10 @@ class ModelOptimization(object):
     def global_error(self, R_new):
         """used"""
         #return (((self.R_obs - R_new)**2)*self.R_obs).sum()
-        return (self.kmer_errors(R_new)**2).sum()
+        #return (self.kmer_errors(R_new)**2).sum()
+        lin_err = self.linearity_err(R_new)
+        #print lin_err
+        return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).sum()
     
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).sum()
@@ -1862,19 +1989,26 @@ class ModelOptimization(object):
         
         return False
     
-    def optimize(self, reporter = None, max_iter=None, report_interval=50, snapshots=False, **kwargs):
+    def optimize(self, reporter = None, max_iter=None, snapshots=False, **kwargs):
+       
         if reporter:
-            reporter.plot_R_value_agreement()
-        last_report = self.t
-        
+            reporter.tick(self.t)
+
         if max_iter == None:
             # roughly, expect ~10% of kmers to have relevant affinity. 
             # So this gives the chance of updating each ~10 times.
             max_iter = self.nA 
             
         imp, new_state = self.step_betas()
-        
+        #imp, new_state = self.step_scale(reporter=reporter)
+        #sys.exit(1)       
         while not self.converged() and self.t < max_iter:
+            if reporter:
+                reporter.tick(self.t)
+
+            p_bound = (new_state.p_bound * self.mdl.reads.rna_conc).sum(axis=1) / new_state.N
+            self.logger.info("total amount of bound protein={0}".format(p_bound) )
+
             #imp, new_state = self.step_scale()
             imp, new_state = self.step_param()
             #imp_b = self.step_gradient()
@@ -1888,14 +2022,9 @@ class ModelOptimization(object):
             if snapshots:
                 self.mdl.store_params(os.path.join(self.out_path, 'params_t{0}.tsv'.format(self.t)) )
 
-            if reporter and self.t > last_report + report_interval:
-                self.logger.info('rendering plots...')
-                reporter.plot_R_value_agreement()
-                last_report = self.t
-
             if self.t - self.last_scale > self.scale_interval:
                 self.step_scale()
-                self.step_betas()
+                #self.step_betas()
                 self.last_scale = self.t
                 self.last_beta = self.t
 
@@ -1930,7 +2059,7 @@ class ModelOptimization(object):
 
         return better, new_state
     
-    def step_scale(self):
+    def step_scale(self, reporter=None):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
         import time
         t0 = time.time()
@@ -1941,8 +2070,12 @@ class ModelOptimization(object):
         p_bound = np.zeros( (self.n_conc, n), dtype=np.float32)
         pi = np.zeros( (self.n_conc, self.nA), dtype=np.float32)
        
+        scales = []
+        errors = []
+        
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)
+            scales.append(scale)
             params[:self.nA] = self.current.params[:self.nA] * scale
             for i in range(self.n_conc):
                 Z_scaled = Z1 * scale
@@ -1950,22 +2083,35 @@ class ModelOptimization(object):
                 p_bound[i] = Z / (Z + 1)
                 pi[i] = weighted_kmer_counts(im, p_bound[i], self.k)
             
+            
             # construct a new state object from that, by-passing evaluate
             # TODO: integrate into evaluate by better re-factor.
             state = SPAState(self.mdl, params, Z_scaled, p_bound, pi)
+            err = self.global_error(state.R)
+            #print "global error={0} at scale={1} before beta fit".format(err, scale)
             
             # find optimal betas at each step
-            better, new_state = self.step_betas(ground_state = state)
-            return self.global_error(new_state.R)
+            for param_i in range(self.nA, self.n_params):
+                best, err, new_state = self.optimize_single_param(param_i, ground_state=state)
+                state.params[param_i] = best
+                
+            err = self.global_error(new_state.R)
+            #print "global error={0} at scale={1} after beta fit".format(err, scale)
+            
+            errors.append(err)
+            return err
 
         res = minimize_scalar(to_optimize, bounds = (.1,10), method='Bounded')
         dt = time.time() - t0
-        self.logger.debug("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
+        self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
+
+        if reporter:
+            reporter.plot_sweep(param="scale", errors = errors, x = scales)
 
         params[:self.nA] = self.current.params[:self.nA] * res.x
         new_state = self.mdl.evaluate(params, tm_update=True)
 
-        better = self.update(new_state, res.fun, "affinity re-scaling")
+        better = self.update(new_state, self.global_error(new_state.R), "affinity re-scaling")
         if better > 0:
             # un-block all affinities to allow unbiased optimization.
             self.sched.n_blocked = []
@@ -1988,7 +2134,7 @@ class ModelOptimization(object):
             
         def to_optimize(aff):
             params[param_i] = aff * .0001
-            state = opt.evaluate(params, tm_update=tm_update)
+            state = opt.evaluate(params, tm_update=tm_update, ground_state = ground_state)
             err = self.global_error(state.R)
             return err
 
@@ -2054,8 +2200,8 @@ class ModelOptimization(object):
         
         if self.previous:
             update = self.current.params - self.previous.params
-            print "{0} step at t={1}".format(name, self.t)
-            self.print_update_vector(update)
+            #print "{0} step at t={1}".format(name, self.t)
+            #self.print_update_vector(update)
 
         if tick:
             self.t += 1
