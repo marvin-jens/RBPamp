@@ -97,7 +97,7 @@ class PSAMState(object):
         
     def merge(self, mdl):
         x, scores = self.scan(mdl)
-        print "scores", scores
+        #print "score s", scores
         best_i = x[scores.argmax()]
         
         prepend = max(0, best_i)
@@ -166,22 +166,36 @@ class PSAMState(object):
 
 def opt_merge(p0, pk, padding):
     
+    pre0, app0, prek, appk = padding
+
     A0 = p0.A0
     Ak = pk.A0
+    
+    if prek:
+        Ak /= p0.psam[:prek].mean(axis=1).prod() * A0
+    if appk:
+        Ak /= p0.psam[-appk:].mean(axis=1).prod() * A0
+
+    print "A0", A0, "Ak", Ak
     A = max(A0, Ak)
 
-    pre0, app0, prek, appk = padding
+    
     n_ext = pre0 + app0
-    A0_avg = (A0/A)**(1./n_ext)
-    Ak_avg = (Ak/A)**(1./n_ext)
-    print "A0_avg", A0_avg
-    print p0.psam[:pre0,  :]
+    if n_ext:
+        A0_avg = (A0/A)**(1./n_ext)
+    
+    n_ext = prek + appk
+    if n_ext:
+        Ak_avg = (Ak/A)**(1./n_ext)
+
     if pre0:
         p0.psam[:pre0,  :] *= A0_avg
     if app0:
         p0.psam[-app0:, :] *= A0_avg
+        print app0, A0_avg, p0.psam[-app0:, :]        
     if prek:
         pk.psam[:prek,  :] *= Ak_avg
+        print prek, Ak_avg, pk.psam[:prek, :]        
     if appk:
         pk.psam[-app0:, :] *= Ak_avg
         
@@ -250,18 +264,18 @@ def opt_merge(p0, pk, padding):
         cost = matrix_dev + 100*Ak_dev + 100*A0_dev 
 
         #print p
-        print "costs:", matrix_dev, Ak_dev, A0_dev, cost
+        #print "costs:", matrix_dev, Ak_dev, A0_dev, cost
         return cost
 
     from scipy.optimize import minimize
     w0 = np.ones(n) * ratio**(1./n)
     bounds = np.array([(1e-10, max(ratio, 1./ratio)),]*n)
-    print "w0", w0
-    print "bounds", bounds
+    #print "w0", w0
+    #print "bounds", bounds
     res = minimize(to_optimize, w0, bounds=bounds)
     
     weights = res.x
-    print res.x, res.fun, res
+    #print res.x, res.fun, res
     #remain = ratio / weights.prod()
     #weights = np.concatenate( ( weights, (remain,)) )
     p0.psam = normed(weights)
@@ -271,34 +285,37 @@ def opt_merge(p0, pk, padding):
     
     
 if __name__ == "__main__":
-    psam = PSAMState.from_kmer('GCAUG', A0= 2.)
+    psam = PSAMState.from_kmer('GCAUG', A0= 1.)
+    #psam = PSAMState.from_kmer('NNNNN', A0= .001)
     print psam
     print "="*20
     for s, a0 in [
         #('GCAUG', 2.),
-        #('GCACG', .1),
-        #('GUACG', .05),
-        ('UGCAUGU', 3.)
+        #('CAUGU', 1.), 
+        ('GCACG', .1),
+        ('GUACG', .05),
+        ('UGCAUGU', 3.),
         #'CACGC',
-        #'GCACGCA',
+        ('UGCACGCA', 3.5),
         #('UGCAUGU', .8),
         #('UGCAUGU', 2.),
         #('UUGCACGU', 2.3),
     ]:
         
-        print s
+        print "->", s, a0
         other = PSAMState.from_kmer(s, A0=a0)
         a,b, padding = psam.merge(other)
 
-        print "a", padding
-        print a
-        print a.psam
-        print "b"
-        print b
+        print "padding", padding
+        #print a
+        #print a.psam
+        #print "b"
+        #print b
         #print b, prepend, append
-        print "!!!merged!!!"
+        #print "!!!merged!!!"
         c = opt_merge(a, b, padding)
         #c = a + b
+        psam = c
         print c
         from cska.ska_kmers import seq_to_index
         #print "making tabke"
