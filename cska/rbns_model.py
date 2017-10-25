@@ -12,6 +12,17 @@ import cska.ska_kmers
 from cska.rbns_reads import RBNSReads
 
 from cska.caching import CachedBase, cached, pickled
+#<<<<<<< Updated upstream
+#=======
+#from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
+#from cska.crosstalk_matrix import CrosstalkMatrix
+#from cska.simulator import RBNSGenerator, RBNSSimulator                             
+#from cska.kmersoup import RBNSKmerModel
+#from cska.scheduler import ParamUpdateScheduler
+#from cska.psam import PSAMState
+#from cska import timed
+#from cska.optimize import ModelOptimization
+#>>>>>>> Stashed changes
 
 def Kd_to_kcal(K,temp=22):
     RT = (temp + 273.15) * 8.314459848# RT in Joules/mol
@@ -30,7 +41,6 @@ def kcal_to_Kd(E,temp=22):
 class CrosstalkMatrix(CachedBase):
     def __init__(self, k, input_reads):
         CachedBase.__init__(self)
-
         self.k = k
         self.l = input_reads.L # oligo size
         self.input_reads = input_reads
@@ -2039,6 +2049,9 @@ class ModelOptimization(object):
     def step_param(self, show_sweep = False):
         self.logger.info("===parameter optimization===")
         param_i = self.sched.find_worst_param()
+        
+        #self.sweep_param(param_i)
+        
         best, err, new_state = self.optimize_single_param(param_i)
 
         update = new_state.params - self.current.params

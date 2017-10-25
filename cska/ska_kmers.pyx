@@ -375,7 +375,7 @@ def index_to_seq(index, k):
 @cython.initializedcheck(False)
 @cython.overflowcheck(False)
 @cython.cdivision(True)
-def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0, chunklines=1000000):
+def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0, int chunklines=1000000):
     cdef char* l
     cdef UINT64_t i, N=0, n=0, n0=0, L=0
     cdef UINT8_t x=0
@@ -692,18 +692,18 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
     Converts a matrix of nucleotide values (0..3 instead of ACGT) into
     a matrix of kmer index values. (AAA -> 0, AAC -> 1, ..., TTT -> 63).
     """
-    assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
+    #assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
 
     cdef UINT64_t N = len(seq_matrix)
     cdef UINT64_t L = len(seq_matrix[0])
     cdef UINT64_t l = L - k + 1
 
     # store k-mer indices here
-    cdef UINT16_t [:,:] indices = np.zeros( (N, l), dtype=np.uint16)
+    cdef UINT32_t [:,:] indices = np.zeros( (N, l), dtype=np.uint32)
 
     # helper variables to tell cython the types
     cdef UINT64_t i, j
-    cdef UINT16_t index, s
+    cdef UINT32_t index, s
 
     # largest kmer index 
     cdef UINT16_t MAX_INDEX = 4**k - 1
@@ -726,14 +726,14 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def index_matrix_rows_with_kmer(UINT16_t [:,:] index_matrix, UINT64_t k, UINT16_t kmer_index, int n_threads=8):
+def index_matrix_rows_with_kmer(UINT32_t [:,:] index_matrix, UINT64_t k, UINT32_t kmer_index, int n_threads=8):
     """
     searches for sequences that contain the desired kmer at least once.
     returns a vector with row-indices into the index-matrix with hits.
     Used to speed up updating of the thermodynamic model by restricting
     updates to the sequences that actually change their contribution.
     """
-    assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
+    #assert k <= 8 # for k > 8 indices do not fit into UINT16 anymore!
 
     cdef UINT64_t N = len(index_matrix)
     cdef UINT64_t l = len(index_matrix[0])
@@ -744,7 +744,7 @@ def index_matrix_rows_with_kmer(UINT16_t [:,:] index_matrix, UINT64_t k, UINT16_
     
     # helper variables to tell cython the types
     cdef UINT64_t i, j, t
-    cdef UINT16_t index, s
+    cdef UINT32_t index, s
 
     with nogil, parallel(num_threads=8):
         for j in prange(N):
@@ -765,10 +765,10 @@ def index_matrix_rows_with_kmer(UINT16_t [:,:] index_matrix, UINT64_t k, UINT16_
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k, int n_max=0, FLOAT32_t E_ns=0, int do_jacobi=False, int do_openen=False):
+def eval_energy_model_on_index_matrix(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, np.ndarray[FLOAT32_t] protein_conc, UINT64_t k, int n_max=0, FLOAT32_t E_ns=0, int do_jacobi=False, int do_openen=False):
     assert k <= 8 # must fit into UINT16 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
-    cdef UINT16_t MAX_INDEX = 4**k - 1
+    cdef UINT32_t MAX_INDEX = 4**k - 1
     cdef UINT64_t N = index_matrix.base.shape[0]
     if n_max:
         N = min(N, n_max)
@@ -798,7 +798,7 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
     # helper variables to tell cython the types
     cdef UINT8_t o
     cdef UINT64_t i=0, j=0, m=0, n=0
-    cdef UINT16_t index
+    cdef UINT32_t index
     cdef FLOAT64_t w=0, pb=0, g=0, jac = 0 # Boltzmann weight, Prob(seq is bound), gradient
     cdef FLOAT64_t Z1, Z1_m   # Single protein partition functions
 
@@ -854,13 +854,13 @@ def eval_energy_model_on_index_matrix(UINT16_t [:,:] index_matrix, UINT8_t [:,:]
 
 
 
-@cython.boundscheck(False)
+#@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
-    assert k <= 8 # must fit into UINT16 kmer-indices!
+def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
+    #assert k <= 8 # must fit into UINT16 kmer-indices!
 
     cdef UINT64_t N = index_matrix.base.shape[0]
     cdef UINT64_t l = index_matrix.base.shape[1]
@@ -871,7 +871,7 @@ def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
     # helper variables to tell cython the types
     cdef UINT8_t o=0
     cdef UINT64_t i=0, j=0
-    cdef UINT16_t index=0
+    cdef UINT32_t index=0
     cdef FLOAT64_t w=0
     cdef FLOAT64_t Z1=0 # Single protein partition function
 
@@ -894,15 +894,15 @@ def SPA_partition_function(UINT16_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
     return Z.base
 
 
-@cython.boundscheck(False)
+#@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def weighted_kmer_counts(UINT16_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
+def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
     assert k <= 8 # must fit into UINT16 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
-    cdef UINT16_t MAX_INDEX = 4**k - 1
+    cdef UINT32_t MAX_INDEX = 4**k - 1
     cdef UINT64_t N = index_matrix.base.shape[0]
     cdef UINT64_t l = index_matrix.base.shape[1]
 
@@ -912,7 +912,7 @@ def weighted_kmer_counts(UINT16_t [:,:] index_matrix, FLOAT32_t [:] weights, UIN
     # helper variables to tell cython the types
     cdef int thread_num
     cdef UINT64_t i=0, j=0
-    cdef UINT16_t index
+    cdef UINT32_t index
     cdef FLOAT32_t w=0
 
     with nogil, parallel(num_threads=8):
@@ -975,7 +975,7 @@ def kmer_openen_counts(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, UI
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] openen_lookup, int k_seq, int k_openen):
+def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] openen_lookup, int k_seq, int k_openen, int ofs):
     """
     Compute the mean open-energy levels relative to the 
     position of the kmer, for all kmers.
@@ -1022,7 +1022,7 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
             if i >= k_openen-1:
                 index_oe = index & MAX_INDEX_OE
                 #openens[i-k_openen+1] = openen_lookup[openen_matrix[j,i-k_openen+1]]
-                openens[i-k_openen+1] = openen_matrix[j,i-k_openen+1]
+                openens[i-k_openen+1] = openen_matrix[j,i-k_openen+1+ofs]
 
         for i in range(0,l_seq):
             index = indices[i]
@@ -1039,6 +1039,69 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
             
     return counts.base
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, int k_seq, UINT32_t kmer_index, int k_openen, int ofs):
+    """
+    Compute the mean open-energy levels relative to the 
+    position of the kmer, for all kmers.
+    
+    returns a (4^k_seq, 2*(L-k_openen)+1) shaped array with mean 
+    open-energies. If a kmer occurs multiple times in a read
+    the open-energies will be counted multiple times 
+    (into different position).
+    """
+    
+    print k_seq, k_openen
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t MAX_INDEX_SEQ = 4**k_seq - 1
+    cdef UINT64_t MAX_INDEX_OE = 4**k_openen - 1
+    cdef UINT64_t N = len(index_matrix)
+    cdef UINT64_t l_seq = len(index_matrix[0])
+    cdef int l_openen = l_seq + k_seq - k_openen
+
+    # store observations here to compute means upon exit
+    cdef UINT32_t [:,:] counts = np.zeros((2*l_openen+1, 256), dtype = np.uint32)
+    #cdef FLOAT32_t [:,:] sums = np.zeros((4**k_seq, 2*l_openen+1), dtype = np.float32)
+    #cdef FLOAT32_t [:] openens = np.zeros(l_openen, dtype=np.float32)
+    cdef UINT8_t [:] openens = np.zeros(l_openen, dtype=np.uint8)
+    cdef UINT64_t [:] indices = np.zeros(l_seq, dtype=np.uint64)
+    
+    # helper variables to tell cython the tqypes
+    cdef UINT8_t s
+    cdef int index_seq, index_oe, index, i, j, pos, x, m
+    
+    #with gil:
+    for j in range(N):
+        # iterate over all k-mers, always adding next base to index
+        #index = 0
+        for i in range(l_seq):
+            index = index_matrix[j, i]
+            if index != kmer_index:
+                continue
+            
+            for m in range(l_openen):
+                pos = l_openen + m - i
+                counts[pos, openen_matrix[j, m + ofs]] += 1
+
+        #for i in range(0,l_seq):
+            #index = indices[i]
+            ##print i, index, range(-i, l-i)
+            #for m in range(0, l_openen):
+                #x = m - i
+                #pos = l_openen + x
+                ##print x, pos
+                ##if index == 0b1001001110:
+                    ##print "i={0}, x={1}, pos={2}, openens[x+i] = {3}, sums[index, pos] = {4}, counts[index,pos]={5}".format(i, x, pos, openens[x+i], sums[index, pos], counts[index, pos])
+
+                ##sums[index, pos] += openens[m]
+                #counts[index, pos, openens[m]] += 1
+            
+    return counts.base
 
 
 
