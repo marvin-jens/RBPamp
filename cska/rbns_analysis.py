@@ -184,7 +184,7 @@ class RBNSAnalysis(CachedBase):
 
         # secondary structure open-energies/accessibility storage
         from cska.folding import OpenenStorage
-        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='gamma'))
+        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='linear'))
         
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )

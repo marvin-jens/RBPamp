@@ -12,7 +12,7 @@ import multiprocessing
 from Queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
-
+import cska.ska_kmers as cyska
 logger = logging.getLogger("cska.folding")
 
 # This global variable is used by the keyboard interrupt 
@@ -120,7 +120,8 @@ class RBNSOpenen(CachedBase):
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
         else:
-            raise ValueError("size of open energy matrix does not match the reads!")
+            delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
+            raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
             
         oem = oem.reshape( (N,L) )
         if self.rbns_reads.n_max:
@@ -162,15 +163,20 @@ class RBNSOpenen(CachedBase):
     @cached
     @pickled
     def kmer_openen_counts(self):
-        import cska.ska_kmers
-        return cska.ska_kmers.kmer_openen_counts(self.rbns_reads.seqm, self.oem, self.k)
+        return cyska.kmer_openen_counts(self.rbns_reads.seqm, self.oem, self.k)
         
     @cached
-    @pickled
+    #@pickled
+    def get_kmer_openen_profile(self, kmer):
+        kmer_index = cyska.seq_to_index(kmer)
+        k_seq = len(kmer)
+        return cyska.kmer_openen_profile(self.rbns_reads.get_index_matrix(k_seq), self.oem, k_seq, kmer_index, self.k, self.ofs)
+        
+    #@cached
+    #@pickled
     def kmer_mean_openen_profiles(self, k_seq=None):
         self.logger.debug("computing kmer_mean_openen_profiles..." )
         
-        import cska.ska_kmers
         if k_seq == None:
             k_seq = self.k
 
@@ -178,7 +184,7 @@ class RBNSOpenen(CachedBase):
         oem = self.oem
 
         t0 = time.time()
-        res = cska.ska_kmers.kmer_mean_openen_profiles(seqm, oem, np.array(self.disc.x), k_seq, self.k)
+        res = cyska.kmer_mean_openen_profiles(seqm, oem, np.array(self.disc.x), k_seq, self.k, self.ofs)
         dt = time.time() - t0
         self.logger.debug("kmer_mean_openen_profiles took {0:.1f} seconds".format(dt) )
 
@@ -445,6 +451,15 @@ class OpenenDiscretization(object):
         (40,8) : (2.2847020288586801, -0.086073860842223043, 1.3242768850690814),
     }
 
+    opt_E_max = {
+        (20,1) : 6.,
+        (20,2) : 6.5,
+        (20,3) : 7.,
+        (20,4) : 8.,
+        (20,5) : 10.,
+        (20,6) : 12.,
+        (20,7) : 15.,
+    }
     def __init__(self, k, L, dtype=np.uint8, mode='gamma'):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
         self.k = k
@@ -466,9 +481,9 @@ class OpenenDiscretization(object):
             self.x = np.array(scipy.stats.gamma.ppf(q_x, *params), dtype=np.float32)
         
         elif mode == 'linear':
-            E_max = 30.
+            E_max = OpenenDiscretization.opt_E_max[(L, k)]
             step = E_max / self.n
-            self.bins = np.arange(0, E_max + step, step)
+            self.bins = np.arange(0, E_max + step, step, dtype=np.float32)
             self.bins[0] -= step
             self.x = 0.5*(self.bins[1:] + self.bins[:-1])
         else:
