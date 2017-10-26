@@ -1802,13 +1802,13 @@ class ParamUpdateScheduler(object):
         
                  
 class ModelOptimization(object):
-    def __init__(self, reads, openen, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=100000000.): # scale_interval=.02
+    def __init__(self, reads, storage, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=100000000.): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
         # RBNS input sample to iterate on
         self.reads = reads
-        self.openen = openen
+        self.openen = storage.get_discretized(k)
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
 
@@ -1840,7 +1840,7 @@ class ModelOptimization(object):
         self.aff_max = aff_max
 
         # the model to be trained
-        self.mdl = SPAModel(reads, openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
+        self.mdl = SPAModel(self.reads, self.openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]

@@ -289,7 +289,7 @@ class RBNSAnalysis(CachedBase):
                 #sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0', 'beta1', 'beta2', 'beta3'])
                 sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0'])
                 sched_params = {}
-                opt = ModelOptimization(reads, storage, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=10000, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
+                opt = ModelOptimization(reads, storage, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=100000, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
                 #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
                 if options.known_kd:

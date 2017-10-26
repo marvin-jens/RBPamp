@@ -459,6 +459,10 @@ class OpenenDiscretization(object):
         (20,5) : 10.,
         (20,6) : 12.,
         (20,7) : 15.,
+        
+        (40,6) : 26.,
+        (40,7) : 28.,
+        (40,8) : 30.,
     }
     def __init__(self, k, L, dtype=np.uint8, mode='gamma'):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
@@ -524,6 +528,12 @@ class OpenenDiscretization(object):
         return "discretized_{self.mode}_L{self.L}_k{self.k}_{self.dtype.__name__}".format(self = self)
         
     def discretize(self, data):
+        print "data", data.shape
+        #print "examples", data[:10,:]
+        print "minmax", data.min(), data.max(), np.median(data),  (1 - np.isfinite(data)).sum()
+        print "bins", self.bins
+        print "dtype", self.dtype
+        
         return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
 
     def get_hist_xy(self, counts, normed=False):
