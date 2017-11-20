@@ -110,15 +110,23 @@ class RBNSOpenen(CachedBase):
         self.logger.debug("open-energy row l={0}".format(L))
         
         l = self.rbns_reads.L - self.k + 1
+        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
         if L == l:
             self.logger.info("data excludes adapters L={0}".format(L))
             self.include_adapters = False
             self.ofs = 0
         
-        elif L == l + self.rbns_reads.l5 + self.rbns_reads.l3:
+        elif L == l_adap:
             self.logger.info("data covers adapters L={0}".format(L))
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
+        elif L > l_adap:
+            n_file = float(len(oem)) / l_adap
+            self.logger.warning("file contains {n_file} rows (assuming it includes adapters) but only {self.rbns_reads.N} reads are loaded. Truncating!".format(**locals()) )
+            self.ofs = self.rbns_reads.l5
+            self.include_adapters = True
+            oem = oem[:l_adap*self.rbns_reads.N]
+            L = l_adap
         else:
             delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
             raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
@@ -457,9 +465,12 @@ class OpenenDiscretization(object):
         (20,3) : 7.,
         (20,4) : 8.,
         (20,5) : 10.,
-        (20,6) : 12.,
-        (20,7) : 15.,
-        
+        (20,6) : 10.,
+        (20,7) : 10.,
+        (20,8) : 11.,
+        (20,9) : 12.,
+        (20,10) : 13.,
+        (20,11) : 14.,
         (40,6) : 26.,
         (40,7) : 28.,
         (40,8) : 30.,
@@ -528,13 +539,27 @@ class OpenenDiscretization(object):
         return "discretized_{self.mode}_L{self.L}_k{self.k}_{self.dtype.__name__}".format(self = self)
         
     def discretize(self, data):
-        print "data", data.shape
+        #print "data", data.shape
         #print "examples", data[:10,:]
-        print "minmax", data.min(), data.max(), np.median(data),  (1 - np.isfinite(data)).sum()
-        print "bins", self.bins
-        print "dtype", self.dtype
+        #print "minmax", data.min(), data.max(), np.median(data),  (1 - np.isfinite(data)).sum()
+        #print "issues"
+        #mask = (1 - np.isfinite(data))
+        #print mask.sum()
+        #x = mask.nonzero()
+        #for i in x:
+            #print i, data[i]
         
-        return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
+        #print "bins", self.bins
+        #print "dtype", self.dtype
+        
+        #import cska.digitize as cd
+        #return cd.digitize(data, self.bins, dtype=self.dtype) - 1
+        #return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
+        
+        res = cyska.digitize_32fp_8bit(data, self.bins) - 1
+        return res
+        
+        
 
     def get_hist_xy(self, counts, normed=False):
         """
@@ -898,6 +923,7 @@ if __name__ == "__main__":
     print "low bins",bins[:10]
     print "low data",sorted(data)[:10]
     print "low data->bins", np.digitize(sorted(data)[:10], bins) -1
+    
     dig = np.digitize(data, bins) -1
     
     print dig.min(), dig.max()

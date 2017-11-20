@@ -105,6 +105,8 @@ def fast_rand(int N):
 
     return rnd
 
+def random():
+    return rand()
     
 # default initialization
 import time
@@ -854,7 +856,7 @@ def eval_energy_model_on_index_matrix(UINT32_t [:,:] index_matrix, UINT8_t [:,:]
 
 
 
-#@cython.boundscheck(False)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -893,8 +895,49 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
 
     return Z.base
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
+    assert k <= 8 # must fit into UINT16 kmer-indices!
 
-#@cython.boundscheck(False)
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+    
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    cdef FLOAT32_t a=0
+    cdef UINT64_t i=0, j=0
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w=0
+    cdef FLOAT64_t Z1=0 # Single protein partition function
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            Z1 = 0
+            # iterate over all k-mers
+            for i in range(0, l):
+                # assigned variables are thread-local
+                index = index_matrix[j, i]
+                a = acc_matrix[j, i + openen_ofs]
+                w = kmer_invkd[index] * a
+                Z1 = Z1 + w
+            
+            Z[j] = Z1
+
+    return Z.base
+
+
+
+
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -1654,6 +1697,146 @@ def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
                 hit_counts[dindices[m]] += 1
 
     return _hit_counts
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_count_pos_per_read(UINT8_t [:,:] seq_matrix, UINT64_t kmer_index, UINT8_t k):
+    """
+    Examine each read for occurrences of the indicated kmer. Record the number of
+    occurrences, as well as the the index of the last occurrence, for each read.
+    """
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    
+    cdef UINT32_t N = len(seq_matrix.base)
+    cdef UINT32_t L = len(seq_matrix.base[0])
+    cdef UINT32_t l = L-k+1
+
+    # count occurrences of the kmer, for each read
+    cdef UINT8_t [:] counts = np.zeros(N, dtype=np.uint8)
+    # keep position of first hit
+    cdef UINT8_t [:] last_pos = np.zeros(N, dtype=np.uint8)
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t index, i, j, m
+    
+    with nogil:
+        for j in range(N):
+            # compute index of first k-1 mer by bit-shiftkmer_profile(self.seqm, k)s
+            index = 0
+            for i in range(k-1):
+                index += seq_matrix[j,i] << 2 * (k - i - 2)
+
+            # iterate over remaining k-mers
+            for i in range(0, l):
+                # get next "letter"
+                s = seq_matrix[j,i+k-1]
+                # compute next index from previous by shift + next letter
+                index = ((index << 2) | s ) & MAX_INDEX
+                
+                if index == kmer_index:
+                    counts[j] += 1
+                    last_pos[j] = i
+
+    return counts.base, last_pos.base
+
+
+#@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def digitize_32fp_8bit(np.ndarray[FLOAT32_t, ndim=2] data, FLOAT32_t [:] bins):
+    cdef UINT64_t n = len(bins.base)
+    assert n <= 257
+    cdef UINT64_t N = len(data)
+    cdef UINT64_t L = len(data[0])
+    cdef FLOAT32_t [:] flat = data.flatten()
+    cdef UINT8_t [:] res = np.zeros(N*L, dtype=np.uint8)
+
+    cdef UINT64_t i,j,m, pivot
+    cdef FLOAT32_t x
+    #res = np.zeros(data.size, dtype=int)
+    with nogil, parallel(num_threads=8):
+        for m in prange(N*L):
+            x = flat[m]
+            i = 0
+            j = n-1
+            #print "value", x
+            #c = 0
+            while j - i > 1:
+                pivot = max(1, (j - i)/2 ) + i
+                #print pivot, bins[pivot]
+                #print "indices",i,j, pivot
+                #print "values",'?', bins[i], bins[j], bins[pivot]
+                
+                if x >= bins[pivot]:
+                    i = pivot
+                else:
+                    j = pivot
+                #c += 1
+                
+            if x >= bins[j]:
+                res[m] = j
+            else:
+                res[m] = i
+
+            #print x,"->", res[n], "in {0} steps".format(c)
+            #steps.append(c)
+            
+    #print np.array(steps).mean(), "average steps"
+    return np.reshape(res.base, (N,L)) + 1
+
+#@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def aggregate_binned_profiles(UINT8_t [:,:] bin_matrix, UINT8_t [:] pos, UINT8_t upstream, UINT8_t downstream):
+    """
+    Examine each read for occurrences of the indicated kmer. Record the number of
+    occurrences, as well as the the index of the last occurrence, for each read.
+    """
+    
+    cdef UINT64_t N = len(bin_matrix.base)
+    cdef UINT64_t L = len(bin_matrix.base[0])
+
+    cdef UINT64_t l = downstream + upstream + 1
+    cdef UINT64_t rightmost = L - downstream - 1
+    cdef UINT64_t leftmost = upstream
+
+    ## count bin occupancies for downstream and upstream positions relative to the hit pos
+    cdef UINT32_t [:,:] profile = np.zeros((l,2**8), dtype=np.uint32)
+    
+    ## keep position of first hit
+    #cdef UINT8_t [:] last_pos = np.zeros(N, dtype=np.uint8)
+    
+    ## helper variables to tell cython the types
+    cdef UINT8_t o
+    cdef UINT64_t i, j, m
+    
+    with nogil:
+        for j in range(N):
+            i = pos[j]
+            if i < leftmost or i > rightmost:
+                # does not fit
+                continue
+
+            for m in range(l):
+                # fetch the bin-value of the position rel to hit
+                o = bin_matrix[j, i - leftmost + l] 
+                # and record
+                profile[m,o] += 1
+                
+    return profile.base
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
