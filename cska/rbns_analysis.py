@@ -311,6 +311,42 @@ class RBNSAnalysis(CachedBase):
                 opt.mdl.store_params(os.path.join(self.out_path, fname))
                 rep.close()
 
+            if name == 'model':
+                from cska.rbns_model import ModelOptimization, ReferenceComparison
+                # first sample is input!
+                #reads = self.reads[0]
+                #openen = self.acc_storages[0].get_discretized(k)
+                #storage = self.acc_storages[0]
+
+                param_file = options.mdl_resume
+                R_obs, R_err = self.R_value_matrix(k)
+                
+                opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
+                #sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0', 'beta1', 'beta2', 'beta3'])
+                sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0'])
+                sched_params = {}
+                opt = ModelOptimization(self.reads, self.acc_storages, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
+                #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
+                
+                if options.known_kd:
+                    comp = ReferenceComparison(opt, options.known_kd)
+                else:
+                    comp = None
+
+                from cska.rbns_reports import OptReporting
+                rep = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
+                
+
+                try:
+                    opt.optimize(reporter = rep)
+                except KeyboardInterrupt:
+                    opt.logger.warning("Keyboard interrupt")
+                    rep.close()
+
+                opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
+                opt.mdl.store_params(os.path.join(self.out_path, fname))
+                rep.close()
+
             elif name == 'cooccurrence_tensor':
                 rbns.cooccurrence_tensor_analysis(k)
                 continue
