@@ -62,7 +62,53 @@ class EnrichmentBarPlot(object):
         path = os.path.join(dest, "{0}.{1}".format(fname, fmt) )
         pp.savefig(path)
         
+class TrackedValues(object):
+    def __init__(self):
+        self.d0 = None
+        self.last = None
+        self.updates = []
+        self.times = []
+        self.N = 0
+        self.logger = logging.getLogger("TrackedValues")
+        
+    def store(self, t, d):
+        
+        if not self.times:
+            self.d0 = d
+            self.last = d
+            self.times.append(t)
+            return
+        
+        delta = self.last - d
+        self.last = d
 
+        if (delta == 0).all():
+            return
+        
+        ind = delta.nonzero()[0]
+        self.logger.error(delta)
+        self.logger.error(ind)
+        self.updates.append( (ind, d[ind]) )
+        self.times.append(t)
+        
+    def read(self):
+        data = [self.d0,]
+        last = self.d0
+        for ind, vals in self.updates:
+            d = np.array(last)
+            d[ind] = vals
+            data.append(d)
+            last = d
+        
+        data = np.array(data)
+        #print len(self.times), len(self.updates), data.shape
+
+        assert len(self.times) == len(data)
+        return self.times, data
+        
+        
+        
+        
 class OptReporting(object):
     def __init__(self, opt, path='./', track=[], report_interval=50, comp=None):
         self.opt = opt
@@ -93,12 +139,23 @@ class OptReporting(object):
         self.report_interval = report_interval
         self.last_report = 0
         self.logger = logging.getLogger('OptReporting')
+        self.betas = TrackedValues()
+        self.affinities = TrackedValues()
     
     def tick(self, t):
+        self.betas.store(t, self.opt.current.params[self.opt.nA:])
+        self.affinities.store(t, self.opt.current.params[:self.opt.nA])
+        
         if t > self.last_report + self.report_interval:
+            self.plot_errors()
+            self.plot_correlations()
+            self.plot_betas()
+            #self.plot_tracked_kmer_histories()
+            self.plot_affinity_history()
+            
             self.plot_R_value_agreement()
-            self.plot_tracked_kmer_histories()
             self.plot_known_comparison()
+            
             for param_i in self.tracked_indices:
                 self.plot_sweep(param_i)
             self.last_report = t
@@ -109,12 +166,66 @@ class OptReporting(object):
                 self.tracked_updated[param_i].append(t)
 
     def close(self):
-        self.sweep_pdf.close()
-        self.descent_pdf.close()
-        self.R_pdf.close()
-        self.invkd_pdf.close()
-        self.err_pdf.close()
+        self.plot_errors()
+        self.plot_correlations()
+        self.plot_betas()
+        self.plot_affinity_history()
+        
+        for pdf in [self.sweep_pdf, self.descent_pdf, self.R_pdf, self.invkd_pdf, self.err_pdf]:
+            try:
+                pdf.close()
+            except AttributeError:
+                pass
 
+    def plot_errors(self):
+        pp.figure()
+        pp.semilogy(self.opt.errors)
+        pp.xlabel("time")
+        pp.ylabel("total error")
+        pp.savefig(os.path.join(self.path,'error.pdf'))
+        pp.close()
+        
+    def plot_correlations(self):
+        pp.figure()
+        for conc, corr in zip(self.opt.rbp_conc, np.array(self.opt.correlations).T )[::-1]:
+            pp.plot(corr, label='{0:.2f} nM'.format(conc))
+        
+        pp.xlabel('time step')
+        pp.ylabel('correlation coefficient')
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.path,'corr.pdf'))
+        pp.close()
+
+    def plot_betas(self):
+        pp.figure()
+        t, betas = self.betas.read()
+
+        for conc, beta in zip(self.opt.rbp_conc, betas.T )[::-1]:
+            pp.semilogy(t, beta, label='{0:.2f} nM'.format(conc))
+        
+        pp.xlabel('time step')
+        pp.ylabel('background (beta)')
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.path,'betas.pdf'))
+        pp.close()
+
+    def plot_affinity_history(self, n=10):
+        pp.figure()
+        t, aff_matrix = self.affinities.read()
+        last = aff_matrix[-1]
+        top_kmer_ind = last.argsort()[::-1][:n]
+        top_kmers = self.opt.kmers[top_kmer_ind]
+
+        for kmer, aff in zip(top_kmers, aff_matrix.T[top_kmer_ind] ):
+            pp.semilogy(t, aff, label=kmer)
+        
+        pp.xlabel('time step')
+        pp.ylabel('affinity [1/nM]')
+        pp.legend(loc='lower right')
+        pp.savefig(os.path.join(self.path,'affinity_history.pdf'))
+        pp.close()
+        
+        
     def plot_tracked_kmer_histories(self):
         self.logger.info("rendering tracked kmer affinity history plots")
         pp.figure()
@@ -254,10 +365,13 @@ class OptReporting(object):
             patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
 
         if kmer_i < self.opt.nA and kmer_i != None:
-            pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=5, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+            pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
-        m = min(R_a.min(), R_b.min())
-        M = max(R_a.max(), R_b.max())
+        #m = min(R_a.min(), R_b.min())
+        #M = max(R_a.max(), R_b.max())
+        m = R_a.min() * .75 # always use experiment as reference
+        M = R_a.max() * 1.25
+
         pp.plot([m,M],[m,M], '--k', zorder=np.inf)
         pp.xlim(m,M)
         pp.ylim(m,M)
@@ -306,38 +420,38 @@ class OptReporting(object):
         pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
         pp.close()
         
-    def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+    #def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
+        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
 
-        kmer_i = self.opt.last_param_update
-        kmer = self.opt.kmers[kmer_i]
+        #kmer_i = self.opt.last_param_update
+        #kmer = self.opt.kmers[kmer_i]
         
-        pp.figure()
-        pp.title('residual errors after step {0}'.format(self.opt.t) )
+        #pp.figure()
+        #pp.title('residual errors after step {0}'.format(self.opt.t) )
 
-        abs_err = np.arcsinh(self.opt.kmer_error_new)
-        #abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
+        #abs_err = np.arcsinh(self.opt.kmer_error_new)
+        ##abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
         
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
+        #for i,rbp_conc in enumerate(self.opt.rbp_conc):
+            #patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
             
-        mark_x = self.opt.known_invkd[to_mark_i]
-        mark_y = abs_err[:,to_mark_i].max(axis=0)
-        for mer, index, x, y in zip(to_mark, to_mark_i, mark_x, mark_y):
-            pp.text(x*2, y, mer)
+        #mark_x = self.opt.known_invkd[to_mark_i]
+        #mark_y = abs_err[:,to_mark_i].max(axis=0)
+        #for mer, index, x, y in zip(to_mark, to_mark_i, mark_x, mark_y):
+            #pp.text(x*2, y, mer)
 
-        #pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
+        ##pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
 
-        pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
+        #pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
         
-        pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-        pp.ylabel(r'arcsinh(residual error) [a.u.]')
-        pp.legend(loc='upper left')
-        #pp.xlim(1e-1,1e2)
-        #pp.ylim(1e-1,1e2)
-        pp.tight_layout()
-        self.err_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "err_vs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-        pp.close()
+        #pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
+        #pp.ylabel(r'arcsinh(residual error) [a.u.]')
+        #pp.legend(loc='upper left')
+        ##pp.xlim(1e-1,1e2)
+        ##pp.ylim(1e-1,1e2)
+        #pp.tight_layout()
+        #self.err_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "err_vs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
+        #pp.close()
 

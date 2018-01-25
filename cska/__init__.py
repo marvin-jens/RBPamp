@@ -32,7 +32,7 @@ def main():
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
-    parser.add_option("","--compute-results",dest="results",default="R_value,affinity",help="list of RBNS metrics to compute and store (options='*R_value,*affinity,SKA_weight,F_ratio' *=default)")
+    parser.add_option("","--compute-results",dest="results",default="R_value,affinity",help="list of RBNS metrics to compute and store (options='*R_value,*affinity,model,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")

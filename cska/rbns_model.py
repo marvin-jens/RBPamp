@@ -1330,7 +1330,46 @@ class ReferenceComparison(object):
             
         
             
-            
+class AffinityDistribution(object):
+    def __init__(self, mdl, reads, openen):
+        self.mdl = mdl
+        self.reads = reads
+        self.openen = openen
+        self.bins = np.arange(-15,4,1.)
+        self.logger = logging.getLogger("AffinityDistribution")
+    
+    def get_affinities(self):
+        im = cska.ska_kmers.seq_matrix_to_index_matrix(self.reads.seqm, self.mdl.k)
+        oem = self.openen.oem
+        kmer_invkd = self.mdl.params[:self.mdl.nA]
+
+        Z1 = cska.ska_kmers.SPA_partition_function(
+            im, oem, self.mdl.acc_lookup, 
+            kmer_invkd, self.mdl.k, 
+            openen_ofs = self.mdl.openen.ofs
+        )
+        return Z1
+
+    def get_affinity_distribution(self):
+        self.logger.debug("computing affinity distribution for {0}".format(self.reads.name) )
+
+        Z1 = self.get_affinities()
+        self.logger.info("affinities {3} min={0}, max={1}, median={2}".format( Z1.min(), Z1.max(), np.median(Z1), self.reads.name ) )
+        
+        y, x = np.histogram(np.log10(Z1), bins = self.bins, density=False )
+        return y / float(y.sum()), x
+
+    def predict_affinity_distribution(self, rbp_conc, beta=0, bg=None):
+        self.logger.debug("predicting affinity distribution @RBP_conc={0}nM from {1}".format(rbp_conc, self.reads.name) )
+        Z1 = self.get_affinities()
+        psi = (rbp_conc * Z1) / (rbp_conc * Z1 + 1.)
+
+        y, x = np.histogram(np.log10(Z1), bins = self.bins, weights = psi )
+        y /= y.sum()
+        
+        y += beta * bg
+        return y / y.sum(), x
+        
         
         
 class SPAModel(object):
@@ -1802,13 +1841,16 @@ class ParamUpdateScheduler(object):
         
                  
 class ModelOptimization(object):
-    def __init__(self, reads, storage, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=10, sched_params = {}, beta_interval = .01, scale_interval=100000000.): # scale_interval=.02
+    def __init__(self, reads, storages, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.01, sched_params = {}, beta_interval = .01, scale_interval=100000000000000): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
         # RBNS input sample to iterate on
-        self.reads = reads
-        self.openen = storage.get_discretized(k)
+        self.all_reads = reads
+        self.reads = reads[0] # try and phase out! TODO needs cleanup
+        self.input_reads = reads[0]
+        self.storages = storages
+        self.openen = storages[0].get_discretized(k)
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
 
@@ -1816,12 +1858,14 @@ class ModelOptimization(object):
 
         self.beta_interval = int(beta_interval * self.nA)
         self.scale_interval = int(scale_interval * self.nA)
+        self.strategy_window = int(.1 * self.nA) # number of steps average last error to
+        # decide if we want to switch from local to global optimization
         self.last_beta = 0
         self.last_scale = 0
         
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = 0
-        self.tm_refresh = tm_refresh
+        self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
 
         self.logger = logging.getLogger('ModelOptimization')
@@ -1844,7 +1888,9 @@ class ModelOptimization(object):
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]
+        self.correlations = []
         self.rel_improvements = []
+        self.param_local_fit = True
         
         # set initial state of the model
         self.previous = None
@@ -1853,6 +1899,30 @@ class ModelOptimization(object):
             #self.update(self.mdl.load_params(param_file), np.Inf, "resuming from {0}".format(param_file))
             self.logger.info("resuming from {0}".format(param_file))
             self.current = self.mdl.evaluate(self.mdl.load_params(param_file), keep = True)
+            
+            ## TESTING: compare observed and predicted affinity distributions
+            import matplotlib.pyplot as pp
+            aff_in = AffinityDistribution(self.mdl, self.all_reads[0], self.storages[0].get_discretized(self.k))
+            bg = aff_in.get_affinity_distribution()
+            print "input", bg
+            for i, conc in enumerate(self.rbp_conc):
+                beta = self.mdl.params[self.mdl.nA+i]
+                pred = aff_in.predict_affinity_distribution(conc, beta=beta, bg=bg[0])
+                print "predicted", pred
+                aff = AffinityDistribution(self.mdl, self.all_reads[i+1], self.storages[i+1].get_discretized(self.k))
+                obs = aff.get_affinity_distribution()
+                print "observed", obs
+                x = (aff_in.bins[1:] + aff_in.bins[:-1])/2.
+                pp.plot(x, pred[0], '-', label='pred {0}nM'.format(conc) )
+                pp.plot(x, obs[0], '.', label='obs {0}nM'.format(conc) )
+                pp.show()
+                
+            pp.xlabel('predicted')
+            pp.ylabel('observed')
+            pp.legend()
+            pp.show()
+            1/0
+            
         else:
             params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
             params[0:self.nA] += aff0
@@ -1923,16 +1993,20 @@ class ModelOptimization(object):
             tm_update = False
             opt = self.mdl
             
-        scale = 10**np.arange(-9,3,.1)
+        scale = 10**np.arange(np.log10(self.aff_min),np.log10(self.aff_max),.1)
         err = []
+        loc = []
         for s in scale:
             params[param_i] = s
             state = opt.evaluate(params, tm_update=tm_update)
             #err.append(self.global_error_conc(state.R, conc_i))
             err.append(self.global_error(state.R))
+            error = ((state.R[:,param_i] - self.R_obs[:,param_i])**2).sum()
+            loc.append(error)
          
         #print err
         pp.loglog(scale, err)
+        pp.loglog(scale, loc)
         pp.axvline(x0)
         pp.axhline(self.errors[-1])
         pp.show()
@@ -1984,15 +2058,16 @@ class ModelOptimization(object):
             self.logger.debug("{0} {1}\t{2:.3e}\t{3:.3e}\t{4}".format( self.mdl.param_name[i], state, self.current.params[i], self.known_params[i], R_str ) )
       
 
-    def converged(self, last=10, tol=1e-5):
+    def converged(self, last=20, tol=.001):
         if len(self.rel_improvements) < last:
             return False
         
         tol *= 4**(- (self.k-5) ) # expect slower convergence for higher k, bc each kmer alone will have less to explain
-        recent = np.array(self.rel_improvements[-last:])
+        recent = np.array(self.errors[-last:])
+        mean = recent.mean()
         #avg = recent.mean()
-        dev = np.mean(recent)
-        self.logger.debug("mean relative improvement over past {0} iteration steps={1}".format(last, dev) )
+        dev = recent.std() / mean 
+        self.logger.debug("mean error over past {0} iteration steps={1}, relative change={2}".format(last, mean, dev) )
         if dev < tol:
             self.logger.info("convergence with mean improvement of {0}".format(dev) )
             return True
@@ -2011,7 +2086,7 @@ class ModelOptimization(object):
             
         imp, new_state = self.step_betas()
         #imp, new_state = self.step_scale(reporter=reporter)
-        #sys.exit(1)       
+        #sys.exit(1)
         while not self.converged() and self.t < max_iter:
             if reporter:
                 reporter.tick(self.t)
@@ -2034,7 +2109,7 @@ class ModelOptimization(object):
 
             if self.t - self.last_scale > self.scale_interval:
                 self.step_scale()
-                #self.step_betas()
+                self.step_betas()
                 self.last_scale = self.t
                 self.last_beta = self.t
 
@@ -2045,14 +2120,23 @@ class ModelOptimization(object):
 
         if reporter:
             reporter.plot_R_value_agreement()              
+            reporter.close()
 
     def step_param(self, show_sweep = False):
         self.logger.info("===parameter optimization===")
         param_i = self.sched.find_worst_param()
         
         #self.sweep_param(param_i)
-        
-        best, err, new_state = self.optimize_single_param(param_i)
+               
+        if self.param_local_fit and len(self.rel_improvements) >= self.strategy_window:
+            avg_improvement = np.mean(self.rel_improvements[-self.strategy_window:])
+            self.logger.info("performing local fits, past rel. improvements average={0}".format(avg_improvement) )
+            
+            if avg_improvement < 0:
+                self.logger.info("switching to global optimization at step {0}".format(self.t))
+                self.param_local_fit = False
+            
+        best, err, new_state = self.optimize_single_param(param_i, local = self.param_local_fit)
 
         update = new_state.params - self.current.params
         name = self.mdl.param_name[param_i]
@@ -2067,7 +2151,7 @@ class ModelOptimization(object):
 
     def step_betas(self, ground_state=None):
         for param_i in range(self.nA, self.n_params):
-            best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state)
+            best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
             better = self.update(new_state, err, "beta{0} parameter optimization".format(param_i - self.nA), tick=False)
 
         return better, new_state
@@ -2105,7 +2189,7 @@ class ModelOptimization(object):
             
             # find optimal betas at each step
             for param_i in range(self.nA, self.n_params):
-                best, err, new_state = self.optimize_single_param(param_i, ground_state=state)
+                best, err, new_state = self.optimize_single_param(param_i, ground_state=state, local=False)
                 state.params[param_i] = best
                 
             err = self.global_error(new_state.R)
@@ -2114,7 +2198,7 @@ class ModelOptimization(object):
             errors.append(err)
             return err
 
-        res = minimize_scalar(to_optimize, bounds = (.1,10), method='Bounded')
+        res = minimize_scalar(to_optimize, bounds = (.1,1), method='Bounded')
         dt = time.time() - t0
         self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
 
@@ -2130,7 +2214,7 @@ class ModelOptimization(object):
             self.sched.n_blocked = []
         return better, new_state
             
-    def optimize_single_param(self, param_i, ground_state=None):
+    def optimize_single_param(self, param_i, ground_state=None, local=True):
         if ground_state == None:
             ground_state = self.current
         
@@ -2146,31 +2230,86 @@ class ModelOptimization(object):
             opt = self.mdl
             
         def to_optimize(aff):
-            params[param_i] = aff * .0001
+            params[param_i] = aff #* .0001
             state = opt.evaluate(params, tm_update=tm_update, ground_state = ground_state)
-            err = self.global_error(state.R)
+            
+            if local:
+                err = ((state.R[:,param_i] - self.R_obs[:,param_i])**2).sum()
+            else:
+                err = self.global_error(state.R)
+
+            #print params[param_i], err
             return err
 
+        def minimize_logspaced(func, bounds = [], n_samples = 10, **kwargs):
+            """
+            first evaluate at log-spaced sampling points along parameter range
+            then select at most 3 orders of magnitude around the lowest observed value
+            for Brent optimization. Requires pos. valued bounds!
+            """
+            
+            bmin = bounds.min()
+            bmax = bounds.max()
+            
+            lmin = np.log10(bmin)
+            lmax = np.log10(bmax)
+            
+            sample_x = 10**np.linspace(lmin, lmax, n_samples)
+            samples = np.array([to_optimize(x) for x in sample_x])
+                
+            #print zip(sample_x, samples)
+            i = samples.argmin()
+            li = max(0, i -1)
+            ri = min(n_samples-1, i+1)
+            
+            brent_min = sample_x[li]
+            brent_max = sample_x[ri]
+            
+            res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
+            return res
+            
         t0 = time.time()
-        s_mid = (self.aff_max + self.aff_min)/2.
-        res_a = minimize_scalar(to_optimize, bounds = 10000 * np.array([self.aff_min, s_mid]), method='Bounded')
-        res_b = minimize_scalar(to_optimize, bounds = 10000. * np.array([s_mid, self.aff_max]), method='Bounded')
-        if res_a.fun < res_b.fun:
-            res = res_a
-        else:
-            res = res_b
+        #s_mid = (self.aff_max + self.aff_min)/2.
+        #bounds_a = 10000 * np.array([self.aff_min, 1.5*s_mid])
+        #bounds_b = 10000. * np.array([.75*s_mid, self.aff_max])
+        #print "first fit bounds", bounds_a
+        #res_a = 
+        #print "second fit", bounds_b
+        #res_b = minimize_scalar(to_optimize, bounds = bounds_b, method='Bounded')
+        #if res_a.fun < res_b.fun:
+            #res = res_a
+        #else:
+            #res = res_b
+        res = minimize_logspaced(to_optimize, bounds = np.array([self.aff_min, self.aff_max]) )
 
-        best = res.x * 0.0001
+        best = res.x #* 0.0001
         dt = time.time() - t0
         name = self.mdl.param_name[param_i]
         A0 = ground_state.params[param_i]
         rel_change = (best - A0) / A0
-        self.logger.debug("optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
+
+        if local:
+            mode = 'LOCAL'
+        else:
+            mode = 'GLOBAL'
+        
+        self.logger.debug("{mode} optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
 
         params[param_i] = best
         new_state = opt.evaluate(params, tm_update=tm_update)
         
-        return best, res.fun, new_state
+        if best > .1 * self.aff_max and param_i < self.nA:
+            print self.kmers[param_i]
+            print "local", local
+            print "res_a", res_a
+            print "res_b", res_b
+            print "error at minimum", res.fun
+            print "optimal affinity", best
+
+            self.sweep_param(param_i, x0=best)
+
+        err = self.global_error(new_state.R)
+        return best, err, new_state
 
 
     def update(self, new_state, err, name, tick=True):
@@ -2179,12 +2318,12 @@ class ModelOptimization(object):
         
         if self.errors:
             better = (self.errors[-1] - err)* 100./self.errors[-1]
-            if better <= 0:
-                self.logger.warning("unable to lower error in {1} step at t={0}".format(self.t, name))
-                # reject the changes!
-                #params = np.array(self.current.params)
-                better = 0
-                new_state = self.current
+            #if better <= 0:
+                #self.logger.warning("unable to lower error in {1} step at t={0}".format(self.t, name))
+                ## reject the changes!
+                ##params = np.array(self.current.params)
+                #better = 0
+                #new_state = self.current
         else:
             better = err
             
@@ -2208,7 +2347,9 @@ class ModelOptimization(object):
         self.errors.append(self.global_error(self.current.R))
         
         self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2e}%".format(name, self.t, better))
-        self.logger.info("correlations: {0}".format(self.correlation()) )
+        corr = self.correlation()
+        self.correlations.append(corr)
+        self.logger.info("correlations: {0}".format(corr) )
         self.logger.info("most recent errors: {0}".format( self.errors[-5:] ))
         
         if self.previous:

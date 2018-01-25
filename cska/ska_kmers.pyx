@@ -1830,7 +1830,7 @@ def aggregate_binned_profiles(UINT8_t [:,:] bin_matrix, UINT8_t [:] pos, UINT8_t
 
             for m in range(l):
                 # fetch the bin-value of the position rel to hit
-                o = bin_matrix[j, i - leftmost + l] 
+                o = bin_matrix[j, i - leftmost + m] 
                 # and record
                 profile[m,o] += 1
                 
