@@ -335,17 +335,17 @@ class RBNSAnalysis(CachedBase):
 
                 from cska.rbns_reports import OptReporting
                 rep = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
-                
+                #rep = None
 
                 try:
-                    opt.optimize(reporter = rep)
+                    opt.pwm_fit(reporter = rep)
                 except KeyboardInterrupt:
                     opt.logger.warning("Keyboard interrupt")
                     rep.close()
 
-                opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
-                opt.mdl.store_params(os.path.join(self.out_path, fname))
-                rep.close()
+                #opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
+                #opt.mdl.store_params(os.path.join(self.out_path, fname))
+                #rep.close()
 
             elif name == 'cooccurrence_tensor':
                 rbns.cooccurrence_tensor_analysis(k)

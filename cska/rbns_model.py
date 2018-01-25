@@ -1837,7 +1837,31 @@ class ParamUpdateScheduler(object):
         self.update(pick)
         self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
         return pick
+    
+    def pwm_set(self, seed, k):
+        """
+        generate all single base substitution variants of a 
+        seed motif by bit-operations on the corresponding kmer index.
+        """
+        variants = [seed]
+        for j in range(k):
+            nt = (seed >> j*2) & 3
+            #print "j,nt",j,nt
+            mask = seed ^ nt << (j*2)
+            #print "mask", cyska.index_to_seq(mask,k)
+            
+            for l in range(4):
+                var = mask | (l << j*2)
+                #print "variant", cyska.index_to_seq(var,k)
+
+                if var != seed:
+                    variants.append(var)
+
+        scores = [self._score[i] for i in variants]
+        to_sort = zip(scores, variants)
+        ordered = [i for s,i in sorted(to_sort, reverse=True)]
         
+        return ordered
         
                  
 class ModelOptimization(object):
@@ -1943,7 +1967,10 @@ class ModelOptimization(object):
         self.sched = ParamUpdateScheduler(self, **sched_params)
 
     def estimate_background(self, q=1.):
-        return np.nanpercentile(self.R_obs, q, axis=1)
+        l = self.all_reads[0].L
+        betas = np.nanpercentile(self.R_obs, q, axis=1) / (l - self.k + 1)
+        self.logger.info("estimated background={betas} from {q} percentile of R-value distribution".format(**locals()) )
+        return betas
         
     def correlation(self, R_new=[]):
         if not len(R_new):
@@ -2122,6 +2149,74 @@ class ModelOptimization(object):
             reporter.plot_R_value_agreement()              
             reporter.close()
 
+    def pwm_fit(self, reporter = None, max_iter=None, snapshots=False, **kwargs):
+        from cska.pwm import PSAM
+        # initialize the model by fitting the worst kmer and then background estimates once.
+        param_i = self.sched.find_worst_param()
+        name = self.mdl.param_name[param_i]
+        if reporter:
+            reporter.tick(-1)
+                
+        best, err, new_state = self.optimize_single_param(param_i, local = True)
+        self.step_betas()
+        imp = self.update(new_state, err, "initial fit of {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
+        if reporter:
+            reporter.tick(self.t)
+            
+        # begin actual optimization 
+        # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
+        kmer_indices = self.sched.pwm_set(param_i, self.k)
+        print [self.mdl.param_name[i] for i in kmer_indices]
+        for i in kmer_indices:
+            name = self.mdl.param_name[i]
+        
+            best, err, new_state = self.optimize_single_param(i, local = True)
+            imp = self.update(new_state, err, "local kmer optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
+        
+        kmer_aff = [new_state.params[i] for i in kmer_indices]
+        kmers = [self.mdl.param_name[i] for i in kmer_indices]
+
+        pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
+        print pwm
+        if reporter:
+            reporter.tick(self.t)
+        ## done with first round. refine scores
+        
+        for t in range(2):
+            self.step_betas()
+
+            # just update the error scores!
+            self.sched.find_worst_param() 
+            #name = self.mdl.param_name[param_i]
+            #print "next worst kmer", name
+            
+            # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
+            kmer_indices = self.sched.pwm_set(param_i, self.k)
+            #print [self.mdl.param_name[i] for i in kmer_indices]
+            for i in kmer_indices:
+                name = self.mdl.param_name[i]
+                best, err, new_state = self.optimize_single_param(i, local = True)
+                imp = self.update(new_state, err, "local kmer optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
+            
+            kmer_aff = [new_state.params[i] for i in kmer_indices]
+            kmers = [self.mdl.param_name[i] for i in kmer_indices]
+
+            pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
+            print "refinement step",t
+            print pwm
+            pwm.save_logo('{0}.eps'.format(t))
+
+            if reporter:
+                reporter.tick(self.t)
+        
+
+        if reporter:
+            reporter.plot_R_value_agreement()              
+            reporter.close()
+        # notify the scheduler of the param change and its consequences
+        #self.sched.param_changed(param_i, self.t, imp)
+
+        
     def step_param(self, show_sweep = False):
         self.logger.info("===parameter optimization===")
         param_i = self.sched.find_worst_param()
@@ -2257,13 +2352,14 @@ class ModelOptimization(object):
             sample_x = 10**np.linspace(lmin, lmax, n_samples)
             samples = np.array([to_optimize(x) for x in sample_x])
                 
-            #print zip(sample_x, samples)
+            print "logspaced sample", zip(sample_x, samples)
             i = samples.argmin()
             li = max(0, i -1)
             ri = min(n_samples-1, i+1)
             
             brent_min = sample_x[li]
             brent_max = sample_x[ri]
+            print "search optimum between", brent_min, brent_max
             
             res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
             return res
@@ -2301,8 +2397,8 @@ class ModelOptimization(object):
         if best > .1 * self.aff_max and param_i < self.nA:
             print self.kmers[param_i]
             print "local", local
-            print "res_a", res_a
-            print "res_b", res_b
+            print "res", res
+            #print "res_b", res_b
             print "error at minimum", res.fun
             print "optimal affinity", best
 

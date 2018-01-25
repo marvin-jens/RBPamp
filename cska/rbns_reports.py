@@ -92,7 +92,10 @@ class TrackedValues(object):
         self.times.append(t)
         
     def read(self):
-        data = [self.d0,]
+        if self.d0 != None:
+            data = [self.d0,]
+        else:
+            data = []
         last = self.d0
         for ind, vals in self.updates:
             d = np.array(last)
