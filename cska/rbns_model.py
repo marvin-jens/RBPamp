@@ -489,6 +489,10 @@ class ModelOptimization(object):
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
 
+        self.opt_path = os.path.join(self.out_path, 'opt/{0}mers'.format(self.k))
+        if not os.path.exists(self.opt_path):
+            os.makedirs(self.opt_path)
+
         self.reporter=reporter
         # observations to fit to
         self.R_obs, self.R_err = self.rbns_analysis.R_value_matrix(k)
@@ -779,10 +783,18 @@ class ModelOptimization(object):
             kmers = [self.mdl.param_name[i] for i in kmer_indices]
 
             pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
-            pwm.save_logo('pwm_seed_{pwm.kmer_seed}_t={self.t}.pdf'.format(**locals()))
+            logo_path = os.path.join(
+                self.opt_path, 
+                'pwm_seed_{pwm.kmer_seed}_t={self.t}.pdf'.format(**locals()) 
+            )
+            logo_title = 'A0={pwm.A0}'.format(**locals())
+            pwm.save_logo(logo_path, title=logo_title)
             
+            print pwm
             for mer in kmers:
                 kmer_pwm_map[mer] = pwm
+        
+            return pwm
         
         def is_shifted(kmer, s_max=2):
             k = len(kmer)
@@ -834,7 +846,7 @@ class ModelOptimization(object):
                     # need to switch to k+1 model!
                     if self.k+1 > k_max:
                         self.logger.warning("reached k_max, ending optimization")
-                        return
+                        break
                     
                     self.logger.info("switching to k+1 = {0} at t={1}".format(self.k+1, self.t) )
                     new_param = self.params_for_k_extension(self.k)
@@ -853,7 +865,8 @@ class ModelOptimization(object):
                     new_opt.reporter = self.reporter
                     
                     return new_opt.pwm_fit(max_iter=max_iter, snapshots=snapshots, **kwargs)
-                
+
+        self.mdl.store_params(os.path.join(self.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
         
         #if self.reporter:
             #self.reporter.close()
