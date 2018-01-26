@@ -59,9 +59,10 @@ class PSAM(object):
         for nt in kmer:
             cols.append(ambig_vectors[ambig_index[nt]])
         
-        psam = np.array(cols, dtype=np.float32)
-
-        return cls(psam, **kwargs)
+        m = np.array(cols, dtype=np.float32)
+        psam = cls(m, **kwargs)
+        psam.kmer_seed = kmer
+        return psam
     
     @classmethod
     def from_kmer_variants(cls, kmers, aff, **kwargs):
@@ -92,6 +93,7 @@ class PSAM(object):
             #print "->merged", kmers[i], rel_A
 
         #print psam
+        psam.kmer_set = set(kmers)
         return psam
 
             
@@ -120,10 +122,16 @@ class PSAM(object):
         buf = ["PSAM A0={0} n={1}".format(self.A0, self.n)]
         for col,d  in zip(self.psam, self.discrimination):
             buf.append("\t".join(["{0:.6e}".format(s) for s in col] + [project_column(col), str(d)]) )
-                                                          
+
+        kmer_seed = getattr(self, "kmer_seed","")
+        kmer_set =  getattr(self, "kmer_set","")
+        if kmer_seed:
+            buf.append("seeded from '{0}'".format(kmer_seed))
+        if kmer_set:
+            buf.append("built from {0} kmers '{1}'".format(len(kmer_set), ",".join(sorted(kmer_set)) ) )
         return "\n".join(buf)
 
-    def save_logo(self, fname='pwm.eps'):
+    def save_logo(self, fname='pwm.pdf', title=""):
         import weblogolib as wl
         counts = self.psam
         from corebio.seq import unambiguous_rna_alphabet
@@ -131,15 +139,15 @@ class PSAM(object):
         data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
         import sys
         sys.stderr.write(str( data))
-        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="")
+        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.')
         options.title = "A Logo Title"
         fmt = wl.LogoFormat(data, options)
-        eps = wl.eps_formatter( data, fmt)
+        dump = wl.pdf_formatter( data, fmt)
         
         if fname:
-            file(fname,'w').write(eps)
+            file(fname,'wb').write(dump)
         
-        return eps
+        return dump
 
 def opt_merge(p0, pk, padding):
     

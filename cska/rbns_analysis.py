@@ -283,13 +283,13 @@ class RBNSAnalysis(CachedBase):
                 #storage = self.acc_storages[0]
 
                 param_file = options.mdl_resume
-                R_obs, R_err = self.R_value_matrix(k)
                 
                 opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
                 #sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0', 'beta1', 'beta2', 'beta3'])
                 sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0'])
                 sched_params = {}
-                opt = ModelOptimization(self.reads, self.acc_storages, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
+                
+                opt = ModelOptimization(k, rbns_analysis=self, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
                 #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
                 if options.known_kd:
@@ -318,14 +318,13 @@ class RBNSAnalysis(CachedBase):
                 #openen = self.acc_storages[0].get_discretized(k)
                 #storage = self.acc_storages[0]
 
-                param_file = options.mdl_resume
-                R_obs, R_err = self.R_value_matrix(k)
-                
+                param_file = options.mdl_resume               
                 opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
                 #sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0', 'beta1', 'beta2', 'beta3'])
                 sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0'])
                 sched_params = {}
-                opt = ModelOptimization(self.reads, self.acc_storages, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
+                opt = ModelOptimization(k, rbns_analysis=self, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
+                
                 #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
                 if options.known_kd:
@@ -334,14 +333,14 @@ class RBNSAnalysis(CachedBase):
                     comp = None
 
                 from cska.rbns_reports import OptReporting
-                rep = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
-                #rep = None
+                opt.reporter = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
 
                 try:
-                    opt.pwm_fit(reporter = rep)
+                    opt.pwm_fit()
                 except KeyboardInterrupt:
                     opt.logger.warning("Keyboard interrupt")
-                    rep.close()
+                    
+                opt.reporter.close()
 
                 #opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
                 #opt.mdl.store_params(os.path.join(self.out_path, fname))

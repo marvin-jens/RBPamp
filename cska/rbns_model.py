@@ -8,6 +8,7 @@ from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
 import cska.ska_kmers 
+import cska.ska_kmers as cyska
 
 from cska.rbns_reads import RBNSReads
 
@@ -1789,6 +1790,10 @@ class ParamUpdateScheduler(object):
         else:
             R_str = 'n/a'
         
+        #print "DUMP"
+        #print self.opt.k
+        #print len(self.opt.mdl.param_name)
+        #print len(self.opt.known_params)
         return "{0:10s} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8:.3e}\t{9}".format( 
             self.opt.mdl.param_name[i], 
             state, 
@@ -1815,7 +1820,7 @@ class ParamUpdateScheduler(object):
         self._expect = self.expectation
         self._suscept = self.susceptibility
         #score = residual * dt * expect * self.susceptibility
-        self._score = self._residual * self._dt * self._expect * self._suscept
+        self._score = self._residual #* self._dt * self._expect * self._suscept
         #self.logger.debug("beta expect {0}".format(expect[self.opt.nA:]))
         #self.logger.debug("beta scores {0}".format(score[self.opt.nA:]))
         
@@ -1828,13 +1833,13 @@ class ParamUpdateScheduler(object):
         for j,i in enumerate(self._score.argsort()[::-1]):
             if not i in self.blocked_params:
                 cand.append(i)
-            if j < 20:
+            if j < 10:
                 self.logger.debug(self.debug_str_from_param(i))
-            if j > 20 and cand:
+            if j > 10 and cand:
                 break
 
         pick = cand[0]
-        self.update(pick)
+        #self.update(pick)
         self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
         return pick
     
@@ -1865,16 +1870,17 @@ class ParamUpdateScheduler(object):
         
                  
 class ModelOptimization(object):
-    def __init__(self, reads, storages, k, R_obs, R_err=[], known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.01, sched_params = {}, beta_interval = .01, scale_interval=100000000000000): # scale_interval=.02
+    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.01, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
         # RBNS input sample to iterate on
-        self.all_reads = reads
-        self.reads = reads[0] # try and phase out! TODO needs cleanup
-        self.input_reads = reads[0]
-        self.storages = storages
-        self.openen = storages[0].get_discretized(k)
+        self.rbns_analysis = rbns_analysis        
+        self.all_reads = rbns_analysis.reads
+        self.reads = self.all_reads[0] # try and phase out! TODO needs cleanup
+        self.input_reads = self.all_reads[0]
+        self.storages = self.rbns_analysis.acc_storages
+        self.openen = self.storages[0].get_discretized(k)
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
 
@@ -1888,7 +1894,7 @@ class ModelOptimization(object):
         self.last_scale = 0
         
         self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
-        self.t = 0
+        self.t = t0
         self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
 
@@ -1897,10 +1903,9 @@ class ModelOptimization(object):
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
 
-
+        self.reporter=reporter
         # observations to fit to
-        self.R_obs = R_obs
-        self.R_err = R_err
+        self.R_obs, self.R_err = self.rbns_analysis.R_value_matrix(k)
         
         # bounds for the affinity parameters
         self.aff0 = aff0
@@ -1947,7 +1952,13 @@ class ModelOptimization(object):
             pp.show()
             1/0
             
+        elif len(mdl_params):
+            # start with given parameterization
+            params = np.array(mdl_params, dtype=np.float32)
+            assert len(params) == self.nA + len(rbp_conc)
+            self.current = self.mdl.evaluate(params, keep = True)
         else:
+            # start from scratch
             params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
             params[0:self.nA] += aff0
             betas = self.estimate_background()
@@ -2149,52 +2160,32 @@ class ModelOptimization(object):
             reporter.plot_R_value_agreement()              
             reporter.close()
 
-    def pwm_fit(self, reporter = None, max_iter=None, snapshots=False, **kwargs):
+    def pwm_fit(self, max_iter=None, snapshots=False, k_max=7, **kwargs):
         from cska.pwm import PSAM
+        if self.reporter:
+            self.reporter.tick(self.t)
+                
         # initialize the model by fitting the worst kmer and then background estimates once.
         param_i = self.sched.find_worst_param()
         name = self.mdl.param_name[param_i]
-        if reporter:
-            reporter.tick(-1)
-                
+
         best, err, new_state = self.optimize_single_param(param_i, local = True)
-        self.step_betas()
         imp = self.update(new_state, err, "initial fit of {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
-        if reporter:
-            reporter.tick(self.t)
+        self.step_betas()
+
+        kmer_pwm_map = {}
+        
+        def optimize_pwm_set(seed_i):
+            # begin actual optimization 
             
-        # begin actual optimization 
-        # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
-        kmer_indices = self.sched.pwm_set(param_i, self.k)
-        print [self.mdl.param_name[i] for i in kmer_indices]
-        for i in kmer_indices:
-            name = self.mdl.param_name[i]
-        
-            best, err, new_state = self.optimize_single_param(i, local = True)
-            imp = self.update(new_state, err, "local kmer optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
-        
-        kmer_aff = [new_state.params[i] for i in kmer_indices]
-        kmers = [self.mdl.param_name[i] for i in kmer_indices]
-
-        pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
-        print pwm
-        if reporter:
-            reporter.tick(self.t)
-        ## done with first round. refine scores
-        
-        for t in range(2):
-            self.step_betas()
-
-            # just update the error scores!
+            # first, update the error scores!
             self.sched.find_worst_param() 
-            #name = self.mdl.param_name[param_i]
-            #print "next worst kmer", name
-            
+
             # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
-            kmer_indices = self.sched.pwm_set(param_i, self.k)
-            #print [self.mdl.param_name[i] for i in kmer_indices]
+            kmer_indices = self.sched.pwm_set(seed_i, self.k)
             for i in kmer_indices:
                 name = self.mdl.param_name[i]
+            
                 best, err, new_state = self.optimize_single_param(i, local = True)
                 imp = self.update(new_state, err, "local kmer optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
             
@@ -2202,20 +2193,109 @@ class ModelOptimization(object):
             kmers = [self.mdl.param_name[i] for i in kmer_indices]
 
             pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
-            print "refinement step",t
-            print pwm
-            pwm.save_logo('{0}.eps'.format(t))
-
-            if reporter:
-                reporter.tick(self.t)
+            pwm.save_logo('pwm_seed_{pwm.kmer_seed}_t={self.t}.pdf'.format(**locals()))
+            
+            for mer in kmers:
+                kmer_pwm_map[mer] = pwm
         
+        def is_shifted(kmer, s_max=2):
+            k = len(kmer)
+            for x in range(1,s_max+1):
+                for pad in list(cyska.yield_kmers(x)):
+                    rshifted = pad + kmer[:k-x]
+                    lshifted = kmer[x:]+pad
+                    #print "l", x, kmer, lshifted
+                    #print "r", x, kmer, rshifted
+                    if lshifted in kmer_pwm_map:
+                        return -x, kmer_pwm_map[lshifted]
+                    elif rshifted in kmer_pwm_map:
+                        return x, kmer_pwm_map[rshifted]
 
-        if reporter:
-            reporter.plot_R_value_agreement()              
-            reporter.close()
+            return 0, None
+
+        # initially, param_i points to the kmer with highest R-value
+        while not self.converged():
+            
+            self.logger.error("optimzing PWM set seeded by {0}".format(name) )
+            for t in range(int(.75*self.k)):
+                # optimize a PWM set multiple times
+                optimize_pwm_set(param_i)
+                self.step_betas()
+                if self.reporter:
+                    self.reporter.plot_R_value_agreement()              
+        
+            param_i = self.sched.find_worst_param()
+            name = self.mdl.param_name[param_i]
+            
+            # see if this kmer is included in an existing PWM set
+            if name in kmer_pwm_map:
+                # gather the set of related kmers belonging to this PWM set
+                seed = kmer_pwm_map[name].kmer_seed
+                param_i = cyska.seq_to_index(seed)
+                # optimization touches kmers ordered by scheduler. So the original param_i *will* come first!
+                self.logger.error("next up is {1} ->selecting PWM set seeded by {0}".format(name, seed) )
+            else:
+                shift, pwm = is_shifted(name)
+                self.logger.error("shift = {0} pwm = {1}".format(shift,pwm))
+                if abs(shift) > 1:
+                    # this kmer is shifted too far. Ignore for now by marking as "updated"
+                    self.sched.update(param_i)
+                    continue
+                elif shift == None:
+                    # this has no similarity to previously fitted kmers. Start a new PWM:
+                    pass
+                elif abs(shift) == 1:
+                    # need to switch to k+1 model!
+                    if self.k+1 > k_max:
+                        self.logger.warning("reached k_max, ending optimization")
+                        return
+                    
+                    self.logger.info("switching to k+1 = {0} at t={1}".format(self.k+1, self.t) )
+                    new_param = self.params_for_k_extension(self.k)
+                    #print "NEWPARAM", len(new_param), 4**(self.k+1)
+                    new_opt = ModelOptimization(self.k+1, self.rbns_analysis,
+                        rbp_conc=self.rbp_conc, 
+                        out_path=self.out_path, 
+                        mdl_params = new_param,
+                        t0 = self.t
+                    )
+                    new_opt.errors = self.errors
+                    new_opt.correlations = self.correlations
+                    new_opt.rel_improvements = self.rel_improvements
+                    
+                    #new_opt.t = self.t
+                    new_opt.reporter = self.reporter
+                    
+                    return new_opt.pwm_fit(max_iter=max_iter, snapshots=snapshots, **kwargs)
+                
+        
+        #if self.reporter:
+            #self.reporter.close()
         # notify the scheduler of the param change and its consequences
         #self.sched.param_changed(param_i, self.t, imp)
 
+    def params_for_k_extension(self, k):
+        """
+        generate kmer parameters for k+1 by expanding an existing table for k
+        """
+        new = np.zeros(4**(k+1) + len(self.rbp_conc), dtype=np.float32)
+        params = self.mdl.params
+        
+        # copy over beta values
+        new[-self.n_conc:] = params[-self.n_conc:]
+        
+        # copy each kmer value we presently have, to the 8 k+1 
+        # values (4 left-padded, 4 right-padded) in the new array
+        nts = np.arange(4)
+
+        for i in np.arange(self.nA):
+            for nt in nts:
+                left = i | (nt << (k*2))
+                right = (i << 2) | nt
+                new[left] = params[i]
+                new[right] = params[i]
+        
+        return new
         
     def step_param(self, show_sweep = False):
         self.logger.info("===parameter optimization===")
@@ -2455,6 +2535,9 @@ class ModelOptimization(object):
 
         if tick:
             self.t += 1
+            if self.reporter:
+                self.reporter.tick(self.t)
+
         if self.t > 1:
             self.rel_improvements.append(better)
         return better

@@ -188,6 +188,6 @@ class ParamUpdateScheduler(object):
                 break
 
         pick = cand[0]
-        self.update(pick)
+        #self.update(pick)
         self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
         return pick
