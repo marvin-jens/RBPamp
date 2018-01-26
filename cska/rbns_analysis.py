@@ -342,8 +342,8 @@ class RBNSAnalysis(CachedBase):
                     
                 opt.reporter.close()
 
-                #opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
-                #opt.mdl.store_params(os.path.join(self.out_path, fname))
+                opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
+                opt.mdl.store_params(os.path.join(self.out_path, fname))
                 #rep.close()
 
             elif name == 'cooccurrence_tensor':

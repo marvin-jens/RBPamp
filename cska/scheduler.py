@@ -8,7 +8,7 @@ from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
 import cska.ska_kmers 
-
+        
 class ParamUpdateScheduler(object):
     #def __init__(self, opt, n_blocked=5, ttl=10, n_max=100, n_avg=5, beta_burn_in=True):
     def __init__(self, opt, n_blocked=5, ttl=5, n_max=100, n_avg=5, beta_burn_in=True, monitor_params=[]):
@@ -19,7 +19,7 @@ class ParamUpdateScheduler(object):
         self.n_max = n_max
         self.n_avg = n_avg
         self.ttl = ttl
-        self.N = self.opt.mdl.Nk
+        self.N = len(self.opt.current.params)
         self.monitor_params = [self.opt.mdl.param_index[p] for p in monitor_params]
         if not self.monitor_params:
             # top 10 R-value k-mers
@@ -28,7 +28,7 @@ class ParamUpdateScheduler(object):
             self.monitor_params += range(self.opt.nA, self.N)
         
         if beta_burn_in:
-            self.blocked_params = range(self.opt.nA, self.N)
+            self.blocked_params = range(self.opt.nA, len(self.opt.current.params))
         else:
             self.blocked_params = []
 
@@ -60,17 +60,11 @@ class ParamUpdateScheduler(object):
     @property
     def kmer_residuals(self):
         ## max mismatch between predicted and observed R-values
-        if self.opt.current:
-            return (self.opt.kmer_errors(self.opt.current.R)**2).sum(axis=0)
-        else:
-            return ((self.opt.R_obs - 1)**2).sum(axis=0)
+        return (self.opt.kmer_errors(self.opt.current.R)**2).sum(axis=0)
 
     @property
     def beta_residuals(self):
         residual_beta = []
-        if not self.opt.current:
-            return np.zeros(self.opt.n_conc)
-        
         for i in range(self.opt.n_conc):
             slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(self.opt.current.R[i,:], self.opt.R_obs[i,:])
             #print "LINREGRESS", self.rbp_conc[i], slope, intercept, r_value, p_value, std_err
@@ -83,8 +77,6 @@ class ParamUpdateScheduler(object):
   
     @property
     def susceptibility(self):
-        if not self.opt.current:
-            return np.ones(self.N + self.opt.n_conc)
         # high affinity kmers are more susceptible to changes, unless we look at under-estimation
         error = self.opt.kmer_errors(self.opt.current.R)
         affinities = self.opt.current.params[:self.opt.nA]
@@ -143,6 +135,10 @@ class ParamUpdateScheduler(object):
         else:
             R_str = 'n/a'
         
+        #print "DUMP"
+        #print self.opt.k
+        #print len(self.opt.mdl.param_name)
+        #print len(self.opt.known_params)
         return "{0:10s} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8:.3e}\t{9}".format( 
             self.opt.mdl.param_name[i], 
             state, 
@@ -169,7 +165,7 @@ class ParamUpdateScheduler(object):
         self._expect = self.expectation
         self._suscept = self.susceptibility
         #score = residual * dt * expect * self.susceptibility
-        self._score = self._residual * self._dt * self._expect * self._suscept
+        self._score = self._residual #* self._dt * self._expect * self._suscept
         #self.logger.debug("beta expect {0}".format(expect[self.opt.nA:]))
         #self.logger.debug("beta scores {0}".format(score[self.opt.nA:]))
         
@@ -182,12 +178,38 @@ class ParamUpdateScheduler(object):
         for j,i in enumerate(self._score.argsort()[::-1]):
             if not i in self.blocked_params:
                 cand.append(i)
-            if j < 20:
+            if j < 10:
                 self.logger.debug(self.debug_str_from_param(i))
-            if j > 20 and cand:
+            if j > 10 and cand:
                 break
 
         pick = cand[0]
         #self.update(pick)
         self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
         return pick
+    
+    def pwm_set(self, seed, k):
+        """
+        generate all single base substitution variants of a 
+        seed motif by bit-operations on the corresponding kmer index.
+        """
+        variants = [seed]
+        for j in range(k):
+            nt = (seed >> j*2) & 3
+            #print "j,nt",j,nt
+            mask = seed ^ nt << (j*2)
+            #print "mask", cyska.index_to_seq(mask,k)
+            
+            for l in range(4):
+                var = mask | (l << j*2)
+                #print "variant", cyska.index_to_seq(var,k)
+
+                if var != seed:
+                    variants.append(var)
+
+        scores = [self._score[i] for i in variants]
+        to_sort = zip(scores, variants)
+        ordered = [i for s,i in sorted(to_sort, reverse=True)]
+        
+        return ordered
+        
