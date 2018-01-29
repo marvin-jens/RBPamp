@@ -86,8 +86,8 @@ class TrackedValues(object):
             return
         
         ind = delta.nonzero()[0]
-        self.logger.error(delta)
-        self.logger.error(ind)
+        #self.logger.error(delta)
+        #self.logger.error(ind)
         self.updates.append( (ind, d[ind]) )
         self.times.append(t)
         
@@ -108,8 +108,6 @@ class TrackedValues(object):
 
         assert len(self.times) == len(data)
         return self.times, data
-        
-        
         
         
 class OptReporting(object):
@@ -143,18 +141,18 @@ class OptReporting(object):
         self.last_report = 0
         self.logger = logging.getLogger('OptReporting')
         self.betas = TrackedValues()
-        self.affinities = TrackedValues()
+        #self.affinities = TrackedValues()
     
     def tick(self, t):
         self.betas.store(t, self.opt.current.params[self.opt.nA:])
-        self.affinities.store(t, self.opt.current.params[:self.opt.nA])
+        #self.affinities.store(t, self.opt.current.params[:self.opt.nA])
         
         if t > self.last_report + self.report_interval:
             self.plot_errors()
             self.plot_correlations()
             self.plot_betas()
             #self.plot_tracked_kmer_histories()
-            self.plot_affinity_history()
+            #self.plot_affinity_history()
             
             self.plot_R_value_agreement()
             self.plot_known_comparison()
@@ -172,7 +170,7 @@ class OptReporting(object):
         self.plot_errors()
         self.plot_correlations()
         self.plot_betas()
-        self.plot_affinity_history()
+        #self.plot_affinity_history()
         
         for pdf in [self.sweep_pdf, self.descent_pdf, self.R_pdf, self.invkd_pdf, self.err_pdf]:
             try:

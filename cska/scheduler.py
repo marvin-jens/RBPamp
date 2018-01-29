@@ -117,12 +117,15 @@ class ParamUpdateScheduler(object):
         dt[self.opt.nA:] *= 10 # make beta updates 10 times more often
         return dt
     
-    def debug_monitor(self):
-        self.logger.debug(">>>>> monitored parameters <<<<<")
-        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tcurrent\tknown\tdR")
+    def debug_monitor(self, param_list=[], title="monitored parameters"):
+        self.logger.info(">>>>> {0} <<<<<".format(title))
+        self.logger.info("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
 
-        for i in self.monitor_params:
-            self.logger.debug(self.debug_str_from_param(i))
+        if not len(param_list):
+            param_list = self.monitor_params
+
+        for i in param_list:
+            self.logger.info(self.debug_str_from_param(i))
 
     def debug_str_from_param(self, i):
         if i in self.blocked_params:
@@ -169,23 +172,16 @@ class ParamUpdateScheduler(object):
         #self.logger.debug("beta expect {0}".format(expect[self.opt.nA:]))
         #self.logger.debug("beta scores {0}".format(score[self.opt.nA:]))
         
-        self.debug_monitor()
-        
-        self.logger.debug(">>>>> candidate search <<<<<")
-        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
-        
-        cand = []
-        for j,i in enumerate(self._score.argsort()[::-1]):
+        #self.debug_monitor()
+        ranked = self._score.argsort()[::-1]
+        #self.debug_monitor(param_list = ranked[:10], title="candidate search")
+        pick = None        
+        for i in ranked:
             if not i in self.blocked_params:
-                cand.append(i)
-            if j < 10:
-                self.logger.debug(self.debug_str_from_param(i))
-            if j > 10 and cand:
+                pick = i
                 break
-
-        pick = cand[0]
-        #self.update(pick)
-        self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
+        
+        self.logger.info("selected {0}".format(self.opt.mdl.param_name[pick]) )
         return pick
     
     def pwm_set(self, seed, k):

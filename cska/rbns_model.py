@@ -601,10 +601,10 @@ class ModelOptimization(object):
         #return (self.kmer_errors(R_new)**2).sum()
         lin_err = self.linearity_err(R_new)
         #print lin_err
-        return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).sum()
+        return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).mean()
     
     def global_error_conc(self, R_new, conc_i):
-        return (self.kmer_errors(R_new)[conc_i,:]**2).sum()
+        return (self.kmer_errors(R_new)[conc_i,:]**2).mean()
     
     def sweep_param(self, param_i, x0=1.):
         import matplotlib.pyplot as pp
@@ -750,14 +750,18 @@ class ModelOptimization(object):
             reporter.plot_R_value_agreement()              
             reporter.close()
 
-    def pwm_fit(self, max_iter=None, snapshots=False, k_max=7, **kwargs):
+    def pwm_fit(self, max_iter=None, snapshots=False, k_max=7, start_kmer="", **kwargs):
         from cska.pwm import PSAM
         if self.reporter:
             self.reporter.tick(self.t)
                 
         # initialize the model by fitting the worst kmer and then background estimates once.
-        param_i = self.sched.find_worst_param()
-        name = self.mdl.param_name[param_i]
+        if start_kmer:
+            param_i = cyska.seq_to_index(start_kmer)
+            name = start_kmer
+        else:
+            param_i = self.sched.find_worst_param()
+            name = self.mdl.param_name[param_i]
 
         best, err, new_state = self.optimize_single_param(param_i, local = True)
         imp = self.update(new_state, err, "initial fit of {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
@@ -783,17 +787,22 @@ class ModelOptimization(object):
             kmers = [self.mdl.param_name[i] for i in kmer_indices]
 
             pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
+            for mer in kmers:
+                kmer_pwm_map[mer] = pwm
+            
+            # output/storage of current results
+            print pwm
             logo_path = os.path.join(
                 self.opt_path, 
                 'pwm_seed_{pwm.kmer_seed}_t={self.t}.pdf'.format(**locals()) 
             )
             logo_title = 'A0={pwm.A0}'.format(**locals())
             pwm.save_logo(logo_path, title=logo_title)
-            
-            print pwm
-            for mer in kmers:
-                kmer_pwm_map[mer] = pwm
-        
+
+            if self.reporter:
+                self.reporter.plot_R_value_agreement()
+       
+            self.logger.info("correlations: {0}".format(self.correlation()) )
             return pwm
         
         def is_shifted(kmer, s_max=2):
@@ -815,15 +824,23 @@ class ModelOptimization(object):
         while not self.converged():
             
             self.logger.error("optimzing PWM set seeded by {0}".format(name) )
-            for t in range(int(.75*self.k)):
+            #for t in range(int(.75*self.k)):
+            for t in range(2):
                 # optimize a PWM set multiple times
                 optimize_pwm_set(param_i)
                 self.step_betas()
                 if self.reporter:
-                    self.reporter.plot_R_value_agreement()              
+                    self.reporter.plot_R_value_agreement()
         
             param_i = self.sched.find_worst_param()
             name = self.mdl.param_name[param_i]
+            
+            # debug output
+            ranked = self.sched._residual.argsort()[::-1]
+            print self.sched._residual[ranked]
+            
+            self.sched.debug_monitor(param_list = ranked[:10], title="candidate search")
+
             
             # see if this kmer is included in an existing PWM set
             if name in kmer_pwm_map:
@@ -848,7 +865,12 @@ class ModelOptimization(object):
                         self.logger.warning("reached k_max, ending optimization")
                         break
                     
-                    self.logger.info("switching to k+1 = {0} at t={1}".format(self.k+1, self.t) )
+                    if shift < 0:
+                        newmer = name[:-shift] + pwm.kmer_seed
+                    else:
+                        newmer = pwm.kmer_seed + name[-shift:]
+
+                    self.logger.info("switching to k+1 = {0} at t={1} for k+1 mer {2}".format(self.k+1, self.t, newmer) )
                     new_param = self.params_for_k_extension(self.k)
                     #print "NEWPARAM", len(new_param), 4**(self.k+1)
                     new_opt = ModelOptimization(self.k+1, self.rbns_analysis,
@@ -863,8 +885,8 @@ class ModelOptimization(object):
                     
                     #new_opt.t = self.t
                     new_opt.reporter = self.reporter
-                    
-                    return new_opt.pwm_fit(max_iter=max_iter, snapshots=snapshots, **kwargs)
+                    self.reporter.opt = new_opt
+                    return new_opt.pwm_fit(max_iter=max_iter, snapshots=snapshots, start_kmer = newmer, **kwargs)
 
         self.mdl.store_params(os.path.join(self.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
         
@@ -1031,14 +1053,14 @@ class ModelOptimization(object):
             sample_x = 10**np.linspace(lmin, lmax, n_samples)
             samples = np.array([to_optimize(x) for x in sample_x])
                 
-            print "logspaced sample", zip(sample_x, samples)
+            #print "logspaced sample", zip(sample_x, samples)
             i = samples.argmin()
             li = max(0, i -1)
             ri = min(n_samples-1, i+1)
             
             brent_min = sample_x[li]
             brent_max = sample_x[ri]
-            print "search optimum between", brent_min, brent_max
+            #print "search optimum between", brent_min, brent_max
             
             res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
             return res
@@ -1124,8 +1146,8 @@ class ModelOptimization(object):
         self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2e}%".format(name, self.t, better))
         corr = self.correlation()
         self.correlations.append(corr)
-        self.logger.info("correlations: {0}".format(corr) )
-        self.logger.info("most recent errors: {0}".format( self.errors[-5:] ))
+        self.logger.debug("correlations: {0}".format(corr) )
+        self.logger.debug("most recent errors: {0}".format( self.errors[-5:] ))
         
         if self.previous:
             update = self.current.params - self.previous.params
