@@ -313,6 +313,7 @@ class RBNSAnalysis(CachedBase):
 
             if name == 'model':
                 from cska.rbns_model import ModelOptimization, ReferenceComparison
+                from cska.pwm import PWMOptimizer
                 # first sample is input!
                 #reads = self.reads[0]
                 #openen = self.acc_storages[0].get_discretized(k)
@@ -324,6 +325,7 @@ class RBNSAnalysis(CachedBase):
                 sched_params = {}
                 opt = ModelOptimization(k, rbns_analysis=self, out_path=self.out_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
                 
+                pwm_opt = PWMOptimizer(k, opt)
                 #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
                 
                 if options.known_kd:
@@ -335,11 +337,15 @@ class RBNSAnalysis(CachedBase):
                 opt.reporter = OptReporting(opt, os.path.join(self.out_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
 
                 try:
-                    opt.pwm_fit()
+                    #opt.pwm_fit()
+                    for t in range(100):
+                        pwm_opt.next_move()
+            
                 except KeyboardInterrupt:
                     opt.logger.warning("Keyboard interrupt")
                     
                 opt.reporter.close()
+                pwm_opt.store_params()
 
                 opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
                 #rep.close()
