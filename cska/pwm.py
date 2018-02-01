@@ -97,34 +97,37 @@ class PSAM(object):
     
     @classmethod
     def from_kmer_variants(cls, kmers, aff, **kwargs):
-        #kmers = np.array(list(cyska.yield_kmers(k)))
-        
-        #n = (aff >= min_aff).sum()
-        I = list(aff.argsort()[::-1][:n])
-        
-        # start with highest affinity/enrichment kmer
-        i = I[0]
-        j = I.index(i)
-        I.pop(j)
-
-        #print "starting with", kmers[i], aff[i]
-        psam = cls.from_kmer(kmers[i], A0=aff[i])
-        
-        # first merge all single nucleotide variants
-        #print len(I), "kmers left to merge"
-        #print "single nt variants"
-        J = []
-        for j,i in enumerate(I):
-
-            new = cls.from_kmer(kmers[i], A0=aff[i])
-
+        """
+        Input HAS TO BE SORTED by descending affinity
+        or you will get assertion errors.
+        """
+        print ">>> THIS BETTER BE SORTED"
+        for mer, a in zip(kmers, aff):
+            print mer, a
+            
+        psam = cls.from_kmer(kmers[0], A0=aff[0])
+        mask_sum = np.zeros(psam.psam.shape, dtype=float)
+        for kmer, a in zip(kmers[1:], aff[1:]):
+            new = cls.from_kmer(kmer, A0=a)
             mask = (new.psam == 1) & (psam.psam != 1)
             rel_A = new.A0/psam.A0
+            if rel_A > 1:
+                print "fuckup adding",kmer,a
+                print psam
+                print new
+                print "rel_A", rel_A
+                
+            assert rel_A <= 1. # should be enforced by prior sorting
             psam.psam += mask * rel_A
+            mask_sum += mask
             #print "->merged", kmers[i], rel_A
 
+        if not (psam.psam <= 1.).all():
+            print mask_sum
+            print psam.psam
+        assert (psam.psam <= 1.).all()
         #print psam
-        psam.kmer_set = set(kmers)
+        psam.kmer_set = kmers
         return psam
 
             
@@ -158,7 +161,7 @@ class PSAM(object):
         kmer_set =  getattr(self, "kmer_set","")
         if kmer_seed:
             buf.append("seeded from '{0}'".format(kmer_seed))
-        if kmer_set:
+        if len(kmer_set):
             buf.append("built from {0} kmers '{1}'".format(len(kmer_set), ",".join(sorted(kmer_set)) ) )
         return "\n".join(buf)
 
@@ -204,6 +207,11 @@ class PWMOptimizer(object):
         self.kmer_queues[seed.lower()].append( (score, shift, compound) )
 
     def digest_cues(self, seed):
+        """
+        Based on stored cues, decide in which direction to expand a PWM (add a column).
+        Cues are taken from previously selected k-mers with bad R-value agreement that
+        were identified as shifted versions of the PWM associated with seed.
+        """
         left = []
         l = 0
         
@@ -252,12 +260,13 @@ class PWMOptimizer(object):
         return 0, kmer, kmer
         
         
-    def pwm_optimize_hull(self, pwm):
-        kmers = np.array(list(pwm.kmer_set))
+    def optimize_kmer_set_ordered(self, kmers):
+        print "optimize_kmer_set_ordered", kmers
+        kmers = np.array(kmers)
         kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
         kmer_res = self.kmer_residuals()[kmer_indices]
     
-        # sort descending
+        # sort descending by residual R-value error
         I = kmer_res.argsort()[::-1]
         kmers = kmers[I]
         kmer_indices = kmer_indices[I]
@@ -269,14 +278,35 @@ class PWMOptimizer(object):
             best, err, new_state = self.opt.optimize_single_param(i, local = True)
             imp = self.opt.update(new_state, err, "local kmer optimization {mer} -> {best:.3e}".format(**locals()))
         
+        d_err = err - err0
+
+        # re-sort, descending on fitted kmer affinity
+        kmer_aff = new_state.params[kmer_indices]
+        I = kmer_aff.argsort()[::-1]
+
+        return kmers[I], kmer_indices[I], kmer_aff[I], d_err
+        
+
+    def pwm_optimize_hull(self, kmer):
+        
+        # create a PWM "centered" on the seeding kmer
+        pwm = PSAM.from_kmer(kmer)
+        kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
+        
+        if kmer.lower() != kmers[0].lower():
+            # The hull contains a kmer with higher affinity than our initial seed!
+            # Select that kmer as hull instead.
+            new = kmers[0]
+            self.logger.warning("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
+            return self.pwm_optimize_hull(kmers[0])
+            
         self.opt.step_betas()
-        kmer_aff = [new_state.params[i] for i in kmer_indices]
+
         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
         for mer in kmers:
             self.pwm_by_kmer[mer.lower()] = pwm
         self.pwms[pwm.kmer_seed] = pwm
         
-        d_err = err - err0
         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.2f} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
         
         # output/storage of current results
@@ -326,9 +356,8 @@ class PWMOptimizer(object):
                 return
             else:
                 self.logger.info("{kmer} does not belong to current PWM set. Starting new PWM".format(**locals()) )
-                pwm = PSAM.from_kmer(kmer)
 
-        pwm, d_err = self.pwm_optimize_hull(pwm)
+        pwm, d_err = self.pwm_optimize_hull(pwm.kmer_seed)
         self.last_improvements.append(d_err)
         self.logger.warning("last last_improvements: {self.last_improvements}".format(**locals()) )
         self.t += 1
@@ -377,7 +406,7 @@ class PWMOptimizer(object):
 
 
 
-    def increase_k(self):
+    def increase_k(self, cutoff=.01):
         # get new optimizer and model with expanded kmer model parameters
         new_params = self.params_for_k_increase(self.k)
         self.opt = self.create_optimizer(self.k+1, params=new_params)
@@ -385,6 +414,8 @@ class PWMOptimizer(object):
         self.nA = 4**self.k
 
         old_pwms = self.pwms
+        #old_kmers = kmer_set_union(self.pwms)
+        
         self.pwm_by_kmer = {}
         self.pwms = {}
         self.last_improvements = []
@@ -395,21 +426,27 @@ class PWMOptimizer(object):
         # migrate PWMs, ordered by affinity
         for pwm in sorted(old_pwms.values(), key=lambda x : x.Kd):
             l, left, r, right = self.digest_cues(pwm.kmer_seed)
-            print l, left
-            print r, right
+
+            # expand the PWM's seed kmer in the direction indicated by the cues
+            new_seed_candidates = np.array(list(expand([pwm.kmer_seed,],l > r)))
             
-            new_kmer_set = np.array(list(expand(pwm.kmer_set,l > r)))
-            new_kmer_indices = np.array([cyska.seq_to_index(mer) for mer in new_kmer_set])
-            new_kmer_aff = new_params[new_kmer_indices]
-            I = new_kmer_aff.argsort()[::-1]
+            # optimize the 4 versions of the extended (k+1) seed kmer
+            kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
+            self.opt.step_betas()
             
-            new_pwm = PSAM.from_kmer_variants(new_kmer_set[I], new_kmer_aff[I])
-            self.pwm_optimize_hull(new_pwm)
+            a0 = aff[0] # highest affinity comes first
+            for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
+                if a >= a0 * cutoff:
+                    # affinity is within reasonable range of the optimum
+                    #hull_kmers = hull(kmer)
+                    #hull_indices = np.array([cyska.seq_to_index(mer) for mer in hull_kmers])
+                    ##new_pwm = PSAM.from_kmer_variants(hull_kmers, self.opt.mdl.params[hull_indices])
+                    
+                    self.pwm_optimize_hull(kmer)
 
         # reset migration cues
         self.kmer_queues = defaultdict(list)
 
-        
         
         
 def opt_merge(p0, pk, padding):
