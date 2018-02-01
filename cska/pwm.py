@@ -346,6 +346,7 @@ class PWMOptimizer(object):
         if kmer in self.pwm_by_kmer:
             pwm = self.pwm_by_kmer[kmer]
             self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
+            kmer = pwm.kmer_seed
         else:
             shift, seed, compound = self.is_shifted(kmer)
             ashift = abs(shift)
@@ -357,7 +358,7 @@ class PWMOptimizer(object):
             else:
                 self.logger.info("{kmer} does not belong to current PWM set. Starting new PWM".format(**locals()) )
 
-        pwm, d_err = self.pwm_optimize_hull(pwm.kmer_seed)
+        pwm, d_err = self.pwm_optimize_hull(kmer)
         self.last_improvements.append(d_err)
         self.logger.warning("last last_improvements: {self.last_improvements}".format(**locals()) )
         self.t += 1
