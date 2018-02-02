@@ -699,7 +699,7 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
     cdef UINT64_t N = len(seq_matrix)
     cdef UINT64_t L = len(seq_matrix[0])
     cdef UINT64_t l = L - k + 1
-    cdef UINT64_t Lt = L + k
+    cdef UINT64_t Lt = L + k - 1
 
     # store k-mer indices here
     cdef UINT32_t [:,:] indices = np.zeros( (N, Lt), dtype=np.uint32)
@@ -708,13 +708,14 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
     cdef UINT64_t i, j
     cdef UINT32_t index, s, a5_index
 
-    a5_index = 0
-    for i in range(k-1):
-        a5_index = s = adap5[i]
-        a5_index = ((a5_index << 2) | s ) & MAX_INDEX
-        
     # largest kmer index 
     cdef UINT16_t MAX_INDEX = 4**k - 1
+
+    a5_index = 0
+    for i in range(k-1):
+        s = adap5[i]
+        a5_index = ((a5_index << 2) | s ) & MAX_INDEX
+        
     with nogil, parallel(num_threads=8):
         for j in prange(N):
             index = 0 # make thread-local
@@ -726,8 +727,8 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
                 index = ((index << 2) | s ) & MAX_INDEX
                 indices[j, i] = index
             
-            for i in range(0, k-1): # last kmers read into 3'adapter
-                s = a3_index[i]
+            for i in range(k-1): # last kmers read into 3'adapter
+                s = adap3[i]
                 index = ((index << 2) | s ) & MAX_INDEX
                 indices[j, L+i] = index
                 
