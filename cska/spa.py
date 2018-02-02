@@ -1,3 +1,8 @@
+__license__ = "MIT"
+__version__ = "0.9.8"
+__authors__ = ["Marvin Jens"]
+__email__ = "mjens@mit.edu"
+
 import os
 import sys
 import logging
@@ -7,7 +12,15 @@ import cska.ska_kmers as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
 #from cska import timed
-        
+
+"""
+Single Protein Approximation (SPA) thermodynamic model for an RNA bind'n'seq (RBNS) experiment.
+This module contains class wrappers around the lower-level Cython code and encapsulates the implementation of the thermodynamic model itself. Input to the model are essentially an efficient binary representation of (millions of) sequences randomly sampled from the RBNS pool, and the corresponding kmer accessibilities throughout those sequences. These constitute the sequence matrix (seqm) and accessibility (originally open-energy) matrix (oem) variables.
+As a first step, the model computes the one-protein partition function for interaction of one RBP with each sequence (sum over all possible binding sites in a sequence). From this and the rbp_concentration follows the probability that the sequnce is bound by at least one molecule (p_bound), from which in turn follows the expected kmer composition of the pulldown.
+
+Further perks are support for a non-specific contribution from background binding (beta parameters) and determining the self-consistent concentration of actually *free* RBP.
+"""
+
 class SPAState(object):
     def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, openen_bin_counts = [], jacobi = []):
         self.mdl = mdl
@@ -89,7 +102,6 @@ class SPAPartition(object):
 
     def __init__(self, mdl, kmer_i):
         self.mdl = mdl
-        #self.params = np.array(mdl.params)
         self.kmer_i = kmer_i
         
         kmer_hits = cyska.index_matrix_rows_with_kmer(self.mdl.subsample_index_matrix, self.mdl.k, kmer_i)

@@ -70,7 +70,7 @@ class ModelOptimization(object):
         self.aff_max = aff_max
 
         # the model to be trained
-        self.mdl = SPAModel(self.reads, self.openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
+        self.mdl = SPAModel(self.input_reads, self.openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]

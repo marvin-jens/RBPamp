@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.6"
+__version__ = "0.9.8"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -689,7 +689,7 @@ def eval_energy_model_on_seqs(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
+def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:] adap5, UINT8_t [:] adap3):
     """
     Converts a matrix of nucleotide values (0..3 instead of ACGT) into
     a matrix of kmer index values. (AAA -> 0, AAC -> 1, ..., TTT -> 63).
@@ -699,28 +699,38 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
     cdef UINT64_t N = len(seq_matrix)
     cdef UINT64_t L = len(seq_matrix[0])
     cdef UINT64_t l = L - k + 1
+    cdef UINT64_t Lt = L + k
 
     # store k-mer indices here
-    cdef UINT32_t [:,:] indices = np.zeros( (N, l), dtype=np.uint32)
+    cdef UINT32_t [:,:] indices = np.zeros( (N, Lt), dtype=np.uint32)
 
     # helper variables to tell cython the types
     cdef UINT64_t i, j
-    cdef UINT32_t index, s
+    cdef UINT32_t index, s, a5_index
 
+    a5_index = 0
+    for i in range(k-1):
+        a5_index = s = adap5[i]
+        a5_index = ((a5_index << 2) | s ) & MAX_INDEX
+        
     # largest kmer index 
     cdef UINT16_t MAX_INDEX = 4**k - 1
     with nogil, parallel(num_threads=8):
         for j in prange(N):
             index = 0 # make thread-local
+            index = a5_index # first kmer overlaps (k-1) with 5'adapter
             for i in range(0, L):
                 # get next "letter"
                 s = seq_matrix[j, i]
                 # compute next index from previous by shift + next letter
                 index = ((index << 2) | s ) & MAX_INDEX
-                
-                if i >= k-1:
-                    indices[j, i - k + 1] = index
+                indices[j, i] = index
             
+            for i in range(0, k-1): # last kmers read into 3'adapter
+                s = a3_index[i]
+                index = ((index << 2) | s ) & MAX_INDEX
+                indices[j, L+i] = index
+                
     return indices.base
 
 @cython.boundscheck(False)

@@ -114,7 +114,14 @@ class RBNSReads(CachedBase):
 
     @cached
     def get_index_matrix(self, k):
-        return cyska.seq_matrix_to_index_matrix(self.seqm, k)
+        im = cyska.seq_matrix_to_index_matrix(
+            self.seqm, 
+            k, 
+            adap5 = cyska.letters_to_bits(self.adap5[-k+1:]),
+            adap3 = cyska.letters_to_bits(self.adap3[:k-1]),
+        )
+        return im
+            
        
     @property
     @cached
