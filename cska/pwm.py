@@ -233,10 +233,38 @@ class PWMOptimizer(object):
         errors = self.opt.kmer_errors(self.opt.current.R)
         return (errors**2).sum(axis=0) # sum sq. error across concentrations
     
-    def worst_kmer(self):
-        residual = self.kmer_residuals()
-        i = (residual * self.masked).argmax()
+    def kmer_logratios(self):
+        lr = np.log2(self.opt.current.R / self.opt.R_obs)
+        return lr
+
+    def kmer_logerrors(self):
+        le = self.kmer_logratios().mean(axis=0)
+        return le
+
+    def dump_logratios(self):
+        path = os.path.join(self.opt.opt_path,"{0}mer_logratios.tsv".format(self.k))
+        self.logger.debug("storing kmer prediction error in {0}".format(path) )
+        LR = self.kmer_logratios()
+        print LR.shape
+        print self.opt.mdl.param_name.shape
+        f = file(path, 'w')
+        for kmer, aff, lr in zip(self.opt.mdl.param_name, self.opt.mdl.params, LR.T):
+            row = [kmer, str(aff), ] + [str(l) for l in lr]
+            f.write("\t".join(row) + '\n')
+        
+    def worst_kmer(self, debug=False):
+        #residual = self.kmer_residuals()
+        residual = self.kmer_logerrors()
+        i = np.fabs((residual * self.masked)).argmax()
         kmer = cyska.index_to_seq(i, self.k)
+
+        if debug:
+            R_obs = self.opt.R_obs[:,i]
+            R_pred = self.opt.current.R[:,i]
+            dR = R_pred - R_obs
+            self.logger.debug("{kmer} R_obs={R_obs} R_pred={R_pred} dR={dR}".format(**locals()) )
+        
+        self.dump_logratios() # THIS IS FOR DEBUGGING
 
         return i, kmer, residual[i]
     
@@ -341,7 +369,7 @@ class PWMOptimizer(object):
             self.t += 1
             return 
 
-        i, kmer, res = self.worst_kmer()
+        i, kmer, res = self.worst_kmer(debug=True)
         self.logger.info("selected worst kmer {kmer} with residual error={res}".format(**locals()) )
         if kmer in self.pwm_by_kmer:
             pwm = self.pwm_by_kmer[kmer]
