@@ -189,8 +189,6 @@ class SPAModel(object):
         self.subsample_index_matrix = []
         self.subsample_oem = []
         self.new_subsample()
-        # useful to normalize the kmer_pi's into quasi-occupancies
-        self.n_kmers_in_sample = self.reads.N * (self.reads.L - self.k + 1) 
         
         # current state of the model
         self.state = None
@@ -213,16 +211,10 @@ class SPAModel(object):
                 indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
             t1 = time.time()
             self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
-            self.n_kmers_in_sample = self.n_subsample * (self.reads.L - self.k + 1)
+
 
         self.subsample_indices = indices
-
-        seqm = self.reads.seqm[indices]
-        t2 = time.time()
-        self.subsample_index_matrix = cyska.seq_matrix_to_index_matrix(seqm, self.k)
-        t3 = time.time()
-        self.logger.debug('converting subsample to index-matrix took {0:.2f} ms'.format(1000* (t3-t2)) )
-
+        self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
@@ -251,7 +243,12 @@ class SPAModel(object):
     def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
         #t0 = time.time()
         # the model itself is implemented in Cython
-        Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs)
+        #print "IM ", im.shape
+        #print "OEM", oem.shape
+        #print "ofs", self.openen.ofs - self.k + 1
+        #print "l5 ", self.reads.l5
+        #print "l3 ", self.reads.l3
+        Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
         return Z1
     
     def _spa_free_protein(self, Z1, rbp_conc):

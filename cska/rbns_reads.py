@@ -113,9 +113,17 @@ class RBNSReads(CachedBase):
         return seqm
 
     @cached
-    def get_index_matrix(self, k):
+    def get_index_matrix(self, k, indices=[]):
+        """
+        Returns N x (L+k-1) matrix with all k-mer indices in each read, including
+        positions that overlap the adapter.
+        """
+        seqm = self.seqm
+        if len(indices):
+            seqm = self.seqm[indices]
+
         im = cyska.seq_matrix_to_index_matrix(
-            self.seqm, 
+            seqm, 
             k, 
             adap5 = cyska.seq_to_bits(self.adap5[-k+1:]),
             adap3 = cyska.seq_to_bits(self.adap3[:k-1]),
@@ -137,19 +145,19 @@ class RBNSReads(CachedBase):
         N, L = self.seqm.shape
         return L
 
-    @cached
-    def first_index(self, k):
-        """
-        kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
-        """
-        return cyska.seq_to_index(self.adap5[-k+1:],k-1)
+    #@cached
+    #def first_index(self, k):
+        #"""
+        #kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
+        #"""
+        #return cyska.seq_to_index(self.adap5[-k+1:],k-1)
 
-    @cached
-    def last_index(self, k):
-        """
-        kmer-index corresponding to k-1 nt into the 3'-adapter.
-        """
-        return cyska.seq_to_index(self.adap3[:k-1],k-1)
+    #@cached
+    #def last_index(self, k):
+        #"""
+        #kmer-index corresponding to k-1 nt into the 3'-adapter.
+        #"""
+        #return cyska.seq_to_index(self.adap3[:k-1],k-1)
         
     @cached
     @pickled
@@ -159,8 +167,9 @@ class RBNSReads(CachedBase):
         the same k are just a lookup.
         """
         self.seqm # trigger loading, so that timer is correct
+        im = self.get_index_matrix(k)
         t0 = time.time()
-        counts = cyska.seq_set_kmer_count(self.seqm, k)
+        counts = cyska.index_matrix_kmer_counts(im, k)
         t = time.time() - t0
         self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, 1000.*t ) )
         

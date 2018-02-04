@@ -946,6 +946,36 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
     return Z.base
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_threads = 8):
+    assert k <= 16 # must fit into UINT32 kmer-indices!
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT32_t MAX_INDEX = 4**k - 1
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+
+    # store weighted k-mer counts here (for each thread)
+    cdef UINT32_t [:,:] counts = np.zeros((n_threads, 4**k), dtype = np.uint32)
+
+    # helper variables to tell cython the types
+    cdef int thread_num
+    cdef UINT64_t i=0, j=0
+    cdef UINT32_t index
+
+    with nogil, parallel(num_threads=8):
+        for j in prange(N, schedule='guided'):
+            thread_num = openmp.omp_get_thread_num()
+
+            for i in range(0, l):
+                index = index_matrix[j, i]
+                counts[thread_num, index] += 1
+            
+    return counts.base.sum(axis=0)
+
 
 
 @cython.boundscheck(False)
@@ -954,7 +984,7 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 @cython.cdivision(True)
 @cython.overflowcheck(False)
 def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
-    assert k <= 8 # must fit into UINT16 kmer-indices!
+    assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT32_t MAX_INDEX = 4**k - 1
     cdef UINT64_t N = index_matrix.base.shape[0]
