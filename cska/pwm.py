@@ -101,9 +101,9 @@ class PSAM(object):
         Input HAS TO BE SORTED by descending affinity
         or you will get assertion errors.
         """
-        print ">>> THIS BETTER BE SORTED"
-        for mer, a in zip(kmers, aff):
-            print mer, a
+        #print ">>> THIS BETTER BE SORTED"
+        #for mer, a in zip(kmers, aff):
+            #print mer, a
             
         psam = cls.from_kmer(kmers[0], A0=aff[0])
         mask_sum = np.zeros(psam.psam.shape, dtype=float)
@@ -111,20 +111,20 @@ class PSAM(object):
             new = cls.from_kmer(kmer, A0=a)
             mask = (new.psam == 1) & (psam.psam != 1)
             rel_A = new.A0/psam.A0
-            if rel_A > 1:
-                print "fuckup adding",kmer,a
-                print psam
-                print new
-                print "rel_A", rel_A
+            #if rel_A > 1:
+                #print "fuckup adding",kmer,a
+                #print psam
+                #print new
+                #print "rel_A", rel_A
                 
             assert rel_A <= 1. # should be enforced by prior sorting
             psam.psam += mask * rel_A
             mask_sum += mask
             #print "->merged", kmers[i], rel_A
 
-        if not (psam.psam <= 1.).all():
-            print mask_sum
-            print psam.psam
+        #if not (psam.psam <= 1.).all():
+            #print mask_sum
+            #print psam.psam
         assert (psam.psam <= 1.).all()
         #print psam
         psam.kmer_set = kmers
@@ -168,7 +168,7 @@ class PSAM(object):
     def store_params(self, fname):
         file(fname, 'w').write(str(self))
         
-    def save_logo(self, fname='pwm.pdf', title=""):
+    def save_logo(self, fname='pwm.eps', title=""):
         import weblogolib as wl
         counts = self.psam
         from corebio.seq import unambiguous_rna_alphabet
@@ -179,7 +179,7 @@ class PSAM(object):
         options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=False, resolution=300)
         options.title = "A Logo Title"
         fmt = wl.LogoFormat(data, options)
-        dump = wl.pdf_formatter( data, fmt)
+        dump = wl.eps_formatter( data, fmt)
         
         if fname:
             file(fname,'wb').write(dump)
@@ -189,41 +189,46 @@ class PSAM(object):
 from collections import defaultdict 
 import logging
 class PWMOptimizer(object):
-    def __init__(self, k0, opt):
-        self.k = k0
-        self.nA = 4**k0
+    def __init__(self, k_min, k_max, opt):
+        self.k = k_min
+        self.k_max = k_max
+        self.nA = 4**k_min
         self.opt = opt
         self.pwm_by_kmer = {}
         self.pwms = {}
         self.last_improvements = []
         self.t = 0
-        self.kmer_queues = defaultdict(list)
+        self.kmer_queues = defaultdict(set)
         
         self.masked = np.ones(self.nA, dtype=np.uint8)
+        self.weights = np.ones(self.nA, dtype=np.uint8)
         self.logger = logging.getLogger("PWMOptimizer")
 
-    def record_cue(self, seed, shift, score, compound):
+    def record_cue(self, seed, shift, i, compound):
         # store shifted motifs for future analyses on k+x
-        self.kmer_queues[seed.lower()].append( (score, shift, compound) )
+        self.kmer_queues[seed.lower()].add( (shift, i, compound) )
 
     def digest_cues(self, seed):
         """
         Based on stored cues, decide in which direction to expand a PWM (add a column).
         Cues are taken from previously selected k-mers with bad R-value agreement that
         were identified as shifted versions of the PWM associated with seed.
+        We add up the affinities assigned to those shifted versions to determine if
+        more affinity can be "added to the PWM" by adding a column left or right.
         """
         left = []
         l = 0
         
         right = []
         r = 0
-        
-        for score, shift, compound in sorted(self.kmer_queues[seed.lower()], reverse=True):
+        seed_cues = self.kmer_queues[seed.lower()]
+        cues = [(self.opt.mdl.params[i], shift, compound) for i, shift, compound in seed_cues]
+        for aff, shift, compound in sorted(cues, reverse=True):
             if shift < 0:
-                l += score
+                l += aff
                 left.append(compound)
             else:
-                r += score
+                r += aff
                 right.append(compound)
         
         return l, left, r, right
@@ -245,8 +250,8 @@ class PWMOptimizer(object):
         path = os.path.join(self.opt.opt_path,"{0}mer_logratios.tsv".format(self.k))
         self.logger.debug("storing kmer prediction error in {0}".format(path) )
         LR = self.kmer_logratios()
-        print LR.shape
-        print self.opt.mdl.param_name.shape
+        #print LR.shape
+        #print self.opt.mdl.param_name.shape
         f = file(path, 'w')
         for kmer, aff, lr in zip(self.opt.mdl.param_name, self.opt.mdl.params, LR.T):
             row = [kmer, str(aff), ] + [str(l) for l in lr]
@@ -255,9 +260,12 @@ class PWMOptimizer(object):
     def worst_kmer(self, debug=False):
         #residual = self.kmer_residuals()
         residual = self.kmer_logerrors()
-        i = np.fabs((residual * self.masked)).argmax()
+        w = self.masked / self.weights
+        i = np.fabs((residual * w)).argmax()
         kmer = cyska.index_to_seq(i, self.k)
-
+        self.weights = np.where(self.weights > 1, self.weights - 1, 1)
+        self.weights[i] *= 2
+        
         if debug:
             R_obs = self.opt.R_obs[:,i]
             R_pred = self.opt.current.R[:,i]
@@ -289,7 +297,7 @@ class PWMOptimizer(object):
         
         
     def optimize_kmer_set_ordered(self, kmers):
-        print "optimize_kmer_set_ordered", kmers
+        #print "optimize_kmer_set_ordered", kmers
         kmers = np.array(kmers)
         kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
         kmer_res = self.kmer_residuals()[kmer_indices]
@@ -315,7 +323,7 @@ class PWMOptimizer(object):
         return kmers[I], kmer_indices[I], kmer_aff[I], d_err
         
 
-    def pwm_optimize_hull(self, kmer):
+    def pwm_optimize_hull(self, kmer, keep_pwm=True):
         
         # create a PWM "centered" on the seeding kmer
         pwm = PSAM.from_kmer(kmer)
@@ -326,14 +334,16 @@ class PWMOptimizer(object):
             # Select that kmer as hull instead.
             new = kmers[0]
             self.logger.warning("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
-            return self.pwm_optimize_hull(kmers[0])
+            return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
-        self.opt.step_betas()
+        #self.opt.step_betas()
+        self.opt.step_scale()
 
         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
-        for mer in kmers:
-            self.pwm_by_kmer[mer.lower()] = pwm
-        self.pwms[pwm.kmer_seed] = pwm
+        if keep_pwm:
+            for mer in kmers:
+                self.pwm_by_kmer[mer.lower()] = pwm
+            self.pwms[pwm.kmer_seed] = pwm
         
         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.2f} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
         
@@ -353,43 +363,58 @@ class PWMOptimizer(object):
 
             logo_path = os.path.join(
                 self.opt.opt_path, 
-                'pwm_{pwm.kmer_seed}_t={self.t}.pdf'.format(**locals()) 
+                'pwm_{pwm.kmer_seed}_t={self.t}.eps'.format(**locals()) 
             )
             logo_title = 'Kd={pwm.Kd:.2f} nM'.format(**locals())
             pwm.save_logo(logo_path, title=logo_title)
 
-    def next_move(self):
+    def optimize(self, max_iter=1000):
+        for t in range(max_iter):
+            if not self.next_move():
+                break
+
+        self.logger.warning("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
+        
+    def next_move(self, lag=5):
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
-
-        if len(self.last_improvements) > 3 and np.mean(np.array(self.last_improvements)[-3:]) > 0:
-            self.logger.warning("no reasonable improvements achieved over past 3 iterations. Switching to k+1")
+        last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-5:]])
+        err0 = self.opt.global_error(self.opt.current.R)
+        self.logger.warning("current_error={err0:.2e} last last_improvements: {last_improvements}".format(**locals()) )
+        
+        if len(self.last_improvements) > lag and np.mean(np.array(self.last_improvements)[-lag:]) > 0:
+            self.logger.warning("no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1))
             self.store_params()
-            self.increase_k()
-            self.t += 1
-            return 
+            if self.k < self.k_max:
+                self.increase_k()
+                return True
+            else:
+                return False
 
         i, kmer, res = self.worst_kmer(debug=True)
+        keep_pwm = True
         self.logger.info("selected worst kmer {kmer} with residual error={res}".format(**locals()) )
         if kmer in self.pwm_by_kmer:
             pwm = self.pwm_by_kmer[kmer]
             self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
-            kmer = pwm.kmer_seed
+            #kmer = pwm.kmer_seed
         else:
             shift, seed, compound = self.is_shifted(kmer)
             ashift = abs(shift)
             if ashift > 0:
                 self.logger.info("{kmer} is {ashift}-shift of {seed}. Recording {compound} for k+{shift}".format(**locals()) )
-                self.record_cue(seed, shift, res, compound)
-                self.masked[i] = 0
-                return
+                self.record_cue(seed, shift, i, compound)
+                #keep_pwm = False
             else:
                 self.logger.info("{kmer} does not belong to current PWM set. Starting new PWM".format(**locals()) )
 
-        pwm, d_err = self.pwm_optimize_hull(kmer)
-        self.last_improvements.append(d_err)
-        self.logger.warning("last last_improvements: {self.last_improvements}".format(**locals()) )
+        pwm, d_err = self.pwm_optimize_hull(kmer, keep_pwm=keep_pwm)
+        err = self.opt.global_error(self.opt.current.R)
+
         self.t += 1
+        self.last_improvements.append(err-err0)
+
+        return pwm
         
     def params_for_k_increase(self, k):
         """
@@ -405,7 +430,10 @@ class PWMOptimizer(object):
         # values (4 left-padded, 4 right-padded) in the new array
         nts = np.arange(4)
 
-        for i in np.arange(self.nA):
+        # fill new parameters in reverse affinity order, overwriting low
+        # with high affinity values in case there is a clash
+        I = params[:self.nA].argsort()
+        for i in I:
             for nt in nts:
                 left = i | (nt << (k*2))
                 right = (i << 2) | nt
@@ -438,11 +466,29 @@ class PWMOptimizer(object):
     def increase_k(self, cutoff=.01):
         # get new optimizer and model with expanded kmer model parameters
         new_params = self.params_for_k_increase(self.k)
+        
+        # all parameters that have been changed from background levels
+        need_fit = (new_params[:self.opt.nA] <= self.opt.aff0).nonzero()[0]
+        
         self.opt = self.create_optimizer(self.k+1, params=new_params)
         self.k = self.k + 1
         self.nA = 4**self.k
 
+        # go over need_fit in order of decreasing prediction error
+        n_fit = len(need_fit)
+        self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
+        
+        res = self.kmer_residuals()[need_fit]
+        need_fit = need_fit[res.argsort()[::-1]]
+        self.optimize_kmer_set_ordered(self.opt.mdl.param_name[need_fit])
+        
         old_pwms = self.pwms
+        n_pwm = len(old_pwms.values())
+        pwm_list = sorted(old_pwms.values(), key=lambda x : x.Kd)
+        pwm_str = ",".join(["{p.kmer_seed} Kd={p.Kd:.2f}".format(p=pwm) for pwm in pwm_list])
+        self.logger.info("switched to k+1 ={self.k} step 2: reconstruction of {n_pwm} PWMs.".format(**locals()) )
+        
+
         #old_kmers = kmer_set_union(self.pwms)
         
         self.pwm_by_kmer = {}
@@ -451,9 +497,10 @@ class PWMOptimizer(object):
         #self.t = 0
         
         self.masked = np.ones(self.nA, dtype=np.uint8)
+        self.weights = np.ones(self.nA, dtype=np.uint8)
 
         # migrate PWMs, ordered by affinity
-        for pwm in sorted(old_pwms.values(), key=lambda x : x.Kd):
+        for pwm in pwm_list:
             l, left, r, right = self.digest_cues(pwm.kmer_seed)
 
             # expand the PWM's seed kmer in the direction indicated by the cues
@@ -599,62 +646,25 @@ def opt_merge(p0, pk, padding):
     
     
 if __name__ == "__main__":
-    
-    aff5 = np.array([float(line.split('\t')[1]) for line in file('/scratch/data/RBNS/RBFOX2/best5mersofar.txt')])[:-4]
-    PSAMState.from_kmer_affinities(5, aff5)
+    def is_shifted(kmer, s_max=2):
+        k = len(kmer)
+        kmer_pwm_map = {'TGCATG':1}
+        #print "mapped", sorted(self.pwm_by_kmer.keys())
+        for x in range(1,s_max+1):
+            for pad in list(cyska.yield_kmers(x)):
+                rshifted = (pad + kmer[:k-x]).lower()
+                lshifted = (kmer[x:]+pad).lower()
+                print "l", x, kmer, lshifted
+                print "r", x, kmer, rshifted
+                if lshifted in kmer_pwm_map:
+                    seed = kmer_pwm_map[lshifted].kmer_seed
+                    return -x, seed, kmer[:x] + seed
+                elif rshifted in kmer_pwm_map:
+                    seed = kmer_pwm_map[rshifted].kmer_seed
+                    return x, seed, seed + kmer[-x:]
 
-    #aff7 = np.array([float(line.split('\t')[1]) for line in file('/scratch/data/RBNS/RBFOX2/blup7.tsv')])[:-4]
-    #PSAMState.from_kmer_affinities(7, aff7)
-    sys.exit(0)
-    monitor = ['GCAUG','GCACG','GUACG']
-    psam = PSAMState.from_kmer('GCAUG', A0= 1.)
-    #psam = PSAMState.from_kmer('NNNNN', A0= .001)
-    print psam
-    print "="*20
-    for s, a0 in [
-        #('GCAUG', 2.),
-        #('CAUGU', 1.), 
-        ('GCACG', .1),
-        ('GUACG', .05),
-        ('UGCAUGU', 3.),
-        #'CACGC',
-        ('UGCACGCA', 3.5),
-        #('UGCAUGU', .8),
-        #('UGCAUGU', 2.),
-        #('UUGCACGU', 2.3),
-    ]:
-        
-        print "->", s, a0
-        other = PSAMState.from_kmer(s, A0=a0)
-        a,b, padding = psam.merge(other)
+        return 0, kmer, kmer
 
-        print "padding", padding
-        #print a
-        #print a.psam
-        #print "b"
-        #print b
-        #print b, prepend, append
-        #print "!!!merged!!!"
-        c = opt_merge(a, b, padding)
-        #c = a + b
-        psam = c
-        print c
-        from cska.ska_kmers import seq_to_index
-        #print "making tabke"
-        tbl = c.nmer_affinities()
-        for m in monitor:
-            print "tabulated affinity of {0}={1}, A0={2}".format(m, tbl[seq_to_index(m)], a0)
-        
-        #print tbl[seq_to_index('UGCAUGU')]
-        #print tbl[seq_to_index('UGCACGU')]
-        
-    
-
-# when merging two PSAM without change of dimension (point mutations):
-# -> merged should reproduce desired best score of both
-# -> change w as little as possible (least sq)
-
-# when merging two PSAM with change of dimension (shifted):
-# -> ensure that best score is maintained over *average* of added columns
-# -> change w as little as possible
-        
+    "gggcat is 1-shift of TGCATG"
+    "ttgggc is 2-shift of GTGCAT"
+    print is_shifted('gggcat')

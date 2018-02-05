@@ -294,9 +294,10 @@ class ModelOptimization(object):
             
             # construct a new state object from that, by-passing evaluate
             # TODO: integrate into evaluate by better re-factor.
-            state = SPAState(self.mdl, params, Z_scaled, p_bound, pi)
+            rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
+            state = SPAState(self.mdl, params, Z_scaled, p_bound, pi, rbp_free)
             err = self.global_error(state.R)
-            #print "global error={0} at scale={1} before beta fit".format(err, scale)
+            print "global error={0} at scale={1} before beta fit".format(err, scale)
             
             # find optimal betas at each step
             for param_i in range(self.nA, self.n_params):
@@ -304,7 +305,7 @@ class ModelOptimization(object):
                 state.params[param_i] = best
                 
             err = self.global_error(new_state.R)
-            #print "global error={0} at scale={1} after beta fit".format(err, scale)
+            print "global error={0} at scale={1} after beta fit".format(err, scale)
             
             errors.append(err)
             return err

@@ -111,18 +111,18 @@ class TrackedValues(object):
         
         
 class OptReporting(object):
-    def __init__(self, opt, path='./', track=[], report_interval=50, comp=None):
+    def __init__(self, opt, path='./', track=[], report_interval=200, comp=None):
         self.opt = opt
         self.path = path
         if not os.path.exists(path):
             os.makedirs(path)
         
         from matplotlib.backends.backend_pdf import PdfPages
-        self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
-        self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
+        #self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
+        #self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
         self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
-        self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
-        self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
+        #self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
+        #self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
         
         self.comp = comp
         if comp and not track:
@@ -172,7 +172,8 @@ class OptReporting(object):
         self.plot_betas()
         #self.plot_affinity_history()
         
-        for pdf in [self.sweep_pdf, self.descent_pdf, self.R_pdf, self.invkd_pdf, self.err_pdf]:
+        #for pdf in [self.sweep_pdf, self.descent_pdf, self.R_pdf, self.invkd_pdf, self.err_pdf]:
+        for pdf in [self.R_pdf,]:
             try:
                 pdf.close()
             except AttributeError:
