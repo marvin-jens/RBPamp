@@ -1,8 +1,17 @@
 import numpy as np
 import logging
+import scipy
+import logging
+import time
+import sys
+import os
+from collections import defaultdict
+from scipy.optimize import minimize, brentq, minimize_scalar
 import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
 from cska.crosstalk_matrix import CrosstalkMatrix
+from cska.rbns_reads import RBNSReads
+from cska.caching import CachedBase, cached, pickled
 
 class RBNSGenerator(CachedBase):
     def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, mode='ordered', **kwargs):
@@ -128,6 +137,7 @@ class RBNSGenerator(CachedBase):
         seqm, bound_fraction = cyska.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
         # Hacky wacky just to debug and troubleshoot!
         #seqm, self.input_kmer_counts, self.pd_kmer_weights, self.pd_kmer_counts, self.bound_fraction, self.Z_full = cyska.simulate_rbns_reads(self.l, N, self.k, self.input_nt_freq, self.input_di_freq, self.kmer_energies, P, p_ns)
+
         
         dt = time.time() - t0
         

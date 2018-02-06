@@ -1,6 +1,13 @@
 import numpy as np
+import scipy
 import logging
+import time
+import sys
+import os
+from collections import defaultdict
+from scipy.optimize import minimize, brentq, minimize_scalar
 import cska.ska_kmers as cyska
+from cska.rbns_reads import RBNSReads
 from cska.caching import CachedBase, cached, pickled
 
 class KmerSoupModel(object):
@@ -427,4 +434,3 @@ class RBNSKmerModel(object):
         
         self.logger.info("plot_k: rendering PDF '{0}'".format(path) )
         pp.savefig(path)
-        

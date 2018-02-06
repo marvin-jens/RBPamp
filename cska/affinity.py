@@ -1,5 +1,9 @@
 import numpy as np
+import scipy
 import logging
+import time
+import sys
+import os
 import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
 
@@ -83,5 +87,3 @@ class AffinityDistribution(object):
         
         y += beta * bg
         return y / y.sum(), x
-        
-   

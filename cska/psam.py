@@ -2,6 +2,7 @@
 import sys
 import numpy as np
 import cska.ska_kmers as cyska
+
 bases = 'ACGU'
 base_idx = { 
     'A' : 0,

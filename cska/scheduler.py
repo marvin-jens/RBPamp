@@ -8,7 +8,7 @@ from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
 import cska.ska_kmers 
-        
+
 class ParamUpdateScheduler(object):
     #def __init__(self, opt, n_blocked=5, ttl=10, n_max=100, n_avg=5, beta_burn_in=True):
     def __init__(self, opt, n_blocked=5, ttl=5, n_max=100, n_avg=5, beta_burn_in=True, monitor_params=[]):

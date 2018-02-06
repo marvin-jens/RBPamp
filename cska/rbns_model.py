@@ -7,11 +7,9 @@ import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
-import cska.ska_kmers 
 import cska.ska_kmers as cyska
 
 from cska.rbns_reads import RBNSReads
-
 from cska.caching import CachedBase, cached, pickled
 from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
 from cska.scheduler import ParamUpdateScheduler
@@ -46,7 +44,6 @@ class ModelOptimization(object):
         self.last_beta = 0
         self.last_scale = 0
         
-        self.kmers = np.array(list(cska.ska_kmers.yield_kmers(self.k)))
         self.t = t0
         self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
@@ -384,15 +381,15 @@ class ModelOptimization(object):
         params[param_i] = best
         new_state = opt.evaluate(params, tm_update=tm_update)
         
-        if best > .75 * self.aff_max and param_i < self.nA:
-            print self.kmers[param_i]
-            print "local", local
-            print "res", res
-            #print "res_b", res_b
-            print "error at minimum", res.fun
-            print "optimal affinity", best
+        #if best > .75 * self.aff_max and param_i < self.nA:
+            #print self.kmers[param_i]
+            #print "local", local
+            #print "res", res
+            ##print "res_b", res_b
+            #print "error at minimum", res.fun
+            #print "optimal affinity", best
 
-            self.sweep_param(param_i, x0=best)
+            #self.sweep_param(param_i, x0=best)
 
         err = self.global_error(new_state.R)
         return best, err, new_state

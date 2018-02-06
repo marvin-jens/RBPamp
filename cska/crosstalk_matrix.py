@@ -1,11 +1,21 @@
 import numpy as np
 import logging
+import scipy
+import logging
+import time
+import sys
+import os
+from collections import defaultdict
+#from scipy.optimize import minimize, brentq, minimize_scalar
 import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
+#from cska.rbns_reads import RBNSReads
+
 
 class CrosstalkMatrix(CachedBase):
     def __init__(self, k, input_reads):
         CachedBase.__init__(self)
+
         self.k = k
         self.l = input_reads.L # oligo size
         self.input_reads = input_reads
