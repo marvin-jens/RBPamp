@@ -6,7 +6,7 @@ __email__ = "mjens@mit.edu"
 import numpy as np
 import time
 import logging
-import cska.ska_kmers
+import cska.ska_kmers as cyska
 
 from cska.caching import cached, pickled, CachedBase
 
@@ -48,7 +48,7 @@ class RBNSReads(CachedBase):
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
         
-        seqm = cska.ska_kmers.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
+        seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
         N, L = seqm.shape
 
         reads.cache_preload("seqm", seqm)
@@ -105,13 +105,32 @@ class RBNSReads(CachedBase):
             src = self.fname
 
         t0 = time.time()
-        seqm = cska.ska_kmers.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
+        seqm = cyska.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
         t1 = time.time()
         N, L = seqm.shape
         self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(N/1E6, L, (t1-t0) ) )
 
         return seqm
 
+    @cached
+    def get_index_matrix(self, k, indices=[]):
+        """
+        Returns N x (L+k-1) matrix with all k-mer indices in each read, including
+        positions that overlap the adapter.
+        """
+        seqm = self.seqm
+        if len(indices):
+            seqm = self.seqm[indices]
+
+        im = cyska.seq_matrix_to_index_matrix(
+            seqm, 
+            k, 
+            adap5 = cyska.seq_to_bits(self.adap5[-k+1:]),
+            adap3 = cyska.seq_to_bits(self.adap3[:k-1]),
+        )
+        return im
+            
+       
     @property
     @cached
     @pickled
@@ -126,19 +145,19 @@ class RBNSReads(CachedBase):
         N, L = self.seqm.shape
         return L
 
-    @cached
-    def first_index(self, k):
-        """
-        kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
-        """
-        return cska.ska_kmers.seq_to_index(self.adap5[-k+1:],k-1)
+    #@cached
+    #def first_index(self, k):
+        #"""
+        #kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
+        #"""
+        #return cyska.seq_to_index(self.adap5[-k+1:],k-1)
 
-    @cached
-    def last_index(self, k):
-        """
-        kmer-index corresponding to k-1 nt into the 3'-adapter.
-        """
-        return cska.ska_kmers.seq_to_index(self.adap3[:k-1],k-1)
+    #@cached
+    #def last_index(self, k):
+        #"""
+        #kmer-index corresponding to k-1 nt into the 3'-adapter.
+        #"""
+        #return cyska.seq_to_index(self.adap3[:k-1],k-1)
         
     @cached
     @pickled
@@ -148,8 +167,9 @@ class RBNSReads(CachedBase):
         the same k are just a lookup.
         """
         self.seqm # trigger loading, so that timer is correct
+        im = self.get_index_matrix(k)
         t0 = time.time()
-        counts = cska.ska_kmers.seq_set_kmer_count(self.seqm, k)
+        counts = cyska.index_matrix_kmer_counts(im, k)
         t = time.time() - t0
         self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, 1000.*t ) )
         
@@ -170,7 +190,7 @@ class RBNSReads(CachedBase):
     @pickled
     def joint_kmer_profiles(self, k_core, k_flank):
         t0 = time.time()
-        counts = cska.ska_kmers.joint_kmer_profiles(self.seqm, k_core, k_flank)
+        counts = cyska.joint_kmer_profiles(self.seqm, k_core, k_flank)
         t = time.time() - t0
         self.logger.debug("counted joint occurrences of flanking {1}mers around core {0}mers in {2:.3f} ms".format( k_core, k_flank, 1000.*t ) )
         return counts 
@@ -179,7 +199,7 @@ class RBNSReads(CachedBase):
     @pickled
     def reads_with_kmers(self, k):
         t0 = time.time()
-        res = cska.ska_kmers.count_reads_with_kmers(self.seqm, k)
+        res = cyska.count_reads_with_kmers(self.seqm, k)
         t = time.time() - t0
         self.logger.debug("counted reads with {0}mers {1:.3f} ms".format( k, 1000.*t ) )
         
@@ -188,9 +208,9 @@ class RBNSReads(CachedBase):
     @cached
     def kmer_presence(self, kmer):
         k = len(kmer)
-        kmer_index = cska.ska_kmers.kmer_to_index(kmer)
+        kmer_index = cyska.kmer_to_index(kmer)
         
-        res = cska.ska_kmers.seq_set_kmer_flag(self.seqm, k, kmer_index)
+        res = cyska.seq_set_kmer_flag(self.seqm, k, kmer_index)
         
         return res
     
@@ -221,8 +241,8 @@ class RBNSReads(CachedBase):
             out_file = file(out_file, 'w')
 
         t0 = time.time()
-        #counts = cska.ska_kmers.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
-        counts = cska.ska_kmers.count_reads_with_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample, adap5=self.adap5, adap3=self.adap3)
+        #counts = cyska.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)
+        counts = cyska.count_reads_with_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample, adap5=self.adap5, adap3=self.adap3)
         t = time.time() - t0
         self.logger.debug("counted reads with pure {0}mers {1:.3f} ms".format( k, 1000.*t ) )
         if out_file:
@@ -241,7 +261,7 @@ class RBNSReads(CachedBase):
         kmer_ranks[kmer_order] = np.arange(len(kmer_order))
         
         t0 = time.time()
-        counts_by_kmer_rank = cska.ska_kmers.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) ) 
+        counts_by_kmer_rank = cyska.count_best_ranked_hits(self.seqm, np.array(kmer_ranks,dtype=np.uint32) ) 
         t = time.time() - t0
         self.logger.debug("counted reads by {0}mer-rank in {1:.3f} ms".format( k, 1000.*t ) )
 
@@ -256,7 +276,7 @@ class RBNSReads(CachedBase):
     @pickled
     def kmer_profiles(self, k):
         t0 = time.time()
-        profiles = cska.ska_kmers.kmer_profiles(self.seqm, k)
+        profiles = cyska.kmer_profiles(self.seqm, k)
         t = time.time() - t0
         self.logger.debug("built {0}mer-profiles {1:.3f} ms".format( k, 1000.*t ) )
         
@@ -273,7 +293,7 @@ class RBNSReads(CachedBase):
         k = len(kmer_list[0])
         n = len(kmer_list)
         l = self.L - k + 1
-        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
+        kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmer_list])
         kmer_lookup = np.zeros(4**k, dtype=np.uint64)
         kmer_lookup[kmer_indices] = np.arange(n) + 1
         
@@ -308,12 +328,12 @@ class RBNSReads(CachedBase):
     def kmer_cooccurrence_distance_tensor(self, kmer_list):
         k = len(kmer_list[0])
         n = len(kmer_list)
-        kmer_indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmer_list])
+        kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmer_list])
         kmer_lookup = np.zeros(4**k, dtype=np.uint64)
         kmer_lookup[kmer_indices] = np.arange(n) + 1
         
         t0 = time.time()
-        tensor = cska.ska_kmers.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
+        tensor = cyska.kmer_cooccurrence_distance_tensor(self.seqm, kmer_lookup, k, n)
         t = time.time() - t0
         self.logger.debug("built {0}mer-cooccurrence tensor in {1:.3f} ms".format( k, 1000.*t ) )
         
@@ -327,7 +347,7 @@ class RBNSReads(CachedBase):
         use kmer_filter first and then compute the average occurrences of kmers
         with k=k_flank (k_flank = 1..k_max) around the desired "central" kmer.
         """
-        return cska.ska_kmers.kmer_flank_profiles(self.seqm, kmer, k_flank=k_flank)
+        return cyska.kmer_flank_profiles(self.seqm, kmer, k_flank=k_flank)
     
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)

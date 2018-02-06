@@ -1,4 +1,5 @@
 import numpy as np
+import logging
 import scipy
 import logging
 import time
@@ -6,12 +7,9 @@ import sys
 import os
 from collections import defaultdict
 #from scipy.optimize import minimize, brentq, minimize_scalar
-
-import cska.ska_kmers 
-
-#from cska.rbns_reads import RBNSReads
-
+import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
+#from cska.rbns_reads import RBNSReads
 
 
 class CrosstalkMatrix(CachedBase):
@@ -48,7 +46,7 @@ class CrosstalkMatrix(CachedBase):
         for i in np.arange(N):
             M[i,i] = 1
             for x in range(1,k):
-                weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                weights, shifts = cyska.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
                 for s,f in zip(shifts, weights):
                     M[i,s] += f
 
@@ -211,7 +209,7 @@ class CrosstalkMatrix(CachedBase):
         
         I = indices
         
-        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))[I]
+        kmers = np.array(list(cyska.yield_kmers(k)))[I]
         
         r_inv = r_inv[:,I]
         bg_vec = bg_vec[I]

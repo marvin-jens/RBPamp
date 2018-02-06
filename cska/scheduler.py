@@ -117,12 +117,15 @@ class ParamUpdateScheduler(object):
         dt[self.opt.nA:] *= 10 # make beta updates 10 times more often
         return dt
     
-    def debug_monitor(self):
-        self.logger.debug(">>>>> monitored parameters <<<<<")
-        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tcurrent\tknown\tdR")
+    def debug_monitor(self, param_list=[], title="monitored parameters"):
+        self.logger.info(">>>>> {0} <<<<<".format(title))
+        self.logger.info("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
 
-        for i in self.monitor_params:
-            self.logger.debug(self.debug_str_from_param(i))
+        if not len(param_list):
+            param_list = self.monitor_params
+
+        for i in param_list:
+            self.logger.info(self.debug_str_from_param(i))
 
     def debug_str_from_param(self, i):
         if i in self.blocked_params:
@@ -135,6 +138,10 @@ class ParamUpdateScheduler(object):
         else:
             R_str = 'n/a'
         
+        #print "DUMP"
+        #print self.opt.k
+        #print len(self.opt.mdl.param_name)
+        #print len(self.opt.known_params)
         return "{0:10s} {1}\t{2:.2e}\t{3:.2e}\t{4}\t{5:.2e}\t{6:.3e}\t{7:.3e}\t{8:.3e}\t{9}".format( 
             self.opt.mdl.param_name[i], 
             state, 
@@ -161,25 +168,44 @@ class ParamUpdateScheduler(object):
         self._expect = self.expectation
         self._suscept = self.susceptibility
         #score = residual * dt * expect * self.susceptibility
-        self._score = self._residual * self._dt * self._expect * self._suscept
+        self._score = self._residual #* self._dt * self._expect * self._suscept
         #self.logger.debug("beta expect {0}".format(expect[self.opt.nA:]))
         #self.logger.debug("beta scores {0}".format(score[self.opt.nA:]))
         
-        self.debug_monitor()
-        
-        self.logger.debug(">>>>> candidate search <<<<<")
-        self.logger.debug("kmer\tblocked\tscore\tresidual\tdt\texpect\tsuscept\tcurrent\tknown\tdR")
-        
-        cand = []
-        for j,i in enumerate(self._score.argsort()[::-1]):
+        #self.debug_monitor()
+        ranked = self._score.argsort()[::-1]
+        #self.debug_monitor(param_list = ranked[:10], title="candidate search")
+        pick = None        
+        for i in ranked:
             if not i in self.blocked_params:
-                cand.append(i)
-            if j < 20:
-                self.logger.debug(self.debug_str_from_param(i))
-            if j > 20 and cand:
+                pick = i
                 break
-
-        pick = cand[0]
-        self.update(pick)
-        self.logger.debug("selected {0} {1}".format(pick, self.opt.mdl.param_name[pick]) )
+        
+        self.logger.info("selected {0}".format(self.opt.mdl.param_name[pick]) )
         return pick
+    
+    def pwm_set(self, seed, k):
+        """
+        generate all single base substitution variants of a 
+        seed motif by bit-operations on the corresponding kmer index.
+        """
+        variants = [seed]
+        for j in range(k):
+            nt = (seed >> j*2) & 3
+            #print "j,nt",j,nt
+            mask = seed ^ nt << (j*2)
+            #print "mask", cyska.index_to_seq(mask,k)
+            
+            for l in range(4):
+                var = mask | (l << j*2)
+                #print "variant", cyska.index_to_seq(var,k)
+
+                if var != seed:
+                    variants.append(var)
+
+        scores = [self._score[i] for i in variants]
+        to_sort = zip(scores, variants)
+        ordered = [i for s,i in sorted(to_sort, reverse=True)]
+        
+        return ordered
+        

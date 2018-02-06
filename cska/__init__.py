@@ -22,7 +22,6 @@ from cska.rbns_reads import RBNSReads
 from cska.rbns_analysis import RBNSAnalysis
 from cska.ska_runner import SKARunner
 
-
 def main():
     from optparse import OptionParser
     usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
@@ -32,7 +31,8 @@ def main():
     parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
-    parser.add_option("","--compute-results",dest="results",default="R_value,affinity",help="list of RBNS metrics to compute and store (options='*R_value,*affinity,SKA_weight,F_ratio' *=default)")
+    parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
+    parser.add_option("","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
@@ -177,6 +177,14 @@ def main():
 
         # open energy prediction from folding
         fold_path = os.path.join(options.output,"openen")
+        
+        # first, compute RBNS metrics
+        for k in range(options.min_k, options.max_k + 1):
+            rbns.compute_results(k, options, results=options.results.split(','), report=options.reports)
+            rbns.flush()
+
+        ### special run modes: 
+        # secondary structure prediction and accessibility recording
         if options.folding:
             from cska.folding import parallel_fold, OpenenStorage
 
@@ -206,10 +214,42 @@ def main():
                     l_insert = rbns.reads[0].L,
                     skip_adap = options.skip_adap,
                 )
-        else:
-            for k in range(options.min_k, options.max_k + 1):
-                rbns.compute_results(k, options, results=options.results.split(','), report=options.reports)
-                rbns.flush()
+        # fit of thermodynamic model parameters (affinities)
+        if options.model:
+            from cska.rbns_model import ModelOptimization, ReferenceComparison
+            from cska.pwm import PWMOptimizer
+
+            opt = ModelOptimization(
+                options.min_k, 
+                rbns_analysis=rbns, 
+                out_path=rbns.out_path, 
+                rbp_conc=rbns.rbp_conc, 
+                n_subsample=0, 
+                seq_only=False, 
+                sub_replace=False, 
+                param_file=options.mdl_resume,
+                sched_params={}
+            )
+
+            pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
+            
+            if options.known_kd:
+                comp = ReferenceComparison(opt, options.known_kd)
+            else:
+                comp = None
+
+            from cska.rbns_reports import OptReporting
+            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
+
+            try:
+                pwm_opt.optimize()
+            except KeyboardInterrupt:
+                opt.logger.warning("Keyboard interrupt")
+                
+            opt.reporter.close()
+            pwm_opt.store_params()
+
+            opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
         
 
         ###rbns.compare_k()

@@ -24,6 +24,23 @@ var/
 .installed.cfg
 *.egg
 
+# output
+*.pdf
+*.svg
+*.eps
+*.txt
+*.ps
+*.html
+
+#temp
+*.pkl
+
+# input
+*.tsv
+*.fa
+*.csv
+*.reads
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.

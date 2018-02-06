@@ -184,7 +184,7 @@ class RBNSAnalysis(CachedBase):
 
         # secondary structure open-energies/accessibility storage
         from cska.folding import OpenenStorage
-        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='gamma'))
+        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='linear'))
         
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
@@ -275,41 +275,7 @@ class RBNSAnalysis(CachedBase):
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
             path = os.path.join(self.out_path, fname)
 
-            if name == 'affinity':
-                from cska.rbns_model import ModelOptimization, ReferenceComparison
-                # first sample is input!
-                reads = self.reads[0]
-                openen = self.acc_storages[0].get_discretized(k)
-
-                param_file = options.mdl_resume
-                R_obs, R_err = self.R_value_matrix(k)
-                
-                opt_path = os.path.join(self.out_path, 'affinity/{0}mers'.format(k))
-                #sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0', 'beta1', 'beta2', 'beta3'])
-                sched_params=dict(monitor_params=['TGCATGT', 'AGCATGT', 'CGCATGT', 'TGTATGT', 'TACATGT', 'TGCACGT', 'TGCATAT', 'beta0'])
-                sched_params = {}
-                opt = ModelOptimization(reads, openen, k, R_obs, R_err=R_err, out_path=opt_path, rbp_conc=self.rbp_conc, n_subsample=0, seq_only=False, sub_replace=True, param_file=param_file, sched_params=sched_params)
-                #opt.mdl.extrapolation(7, 'extrapolated.7mer.tsv')
-                
-                if options.known_kd:
-                    comp = ReferenceComparison(opt, options.known_kd)
-                else:
-                    comp = None
-
-                from cska.rbns_reports import OptReporting
-                rep = OptReporting(opt, os.path.join(opt_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
-                
-
-                try:
-                    opt.optimize(reporter = rep)
-                except KeyboardInterrupt:
-                    opt.logger.warning("Keyboard interrupt")
-
-                opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
-                opt.mdl.store_params(os.path.join(self.out_path, fname))
-
-
-            elif name == 'cooccurrence_tensor':
+            if name == 'cooccurrence_tensor':
                 rbns.cooccurrence_tensor_analysis(k)
                 continue
 

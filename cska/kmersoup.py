@@ -6,8 +6,7 @@ import sys
 import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
-
-import cska.ska_kmers 
+import cska.ska_kmers as cyska
 from cska.rbns_reads import RBNSReads
 from cska.caching import CachedBase, cached, pickled
 
@@ -42,7 +41,7 @@ class RBNSKmerModel(object):
         kmers and r_matrix should be sorted from most to least strongly bound kmer
         """
         self.k = len(kmers[0])
-        #self.kmers = cska.ska_kmers.yield_kmers(k)
+        #self.kmers = cyska.yield_kmers(k)
         self.kmers = kmers
         self.r = r_matrix
         self.n_conc, self.n_kmers = r_matrix.shape
@@ -90,7 +89,7 @@ class RBNSKmerModel(object):
     def from_analysis(cls, a, k, **kwargs):
         rbp_conc = a.rbp_conc
         rna_conc = a.reads[0].rna_conc # assume constant over different experiments
-        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
+        kmers = np.array(list(cyska.yield_kmers(k)))
 
         r_values, r_errors = a.SKA_weight_matrix(k) # a.pure_F_ratio_matrix(k) # a.SKA_weight_matrix(k)
         #order = a.get_optimal_kmer_ranking(k)
@@ -143,7 +142,7 @@ class RBNSKmerModel(object):
         
     def track_kmers(self, kmers):
         for mer in kmers:
-            self.tracked_kmers[mer] = cska.ska_kmers.seq_to_index(mer)
+            self.tracked_kmers[mer] = cyska.seq_to_index(mer)
 
             
     def estimate_r_nonspecific(self, q=10):
@@ -347,8 +346,8 @@ class RBNSKmerModel(object):
     def test_known(self, kmers, kds, q=1):
         # TODO: update!!
         import matplotlib.pyplot as pp
-        import cska.ska_kmers
-        I = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmers])
+        import cyska
+        I = np.array([cyska.seq_to_index(mer) for mer in kmers])
         kds = np.array(kds)
         print kds, kmers
         r = self.r[:,I]
