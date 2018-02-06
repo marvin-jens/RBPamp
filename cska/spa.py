@@ -11,6 +11,7 @@ from scipy.optimize import minimize_scalar
 import cska.ska_kmers as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
+from cska.sc import SelfConsistency
 #from cska import timed
 
 """
@@ -243,34 +244,13 @@ class SPAModel(object):
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
-    def self_consistent_free_rbp(self, Z1, rbp_total):
-        from scipy.optimize import minimize_scalar
-        rna_conc = self.reads.rna_conc
-        N = len(Z1)
-        
-        t0 = time.time()
-        def to_optimize(p_free):
-            Z = p_free * Z1
-            p = Z / (Z + 1.)
-            
-            rbp_bound = (p * rna_conc).sum() / N
-            
-            return ((rbp_total - rbp_bound) - p_free)**2
-            
-        res = minimize_scalar(to_optimize, bounds = (0, rbp_total), method='Bounded')
-        t1 = time.time()
-        perc = res.x / rbp_total
-        self.logger.debug("self consistency: total={0:.1f} free={1:.1f} ({2:.2f}%) in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0)) )
-        
-        return res.x
-        
-        
     def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
         Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
         return Z1
     
     def _spa_free_protein(self, Z1, rbp_conc):
-        rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
+        sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
+        rbp_free = [sc.free_rbp(total) for total in rbp_conc]
         return np.array(rbp_free, dtype= np.float32)
 
     def _spa_p_rna_bound(self, Z1, rbp_free):
