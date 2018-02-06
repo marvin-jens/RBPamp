@@ -43,6 +43,28 @@ class SPAState(object):
         self.pd_freq = self.pi_kmer + self.betas[:, np.newaxis] * self.mdl.f0 * self.N
         self.pd_sum = self.pd_freq.sum(axis=1)
         self.R = (self.pd_freq/ self.pd_sum[:, np.newaxis] ) / self.mdl.f0[np.newaxis,:]
+
+    def __mul__(self, scale):
+        """
+        multiply all affinities by 'scale'. For scale ~1 rounding errors
+        should be small, so we do not need to recompute the partition 
+        function, just rescale that as well.
+        """
+        
+        # parameter scale <-> part. function scale
+        params = np.array(self.params)
+        params[:self.mdl.nA] = self.params[:self.mdl.nA] * scale
+        Z_scaled = self.Z1 * scale
+        
+        # update dependent values
+        rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
+        p_bound = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free)
+        pi_kmer = self.mdl._spa_kmer_pi(p_bound, self.mdl.subsample_index_matrix)
+
+        # construct a new state object
+        state = SPAState(self.mdl, params, Z_scaled, p_bound, pi_kmer, rbp_free)
+        return state
+
         
     @property
     def dR_dA_matrices(self):

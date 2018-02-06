@@ -267,35 +267,17 @@ class ModelOptimization(object):
 
         return better, new_state
     
-    def step_scale(self, reporter=None):
+    def step_scale(self):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
         import time
         t0 = time.time()
         params = np.array(self.current.params)
-        Z1 = self.current.Z1
-        im = self.mdl.subsample_index_matrix
-        n = len(Z1)
-        p_bound = np.zeros( (self.n_conc, n), dtype=np.float32)
-        pi = np.zeros( (self.n_conc, self.nA), dtype=np.float32)
-       
+
         scales = []
         errors = []
-        
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)
-            scales.append(scale)
-            params[:self.nA] = self.current.params[:self.nA] * scale
-            for i in range(self.n_conc):
-                Z_scaled = Z1 * scale
-                Z = self.rbp_conc[i] * Z_scaled
-                p_bound[i] = Z / (Z + 1)
-                pi[i] = weighted_kmer_counts(im, p_bound[i], self.k)
-            
-            
-            # construct a new state object from that, by-passing evaluate
-            # TODO: integrate into evaluate by better re-factor.
-            rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
-            state = SPAState(self.mdl, params, Z_scaled, p_bound, pi, rbp_free)
+            state = self.current * scale
             err = self.global_error(state.R)
             print "global error={0} at scale={1} before beta fit".format(err, scale)
             
@@ -314,16 +296,14 @@ class ModelOptimization(object):
         dt = time.time() - t0
         self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
 
-        if reporter:
-            reporter.plot_sweep(param="scale", errors = errors, x = scales)
-
+        #if reporter:
+            #reporter.plot_sweep(param="scale", errors = errors, x = scales)
+            
+        params = np.array(self.current.params)
         params[:self.nA] = self.current.params[:self.nA] * res.x
         new_state = self.mdl.evaluate(params, tm_update=True)
 
         better = self.update(new_state, self.global_error(new_state.R), "affinity re-scaling")
-        if better > 0:
-            # un-block all affinities to allow unbiased optimization.
-            self.sched.n_blocked = []
         return better, new_state
             
     def optimize_single_param(self, param_i, ground_state=None, local=True):

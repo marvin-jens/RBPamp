@@ -402,7 +402,7 @@ class PWMOptimizer(object):
             shift, seed, compound = self.is_shifted(kmer)
             ashift = abs(shift)
             if ashift > 0:
-                self.logger.info("{kmer} is {ashift}-shift of {seed}. Recording {compound} for k+{shift}".format(**locals()) )
+                self.logger.info("{kmer} is {ashift}-SHIFT of HULL({seed}). Recording {compound} for k+{shift}".format(**locals()) )
                 self.record_cue(seed, shift, i, compound)
                 #keep_pwm = False
             else:
@@ -521,7 +521,7 @@ class PWMOptimizer(object):
                     self.pwm_optimize_hull(kmer)
 
         # reset migration cues
-        self.kmer_queues = defaultdict(list)
+        self.kmer_queues = defaultdict(set)
 
         
         
