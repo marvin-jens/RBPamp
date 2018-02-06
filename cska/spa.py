@@ -170,6 +170,9 @@ class SPAPartition(object):
         
 
 class SPAModel(object):
+    """
+    Single Protein Approximation (SPA) thermodynamic model of RBNS.
+    """
     def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
         self.k = k
         self.nA = 4**k
@@ -263,13 +266,6 @@ class SPAModel(object):
         
         
     def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
-        #t0 = time.time()
-        # the model itself is implemented in Cython
-        #print "IM ", im.shape
-        #print "OEM", oem.shape
-        #print "ofs", self.openen.ofs - self.k + 1
-        #print "l5 ", self.reads.l5
-        #print "l3 ", self.reads.l3
         Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
         return Z1
     

@@ -260,10 +260,14 @@ class ModelOptimization(object):
 
         return imp, new_state
 
-    def step_betas(self, ground_state=None):
+    def step_betas(self, ground_state=None, update=True):
         for param_i in range(self.nA, self.n_params):
             best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
-            better = self.update(new_state, err, "beta{0} parameter optimization".format(param_i - self.nA), tick=False)
+            
+            if update:
+                better = self.update(new_state, err, "beta{0} parameter optimization".format(param_i - self.nA), tick=False)
+            else:
+                better = np.nan
 
         return better, new_state
     
@@ -277,17 +281,17 @@ class ModelOptimization(object):
         errors = []
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)
+            t0 = time.time()
             state = self.current * scale
-            err = self.global_error(state.R)
-            print "global error={0} at scale={1} before beta fit".format(err, scale)
-            
-            # find optimal betas at each step
-            for param_i in range(self.nA, self.n_params):
-                best, err, new_state = self.optimize_single_param(param_i, ground_state=state, local=False)
-                state.params[param_i] = best
-                
+            t1 = time.time()
+            better, new_state = self.step_betas(ground_state = state, update=False)
+            t2 = time.time()
             err = self.global_error(new_state.R)
-            print "global error={0} at scale={1} after beta fit".format(err, scale)
+            t3 = time.time()
+            t_scale = 1000*(t1-t0)
+            t_beta = 1000*(t2-t1)
+            t_err = 1000*(t3-t2)
+            print "global error={err} at scale={scale} after beta fit. t_scale={t_scale:.2f}ms t_beta={t_beta:.2f}ms t_err={t_err:.2f}ms".format(**locals())
             
             errors.append(err)
             return err
