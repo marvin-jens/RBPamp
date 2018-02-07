@@ -12,7 +12,6 @@ class SelfConsistency(object):
         
         if bins:
             # logarithmic binning
-            self.Z1.sort()
             lZ = np.log(Z1)
             self.counts, bins = np.histogram(lZ, bins=bins)
             self.bins = np.exp(bins)

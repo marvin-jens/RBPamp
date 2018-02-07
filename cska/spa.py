@@ -275,14 +275,14 @@ class SPAModel(object):
 
         return pi
 
-    def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
-        """ LEGACY: WILL BE REMOVED"""
-        self.logger.debug("_eval_tm called!")
-        Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
-        p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
-        pi = self._spa_kmer_pi(p_bound, im)
+    #def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
+        #""" LEGACY: WILL BE REMOVED"""
+        #self.logger.debug("_eval_tm called!")
+        #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+        #p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
+        #pi = self._spa_kmer_pi(p_bound, im)
 
-        return Z1, p_bound, pi
+        #return Z1, p_bound, pi
 
         
     def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True, ground_state=None):
@@ -291,7 +291,6 @@ class SPAModel(object):
         """
         # prepare all variables
         kmer_invkd = params[:self.nA]
-           
         if not len(indices):
             indices = self.subsample_indices
             im = self.subsample_index_matrix
