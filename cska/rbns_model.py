@@ -21,7 +21,7 @@ from cska.spa import SPAState, SPAPartition, SPAModel
 
                  
 class ModelOptimization(object):
-    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.01, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
+    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.02, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
@@ -48,7 +48,7 @@ class ModelOptimization(object):
         self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
 
-        self.logger = logging.getLogger('ModelOptimization')
+        self.logger = logging.getLogger('opt.ModelOptimization')
         self.out_path = out_path
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
@@ -191,6 +191,7 @@ class ModelOptimization(object):
         from copy import copy
         self.previous = copy(self.current)
         
+        self.current.params[self.nA:]
         if self.errors:
             better = (self.errors[-1] - err)* 100./self.errors[-1]
         else:
@@ -199,17 +200,18 @@ class ModelOptimization(object):
         self.current = new_state
         self.mdl.state = new_state
         self.mdl.params = new_state.params
-        
+
         # subsamples should remain stable throughout one iteration step!
-        if self.t - self.last_tm_refresh > self.tm_refresh:
+        if self.t - self.last_tm_refresh >= self.tm_refresh:
             R_before = self.current.R
-            self.current = self.mdl.evaluate(self.current.params, keep = True)#, do_jacobi = True) # dont use gradient for now!
+            self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
             R_after = self.current.R
-            
             round_err = np.fabs(R_before - R_after).sum()
             self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
             self.last_tm_refresh = self.t
             
+        self.current.params[self.nA:]
+
         #self.mdl.new_subsample()
         self.errors.append(self.global_error(self.current.R))
         
@@ -279,11 +281,11 @@ class ModelOptimization(object):
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)
             t0 = time.time()
-            state = self.current * scale
+            scaled = self.current * scale
             t1 = time.time()
-            better, new_state = self.step_betas(ground_state = state, update=False)
+            #better, new_state = self.step_betas(ground_state = state, update=False)
             t2 = time.time()
-            err = self.global_error(new_state.R)
+            err = self.global_error(scaled.R)
             t3 = time.time()
             t_scale = 1000*(t1-t0)
             t_beta = 1000*(t2-t1)
@@ -299,11 +301,9 @@ class ModelOptimization(object):
 
         #if reporter:
             #reporter.plot_sweep(param="scale", errors = errors, x = scales)
-            
-        params = np.array(self.current.params)
-        params[:self.nA] = self.current.params[:self.nA] * res.x
-        new_state = self.mdl.evaluate(params, tm_update=True)
 
+        scaled = self.current * res.x
+        better, new_state = self.step_betas(ground_state = scaled, update=True)
         better = self.update(new_state, self.global_error(new_state.R), "affinity re-scaling")
         return better, new_state
             
@@ -318,7 +318,7 @@ class ModelOptimization(object):
             tm_update = True
             opt = SPAPartition(self.mdl, param_i)
         else:
-            # do not evaluate the thermodynamic model, only re-compute R-values
+            # do not evaluate the thermodynamic model, only re-compute R-values (for beta optimization)
             tm_update = False
             opt = self.mdl
             
@@ -381,16 +381,6 @@ class ModelOptimization(object):
         params[param_i] = best
         new_state = opt.evaluate(params, tm_update=tm_update)
         
-        #if best > .75 * self.aff_max and param_i < self.nA:
-            #print self.kmers[param_i]
-            #print "local", local
-            #print "res", res
-            ##print "res_b", res_b
-            #print "error at minimum", res.fun
-            #print "optimal affinity", best
-
-            #self.sweep_param(param_i, x0=best)
-
         err = self.global_error(new_state.R)
         return best, err, new_state
 

@@ -11,6 +11,7 @@ from scipy.optimize import minimize_scalar
 import cska.ska_kmers as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
+from cska.sc import SelfConsistency
 #from cska import timed
 
 """
@@ -22,9 +23,9 @@ Further perks are support for a non-specific contribution from background bindin
 """
 
 class SPAState(object):
-    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, openen_bin_counts = [], jacobi = []):
+    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, openen_bin_counts = [], jacobi = [], sc=None):
         self.mdl = mdl
-
+        self.sc=sc
         self.params = params
         self.A = params[:self.mdl.nA] # affinities
         self.betas = params[self.mdl.nA:] # background coefficients
@@ -50,22 +51,44 @@ class SPAState(object):
         should be small, so we do not need to recompute the partition 
         function, just rescale that as well.
         """
-        
+        t0 = time.time()
         # parameter scale <-> part. function scale
         params = np.array(self.params)
         params[:self.mdl.nA] = self.params[:self.mdl.nA] * scale
         Z_scaled = self.Z1 * scale
         
         # update dependent values
-        rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
+        if not self.sc:
+            #print "Making SelfConsistency object for scaling"
+            self.sc = SelfConsistency(self.Z1, self.mdl.reads.rna_conc, bins=10000)
+        #else:
+            #print "found cached version!"
+        #rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
+        t1 = time.time()
+        rbp_free = self.sc.free_rbp_vector(self.mdl.rbp_conc, Z_scale=scale)
+        t11 = time.time()
         p_bound = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free)
+        t12 = time.time()
         pi_kmer = self.mdl._spa_kmer_pi(p_bound, self.mdl.subsample_index_matrix)
 
+        t2 = time.time()
         # construct a new state object
         state = SPAState(self.mdl, params, Z_scaled, p_bound, pi_kmer, rbp_free)
+        t3 = time.time()
+        t_setup = 1000. *(t1 - t0)
+        t_comp = 1000. *(t2 - t1)
+        t_create = 1000. *(t3 - t2)
+
+        tfree = 1000. *(t11 - t1)
+        tbound = 1000. *(t12 - t11)
+        tpi = 1000. *(t2 - t12)
+        
+        self.mdl.logger.debug("mul: setup={t_setup:.2f} compute={t_comp:.2f} ({tfree:.2f}, {tbound:.2f}, {tpi:.2f}) create={t_create:.2f}".format(**locals()) )
         return state
 
-        
+    def store_Z(self, fname):
+        np.save(fname, self.Z1)
+
     @property
     def dR_dA_matrices(self):
         R = self.R
@@ -143,7 +166,7 @@ class SPAPartition(object):
 
         self.other_pi = pi - kmer_pi
         
-        self.mdl.logger.debug('SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
+        self.mdl.logger.debug('model.SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
         
     def evaluate(self, params, **kwargs):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
@@ -188,7 +211,7 @@ class SPAModel(object):
 
         self.T = T
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
-        self.logger = logging.getLogger('SPAModel')
+        self.logger = logging.getLogger('model.SPAModel')
 
         self.out_path = out_path
         if not os.path.exists(out_path):
@@ -243,48 +266,27 @@ class SPAModel(object):
         self.subsample_oem = self.openen.oem[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
-    def self_consistent_free_rbp(self, Z1, rbp_total):
-        from scipy.optimize import minimize_scalar
-        rna_conc = self.reads.rna_conc
-        N = len(Z1)
-        
-        t0 = time.time()
-        def to_optimize(p_free):
-            Z = p_free * Z1
-            p = Z / (Z + 1.)
-            
-            rbp_bound = (p * rna_conc).sum() / N
-            
-            return ((rbp_total - rbp_bound) - p_free)**2
-            
-        res = minimize_scalar(to_optimize, bounds = (0, rbp_total), method='Bounded')
-        t1 = time.time()
-        perc = res.x / rbp_total
-        self.logger.debug("self consistency: total={0:.1f} free={1:.1f} ({2:.2f}%) in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0)) )
-        
-        return res.x
-        
-        
     def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
         Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
         return Z1
     
     def _spa_free_protein(self, Z1, rbp_conc):
-        rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
+        sc = SelfConsistency(Z1, self.reads.rna_conc, bins=10000)
+        rbp_free = [sc.free_rbp(total) for total in rbp_conc]
         return np.array(rbp_free, dtype= np.float32)
 
     def _spa_p_rna_bound(self, Z1, rbp_free):
-        n = len(Z1)
-        n_conc = len(rbp_free)
-        p_bound = np.zeros( (n_conc, n), dtype=np.float32)
+        return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32))
+        #n = len(Z1)
+        #n_conc = len(rbp_free)
+        #p_bound = np.zeros( (n_conc, n), dtype=np.float32)
         
-        for i in range(n_conc):
-            Z = rbp_free[i] * Z1
-            p_bound[i] = Z / (Z + 1)
+        #for i in range(n_conc):
+            #Z = rbp_free[i] * Z1
+            #p_bound[i] = Z / (Z + 1)
         
-        return p_bound
-        
-
+        #return p_bound
+    
     def _spa_kmer_pi(self, p_bound, im):
         n_conc, n = p_bound.shape
         
@@ -294,14 +296,14 @@ class SPAModel(object):
 
         return pi
 
-    def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
-        """ LEGACY: WILL BE REMOVED"""
-        self.logger.debug("_eval_tm called!")
-        Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
-        p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
-        pi = self._spa_kmer_pi(p_bound, im)
+    #def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
+        #""" LEGACY: WILL BE REMOVED"""
+        #self.logger.debug("_eval_tm called!")
+        #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+        #p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
+        #pi = self._spa_kmer_pi(p_bound, im)
 
-        return Z1, p_bound, pi
+        #return Z1, p_bound, pi
 
         
     def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True, ground_state=None):
@@ -310,7 +312,6 @@ class SPAModel(object):
         """
         # prepare all variables
         kmer_invkd = params[:self.nA]
-           
         if not len(indices):
             indices = self.subsample_indices
             im = self.subsample_index_matrix

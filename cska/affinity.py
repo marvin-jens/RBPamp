@@ -54,7 +54,7 @@ class AffinityDistribution(object):
         self.reads = reads
         self.openen = openen
         self.bins = np.arange(-15,4,1.)
-        self.logger = logging.getLogger("AffinityDistribution")
+        self.logger = logging.getLogger("model.AffinityDistribution")
     
     def get_affinities(self):
         im = cyska.seq_matrix_to_index_matrix(self.reads.seqm, self.mdl.k)

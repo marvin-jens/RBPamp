@@ -34,7 +34,7 @@ def main():
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
-    parser.add_option("","--debug",dest="debug",default=False, action="store_true",help="SWITCH: activate debug output")
+    parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model]")
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
     parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
 
@@ -52,8 +52,6 @@ def main():
     parser.add_option("","--disable-caching",dest="disable_caching",default=False, action="store_true",help="DEBUG: disable transparent caching (SLOW!)")
     parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
-    parser.add_option("","--debug-caching",dest="debug_caching",default=False, action="store_true",help="DEBUG: enable detailed debug output from the caching framework")
-
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
     parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
@@ -93,7 +91,6 @@ def main():
         sys.exit(1)
 
     # control caching framework behaviour
-    CachedBase.debug_caching = options.debug_caching
     CachedBase._do_not_cache = options.disable_caching
     CachedBase._do_not_pickle = options.disable_pickle
     CachedBase._do_not_unpickle= options.disable_unpickle
@@ -105,14 +102,10 @@ def main():
 
     # set up logging
     log_path = os.path.join(options.output,"run.log")
-    if options.debug:
-        lvl = logging.DEBUG
-    else:
-        lvl = logging.INFO
 
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
-    logging.basicConfig(level=lvl, format=FORMAT)    
+    logging.basicConfig(level=logging.INFO, format=FORMAT)    
     root = logging.getLogger('')
     fh = logging.FileHandler(filename=log_path, mode='a')
     fh.setFormatter(logging.Formatter(FORMAT))
@@ -121,6 +114,12 @@ def main():
     logger = logging.getLogger("CSKA")
     logger.info("version {0}".format(__version__))
     logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
+
+    # set debug log level for specific sub-systems
+    for deb in options.debug.split(','):
+        logging.getLogger(deb).setLevel(logging.DEBUG)
+        if deb == 'cache':
+            CachedBase.debug_caching = True
 
     try:
         # parametrize SKA algorithm

@@ -13,7 +13,7 @@ from Queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
 import cska.ska_kmers as cyska
-logger = logging.getLogger("cska.folding")
+logger = logging.getLogger("fold")
 
 # This global variable is used by the keyboard interrupt 
 # handler to decide if we need to flush stuff to disk
@@ -37,7 +37,7 @@ class RBNSOpenen(CachedBase):
         
         self.k = k
         self.discretized = ("discretized" in self.fname)
-        self.logger = logging.getLogger('RBNSOpenen({self.fname})'.format(self=self))
+        self.logger = logging.getLogger('fold.RBNSOpenen({self.fname})'.format(self=self))
         
         # to be initialized upon first access to oem
         self.include_adapters = None
@@ -244,7 +244,7 @@ class ViennaOpenen(object):
         self.adap3 = adap3
         
         self.n_total = 0
-        self.logger = logging.getLogger('ViennaOpenen')
+        self.logger = logging.getLogger('fold.ViennaOpenen')
         self.logger.info("initialized for adap5='{self.adap5}' adap3='{self.adap3}' l_insert = {self.l_insert} k_min={self.k_min} k_max={self.k_max} first={self.first} last={self.last}".format(self=self) )
 
     def process_sequences(self, seq_src):
@@ -310,7 +310,7 @@ class OpenenStorage(CachedBase):
         
         self.k_sinks = {}
         self.k_disc = {}
-        self.logger = logging.getLogger('OpenenStorage({self.reads})'.format(self=self))
+        self.logger = logging.getLogger('fold.OpenenStorage({self.reads})'.format(self=self))
         self.n_sets = 0
         self.discretize = discretize
         self.dummy = dummy
@@ -580,7 +580,7 @@ class OpenenDiscretization(object):
 interrupt_folding = Event()
 
 def interrupt():
-    logger = logging.getLogger('interrupt')
+    logger = logging.getLogger('fold.interrupt')
     interrupt_folding.set()
     if folding_in_progress:
         logger.warning("parallel folding run interrupted")
@@ -616,7 +616,7 @@ def seq_dispatcher(src, queue, chunk_size=100, max_depth=50, throttle_sleep=1., 
     already queued.
     """
 
-    logger = logging.getLogger('seq_dispatcher')
+    logger = logging.getLogger('fold.seq_dispatcher')
     chunk = []
     n_chunk = 0
     n_seqs = 0
@@ -689,7 +689,7 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
     t1 = t0
     n_rec = 0
 
-    logger = logging.getLogger('result_collector')
+    logger = logging.getLogger('fold.result_collector')
     for n_chunk, results in queue_iter(res_queue, interrupt_event=interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         

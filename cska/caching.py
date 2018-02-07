@@ -56,7 +56,7 @@ class CachedBase(object):
     
     def __init__(self, **kwargs):
         self._cache_names = []
-        self.logger = logging.getLogger('CachedBase')
+        self.cache_logger = logging.getLogger('cache.CachedBase')
         
         for k,v in kwargs.items():
             if k.startswith('_'):
@@ -83,12 +83,12 @@ class CachedBase(object):
         key, kw = args_to_key(argc, kwargs, self, func_name)
         getattr(self, cache_name)[key] = value
         if self.debug_caching:
-            self.logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, key, value) )
+            self.cache_logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, key, value) )
     
     def cache_flush(self, cache_names = []):
         if not cache_names:
             cache_names = self._cache_names
-        self.logger.debug("{0} flushing caches '{1}'".format(self.cache_key, cache_names) )
+        self.cache_logger.debug("{0} flushing caches '{1}'".format(self.cache_key, cache_names) )
         for cache_name in cache_names:
             setattr(self, cache_name, dict() )
 
@@ -115,29 +115,29 @@ def cached(func):
             self._cache_names.append(cache_name)
 
         if self.debug_caching:
-            self.logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+            self.cache_logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
                 
         cache = getattr(self, cache_name)
         key, kw = args_to_key(argc, kwargs, self, func.__name__)
         
         if not key in cache:
             if self.debug_caching:
-                self.logger.debug("{0} cache-miss '{1}'".format(cache_name, key) )
+                self.cache_logger.debug("{0} cache-miss '{1}'".format(cache_name, key) )
                 #self.cache_debug()
 
             if getattr(self, '_do_not_cache', False) or kwargs.get('_do_not_cache', False):
                 if self.debug_caching:
-                    self.logger.debug("! NOT CACHING: calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+                    self.cache_logger.debug("! NOT CACHING: calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
 
                 # override caching, but allow pre-loading!
                 return func(self, *argc, **kw)
             else:
                 if self.debug_caching:
-                    self.logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+                    self.cache_logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
                 cache[key] = func(self, *argc, **kw)
         else:
             if self.debug_caching:
-                self.logger.debug("{0} cache-hit '{1}'".format(cache_name, key) )
+                self.cache_logger.debug("{0} cache-hit '{1}'".format(cache_name, key) )
             
         return cache[key]
     
@@ -169,7 +169,7 @@ def pickled(func):
             new = True
         
         elif os.path.exists(fname):
-            self.logger.debug("un-pickling '{0}' as '{1}'".format(pkl_key, pkl_name) )
+            self.cache_logger.debug("un-pickling '{0}' as '{1}'".format(pkl_key, pkl_name) )
             res = pickle.load(file(fname,'rb'))
             new = False
             
@@ -179,7 +179,7 @@ def pickled(func):
 
         # store the result, if new and not disabled
         if new and (not (getattr(self, '_do_not_pickle', False) or kwargs.get('_do_not_pickle', False))):
-            self.logger.debug("storing pickle of '{0}' as '{1}'".format(pkl_key, pkl_name) )
+            self.cache_logger.debug("storing pickle of '{0}' as '{1}'".format(pkl_key, pkl_name) )
             try:
                 os.makedirs(self.pkl_path)
             except OSError:
