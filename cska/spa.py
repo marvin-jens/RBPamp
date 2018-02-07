@@ -59,10 +59,10 @@ class SPAState(object):
         
         # update dependent values
         if not self.sc:
-            print "Making SelfConsistency object for scaling"
+            #print "Making SelfConsistency object for scaling"
             self.sc = SelfConsistency(self.Z1, self.mdl.reads.rna_conc, bins=10000)
-        else:
-            print "found cached version!"
+        #else:
+            #print "found cached version!"
         #rbp_free = self.mdl._spa_free_protein(Z_scaled, self.mdl.rbp_conc)
         t1 = time.time()
         rbp_free = self.sc.free_rbp_vector(self.mdl.rbp_conc, Z_scale=scale)
@@ -79,9 +79,9 @@ class SPAState(object):
         t_comp = 1000. *(t2 - t1)
         t_create = 1000. *(t3 - t2)
 
-        tfree = t11 - t1
-        tbound = t12 - t11
-        tpi = t2 - t12
+        tfree = 1000. *(t11 - t1)
+        tbound = 1000. *(t12 - t11)
+        tpi = 1000. *(t2 - t12)
         
         self.mdl.logger.debug("mul: setup={t_setup:.2f} compute={t_comp:.2f} ({tfree:.2f}, {tbound:.2f}, {tpi:.2f}) create={t_create:.2f}".format(**locals()) )
         return state
