@@ -30,7 +30,7 @@ class RBNSReads(CachedBase):
         self.n_max = n_max
         self.n_subsamples = n_subsamples
         
-        self.logger = logging.getLogger('RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
+        self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         
         if len(seqm):
             self.is_subsample = True

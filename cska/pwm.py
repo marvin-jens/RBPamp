@@ -202,7 +202,7 @@ class PWMOptimizer(object):
         
         self.masked = np.ones(self.nA, dtype=np.uint8)
         self.weights = np.ones(self.nA, dtype=np.uint8)
-        self.logger = logging.getLogger("PWMOptimizer")
+        self.logger = logging.getLogger("opt.PWMOptimizer")
 
     def record_cue(self, seed, shift, i, compound):
         # store shifted motifs for future analyses on k+x
@@ -336,8 +336,8 @@ class PWMOptimizer(object):
             self.logger.warning("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
             return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
-        #self.opt.step_betas()
-        self.opt.step_scale()
+        self.opt.step_betas()
+        #self.opt.step_scale()
 
         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
         if keep_pwm:
@@ -353,6 +353,9 @@ class PWMOptimizer(object):
     
     def store_params(self):
         self.opt.mdl.store_params(os.path.join(self.opt.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
+
+        # temporary: save partition function samples
+        self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
 
         for pwm in self.pwms.values():
             pwm_path = os.path.join(

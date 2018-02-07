@@ -17,7 +17,7 @@ class RBNSComparison(CachedBase):
         
         CachedBase.__init__(self)
         
-        self.logger = logging.getLogger('RBNSComparison')
+        self.logger = logging.getLogger('rbns.RBNSComparison')
         self.pd_reads = pd_reads
         self.in_reads = in_reads
         self.ska_runner = ska_runner
@@ -164,7 +164,7 @@ class RBNSAnalysis(CachedBase):
         #self.write_fasta = write_fasta
         self.known_kd = known_kd
         self.n_pure_samples = n_pure_samples
-        self.logger = logging.getLogger('RBNSAnalysis({self.rbp_name}) -> "{self.out_path}"'.format(self=self))
+        self.logger = logging.getLogger('rbns.RBNSAnalysis({self.rbp_name}) -> "{self.out_path}"'.format(self=self))
         
         self.rbp_conc = []
         self.comparisons = []

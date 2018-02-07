@@ -5,7 +5,7 @@ from scipy.optimize import minimize_scalar
 
 class SelfConsistency(object):
     def __init__(self, Z1, rna_conc, bins=0):
-        self.logger = logging.getLogger("SelfConsistency")
+        self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1
         self.N = len(Z1)
         self.rna_conc = rna_conc
@@ -17,7 +17,7 @@ class SelfConsistency(object):
             self.bins = np.exp(self.bins)
             print self.bins
             print Z1.sum()
-            print np.trapz(self.counts, self.bins)
+            print np.trapz(self.counts, self.bins[1:])
 
     def fast_free_rbp(self, rbp_total):
         # TODO: use the binned version. Compare accuracy!
@@ -45,3 +45,8 @@ class SelfConsistency(object):
     #def _spa_free_protein(self, Z1, rbp_conc):
         #rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
         #return np.array(rbp_free, dtype= np.float32)
+    
+if __name__ == "__main__":
+    Z1 = np.load('/scratch/data/RBNS/RBFOX3/new/opt/5mers/5mer_Z1.npy')
+    sc = SelfConsistency(Z1, 1000.)
+    print 5, "->", sc.free_rbp(5.)

@@ -66,7 +66,9 @@ class SPAState(object):
         state = SPAState(self.mdl, params, Z_scaled, p_bound, pi_kmer, rbp_free)
         return state
 
-        
+    def store_Z(self, fname):
+        np.save(fname, self.Z1)
+
     @property
     def dR_dA_matrices(self):
         R = self.R
@@ -144,7 +146,7 @@ class SPAPartition(object):
 
         self.other_pi = pi - kmer_pi
         
-        self.mdl.logger.debug('SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
+        self.mdl.logger.debug('model.SPAPartition of {0} sequences'.format(len(self.im_kmer)) )
         
     def evaluate(self, params, **kwargs):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
@@ -189,7 +191,7 @@ class SPAModel(object):
 
         self.T = T
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
-        self.logger = logging.getLogger('SPAModel')
+        self.logger = logging.getLogger('model.SPAModel')
 
         self.out_path = out_path
         if not os.path.exists(out_path):
@@ -263,8 +265,7 @@ class SPAModel(object):
             p_bound[i] = Z / (Z + 1)
         
         return p_bound
-        
-
+    
     def _spa_kmer_pi(self, p_bound, im):
         n_conc, n = p_bound.shape
         

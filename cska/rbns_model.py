@@ -48,7 +48,7 @@ class ModelOptimization(object):
         self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
 
-        self.logger = logging.getLogger('ModelOptimization')
+        self.logger = logging.getLogger('opt.ModelOptimization')
         self.out_path = out_path
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
