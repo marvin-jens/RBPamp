@@ -944,6 +944,32 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
+def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
+    cdef UINT64_t N = Z1.base.shape[0]
+    cdef UINT64_t n_conc = rbp_conc_vector.base.shape[0]
+
+    # store weighted k-mer counts here (for each thread)
+    cdef FLOAT32_t [:,:] p_bound = np.empty((n_conc, N), dtype = np.float32)
+
+    # helper variables to tell cython the types
+    cdef FLOAT32_t conc=0, Z=0
+    cdef UINT64_t i=-1,j=-1
+
+    with nogil, parallel(num_threads=8):
+        for i in range(n_conc):
+            conc = rbp_conc_vector[i]
+            for j in prange(N, schedule='guided'):
+                Z = Z1[j] * conc
+                p_bound[i,j] = Z / (Z + 1.)
+            
+    return p_bound.base
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_threads = 8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
@@ -1777,7 +1803,7 @@ def kmer_count_pos_per_read(UINT8_t [:,:] seq_matrix, UINT64_t kmer_index, UINT8
     return counts.base, last_pos.base
 
 
-#@cython.boundscheck(False)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)
@@ -1823,7 +1849,7 @@ def digitize_32fp_8bit(np.ndarray[FLOAT32_t, ndim=2] data, FLOAT32_t [:] bins):
     #print np.array(steps).mean(), "average steps"
     return np.reshape(res.base, (N,L)) + 1
 
-#@cython.boundscheck(False)
+@cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
 @cython.cdivision(True)

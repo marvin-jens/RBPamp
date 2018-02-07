@@ -21,7 +21,7 @@ from cska.spa import SPAState, SPAPartition, SPAModel
 
                  
 class ModelOptimization(object):
-    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.01, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
+    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.02, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
@@ -45,7 +45,7 @@ class ModelOptimization(object):
         self.last_scale = 0
         
         self.t = t0
-        self.tm_refresh = 1 #int(tm_refresh * self.nA)
+        self.tm_refresh = int(tm_refresh * self.nA)
         self.last_tm_refresh = 0
 
         self.logger = logging.getLogger('opt.ModelOptimization')
@@ -202,7 +202,7 @@ class ModelOptimization(object):
         self.mdl.params = new_state.params
 
         # subsamples should remain stable throughout one iteration step!
-        if self.t - self.last_tm_refresh > self.tm_refresh:
+        if self.t - self.last_tm_refresh >= self.tm_refresh:
             R_before = self.current.R
             self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
             R_after = self.current.R

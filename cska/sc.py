@@ -21,11 +21,11 @@ class SelfConsistency(object):
             # switch over to fast approximation
             self.free_rbp = self.fast_free_rbp
 
-    def fast_free_rbp(self, rbp_total):
+    def fast_free_rbp(self, rbp_total, Z_scale=1.):
         # TODO: use the binned version. Compare accuracy!
         t0 = time.time()
         def to_optimize(p_free):
-            Z = p_free * self.x
+            Z = p_free * self.x * Z_scale
             p = Z / (Z + 1.)
             
             rbp_bound = ((p * self.rna_conc)*self.counts).sum() / self.N
@@ -38,11 +38,11 @@ class SelfConsistency(object):
         
         return res.x
         
-    def free_rbp(self, rbp_total):
+    def free_rbp(self, rbp_total, Z_scale=1.):
     
         t0 = time.time()
         def to_optimize(p_free):
-            Z = p_free * self.Z1
+            Z = p_free * self.Z1 * Z_scale
             p = Z / (Z + 1.)
             
             rbp_bound = (p * self.rna_conc).sum() / self.N
@@ -56,6 +56,9 @@ class SelfConsistency(object):
         
         return res.x
         
+    def free_rbp_vector(self, rbp_total, Z_scale=1.):
+        free = np.array([self.free_rbp(rbp, Z_scale=Z_scale) for rbp in rbp_total])
+        return free
     
     #def _spa_free_protein(self, Z1, rbp_conc):
         #rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
