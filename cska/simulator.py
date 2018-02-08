@@ -10,7 +10,7 @@ from scipy.optimize import minimize, brentq, minimize_scalar
 import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
 from cska.crosstalk_matrix import CrosstalkMatrix
-from cska.rbns_reads import RBNSReads
+from cska.reads import RBNSReads
 from cska.caching import CachedBase, cached, pickled
 
 class RBNSGenerator(CachedBase):
@@ -455,9 +455,9 @@ if __name__ == "__main__":
     import matplotlib.pyplot as pp
     logging.basicConfig(level=logging.DEBUG)
 
-    from cska.rbns_reads import RBNSReads
-    from cska.folding import RBNSOpenen, OpenenStorage
-    import cska.folding
+    from cska.reads import RBNSReads
+    from cska.fol import RBNSOpenen, OpenenStorage
+    import cska.fold
     reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000000)
     storage = OpenenStorage(reads, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma')
     openen = storage.get_discretized(5)

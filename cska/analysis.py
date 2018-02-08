@@ -57,7 +57,7 @@ class RBNSComparison(CachedBase):
     def O_values(self, k):
         self.logger.debug("computing approximate occupancies by fitting R-values to linear overlap model")
         R, R_err = self.R_values(k)
-        from cska.rbns_model import CrosstalkMatrix
+        from cska.crosstalk_matrix import CrosstalkMatrix
         cm = CrosstalkMatrix(k, self.in_reads)
         
         occ = cm.fit_occupancies(R)
@@ -164,7 +164,7 @@ class RBNSAnalysis(CachedBase):
         #self.write_fasta = write_fasta
         self.known_kd = known_kd
         self.n_pure_samples = n_pure_samples
-        self.logger = logging.getLogger('rbns.RBNSAnalysis({self.rbp_name}) -> "{self.out_path}"'.format(self=self))
+        self.logger = logging.getLogger('rbns.Analysis({self.rbp_name}) -> "{self.out_path}"'.format(self=self))
         
         self.rbp_conc = []
         self.comparisons = []
@@ -183,7 +183,7 @@ class RBNSAnalysis(CachedBase):
         self.reads.append(rbns_reads)
 
         # secondary structure open-energies/accessibility storage
-        from cska.folding import OpenenStorage
+        from cska.fold import OpenenStorage
         self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='linear'))
         
         if len(self.reads) > 1:

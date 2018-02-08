@@ -18,8 +18,8 @@ import matplotlib
 #import matplotlib.pyplot as pp
 
 from cska.caching import cached, pickled, CachedBase
-from cska.rbns_reads import RBNSReads
-from cska.rbns_analysis import RBNSAnalysis
+from cska.reads import RBNSReads
+from cska.analysis import RBNSAnalysis
 from cska.ska_runner import SKARunner
 
 def main():
@@ -34,7 +34,9 @@ def main():
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
-    parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model]")
+    parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+    parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+
     parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
     parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
 
@@ -61,6 +63,7 @@ def main():
     
     parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
     parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
@@ -105,20 +108,29 @@ def main():
 
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
-    logging.basicConfig(level=logging.INFO, format=FORMAT)    
+    logging.basicConfig(level=logging.WARNING, format=FORMAT)    
     root = logging.getLogger('')
     fh = logging.FileHandler(filename=log_path, mode='a')
     fh.setFormatter(logging.Formatter(FORMAT))
     root.addHandler(fh)
     
     logger = logging.getLogger("CSKA")
+    logger.setLevel(logging.INFO)
     logger.info("version {0}".format(__version__))
     logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
 
+    # set info level for specific sub-systems
+    for sub in options.info.split(','):
+        if not sub:
+            continue
+        logging.getLogger(sub).setLevel(logging.INFO)
+
     # set debug log level for specific sub-systems
-    for deb in options.debug.split(','):
-        logging.getLogger(deb).setLevel(logging.DEBUG)
-        if deb == 'cache':
+    for sub in options.debug.split(','):
+        if not sub:
+            continue
+        logging.getLogger(sub).setLevel(logging.DEBUG)
+        if sub == 'cache':
             CachedBase.debug_caching = True
 
     try:
@@ -141,7 +153,7 @@ def main():
 
         # TODO: properly integrate simulation
         if options.simulate == "reads":
-            from cska.rbns_model import RBNSGenerator
+            from cska.optimize import RBNSGenerator
             for k in range(options.min_k, options.max_k + 1):
                 gen = RBNSGenerator(k,l=40, seed=options.seed)
                 gen.assign_experimental_input(args[0])
@@ -185,7 +197,7 @@ def main():
         ### special run modes: 
         # secondary structure prediction and accessibility recording
         if options.folding:
-            from cska.folding import parallel_fold, OpenenStorage
+            from cska.fold import parallel_fold, OpenenStorage
 
             # prepare outout path
             if not os.path.exists(fold_path):
@@ -213,9 +225,10 @@ def main():
                     l_insert = rbns.reads[0].L,
                     skip_adap = options.skip_adap,
                 )
+
         # fit of thermodynamic model parameters (affinities)
         if options.model:
-            from cska.rbns_model import ModelOptimization, ReferenceComparison
+            from cska.optimize import ModelOptimization, ReferenceComparison
             from cska.pwm import PWMOptimizer
 
             opt = ModelOptimization(
@@ -232,13 +245,13 @@ def main():
 
             pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
             
-            if options.known_kd:
-                comp = ReferenceComparison(opt, options.known_kd)
-            else:
-                comp = None
+            #if options.known_kd:
+                #comp = ReferenceComparison(opt, options.known_kd)
+            #else:
+                #comp = None
 
-            from cska.rbns_reports import OptReporting
-            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
+            from cska.report import OptReporting
+            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.sensors.split(','))
 
             try:
                 pwm_opt.optimize()
@@ -279,8 +292,8 @@ def main():
         sys.stderr.write(exc)
         
         # in case we have child processes, try to end them gracefully
-        import cska.folding
-        folding.interrupt()
+        import cska.fold
+        fold.interrupt()
         
         sys.exit(1)
     else:
