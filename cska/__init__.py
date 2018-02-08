@@ -63,7 +63,7 @@ def main():
     
     parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
     parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
-    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors'")
+    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
@@ -293,7 +293,7 @@ def main():
         
         # in case we have child processes, try to end them gracefully
         import cska.fold
-        folding.interrupt()
+        fold.interrupt()
         
         sys.exit(1)
     else:

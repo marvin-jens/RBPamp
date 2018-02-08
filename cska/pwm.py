@@ -237,6 +237,7 @@ class PWMOptimizer(object):
     def kmer_residuals(self):
         errors = self.opt.kmer_errors(self.opt.current.R)
         return (errors**2).sum(axis=0) # sum sq. error across concentrations
+        #return (errors**2).sum(axis=0) # sum sq. error across concentrations
     
     def kmer_logratios(self):
         lr = np.log2(self.opt.current.R / self.opt.R_obs)
@@ -258,8 +259,8 @@ class PWMOptimizer(object):
             f.write("\t".join(row) + '\n')
         
     def worst_kmer(self, debug=False):
-        #residual = self.kmer_residuals()
-        residual = self.kmer_logerrors()
+        residual = self.kmer_residuals()
+        #residual = self.kmer_logerrors()
         w = self.masked / self.weights
         i = np.fabs((residual * w)).argmax()
         kmer = cyska.index_to_seq(i, self.k)
@@ -313,8 +314,6 @@ class PWMOptimizer(object):
             param0 = self.opt.mdl.state.params[i]
             best, err, new_state = self.opt.optimize_single_param(i, local = True)
             imp = self.opt.update(new_state, err, "local kmer optimization {mer} -> {best:.3e}".format(**locals()))
-            #print self.opt.correlation()
-            #print self.opt.correlation(new_state.R)
 
         d_err = err - err0
 

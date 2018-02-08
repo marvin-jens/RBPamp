@@ -9,7 +9,6 @@ from scipy.optimize import minimize, brentq, minimize_scalar
 
 import cska.ska_kmers as cyska
 
-from cska.rbns_reads import RBNSReads
 from cska.caching import CachedBase, cached, pickled
 from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
 from cska.scheduler import ParamUpdateScheduler
@@ -291,7 +290,7 @@ class ModelOptimization(object):
             t_scale = 1000*(t1-t0)
             t_beta = 1000*(t2-t1)
             t_err = 1000*(t3-t2)
-            print "global error={err} at scale={scale} after beta fit. t_scale={t_scale:.2f}ms t_beta={t_beta:.2f}ms t_err={t_err:.2f}ms".format(**locals())
+            #print "global error={err} at scale={scale} after beta fit. t_scale={t_scale:.2f}ms t_beta={t_beta:.2f}ms t_err={t_err:.2f}ms".format(**locals())
             
             errors.append(err)
             return err
@@ -299,9 +298,6 @@ class ModelOptimization(object):
         res = minimize_scalar(to_optimize, bounds = (.1,1), method='Bounded')
         dt = time.time() - t0
         self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
-
-        #if reporter:
-            #reporter.plot_sweep(param="scale", errors = errors, x = scales)
 
         scaled = self.current * res.x
         better, new_state = self.step_betas(ground_state = scaled, update=True)
