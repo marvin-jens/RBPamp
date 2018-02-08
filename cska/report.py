@@ -92,7 +92,7 @@ class TrackedValues(object):
         self.times.append(t)
         
     def read(self):
-        if self.d0 != None:
+        if self.d0 is not None:
             data = [self.d0,]
         else:
             data = []
@@ -367,60 +367,6 @@ class OptReporting(object):
         pp.show()
         pp.close()
         
-    def plot_sweep(self, param_i=None, param= None, min_val = 1e-12, max_val = 1e3, steps=100, errors = [], x = []):
-  
-        if param_i == None:
-            param_i = self.opt.sched.last_param_update
-
-        if param == None:
-            param = self.opt.mdl.param_name[param_i]
-
-        if not len(errors):
-            params = np.copy(self.opt.current.params)
-            x = np.exp(np.linspace(np.log(min_val), np.log(max_val), steps))
-            if param_i < self.opt.mdl.nA:
-                # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
-                tm_update = True
-                from cska.rbns_model import SPAPartition
-                opt = SPAPartition(self.opt.mdl, param_i)
-            else:
-                # do not evaluate the thermodynamic model, only re-compute R-values
-                tm_update = force_tm
-                opt = self.opt.mdl
-
-            for ikd in x:
-                params[param_i] = ikd
-                state = opt.evaluate(params, tm_update=tm_update)
-                err = self.opt.global_error(state.R)
-                errors.append(err)
-
-            errors = np.array(errors)
-
-        pp.figure()
-        pp.title("param-fit for {0} at step {1}".format(param, self.opt.t) )
-        
-        print x
-        print errors
-        pp.semilogx(x, errors)
-
-        #pp.axvline(self.opt.mdl.known_params[param_i], color='r', label="correct value")
-        #pp.axvline(self.opt.trial_val[param_i], color='k', label="fitted root")
-
-        pp.axhline(0, color='k')
-        #if opt.param_updates[param] > 1:
-            #pp.axvline(self.opt.prev_val[param_i], color='gray', label="previous value")
-                
-        pp.xlabel(r"$\frac{1}{K_d}$ [nM]")
-        #pp.ylabel(r"expected R - observed R")
-        pp.ylabel(r"global error")
-        
-        pp.legend(loc='upper left')
-        pp.tight_layout()
-        #self.sweep_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "sweep_{0}_t{1}.pdf".format(param, self.opt.t)) )
-        pp.show()
-        pp.close()
-
     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
         #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         

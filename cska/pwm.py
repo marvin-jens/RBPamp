@@ -335,7 +335,7 @@ class PWMOptimizer(object):
             # The hull contains a kmer with higher affinity than our initial seed!
             # Select that kmer as hull instead.
             new = kmers[0]
-            self.logger.warning("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
+            self.logger.debug("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
             return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
         self.opt.step_scale()
@@ -348,9 +348,6 @@ class PWMOptimizer(object):
             self.pwms[pwm.kmer_seed] = pwm
         
         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.2f} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
-        
-        # output/storage of current results
-        print pwm
         return pwm, d_err
     
     def store_params(self):
@@ -378,14 +375,14 @@ class PWMOptimizer(object):
             if not self.next_move():
                 break
 
-        self.logger.warning("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
+        self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
     def next_move(self, lag=5):
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
         last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-5:]])
         err0 = self.opt.global_error(self.opt.current.R)
-        self.logger.warning("current_error={err0:.2e} last last_improvements: {last_improvements}".format(**locals()) )
+        self.logger.debug("current_error={err0:.2e} last last_improvements: {last_improvements}".format(**locals()) )
         
         if len(self.last_improvements) > lag and np.mean(np.array(self.last_improvements)[-lag:]) > 0:
             self.logger.warning("no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1))
@@ -448,7 +445,7 @@ class PWMOptimizer(object):
         return new
 
     def create_optimizer(self, k, params=[]):
-        from cska.rbns_model import ModelOptimization
+        from cska.optimize import ModelOptimization
         # create new optimizer and model
         new_opt = ModelOptimization(k, self.opt.rbns_analysis,
             rbp_conc=self.opt.rbp_conc, 
