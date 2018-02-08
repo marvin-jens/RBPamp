@@ -454,15 +454,15 @@ class PWMOptimizer(object):
             rbp_conc=self.opt.rbp_conc, 
             out_path=self.opt.out_path, 
             mdl_params = params,
-            t0 = self.t
+            t0 = self.t,
+            reporter = self.opt.reporter
         )
         new_opt.errors = self.opt.errors
         new_opt.correlations = self.opt.correlations
         new_opt.rel_improvements = self.opt.rel_improvements
-        
+
         # some plumbing to make reports/plots contiguous
         self.opt.reporter.set_opt(new_opt)
-        
         return new_opt
 
 
