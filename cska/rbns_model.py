@@ -232,6 +232,7 @@ class ModelOptimization(object):
 
         if self.t > 1:
             self.rel_improvements.append(better)
+
         return better
         
     def step_param(self, show_sweep = False):

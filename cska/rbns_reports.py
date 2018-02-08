@@ -69,7 +69,7 @@ class TrackedValues(object):
         self.updates = []
         self.times = []
         self.N = 0
-        self.logger = logging.getLogger("TrackedValues")
+        self.logger = logging.getLogger("reports.TrackedValues")
         
     def store(self, t, d):
         
@@ -109,6 +109,75 @@ class TrackedValues(object):
         assert len(self.times) == len(data)
         return self.times, data
         
+
+class Sensor(object):
+    def __init__(self, rep, name, plot_interval=10, data_interval=1, get_func=lambda this : 0, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot):
+        self.name = name
+        self.get_func = get_func
+        self.plot_func = plot_func
+        self.data_interval = data_interval
+        self.plot_interval = plot_interval
+        self.rep = rep
+        self.opt = rep.opt
+        
+        self.logger = logging.getLogger('report.Sensor.{name}'.format(name=name))
+        self.t_data = 0
+        self.t_plot = 0
+        self.data = TrackedValues()
+        
+        self.multipage = multipage
+        self.snapshot = snapshot
+        self.xlabel = xlabel
+        self.ylabel = ylabel
+        self.labels = labels
+        self.snap_path = os.path.join(self.rep.path, fname)
+        self.mp_path = os.path.join(self.rep.path, mp_fname.format(**locals()))
+
+        from matplotlib.backends.backend_pdf import PdfPages
+        if self.multipage:
+            self.pdf = PdfPages(self.mp_path)
+
+    def tick(self, t):
+        if t - self.t_data >= self.data_interval:
+            self.record_data(t)
+        
+        if t - self.t_plot >= self.plot_interval:
+            self.update_plot(t)
+            
+    def record_data(self, t):
+        data = np.array(self.get_func(self))
+        self.logger.debug('recording data of shape {0}'.format(data.shape))
+        self.data.store(t, data)
+        self.t_data = t
+        
+    def update_plot(self, t):
+        from itertools import izip_longest
+        pp.figure()
+        pp.title(self.name)
+        times, cols = self.data.read()
+        
+        for label, row in izip_longest(self.labels, cols.T, fillvalue="none" ):
+            self.plot_func(times, row, label=label)
+        
+        pp.xlabel(self.xlabel)
+        pp.ylabel(self.ylabel)
+        pp.legend(loc='lower right')
+        if self.snapshot:
+            path = self.snap_path.format(**locals())
+            self.logger.debug("saving snapshot in '{0}'".format(path) )
+            pp.savefig(path)
+        
+        if self.multipage:
+            self.logger.debug("adding page to '{0}'".format(self.mp_path) )
+            self.pdf.savefig()
+
+        pp.close()
+        self.t_plot = t
+
+    def close(self):
+        if self.multipage:
+            self.pdf.close()
+    
         
 class OptReporting(object):
     def __init__(self, opt, path='./', track=[], report_interval=200, comp=None):
@@ -117,99 +186,103 @@ class OptReporting(object):
         if not os.path.exists(path):
             os.makedirs(path)
         
-        from matplotlib.backends.backend_pdf import PdfPages
-        #self.sweep_pdf = PdfPages(os.path.join(self.path,'local_fits.pdf') )
-        #self.descent_pdf = PdfPages(os.path.join(self.path,'gradient_descent.pdf') )
-        self.R_pdf = PdfPages(os.path.join(self.path,'R_value_fit.pdf') )
-        #self.invkd_pdf = PdfPages(os.path.join(self.path,'invkd_fit.pdf') )
-        #self.err_pdf = PdfPages(os.path.join(self.path,'err_fit.pdf') )
-        
-        self.comp = comp
-        if comp and not track:
-            track = sorted(comp.uniq_kmers)
-
-        self.tracked_kmers = [t for t in track if len(t)== self.opt.k]
-        import cska.ska_kmers
-        self.tracked_indices = [cska.ska_kmers.seq_to_index(t) for t in self.tracked_kmers]
-        self.tracked = set(self.tracked_indices)
-        self.tracked_history = defaultdict(list)
-        self.tracked_updated = defaultdict(list)
-        for param_i in self.tracked_indices:
-            self.tracked_history[param_i].append( (self.opt.t, self.opt.current.params[param_i]) )
-
-        self.report_interval = report_interval
-        self.last_report = 0
-        self.logger = logging.getLogger('OptReporting')
-        self.betas = TrackedValues()
-        #self.affinities = TrackedValues()
-    
-    def tick(self, t):
-        self.betas.store(t, self.opt.current.params[self.opt.nA:])
-        #self.affinities.store(t, self.opt.current.params[:self.opt.nA])
-        
-        if t > self.last_report + self.report_interval:
-            self.plot_errors()
-            self.plot_correlations()
-            self.plot_betas()
-            #self.plot_tracked_kmer_histories()
-            #self.plot_affinity_history()
+        self.logger = logging.getLogger('report.OptReporting')
+        self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
+        self.sensors = []
+        # populate with sensors
+        for name in track:
+            adder = getattr(self, "add_sensor_{0}".format(name))
+            sensor = adder()
+            self.sensors.append(sensor)
             
-            self.plot_R_value_agreement()
-            self.plot_known_comparison()
-            
-            for param_i in self.tracked_indices:
-                self.plot_sweep(param_i)
-            self.last_report = t
-        
-        for param_i in self.tracked_indices:
-            self.tracked_history[param_i].append( (t, self.opt.current.params[param_i]) )
-            if param_i == self.opt.sched.last_param_update:
-                self.tracked_updated[param_i].append(t)
-
     def close(self):
-        self.plot_errors()
-        self.plot_correlations()
-        self.plot_betas()
-        #self.plot_affinity_history()
-        
-        #for pdf in [self.sweep_pdf, self.descent_pdf, self.R_pdf, self.invkd_pdf, self.err_pdf]:
-        for pdf in [self.R_pdf,]:
-            try:
-                pdf.close()
-            except AttributeError:
-                pass
+        self.logger.info('broadcasting close() to {0} sensors'.format(len(self.sensors)) )
+        # broadcast close to all attached sensors
+        for sensor in self.sensors:
+            sensor.close()
 
-    def plot_errors(self):
-        pp.figure()
-        pp.semilogy(self.opt.errors)
-        pp.xlabel("time")
-        pp.ylabel("total error")
-        pp.savefig(os.path.join(self.path,'error.pdf'))
-        pp.close()
-        
-    def plot_correlations(self):
-        pp.figure()
-        for conc, corr in zip(self.opt.rbp_conc, np.array(self.opt.correlations).T )[::-1]:
-            pp.plot(corr, label='{0:.2f} nM'.format(conc))
-        
-        pp.xlabel('time step')
-        pp.ylabel('correlation coefficient')
-        pp.legend(loc='lower right')
-        pp.savefig(os.path.join(self.path,'corr.pdf'))
-        pp.close()
+    def tick(self, t):
+        self.logger.debug('broadcasting tick() to {0} sensors'.format(len(self.sensors)) )
+        # broadcast to all attached sensors
+        for sensor in self.sensors:
+            sensor.tick(t)
 
-    def plot_betas(self):
-        pp.figure()
-        t, betas = self.betas.read()
-
-        for conc, beta in zip(self.opt.rbp_conc, betas.T )[::-1]:
-            pp.semilogy(t, beta, label='{0:.2f} nM'.format(conc))
+    def set_opt(self, opt):
+        self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
+        # broadcast to all attached sensors
+        for sensor in self.sensors:
+            sensor.opt = opt
         
-        pp.xlabel('time step')
-        pp.ylabel('background (beta)')
-        pp.legend(loc='lower right')
-        pp.savefig(os.path.join(self.path,'betas.pdf'))
-        pp.close()
+    def add_sensor_correlation(self):
+        sensor = Sensor(
+            self, "kmer_correlation", 
+            get_func = lambda this : this.opt.correlation(), 
+            ylabel=r"log(R-value) correlation coefficient", 
+            labels=self.conc_labels,
+        )
+        return sensor
+    
+    def add_sensor_betas(self):
+        sensor = Sensor(
+            self, "beta",
+            get_func = lambda this : this.opt.current.params[this.opt.nA:],
+            plot_func = pp.semilogy,
+            ylabel=r"estimated sample background ($\beta$)",
+            labels=self.conc_labels
+        )
+        return sensor
+        
+    def add_sensor_errors(self):
+        sensor = Sensor(
+            self, "errors",
+            get_func = lambda this : [this.opt.global_error(this.opt.current.R),],
+            plot_func = pp.semilogy,
+            ylabel=r"global error of the model"
+        )
+        return sensor
+        
+    
+        #self.comp = comp
+        #if comp and not track:
+            #track = sorted(comp.uniq_kmers)
+
+        #self.tracked_kmers = [t for t in track if len(t)== self.opt.k]
+        #import cska.ska_kmers
+        #self.tracked_indices = [cska.ska_kmers.seq_to_index(t) for t in self.tracked_kmers]
+        #self.tracked = set(self.tracked_indices)
+        #self.tracked_history = defaultdict(list)
+        #self.tracked_updated = defaultdict(list)
+        #for param_i in self.tracked_indices:
+            #self.tracked_history[param_i].append( (self.opt.t, self.opt.current.params[param_i]) )
+
+        #self.report_interval = report_interval
+        #self.last_report = 0
+        #self.logger = logging.getLogger('OptReporting')
+        #self.betas = TrackedValues()
+        ##self.affinities = TrackedValues()
+    
+    #def tick(self, t):
+        #self.betas.store(t, self.opt.current.params[self.opt.nA:])
+        ##self.affinities.store(t, self.opt.current.params[:self.opt.nA])
+        
+        #if t > self.last_report + self.report_interval:
+            #self.plot_errors()
+            #self.plot_correlations()
+            #self.plot_betas()
+            ##self.plot_tracked_kmer_histories()
+            ##self.plot_affinity_history()
+            
+            #self.plot_R_value_agreement()
+            #self.plot_known_comparison()
+            
+            #for param_i in self.tracked_indices:
+                #self.plot_sweep(param_i)
+            #self.last_report = t
+        
+        #for param_i in self.tracked_indices:
+            #self.tracked_history[param_i].append( (t, self.opt.current.params[param_i]) )
+            #if param_i == self.opt.sched.last_param_update:
+                #self.tracked_updated[param_i].append(t)
 
     def plot_affinity_history(self, n=10):
         pp.figure()
@@ -385,75 +458,42 @@ class OptReporting(object):
         pp.savefig(os.path.join(self.path, "predicted_vs_obs_R_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
         pp.close()
         
-    def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+    #def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
+        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
         
-        kmer_i = self.opt.sched.last_param_update
-        kmer = self.opt.mdl.param_name[kmer_i]
+        #kmer_i = self.opt.sched.last_param_update
+        #kmer = self.opt.mdl.param_name[kmer_i]
         
-        
-        pp.figure()
-        pp.title('affinity agreement after step {0}'.format(self.opt.t) )
-        A_a = self.opt.known_invkd
-        A_b = self.opt.trial_invkd
-        x = A_a
-        y = A_b
-        
-        max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
-        for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            ind = max_error_conc == i
-            #print ind.shape, ind, x[ind]
-            patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
-
-        corr = np.corrcoef(np.log(A_a), np.log(A_b))[0][1]
-        pp.loglog(x[kmer_i], self.opt.prev_invkd[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='gray', label="previous values" )
-        pp.loglog(A_a[kmer_i], A_b[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
-
-        m = min(A_a.min(), A_b.min())
-        M = max(A_a.max(), A_b.max())
-        pp.plot([m,M],[m,M], '--k', zorder=np.inf)
-        pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-        pp.ylabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
-        pp.legend(loc='lower right')
-        #pp.xlim(1e-1,1e2)
-        #pp.ylim(1e-1,1e2)
-        pp.tight_layout()
-        self.invkd_pdf.savefig()
-        pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-        pp.close()
-        
-    #def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
-
-        #kmer_i = self.opt.last_param_update
-        #kmer = self.opt.kmers[kmer_i]
         
         #pp.figure()
-        #pp.title('residual errors after step {0}'.format(self.opt.t) )
-
-        #abs_err = np.arcsinh(self.opt.kmer_error_new)
-        ##abs_err = np.where(abs_err > 0, np.arcsinh(abs_err), -np.arcsinh(-abs_err) )
+        #pp.title('affinity agreement after step {0}'.format(self.opt.t) )
+        #A_a = self.opt.known_invkd
+        #A_b = self.opt.trial_invkd
+        #x = A_a
+        #y = A_b
         
+        #max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
         #for i,rbp_conc in enumerate(self.opt.rbp_conc):
-            #patches = pp.semilogx(self.opt.known_invkd, abs_err[i,:], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0}nM".format(rbp_conc) )
-            
-        #mark_x = self.opt.known_invkd[to_mark_i]
-        #mark_y = abs_err[:,to_mark_i].max(axis=0)
-        #for mer, index, x, y in zip(to_mark, to_mark_i, mark_x, mark_y):
-            #pp.text(x*2, y, mer)
+            #ind = max_error_conc == i
+            ##print ind.shape, ind, x[ind]
+            #patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
 
-        ##pp.plot(mark_x, mark_y, 'o', markersize=10, markeredgecolor = 'black' , markerfacecolor='none')
+        #corr = np.corrcoef(np.log(A_a), np.log(A_b))[0][1]
+        #pp.loglog(x[kmer_i], self.opt.prev_invkd[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='gray', label="previous values" )
+        #pp.loglog(A_a[kmer_i], A_b[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
 
-        #pp.semilogx(np.repeat(self.opt.known_invkd[kmer_i], len(self.opt.rbp_conc)), abs_err[:, kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
-
-        
+        #m = min(A_a.min(), A_b.min())
+        #M = max(A_a.max(), A_b.max())
+        #pp.plot([m,M],[m,M], '--k', zorder=np.inf)
         #pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-        #pp.ylabel(r'arcsinh(residual error) [a.u.]')
-        #pp.legend(loc='upper left')
+        #pp.ylabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
+        #pp.legend(loc='lower right')
         ##pp.xlim(1e-1,1e2)
         ##pp.ylim(1e-1,1e2)
         #pp.tight_layout()
-        #self.err_pdf.savefig()
-        #pp.savefig(os.path.join(self.path, "err_vs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
+        #self.invkd_pdf.savefig()
+        #pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
         #pp.close()
-
+     
+if __name__ == "__main__":
+    pass

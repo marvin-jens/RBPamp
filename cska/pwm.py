@@ -461,8 +461,7 @@ class PWMOptimizer(object):
         new_opt.rel_improvements = self.opt.rel_improvements
         
         # some plumbing to make reports/plots contiguous
-        new_opt.reporter = self.opt.reporter
-        self.opt.reporter.opt = new_opt
+        self.opt.reporter.set_opt(new_opt)
         
         return new_opt
 

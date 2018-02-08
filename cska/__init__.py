@@ -61,6 +61,7 @@ def main():
     
     parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
     parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors'")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
@@ -213,6 +214,7 @@ def main():
                     l_insert = rbns.reads[0].L,
                     skip_adap = options.skip_adap,
                 )
+
         # fit of thermodynamic model parameters (affinities)
         if options.model:
             from cska.rbns_model import ModelOptimization, ReferenceComparison
@@ -232,13 +234,13 @@ def main():
 
             pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
             
-            if options.known_kd:
-                comp = ReferenceComparison(opt, options.known_kd)
-            else:
-                comp = None
+            #if options.known_kd:
+                #comp = ReferenceComparison(opt, options.known_kd)
+            #else:
+                #comp = None
 
             from cska.rbns_reports import OptReporting
-            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.track_kmers.split(','), comp=comp, report_interval=options.mdl_report_interval )
+            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.sensors.split(','))
 
             try:
                 pwm_opt.optimize()
