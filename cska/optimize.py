@@ -20,7 +20,7 @@ from cska.spa import SPAState, SPAPartition, SPAModel
 
                  
 class ModelOptimization(object):
-    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.02, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0): # scale_interval=.02
+    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.02, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False): # scale_interval=.02
         self.k = k
         self.nA = 4**k
 
@@ -44,7 +44,7 @@ class ModelOptimization(object):
         self.last_scale = 0
         
         self.t = t0
-        self.tm_refresh = int(tm_refresh * self.nA)
+        self.tm_refresh = max(10, int(tm_refresh * self.nA))
         self.last_tm_refresh = 0
 
         self.logger = logging.getLogger('opt.ModelOptimization')
@@ -72,7 +72,8 @@ class ModelOptimization(object):
         self.errors = [] #self.global_error(self.current.R), ]
         self.correlations = []
         self.rel_improvements = []
-        self.param_local_fit = True
+        self.logger.error("kmer_opt_global={0}".format(kmer_opt_global))
+        self.param_local_fit = not kmer_opt_global
         
         # set initial state of the model
         self.previous = None
@@ -82,28 +83,28 @@ class ModelOptimization(object):
             self.logger.info("resuming from {0}".format(param_file))
             self.current = self.mdl.evaluate(self.mdl.load_params(param_file), keep = True)
             
-            ## TESTING: compare observed and predicted affinity distributions
-            import matplotlib.pyplot as pp
-            aff_in = AffinityDistribution(self.mdl, self.all_reads[0], self.storages[0].get_discretized(self.k))
-            bg = aff_in.get_affinity_distribution()
-            print "input", bg
-            for i, conc in enumerate(self.rbp_conc):
-                beta = self.mdl.params[self.mdl.nA+i]
-                pred = aff_in.predict_affinity_distribution(conc, beta=beta, bg=bg[0])
-                print "predicted", pred
-                aff = AffinityDistribution(self.mdl, self.all_reads[i+1], self.storages[i+1].get_discretized(self.k))
-                obs = aff.get_affinity_distribution()
-                print "observed", obs
-                x = (aff_in.bins[1:] + aff_in.bins[:-1])/2.
-                pp.plot(x, pred[0], '-', label='pred {0}nM'.format(conc) )
-                pp.plot(x, obs[0], '.', label='obs {0}nM'.format(conc) )
-                pp.show()
+            ### TESTING: compare observed and predicted affinity distributions
+            #import matplotlib.pyplot as pp
+            #aff_in = AffinityDistribution(self.mdl, self.all_reads[0], self.storages[0].get_discretized(self.k))
+            #bg = aff_in.get_affinity_distribution()
+            #print "input", bg
+            #for i, conc in enumerate(self.rbp_conc):
+                #beta = self.mdl.params[self.mdl.nA+i]
+                #pred = aff_in.predict_affinity_distribution(conc, beta=beta, bg=bg[0])
+                #print "predicted", pred
+                #aff = AffinityDistribution(self.mdl, self.all_reads[i+1], self.storages[i+1].get_discretized(self.k))
+                #obs = aff.get_affinity_distribution()
+                #print "observed", obs
+                #x = (aff_in.bins[1:] + aff_in.bins[:-1])/2.
+                #pp.plot(x, pred[0], '-', label='pred {0}nM'.format(conc) )
+                #pp.plot(x, obs[0], '.', label='obs {0}nM'.format(conc) )
+                #pp.show()
                 
-            pp.xlabel('predicted')
-            pp.ylabel('observed')
-            pp.legend()
-            pp.show()
-            1/0
+            #pp.xlabel('predicted')
+            #pp.ylabel('observed')
+            #pp.legend()
+            #pp.show()
+            #1/0
             
         elif len(mdl_params):
             # start with given parameterization
@@ -154,7 +155,7 @@ class ModelOptimization(object):
  
     def kmer_errors(self, R_new):
         return R_new - self.R_obs
-        
+           
     def kmer_error_conc(self, kmer_index, R_new, conc_i):
         return R_new[kmer_index] - self.R_obs[conc_i, kmer_index]
         
@@ -169,7 +170,10 @@ class ModelOptimization(object):
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).mean()
     
-
+    def local_errors(self, R_new):
+        """return squared kmer R-value delta, averaged across concentrations"""
+        return ((self.kmer_errors(R_new))**2).mean(axis=0)
+    
     def converged(self, last=20, tol=.001):
         if len(self.rel_improvements) < last:
             return False
@@ -186,6 +190,14 @@ class ModelOptimization(object):
         
         return False
 
+    def step_tm_refresh(self):
+        R_before = self.current.R
+        self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
+        R_after = self.current.R
+        round_err = np.fabs(R_before - R_after).sum()
+        self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        self.last_tm_refresh = self.t
+
     def update(self, new_state, err, name, tick=True):
         from copy import copy
         self.previous = copy(self.current)
@@ -201,14 +213,9 @@ class ModelOptimization(object):
         self.mdl.params = new_state.params
 
         # subsamples should remain stable throughout one iteration step!
-        if self.t - self.last_tm_refresh >= self.tm_refresh:
-            R_before = self.current.R
-            self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
-            R_after = self.current.R
-            round_err = np.fabs(R_before - R_after).sum()
-            self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
-            self.last_tm_refresh = self.t
-            
+        if self.t - self.last_tm_refresh >= self.tm_refresh or (better > 25.):
+            self.step_tm_refresh()
+
         self.current.params[self.nA:]
 
         #self.mdl.new_subsample()
@@ -268,9 +275,11 @@ class ModelOptimization(object):
             else:
                 better = np.nan
 
+            ground_state = new_state
+            
         return better, new_state
     
-    def step_scale(self):
+    def step_scale(self, min_scale=.01):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
         import time
         t0 = time.time()
@@ -295,19 +304,27 @@ class ModelOptimization(object):
             errors.append(err)
             return err
 
-        res = minimize_scalar(to_optimize, bounds = (.1,1), method='Bounded')
+        res = minimize_scalar(to_optimize, bounds = (min_scale, 1), method='Bounded')
         dt = time.time() - t0
         self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
 
         scaled = self.current * res.x
-        better, new_state = self.step_betas(ground_state = scaled, update=True)
-        better = self.update(new_state, self.global_error(new_state.R), "affinity re-scaling")
+        better = self.update(scaled, self.global_error(scaled.R), "affinity re-scaling")
+        self.step_tm_refresh()
+        better, new_state = self.step_betas(update=True)
+        better = self.update(new_state, self.global_error(new_state.R), "betas re-scaling after affinity rescaling")
         return better, new_state
             
-    def optimize_single_param(self, param_i, ground_state=None, local=True):
+    def optimize_single_param(self, param_i, ground_state=None, local=True, accept_increase=False):
         if ground_state == None:
             ground_state = self.current
         
+        x0 = ground_state.params[param_i]
+        if local:
+            err0 = self.local_errors(ground_state.R)[param_i]
+        else:
+            err0 = self.global_error(ground_state.R)
+
         params = np.array(ground_state.params)
 
         if param_i < self.nA:
@@ -362,7 +379,21 @@ class ModelOptimization(object):
         t0 = time.time()
         res = minimize_logspaced(to_optimize, bounds = np.array([self.aff_min, self.aff_max]) )
 
-        best = res.x #* 0.0001
+        if res.fun > err0 and not accept_increase:
+            # we have actually made it *worse* :(
+            self.logger.warning("optimization increased error by {d_err}. Returning initial value instead!".format(d_err = res.fun - err0) )
+            best = x0
+            success = False
+            params[param_i] = x0
+            new_state = ground_state
+            err = err0
+        else:
+            best = res.x
+            success = res.success
+            params[param_i] = best
+            new_state = opt.evaluate(params, tm_update=tm_update)
+            err = self.global_error(new_state.R)
+
         dt = time.time() - t0
         name = self.mdl.param_name[param_i]
         A0 = ground_state.params[param_i]
@@ -373,12 +404,8 @@ class ModelOptimization(object):
         else:
             mode = 'GLOBAL'
         
-        self.logger.debug("{mode} optimal {name} affinity/value search success={res.success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
+        self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
 
-        params[param_i] = best
-        new_state = opt.evaluate(params, tm_update=tm_update)
-        
-        err = self.global_error(new_state.R)
         return best, err, new_state
 
     def sweep_param(self, param_i, x0=1.):

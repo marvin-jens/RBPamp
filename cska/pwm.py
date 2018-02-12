@@ -196,6 +196,7 @@ class PWMOptimizer(object):
         self.opt = opt
         self.pwm_by_kmer = {}
         self.pwms = {}
+        self.errors = []
         self.last_improvements = []
         self.t = 0
         self.kmer_queues = defaultdict(set)
@@ -312,7 +313,7 @@ class PWMOptimizer(object):
         # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
         for i, mer in zip(kmer_indices, kmers):
             param0 = self.opt.mdl.state.params[i]
-            best, err, new_state = self.opt.optimize_single_param(i, local = True)
+            best, err, new_state = self.opt.optimize_single_param(i, local = False)
             imp = self.opt.update(new_state, err, "local kmer optimization {mer} -> {best:.3e}".format(**locals()))
 
         d_err = err - err0
@@ -338,7 +339,7 @@ class PWMOptimizer(object):
             return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
         self.opt.step_scale()
-        self.opt.step_betas()
+        #self.opt.step_betas()
 
         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
         if keep_pwm:
@@ -376,21 +377,27 @@ class PWMOptimizer(object):
 
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
-    def next_move(self, lag=5):
+    def next_move(self, lag=5, eps=1e-3):
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
-        last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-5:]])
+        last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-lag:]])
+        
         err0 = self.opt.global_error(self.opt.current.R)
+        self.errors.append(err0)
         self.logger.debug("current_error={err0:.2e} last last_improvements: {last_improvements}".format(**locals()) )
         
-        if len(self.last_improvements) > lag and np.mean(np.array(self.last_improvements)[-lag:]) > 0:
-            self.logger.warning("no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1))
-            self.store_params()
-            if self.k < self.k_max:
-                self.increase_k()
-                return True
-            else:
-                return False
+        if len(self.last_improvements) > lag:
+            mean_improve = np.mean(np.array(self.last_improvements)[-lag:])
+            mean_error = np.mean(np.array(self.errors)[-lag:])
+            self.logger.debug("mean_improve={mean_improve}, mean_error={mean_error}".format(**locals()))
+            if - mean_improve < eps * mean_error:
+                self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))
+                self.store_params()
+                if self.k < self.k_max:
+                    self.increase_k()
+                    return True
+                else:
+                    return False
 
         i, kmer, res = self.worst_kmer(debug=True)
         keep_pwm = True
@@ -417,30 +424,29 @@ class PWMOptimizer(object):
 
         return pwm
         
-    def params_for_k_increase(self, k):
+    def params_for_k_increase(self):
         """
-        generate kmer parameters for k+1 by expanding an existing table for k
+        generate kmer parameters for k+1 by scoring k+1 mers with existing
+        k-mer parameters
         """
-        new = np.zeros(4**(k+1) + len(self.opt.rbp_conc), dtype=np.float32)
+        new = np.zeros(4**(self.k+1) + len(self.opt.rbp_conc), dtype=np.float32)
         params = self.opt.mdl.params
         
+        
+        import cska.reads
+        kmers = cska.reads.RBNSReads.from_seqs( cyska.yield_kmers(self.k+1) )
+        im = kmers.get_index_matrix(self.k+1)
+        oem = np.zeros(im.shape, dtype=np.uint8)
+        lookup = np.zeros(256, dtype=np.float32)
+        Z1 = cyska.SPA_partition_function(im, oem, lookup, params[:self.nA], self.k+1)
+        print Z1.shape, Z1.min(), Z1.max()
+        print Z1[:10],Z1[-10:]
+
+        # new affinities from partition function
+        new[:-self.opt.n_conc] = Z1[:]
         # copy over beta values
         new[-self.opt.n_conc:] = params[-self.opt.n_conc:]
-        
-        # copy each kmer value we presently have, to the 8 k+1 
-        # values (4 left-padded, 4 right-padded) in the new array
-        nts = np.arange(4)
 
-        # fill new parameters in reverse affinity order, overwriting low
-        # with high affinity values in case there is a clash
-        I = params[:self.nA].argsort()
-        for i in I:
-            for nt in nts:
-                left = i | (nt << (k*2))
-                right = (i << 2) | nt
-                new[left] = params[i]
-                new[right] = params[i]
-        
         return new
 
     def create_optimizer(self, k, params=[]):
@@ -451,7 +457,8 @@ class PWMOptimizer(object):
             out_path=self.opt.out_path, 
             mdl_params = params,
             t0 = self.t,
-            reporter = self.opt.reporter
+            reporter = self.opt.reporter,
+            kmer_opt_global = not self.opt.param_local_fit,
         )
         new_opt.errors = self.opt.errors
         new_opt.correlations = self.opt.correlations
@@ -465,7 +472,7 @@ class PWMOptimizer(object):
 
     def increase_k(self, cutoff=.01):
         # get new optimizer and model with expanded kmer model parameters
-        new_params = self.params_for_k_increase(self.k)
+        new_params = self.params_for_k_increase()
         
         # all parameters that have been changed from background levels
         need_fit = (new_params[:self.opt.nA] <= self.opt.aff0).nonzero()[0]

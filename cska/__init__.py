@@ -33,6 +33,11 @@ def main():
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
+    parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
+    parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
+
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
     parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
@@ -62,9 +67,6 @@ def main():
     parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
     parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
-    parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
-    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
-    parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
     # affinity fit parameters
@@ -240,6 +242,7 @@ def main():
                 seq_only=False, 
                 sub_replace=False, 
                 param_file=options.mdl_resume,
+                kmer_opt_global=options.kmer_opt_global,
                 sched_params={}
             )
 
