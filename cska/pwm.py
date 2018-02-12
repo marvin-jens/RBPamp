@@ -314,7 +314,7 @@ class PWMOptimizer(object):
         for i, mer in zip(kmer_indices, kmers):
             param0 = self.opt.mdl.state.params[i]
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
-            imp = self.opt.update(new_state, err, "local kmer optimization {mer} -> {best:.3e}".format(**locals()))
+            imp = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
 
         d_err = err - err0
 

@@ -221,10 +221,11 @@ class ModelOptimization(object):
         #self.mdl.new_subsample()
         self.errors.append(self.global_error(self.current.R))
         
-        self.logger.info("status after '{0}' step at t={1}, improvement was {2:.2e}%".format(name, self.t, better))
         corr = self.correlation()
+        corr_str = ",".join(["{0:.3f}".format(c) for c in corr])
+        self.logger.info("update '{name}' t={self.t} err={err:.3e} (down by {better:.2e}%) corr={corr_str}".format(**locals()))
+        
         self.correlations.append(corr)
-        self.logger.debug("correlations: {0}".format(corr) )
         self.logger.debug("most recent errors: {0}".format( self.errors[-5:] ))
         
         if self.previous:
@@ -271,7 +272,7 @@ class ModelOptimization(object):
             best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
             
             if update:
-                better = self.update(new_state, err, "beta{0} parameter optimization".format(param_i - self.nA), tick=False)
+                better = self.update(new_state, err, "beta{0}".format(param_i - self.nA), tick=False)
             else:
                 better = np.nan
 
