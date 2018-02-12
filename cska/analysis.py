@@ -268,9 +268,13 @@ class RBNSAnalysis(CachedBase):
         return kmers, order[:rank_cut], best_sample_i+1
         
     def compute_results(self, k, options, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"], report=False ):
+        if len(self.reads) < 2:
+            self.logger.warning("need at least two samples to compute '{0}'".format(results))
+            return
+
         order = self.get_optimal_kmer_ranking(k)
         all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
-
+        
         for name in results:
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
             path = os.path.join(self.out_path, fname)
