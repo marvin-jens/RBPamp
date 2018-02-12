@@ -213,7 +213,7 @@ class ModelOptimization(object):
         self.mdl.params = new_state.params
 
         # subsamples should remain stable throughout one iteration step!
-        if self.t - self.last_tm_refresh >= self.tm_refresh or (better > 25.):
+        if self.t - self.last_tm_refresh >= self.tm_refresh or (better > 5.):
             self.step_tm_refresh()
 
         self.current.params[self.nA:]
@@ -279,7 +279,7 @@ class ModelOptimization(object):
             
         return better, new_state
     
-    def step_scale(self, min_scale=.01):
+    def step_scale(self, min_scale=.01, max_scale=1.):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
         import time
         t0 = time.time()
@@ -381,7 +381,7 @@ class ModelOptimization(object):
 
         if res.fun > err0 and not accept_increase:
             # we have actually made it *worse* :(
-            self.logger.warning("optimization increased error by {d_err}. Returning initial value instead!".format(d_err = res.fun - err0) )
+            self.logger.warning("optimization increased error by {d_err:.3e}. Returning initial value instead!".format(d_err = res.fun - err0) )
             best = x0
             success = False
             params[param_i] = x0

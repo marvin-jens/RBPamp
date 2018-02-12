@@ -199,6 +199,7 @@ class Sensor(object):
             x, y = self.get_func(self)
             corr = np.corrcoef(x,y)[0][1]
             density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.param_name)
+            self.logger.info("{self.name} scatter plot".format(**locals()) )
         
     def update_plot(self, t):
         self.start_plot(t)
@@ -278,12 +279,12 @@ class OptReporting(object):
             # add one sensor per experiment
             sensor = Sensor(
                 self, "R_values_{0}".format(label),
-                get_func = lambda this : (np.log10(this.opt.R_obs[i]), np.log10(this.opt.current.R[i])),
+                get_func = lambda this, i=i : (np.log10(this.opt.R_obs[i]), np.log10(this.opt.current.R[i])),
                 ylabel=r"predicted kmer enrichment [R-value]",
                 xlabel=r"observed kmer enrichment [R-value]",
                 mode='scatter',
                 labels=[label,],
-                fname="{self.name}_{t}.pdf",
+                fname="{self.opt.k}mers_{self.name}_{t}.pdf",
                 plot_interval=100,
                 multipage=True# 100
             )
