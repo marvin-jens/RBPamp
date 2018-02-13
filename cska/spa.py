@@ -196,7 +196,7 @@ class SPAModel(object):
     """
     Single Protein Approximation (SPA) thermodynamic model of RBNS.
     """
-    def __init__(self, reads, openen, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
+    def __init__(self, reads, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
         self.k = k
         self.nA = 4**k
         self.rbp_conc = np.array(protein_conc, dtype=np.float32)
@@ -224,9 +224,8 @@ class SPAModel(object):
         self.f0 /= self.f0.sum()
 
         # secondary structure accessibility
-        self.openen = openen
-        self.openen_lookup = self.openen.disc.x/self.RT # open energies in units of RT for each discretization level
-        self.acc_lookup = np.exp( - self.openen_lookup) # accessibilities
+        self.openen = self.reads.acc_storage.get_discretized(k)
+        self.openen.acc_lookup # open energies in units of RT for each discretization level
         
         # subsampling related stuff
         self.sub_replace = sub_replace
@@ -377,7 +376,7 @@ class SPAModel(object):
         affinities = self.params[index_matrix].sum(axis=1)
         
         params = np.concatenate((affinities, self.params[self.nA:]))
-        mdl = SPAModel(self.reads, self.openen, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
+        mdl = SPAModel(self.reads, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
         if fname:
             mdl.store_params(fname)
         

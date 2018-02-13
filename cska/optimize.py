@@ -29,8 +29,6 @@ class ModelOptimization(object):
         self.all_reads = rbns_analysis.reads
         self.reads = self.all_reads[0] # try and phase out! TODO needs cleanup
         self.input_reads = self.all_reads[0]
-        self.storages = self.rbns_analysis.acc_storages
-        self.openen = self.storages[0].get_discretized(k)
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
 
@@ -66,7 +64,7 @@ class ModelOptimization(object):
         self.aff_max = aff_max
 
         # the model to be trained
-        self.mdl = SPAModel(self.input_reads, self.openen, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
+        self.mdl = SPAModel(self.input_reads, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]

@@ -43,7 +43,7 @@ class RBNSReads(CachedBase):
             self.is_subsample = False
 
         # TODO: rel-path
-        self.storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
+        self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
     @classmethod
     def from_seqs(cls, seqs, **kwargs):
@@ -174,7 +174,7 @@ class RBNSReads(CachedBase):
         self.seqm # trigger loading, so that timer is correct
         im = self.get_index_matrix(k)
         print "IM", im.shape
-        openen = self.storage.get_raw(k)
+        openen = self.acc_storage.get_raw(k)
         acc = openen.acc
         print "acc", acc.shape, acc.min(), acc.max()
         print "openen_ofs", openen.ofs - k + 1

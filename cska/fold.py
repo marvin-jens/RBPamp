@@ -37,9 +37,10 @@ class RBNSOpenen(CachedBase):
         
         self.k = k
         self.discretized = ("discretized" in self.fname)
-        self.logger = logging.getLogger('fold.RBNSOpenen({self.fname})'.format(self=self))
         self.T = T
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
+        self.logger = logging.getLogger('fold.RBNSOpenen({self.fname} T={self.T}C)'.format(self=self))
+
         
         # to be initialized upon first access to oem
         self.include_adapters = None
@@ -168,6 +169,7 @@ class RBNSOpenen(CachedBase):
             self.rbns_reads,
             self.k,
             oem = d_oem,
+            T = self.T
         )
         doe.include_adapters = self.include_adapters
         doe.ofs = self.ofs
@@ -309,7 +311,7 @@ class ViennaOpenen(object):
     
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22.):
         
         CachedBase.__init__(self)
         
@@ -319,7 +321,7 @@ class OpenenStorage(CachedBase):
         self.disc_dtype = disc_dtype
         self.disc_mode = disc_mode
         self.overwrite = overwrite
-        
+        self.T = T
         self.k_sinks = {}
         self.k_disc = {}
         self.logger = logging.getLogger('fold.OpenenStorage({self.reads})'.format(self=self))
@@ -381,7 +383,7 @@ class OpenenStorage(CachedBase):
             
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k)
+        return RBNSOpenen(self._make_filename(k), self.reads, k, T = self.T)
         
     @cached
     def get_discretized(self, k):
@@ -391,7 +393,7 @@ class OpenenStorage(CachedBase):
         fname_disc = self._make_filename(k, disc=disc)
         
         if os.path.exists(fname_disc):
-            return RBNSOpenen(fname_disc, self.reads, k)
+            return RBNSOpenen(fname_disc, self.reads, k, T=self.T)
         else:
             raw = self.get_raw(k)
             self.logger.info("discretizing '{0}' to satisfy get_discretized({1}) request".format(raw.fname, k) )

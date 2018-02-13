@@ -28,7 +28,8 @@ def main():
 
     parser = OptionParser(usage=usage)
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
-    parser.add_option("-o","--output",dest="output",default=".",help="path where results are to be stored")
+    parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
+    parser.add_option("-f","--fold-path",dest="fold_path",default="openen",help="path where folding results are to be stored and found (default='openen')")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
@@ -174,14 +175,14 @@ def main():
                     
 
         # open energy prediction from folding
-        fold_path = os.path.join(options.output,"openen")
+        fold_path = os.path.join(options.fold_path)
+        storage_kw = dict(overwrite = options.overwrite, T=options.temp)
         if int(options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(options.openen_discretize))
-            storage_kw = dict(discretize=True, disc_dtype=dtype, overwrite = options.overwrite)
+            storage_kw.update(dict(discretize=True, disc_dtype=dtype))
         else:
-            storage_kw = dict(discretize=False, raw_dtype=np.float32, overwrite = options.overwrite)
+            storage_kw.update(dict(discretize=False, raw_dtype=np.float32))
 
-        
         # populate with experimental data
         for fname, rbp_conc in zip(args, rbp_concentrations):
             reads = RBNSReads(
@@ -219,7 +220,7 @@ def main():
                 
                 parallel_fold(
                     file(reads.fname,'r'), 
-                    reads.storage,
+                    reads.acc_storage,
                     temp = options.temp,
                     adap5 = options.adap5,
                     adap3 = options.adap3,
