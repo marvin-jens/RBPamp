@@ -28,7 +28,7 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], T=22., disc=None, **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
@@ -38,6 +38,8 @@ class RBNSOpenen(CachedBase):
         self.k = k
         self.discretized = ("discretized" in self.fname)
         self.logger = logging.getLogger('fold.RBNSOpenen({self.fname})'.format(self=self))
+        self.T = T
+        self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         
         # to be initialized upon first access to oem
         self.include_adapters = None
@@ -47,10 +49,12 @@ class RBNSOpenen(CachedBase):
             # recovering discretization scheme from file-name
             self.disc = OpenenDiscretization.from_filename(fname)
             self.dtype = self.disc.dtype
+            self.acc_lookup = np.exp(- self.disc.x/self.RT)
         else:
             # we have the raw floating point values
             self.disc = None
             self.dtype = np.float32
+            self.acc_lookup = []
 
         if len(oem):
             self.cache_preload("oem", oem)
@@ -138,6 +142,14 @@ class RBNSOpenen(CachedBase):
 
         return oem
     
+    @property
+    #@cached
+    def acc(self):
+        if not self.discretized:
+            return np.exp(-self.oem/self.RT)
+        else:
+            return self.acc_lookup[self.oem]
+        
     def discretize(self, disc=None, dname=None):
         
         if not disc:

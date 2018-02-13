@@ -54,6 +54,20 @@ class RBNSComparison(CachedBase):
         return self._subsampled(compute_R)
 
     @cached
+    @pickled
+    def W_values(self, k):
+        self.logger.debug("computing W-values")
+        def compute_W(sample, control):
+            fs = (sample.kmer_counts_acc_weighted(k) + 1.)/ sample.N
+            fc = (control.kmer_counts_acc_weighted(k) + 1.)/ control.N
+            return fs / fc
+        # subsampling currently not working with OpenenStorage!
+        res = compute_W(self.pd_reads, self.in_reads)
+        err = np.zeros(res.shape, dtype=res.dtype)
+        return res, err
+
+
+    @cached
     def O_values(self, k):
         self.logger.debug("computing approximate occupancies by fitting R-values to linear overlap model")
         R, R_err = self.R_values(k)
@@ -184,7 +198,7 @@ class RBNSAnalysis(CachedBase):
 
         # secondary structure open-energies/accessibility storage
         from cska.fold import OpenenStorage
-        self.acc_storages.append(OpenenStorage(rbns_reads, os.path.join(self.out_path, 'openen/'), disc_mode='linear'))
+        self.acc_storages.append(rbns_reads.storage)
         
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
@@ -201,6 +215,9 @@ class RBNSAnalysis(CachedBase):
         
     def R_value_matrix(self, k):
         return self._make_matrices("R_values", k)
+
+    def W_value_matrix(self, k):
+        return self._make_matrices("W_values", k)
 
     def DI_value_matrix(self, k):
         DI, DI_err = self._make_matrices("DI_values", k)

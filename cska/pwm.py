@@ -446,7 +446,7 @@ class PWMOptimizer(object):
 
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
-    def next_move(self, lag=5, eps=1e-2):
+    def next_move(self, lag=3, eps=1e-2):
         # test new PWM output
         #self.store_params()
 
@@ -461,10 +461,9 @@ class PWMOptimizer(object):
         
         if len(self.last_improvements) >= lag:
             mean_improve = np.mean(np.array(self.last_improvements)[-lag:])
-            mean_error = np.mean(np.array(self.errors)[-lag:])
-            
-            rel_change = - mean_improve / mean_error
-            self.logger.debug("mean_improve={mean_improve:.2e}, mean_error={mean_error:.2e} rel_change={rel_change:.2e}".format(**locals()))
+            last_error = self.errors[-1]
+            rel_change = - mean_improve / last_error
+            self.logger.debug("mean_improve={mean_improve:.2e}, last_error={last_error:.2e} rel_change={rel_change:.2e} eps={eps}".format(**locals()))
             
             if rel_change < eps:
                 self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))

@@ -376,7 +376,7 @@ def index_to_seq(index, k):
 @cython.overflowcheck(False)
 @cython.cdivision(True)
 def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0, int chunklines=1000000):
-    cdef char* l
+    cdef unsigned char* l
     cdef UINT64_t i, N=0, n=0, n0=0, L=0
     cdef UINT8_t x=0
     cdef UINT32_t chunkbytes = 0
@@ -938,6 +938,41 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 
     return Z.base
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, UINT64_t k, int n_max=0, int openen_ofs=0, int num_threads=8):
+    assert k <= 16 # must fit into UINT32 kmer-indices!
+
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+    
+    # result will be stored here
+    cdef FLOAT32_t [:] weights = np.zeros(4**k, dtype=np.float32)
+
+    # helper variables to tell cython the types
+    cdef int thread_num
+    cdef FLOAT32_t a=0
+    cdef UINT64_t i=0, j=0
+    cdef UINT32_t index=0
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            thread_num = openmp.omp_get_thread_num()
+            # iterate over all k-mers
+            for i in range(0, l):
+                # assigned variables are thread-local
+                index = index_matrix[j, i]
+                a = acc_matrix[j, i + openen_ofs]
+                weights[index] += a
+            
+    return weights.base
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

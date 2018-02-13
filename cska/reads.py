@@ -5,14 +5,15 @@ __email__ = "mjens@mit.edu"
 
 import numpy as np
 import time
+import os
 import logging
 import cska.ska_kmers as cyska
 
 from cska.caching import cached, pickled, CachedBase
-
+import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg"):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='openen', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -25,11 +26,11 @@ class RBNSReads(CachedBase):
         self.l5 = len(adap5)
         self.l3 = len(adap3)
         self.fname = fname
+        self.path = os.path.dirname(fname)
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
         self.n_max = n_max
         self.n_subsamples = n_subsamples
-        
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         
         if len(seqm):
@@ -40,7 +41,10 @@ class RBNSReads(CachedBase):
             self.cache_preload("L", L)
         else:
             self.is_subsample = False
-    
+
+        # TODO: rel-path
+        self.storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
+
     @classmethod
     def from_seqs(cls, seqs, **kwargs):
         
@@ -145,20 +149,6 @@ class RBNSReads(CachedBase):
         N, L = self.seqm.shape
         return L
 
-    #@cached
-    #def first_index(self, k):
-        #"""
-        #kmer-index corresponding to k-1 nt from the end of the 5'-adapter.
-        #"""
-        #return cyska.seq_to_index(self.adap5[-k+1:],k-1)
-
-    #@cached
-    #def last_index(self, k):
-        #"""
-        #kmer-index corresponding to k-1 nt into the 3'-adapter.
-        #"""
-        #return cyska.seq_to_index(self.adap3[:k-1],k-1)
-        
     @cached
     @pickled
     def kmer_counts(self, k):
@@ -174,6 +164,26 @@ class RBNSReads(CachedBase):
         self.logger.debug("counted {0}mer occurrences in {1:.3f} ms".format( k, 1000.*t ) )
         
         return counts
+
+    @cached
+    @pickled
+    def kmer_counts_acc_weighted(self, k):
+        """
+        Returns kmer counts, weighted by accessibility
+        """
+        self.seqm # trigger loading, so that timer is correct
+        im = self.get_index_matrix(k)
+        print "IM", im.shape
+        openen = self.storage.get_raw(k)
+        acc = openen.acc
+        print "acc", acc.shape, acc.min(), acc.max()
+        print "openen_ofs", openen.ofs - k + 1
+        t0 = time.time()
+        weighted = cyska.kmer_counts_acc_weighted(im, acc, k, openen_ofs=openen.ofs - k + 1)
+        t = time.time() - t0
+        openen.cache_flush()
+        self.logger.debug("counted weighted {0}mer occurrences in {1:.3f} ms".format( k, 1000.*t ) )
+        return weighted
 
     def kmer_frequencies(self,k):
         """

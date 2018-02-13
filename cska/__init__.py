@@ -173,6 +173,14 @@ def main():
                     occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
                     
 
+        # open energy prediction from folding
+        fold_path = os.path.join(options.output,"openen")
+        if int(options.openen_discretize):
+            dtype = getattr(np, "uint{0}".format(options.openen_discretize))
+            storage_kw = dict(discretize=True, disc_dtype=dtype, overwrite = options.overwrite)
+        else:
+            storage_kw = dict(discretize=False, raw_dtype=np.float32, overwrite = options.overwrite)
+
         
         # populate with experimental data
         for fname, rbp_conc in zip(args, rbp_concentrations):
@@ -185,13 +193,12 @@ def main():
                 rna_conc = options.rna_conc,
                 n_subsamples = options.subsamples,
                 adap5=options.adap5,
-                adap3=options.adap3
+                adap3=options.adap3,
+                acc_storage_path = fold_path,
+                storage_kw=storage_kw
             )
             
             rbns.add_reads(reads)
-
-        # open energy prediction from folding
-        fold_path = os.path.join(options.output,"openen")
         
         # first, compute RBNS metrics
         for k in range(options.min_k, options.max_k + 1):
@@ -201,8 +208,7 @@ def main():
         ### special run modes: 
         # secondary structure prediction and accessibility recording
         if options.folding:
-            from cska.fold import parallel_fold, OpenenStorage
-
+            from cska.fold import parallel_fold
             # prepare outout path
             if not os.path.exists(fold_path):
                 os.makedirs(fold_path)
@@ -211,15 +217,9 @@ def main():
             for reads in rbns.reads:
                 logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
                 
-                if int(options.openen_discretize):
-                    dtype = getattr(np, "uint{0}".format(options.openen_discretize))
-                    storage = OpenenStorage(reads, path=fold_path, discretize=True, disc_dtype=dtype, overwrite = options.overwrite)
-                else:
-                    storage = OpenenStorage(reads, path=fold_path, discretize=False, raw_dtype=np.float32, overwrite = options.overwrite)
-
                 parallel_fold(
                     file(reads.fname,'r'), 
-                    storage,
+                    reads.storage,
                     temp = options.temp,
                     adap5 = options.adap5,
                     adap3 = options.adap3,
