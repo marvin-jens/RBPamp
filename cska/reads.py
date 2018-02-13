@@ -48,13 +48,11 @@ class RBNSReads(CachedBase):
     @classmethod
     def from_seqs(cls, seqs, **kwargs):
         
-        reads = cls(None, **kwargs)
+        reads = cls("", **kwargs)
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
-        
         seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
         N, L = seqm.shape
-
         reads.cache_preload("seqm", seqm)
         reads.cache_preload("N", N)
         reads.cache_preload("L", L)
@@ -361,3 +359,15 @@ class RBNSReads(CachedBase):
     
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
+
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    CachedBase.debug_caching=True
+    test_reads = [
+        "TGCAGCTGAGCTAGCGTAGCGAT",
+        "AGAGGAGAGAGAGAGTCGCGCGA",
+        "CGCGCGCGTCGCGATAGCGTCGA",
+    ]
+    reads = RBNSReads.from_seqs(test_reads)
+    print reads

@@ -114,12 +114,11 @@ def cached(func):
             setattr(self, cache_name, dict() )
             self._cache_names.append(cache_name)
 
-        if self.debug_caching:
-            self.cache_logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+        #if self.debug_caching:
+            #self.cache_logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
                 
         cache = getattr(self, cache_name)
         key, kw = args_to_key(argc, kwargs, self, func.__name__)
-        
         if not key in cache:
             if self.debug_caching:
                 self.cache_logger.debug("{0} cache-miss '{1}'".format(cache_name, key) )
@@ -132,8 +131,9 @@ def cached(func):
                 # override caching, but allow pre-loading!
                 return func(self, *argc, **kw)
             else:
-                if self.debug_caching:
-                    self.cache_logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+                #if self.debug_caching:
+                    #self.cache_logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
+
                 cache[key] = func(self, *argc, **kw)
         else:
             if self.debug_caching:

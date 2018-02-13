@@ -160,7 +160,7 @@ class SPAPartition(object):
         self.p_bound = self.mdl.state.p_bound
         self.rbp_free = self.mdl.state.rbp_free
         
-        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, self.mdl.params[:self.mdl.nA])
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.openen.acc_lookup, self.mdl.params[:self.mdl.nA])
         kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
@@ -172,7 +172,7 @@ class SPAPartition(object):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
 
         # update relevant partition functions
-        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.acc_lookup, params[:self.mdl.nA])
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.openen.acc_lookup, params[:self.mdl.nA])
         self.Z1[self.kmer_indices] = kmer_Z1
 
         # update free protein concentrations (probably not necessary)
@@ -225,7 +225,6 @@ class SPAModel(object):
 
         # secondary structure accessibility
         self.openen = self.reads.acc_storage.get_discretized(k)
-        self.openen.acc_lookup # open energies in units of RT for each discretization level
         
         # subsampling related stuff
         self.sub_replace = sub_replace
@@ -325,9 +324,9 @@ class SPAModel(object):
             seq_only = self.seq_only # use SPAModel instance setting
 
         if seq_only:
-            acc_lookup = np.ones(self.acc_lookup.shape, dtype = np.float32)
+            acc_lookup = np.ones(self.openen.acc_lookup.shape, dtype = np.float32)
         else:
-            acc_lookup = self.acc_lookup
+            acc_lookup = self.openen.acc_lookup
 
         if not len(rbp_conc):
             rbp_conc = self.rbp_conc

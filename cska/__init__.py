@@ -176,7 +176,7 @@ def main():
 
         # open energy prediction from folding
         fold_path = os.path.join(options.fold_path)
-        storage_kw = dict(overwrite = options.overwrite, T=options.temp)
+        storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear')
         if int(options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(options.openen_discretize))
             storage_kw.update(dict(discretize=True, disc_dtype=dtype))

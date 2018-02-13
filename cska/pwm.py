@@ -318,7 +318,7 @@ class PWMOptimizer(object):
         
         for i, mer in zip(kmer_indices, kmers):
             param0 = self.opt.mdl.state.params[i]
-            #if mer == 'gaatg':
+            #if mer.lower() == 'gcatg':
                 #self.opt.sweep_param(i,x0=param0)
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
