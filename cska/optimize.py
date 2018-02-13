@@ -195,7 +195,7 @@ class ModelOptimization(object):
         self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
         R_after = self.current.R
         round_err = np.fabs(R_before - R_after).sum()
-        self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        self.logger.info('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
         self.last_tm_refresh = self.t
 
     def update(self, new_state, err, name, tick=True):
@@ -213,7 +213,7 @@ class ModelOptimization(object):
         self.mdl.params = new_state.params
 
         # subsamples should remain stable throughout one iteration step!
-        if self.t - self.last_tm_refresh >= self.tm_refresh or (better > 5.):
+        if self.t - self.last_tm_refresh >= self.tm_refresh:
             self.step_tm_refresh()
 
         self.current.params[self.nA:]
@@ -278,7 +278,7 @@ class ModelOptimization(object):
 
             ground_state = new_state
             
-        return better, new_state
+        return better, new_state, err
     
     def step_scale(self, min_scale=.01, max_scale=1.):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
@@ -312,7 +312,7 @@ class ModelOptimization(object):
         scaled = self.current * res.x
         better = self.update(scaled, self.global_error(scaled.R), "affinity re-scaling")
         self.step_tm_refresh()
-        better, new_state = self.step_betas(update=True)
+        better, new_state, new_err = self.step_betas(update=True)
         better = self.update(new_state, self.global_error(new_state.R), "betas re-scaling after affinity rescaling")
         return better, new_state
             

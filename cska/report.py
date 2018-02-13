@@ -67,7 +67,11 @@ def density_scatter_plot(
             mer = mer.upper().replace('T','U')
             pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
 
+    # draw guides through zero and the diagonal
     pp.plot([m,M],[m,M], '--k', zorder=np.inf, linewidth=.1)
+    pp.axvline(0,linestyle='dashed', color='k', linewidth=.1)
+    pp.axhline(0,linestyle='dashed', color='k', linewidth=.1)
+    
     pp.xlim(m,M)
     pp.ylim(m,M)
         
@@ -279,9 +283,9 @@ class OptReporting(object):
             # add one sensor per experiment
             sensor = Sensor(
                 self, "R_values_{0}".format(label),
-                get_func = lambda this, i=i : (np.log10(this.opt.R_obs[i]), np.log10(this.opt.current.R[i])),
-                ylabel=r"predicted kmer enrichment [R-value]",
-                xlabel=r"observed kmer enrichment [R-value]",
+                get_func = lambda this, i=i : (np.log2(this.opt.R_obs[i]), np.log2(this.opt.current.R[i])),
+                ylabel=r"predicted kmer enrichment $\log_2(R)$",
+                xlabel=r"observed kmer enrichment $\log_2(R)$",
                 mode='scatter',
                 labels=[label,],
                 fname="{self.opt.k}mers_{self.name}_{t}.pdf",

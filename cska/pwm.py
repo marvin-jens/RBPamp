@@ -181,10 +181,12 @@ class PSAM(object):
         fmt = wl.LogoFormat(data, options)
         dump = wl.eps_formatter( data, fmt)
         
-        if fname:
-            file(fname,'wb').write(dump)
         
-        return dump
+        if fname:
+            with file(fname,'wb') as f:
+                f.write(dump)
+        
+        return fname
 
 from collections import defaultdict 
 import logging
@@ -260,8 +262,8 @@ class PWMOptimizer(object):
             f.write("\t".join(row) + '\n')
         
     def worst_kmer(self, debug=False):
-        residual = self.kmer_residuals()
-        #residual = self.kmer_logerrors()
+        #residual = self.kmer_residuals()
+        residual = self.kmer_logerrors()
         w = self.masked / self.weights
         i = np.fabs((residual * w)).argmax()
         kmer = cyska.index_to_seq(i, self.k)
@@ -311,10 +313,28 @@ class PWMOptimizer(object):
 
         err0 = self.opt.global_error(self.opt.current.R)
         # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
+        #repeat = True
+        #while repeat:
+        
         for i, mer in zip(kmer_indices, kmers):
             param0 = self.opt.mdl.state.params[i]
+            #if mer == 'gaatg':
+                #self.opt.sweep_param(i,x0=param0)
+                
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
-            imp = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
+            better = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
+            
+            cum_change = err0 - err
+            rel_change = cum_change / err0
+            if rel_change > .1:
+                self.logger.warning('substantial changes accumulated during kmer_set fit -> re-freshing')
+                self.opt.step_tm_refresh()
+                b, n, err0 = self.opt.step_betas()
+
+                    #repeat = True
+                    #break
+                #else:
+                    #repeat = False
 
         d_err = err - err0
 
@@ -347,6 +367,8 @@ class PWMOptimizer(object):
             return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
         self.opt.step_scale()
+        # reload these after the step_scale!
+        kmer_aff = self.opt.current.params[kmer_indices]
         #self.opt.step_betas()
 
         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
@@ -392,8 +414,6 @@ class PWMOptimizer(object):
 
     def save_pwms(self):
         for pwm in self.get_pwms():
-            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e}".format(pwm=pwm) )
-            
             pwm_path = os.path.join(
                 self.opt.opt_path, 
                 '{pwm.kmer_seed}_t={self.t}'.format(self=self, pwm=pwm)
@@ -405,6 +425,8 @@ class PWMOptimizer(object):
                 'pwm_{pwm.kmer_seed}_t={self.t}.eps'.format(**locals()) 
             )
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
+            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{logo_path}'".format(pwm=pwm, logo_path=logo_path) )
+
             pwm.save_logo(logo_path, title=logo_title)
         
 
@@ -440,8 +462,11 @@ class PWMOptimizer(object):
         if len(self.last_improvements) >= lag:
             mean_improve = np.mean(np.array(self.last_improvements)[-lag:])
             mean_error = np.mean(np.array(self.errors)[-lag:])
-            self.logger.debug("mean_improve={mean_improve}, mean_error={mean_error}".format(**locals()))
-            if - mean_improve < eps * mean_error:
+            
+            rel_change = - mean_improve / mean_error
+            self.logger.debug("mean_improve={mean_improve:.2e}, mean_error={mean_error:.2e} rel_change={rel_change:.2e}".format(**locals()))
+            
+            if rel_change < eps:
                 self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))
                 self.store_params()
                 if self.k < self.k_max:
@@ -451,12 +476,12 @@ class PWMOptimizer(object):
                     return False
 
         i, kmer, res = self.worst_kmer(debug=True)
-        keep_pwm = False
+        keep_pwm = True
         self.logger.info("selected worst kmer {kmer} with residual error={res}".format(**locals()) )
-        #if kmer in self.pwm_by_kmer:
-            #pwm = self.pwm_by_kmer[kmer]
-            #self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
-            ##kmer = pwm.kmer_seed
+        if kmer in self.pwm_by_kmer:
+            pwm = self.pwm_by_kmer[kmer]
+            self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
+            kmer = pwm.kmer_seed
         #else:
             #shift, seed, compound = self.is_shifted(kmer)
             #ashift = abs(shift)
@@ -533,7 +558,7 @@ class PWMOptimizer(object):
         self.k = self.k + 1
         self.nA = 4**self.k
 
-        self.opt.step_scale(min_scale=.01, max_scale=4.)
+        self.opt.step_scale(min_scale=.001, max_scale=4.)
         
         # all parameters that have been changed from background levels
         need_fit = (new_params[:self.opt.nA] > self.opt.aff0).nonzero()[0]
