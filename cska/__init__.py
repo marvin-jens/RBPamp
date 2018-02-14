@@ -22,6 +22,39 @@ from cska.reads import RBNSReads
 from cska.analysis import RBNSAnalysis
 from cska.ska_runner import SKARunner
 
+def auto_detect(path='.', exts=["reads","txt"]):
+    """
+    auto-detect RBP name, reads files and concentrations from files in directory
+    """
+    from glob import glob
+    from collections import defaultdict
+    files = []
+    for ext in exts:
+        pattern = os.path.join(path,'*.{0}'.format(ext))
+        #print "looking for",pattern
+        hits = list(glob(pattern))
+        #print len(hits), "found"
+        files.extend(hits)
+    
+    rbp_names = defaultdict(int)
+    rbp_conc = []
+    
+    for f in files:
+        name, conc = os.path.basename(f).split("_")
+        conc = conc.rsplit('.',1)[0]
+        conc = float(conc.replace('input','0'))
+        rbp_names[name] += 1
+        rbp_conc.append(conc)
+    
+    #print rbp_names
+    assert len(rbp_names) == 1
+    rbp_conc = np.array(rbp_conc)
+    files = np.array(files)
+    I = rbp_conc.argsort()
+    
+    return rbp_names.keys()[0], files[I], rbp_conc[I]
+
+        
 def main():
     from optparse import OptionParser
     usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
@@ -30,6 +63,7 @@ def main():
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
     parser.add_option("-f","--fold-path",dest="fold_path",default="openen",help="path where folding results are to be stored and found (default='openen')")
+    parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
@@ -52,7 +86,7 @@ def main():
     parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
-    parser.add_option("-p","--rbp-concentration",dest="prot_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature",dest="temp",default=22.,type=float,help="temperature of the experiment in degrees Celsius (default=22.0)")
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
@@ -94,16 +128,22 @@ def main():
         print "by", ", ".join(__authors__)
         sys.exit(0)
 
-    if not args:
-        parser.error("missing argument: need <reads_file> (or use /dev/stdin)")
+    if options.auto:
+        rbp_name, reads_files, rbp_concentrations = auto_detect('.')
+    else:
+        rbp_name = options.name
+        reads_files = args
+        rbp_concentrations = [float(c) for c in options.rbp_conc.split(',')]
+    
+    if not len(reads_files):
+        parser.error("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
         sys.exit(1)
-
+    
     # control caching framework behaviour
     CachedBase._do_not_cache = options.disable_caching
     CachedBase._do_not_pickle = options.disable_pickle
     CachedBase._do_not_unpickle= options.disable_unpickle
         
-    rbp_concentrations = [float(c) for c in options.prot_conc.split(',')]
     # prepare outout path
     if not os.path.exists(options.output):
         os.makedirs(options.output)
@@ -150,7 +190,7 @@ def main():
 
         # start a new analysis
         rbns = RBNSAnalysis(
-            rbp_name = options.name,
+            rbp_name = rbp_name,
             out_path = options.output,
             ska_runner = ska,
             known_kd = options.known_kd,
@@ -161,7 +201,7 @@ def main():
             from cska.optimize import RBNSGenerator
             for k in range(options.min_k, options.max_k + 1):
                 gen = RBNSGenerator(k,l=40, seed=options.seed)
-                gen.assign_experimental_input(args[0])
+                gen.assign_experimental_input(reads_files[0])
                 gen.energy_plot()
 
                 r_matrix = []
@@ -184,11 +224,11 @@ def main():
             storage_kw.update(dict(discretize=False, raw_dtype=np.float32))
 
         # populate with experimental data
-        for fname, rbp_conc in zip(args, rbp_concentrations):
+        for fname, rbp_conc in zip(reads_files, rbp_concentrations):
             reads = RBNSReads(
                 fname, 
                 rbp_conc=rbp_conc,
-                rbp_name = options.name,
+                rbp_name = rbp_name,
                 n_max=options.n_max, 
                 pseudo_count=options.pseudo, 
                 rna_conc = options.rna_conc,
