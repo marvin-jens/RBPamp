@@ -62,7 +62,7 @@ def main():
     parser = OptionParser(usage=usage)
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
-    parser.add_option("-f","--fold-path",dest="fold_path",default="openen",help="path where folding results are to be stored and found (default='openen')")
+    parser.add_option("-f","--fold-path",dest="fold_path",default="acc",help="path where folding results are to be stored and found (default='acc')")
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
@@ -99,7 +99,7 @@ def main():
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
     parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--openen",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and build open-energy distributions")
+    parser.add_option("","--fold",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
     parser.add_option("","--openen-discretize",dest="openen_discretize",default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     

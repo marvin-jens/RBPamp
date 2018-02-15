@@ -100,7 +100,7 @@ class RBNSReads(CachedBase):
         """
         self.logger.info('reading sequences from {self.fname}'.format(self=self) )
 
-        if type(self.fname) == str:
+        if isinstance(self.fname, basestring):
             src = file(self.fname)
         else:
             # already file-like
