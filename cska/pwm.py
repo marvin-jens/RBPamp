@@ -448,10 +448,9 @@ class PWMOptimizer(object):
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
     def next_move(self, lag=3, eps=1e-2):
-        # test new PWM output
-        #self.store_params()
-
-        #self.increase_k() # force k increase to test degradation of fit
+        #if self.t == 0:
+            #self.increase_k() # force k increase to test degradation of fit
+        
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
         last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-lag:]])
@@ -503,7 +502,7 @@ class PWMOptimizer(object):
 
         return pwm
         
-    def params_for_k_increase(self):
+    def params_for_k_increase(self, waterline = None):
         """
         generate kmer parameters for k+1 by scoring k+1 mers with existing
         k-mer parameters
@@ -511,19 +510,26 @@ class PWMOptimizer(object):
         new = np.zeros(4**(self.k+1) + len(self.opt.rbp_conc), dtype=np.float32)
         params = self.opt.current.params
         
+        if waterline == None:
+            waterline = 2*self.opt.aff0
         
         import cska.reads
         kmers = cska.reads.RBNSReads.from_seqs( list(cyska.yield_kmers(self.k+1)) )
-        im = kmers.get_index_matrix(self.k)
+        im = kmers.get_index_matrix(self.k)[:,self.k-1:self.k+1] #no "adapters" here!!!
         oem = np.zeros(im.shape, dtype=np.uint8)
         lookup = np.ones(256, dtype=np.float32)
         Z1 = cyska.SPA_partition_function(im, oem, lookup, params[:self.nA], self.k)
         #print params
-        print Z1.shape, Z1.min(), Z1.max(), params.min(), params.max()
+        #print "IM",im.shape
+        #print "="*100
+        #print Z1.shape, Z1.min(), Z1.max(), params[:self.nA].min(), params[:self.nA].max(), self.opt.aff0
         #print Z1[:10],Z1[-10:]
 
+        S = params[im].sum(axis=1)
+        #print "S", S.shape, S.min(), S.max()
+        #print "polyU", im[4095], params[1023], Z1[4095], S[4095], cyska.index_to_seq(4095,6)
         # new affinities from partition function
-        new[:-self.opt.n_conc] = Z1[:]
+        new[:-self.opt.n_conc] = np.where(Z1 > waterline, Z1, self.opt.aff0)
         # copy over beta values
         new[-self.opt.n_conc:] = params[-self.opt.n_conc:]
 
@@ -564,13 +570,16 @@ class PWMOptimizer(object):
         # all parameters that have been changed from background levels
         need_fit = (new_params[:self.opt.nA] > self.opt.aff0).nonzero()[0]
 
-        # go over need_fit in order of decreasing affinity
         n_fit = len(need_fit)
         self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
         
         res = self.kmer_residuals()[need_fit]
+        aff = new_params[need_fit]
+        kmers = self.opt.mdl.param_name[need_fit]
+        order = aff.argsort()
         need_fit = new_params[need_fit].argsort()[::-1]
-        self.optimize_kmer_set_ordered(self.opt.mdl.param_name[need_fit])
+
+        self.optimize_kmer_set_ordered(kmers[order])
         self.opt.step_scale()
         
         old_pwms = self.pwms
