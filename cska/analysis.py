@@ -191,6 +191,8 @@ class RBNSAnalysis(CachedBase):
     def flush(self):
         for comp in self.comparisons:
             comp.cache_flush()
+        for reads in self.reads:
+            reads.cache_flush('get_index_matrix')
 
     def add_reads(self, rbns_reads):
         self.logger.info("adding {0}".format(rbns_reads.name) )

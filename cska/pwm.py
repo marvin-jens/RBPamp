@@ -300,7 +300,7 @@ class PWMOptimizer(object):
         return 0, kmer, kmer
         
         
-    def optimize_kmer_set_ordered(self, kmers):
+    def optimize_kmer_set_ordered(self, kmers, opt_tick=True):
         #print "optimize_kmer_set_ordered", kmers
         kmers = np.array(kmers)
         kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
@@ -312,13 +312,14 @@ class PWMOptimizer(object):
         kmer_indices = kmer_indices[I]
 
         err0 = self.opt.global_error(self.opt.current.R)
+        self.logger.debug("error before optimizing kmer set {0}".format(err0))
         # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
         #repeat = True
         #while repeat:
         
         for i, mer in zip(kmer_indices, kmers):
             param0 = self.opt.mdl.state.params[i]
-            #if mer.lower() == 'gcatg':
+            #if mer.lower() == 'gccca':
                 #self.opt.sweep_param(i,x0=param0)
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
@@ -557,17 +558,18 @@ class PWMOptimizer(object):
         self.k = self.k + 1
         self.nA = 4**self.k
 
+        self.opt.step_betas()
         self.opt.step_scale(min_scale=.001, max_scale=4.)
         
         # all parameters that have been changed from background levels
         need_fit = (new_params[:self.opt.nA] > self.opt.aff0).nonzero()[0]
 
-        # go over need_fit in order of decreasing prediction error
+        # go over need_fit in order of decreasing affinity
         n_fit = len(need_fit)
         self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
         
         res = self.kmer_residuals()[need_fit]
-        need_fit = need_fit[res.argsort()[::-1]]
+        need_fit = new_params[need_fit].argsort()[::-1]
         self.optimize_kmer_set_ordered(self.opt.mdl.param_name[need_fit])
         self.opt.step_scale()
         

@@ -340,7 +340,7 @@ class ModelOptimization(object):
             state = opt.evaluate(params, tm_update=tm_update, ground_state = ground_state)
             
             if local:
-                err = ((state.R[:,param_i] - self.R_obs[:,param_i])**2).sum()
+                err = self.local_errors(state.R)[param_i]
             else:
                 err = self.global_error(state.R)
 
@@ -379,19 +379,20 @@ class ModelOptimization(object):
         res = minimize_logspaced(to_optimize, bounds = np.array([self.aff_min, self.aff_max]) )
 
         if res.fun > err0 and not accept_increase:
+            #self.sweep_param(param_i, x0=err0)
             # we have actually made it *worse* :(
-            self.logger.warning("optimization increased error by {d_err:.3e}. Returning initial value instead!".format(d_err = res.fun - err0) )
+            self.logger.warning("optimization increased error by {d_err:.3e}. Returning initial value instead! (err0={err0:.3e})".format(d_err = res.fun - err0, err0=err0) )
             best = x0
             success = False
             params[param_i] = x0
             new_state = ground_state
-            err = err0
         else:
             best = res.x
             success = res.success
             params[param_i] = best
             new_state = opt.evaluate(params, tm_update=tm_update)
-            err = self.global_error(new_state.R)
+
+        err = self.global_error(new_state.R)
 
         dt = time.time() - t0
         name = self.mdl.param_name[param_i]
@@ -403,7 +404,7 @@ class ModelOptimization(object):
         else:
             mode = 'GLOBAL'
         
-        self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best} (A0={A0} rel change={rel_change}) took {dt:.2f}s".format(**locals()) )
+        self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best:.3e} (A0={A0:.3e} rel change={rel_change:.3e}) took {dt:.2f}s".format(**locals()) )
 
         return best, err, new_state
 
@@ -433,15 +434,18 @@ class ModelOptimization(object):
             params[param_i] = s
             state = opt.evaluate(params, tm_update=tm_update)
             #err.append(self.global_error_conc(state.R, conc_i))
-            err.append(self.global_error(state.R))
-            error = ((state.R[:,param_i] - self.R_obs[:,param_i])**2).sum()
+            glob = self.global_error(state.R)
+            err.append(glob)
+            
+            error = self.local_errors(self.current.R)[param_i]
             loc.append(error)
          
         #print err
         pp.loglog(scale, err, label="global error")
         pp.loglog(scale, loc, label="local (kmer) error")
         pp.axvline(x0)
-        pp.axhline(self.errors[-1])
+        pp.axhline(self.global_error(self.current.R))
+        pp.axhline(self.local_errors(self.current.R)[param_i])
         pp.legend()
         pp.show()
         pp.close()
