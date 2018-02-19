@@ -168,14 +168,14 @@ class Sensor(object):
         self.data.store(t, data)
         self.t_data = t
         
-    def start_plot(self, t):
+    def start_plot(self, t, occasion=""):
         pp.figure()
         if not self.description:
-            pp.title(self.name)
+            pp.title(" ".join([self.name, occasion]))
         else:
             pp.title(self.description)
         
-    def end_plot(self, t):
+    def end_plot(self, t, occasion=""):
         pp.xlabel(self.xlabel)
         pp.ylabel(self.ylabel)
         pp.legend(loc='lower right')
@@ -191,7 +191,7 @@ class Sensor(object):
         pp.close()
         self.t_plot = t
         
-    def do_plot(self, t):
+    def do_plot(self, t, occasion=""):
         if self.mode == 'temporal':
             from itertools import izip_longest
             times, cols = self.data.read()
@@ -205,10 +205,10 @@ class Sensor(object):
             density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.param_name)
             self.logger.info("{self.name} scatter plot".format(**locals()) )
         
-    def update_plot(self, t):
-        self.start_plot(t)
-        self.do_plot(t)
-        self.end_plot(t)
+    def update_plot(self, t, occasion=""):
+        self.start_plot(t, occasion=occasion)
+        self.do_plot(t, occasion=occasion)
+        self.end_plot(t, occasion=occasion)
 
     def close(self):
         if self.multipage:
@@ -224,13 +224,14 @@ class OptReporting(object):
         
         self.logger = logging.getLogger('report.OptReporting')
         self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
+        self.triggers = {}
         self.sensors = []
         # populate with sensors
         for name in track:
             adder = getattr(self, "add_sensor_{0}".format(name))
             sensors = adder()
             self.sensors.extend(sensors)
-            
+
     def close(self):
         self.logger.info('broadcasting close() to {0} sensors'.format(len(self.sensors)) )
         # broadcast close to all attached sensors
@@ -243,6 +244,13 @@ class OptReporting(object):
         for sensor in self.sensors:
             sensor.tick(t)
 
+    def trigger_plots(self, t, occasion="trigger", mode="scatter"):
+        self.logger.info("received trigger {occasion} at time {t} for {mode}-sensors".format(**locals()) )
+        self.triggers[t] = occasion
+        for s in self.sensors:
+            if s.mode == mode:
+                s.update_plot(t, occasion=occasion)
+        
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
         # broadcast to all attached sensors
@@ -288,8 +296,8 @@ class OptReporting(object):
                 xlabel=r"observed kmer enrichment $\log_2(R)$",
                 mode='scatter',
                 labels=[label,],
-                fname="{self.opt.k}mers_{self.name}_{t}.pdf",
-                plot_interval=100,
+                fname="{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
+                plot_interval=200,
                 multipage=True# 100
             )
             sensors.append(sensor)

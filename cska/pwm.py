@@ -324,6 +324,8 @@ class PWMOptimizer(object):
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
             better = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
+            if self.opt.t < (self.k*3):
+                self.opt.reporter.trigger_plots(self.opt.t, occasion="first_moves")
             
             cum_change = err0 - err
             rel_change = cum_change / err0
@@ -441,10 +443,12 @@ class PWMOptimizer(object):
 
 
     def optimize(self, max_iter=1000, eps=1e-2):
+        self.opt.reporter.trigger_plots(self.opt.t, occasion="initial")
         for t in range(max_iter):
             if not self.next_move(eps=eps):
                 break
 
+        self.opt.reporter.trigger_plots(self.opt.t, occasion="final")
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
     def next_move(self, lag=3, eps=1e-2):
@@ -469,6 +473,7 @@ class PWMOptimizer(object):
                 self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))
                 self.store_params()
                 if self.k < self.k_max:
+                    self.opt.reporter.trigger_plots(self.opt.t, occasion="before_increase_k")
                     self.increase_k()
                     return True
                 else:
@@ -563,9 +568,12 @@ class PWMOptimizer(object):
         self.opt = self.create_optimizer(self.k+1, params=new_params)
         self.k = self.k + 1
         self.nA = 4**self.k
-
+    
+        rep = self.opt.reporter
+        rep.trigger_plots(self.opt.t, occasion="param_expansion")
         self.opt.step_betas()
         self.opt.step_scale(min_scale=.001, max_scale=4.)
+        rep.trigger_plots(self.opt.t, occasion="param_expansion_rescaled")
         
         # all parameters that have been changed from background levels
         need_fit = (new_params[:self.opt.nA] > self.opt.aff0).nonzero()[0]
@@ -581,7 +589,9 @@ class PWMOptimizer(object):
         #need_fit = new_param[need_fit].argsort()[::-1]
 
         self.optimize_kmer_set_ordered(kmers[order])
+        rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized")
         self.opt.step_scale()
+        rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized_scaled")
         
         old_pwms = self.pwms
         n_pwm = len(old_pwms.values())
@@ -610,7 +620,7 @@ class PWMOptimizer(object):
             # optimize the 4 versions of the extended (k+1) seed kmer
             kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
             self.opt.step_betas()
-            
+            rep.trigger_plots(self.opt.t, occasion="increase_k_pwm_{pwm.kmer_seed}_update".format(pwm=pwm))
             a0 = aff[0] # highest affinity comes first
             for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
                 if a >= a0 * cutoff:
@@ -623,6 +633,7 @@ class PWMOptimizer(object):
 
         # reset migration cues
         self.kmer_queues = defaultdict(set)
+        rep.trigger_plots(self.opt.t, occasion="increase_k_finished")
 
         
         
