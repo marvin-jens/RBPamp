@@ -160,10 +160,18 @@ class ModelOptimization(object):
     def global_error(self, R_new):
         """used"""
         #return (((self.R_obs - R_new)**2)*self.R_obs).sum()
-        return (self.kmer_errors(R_new)**2).sum()
-        lin_err = self.linearity_err(R_new)
+        return (self.kmer_errors(R_new)**2).mean()
+        #lin_err = self.linearity_err(R_new)
         #print lin_err
         #return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).mean()
+
+    def global_errors(self, R_new):
+        """used"""
+        #return (((self.R_obs - R_new)**2)*self.R_obs).sum()
+        by_conc = (self.kmer_errors(R_new)**2).mean(axis=1)
+        total = np.array([self.global_error(R_new),])
+        
+        return np.concatenate( (by_conc, total) )
     
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).mean()

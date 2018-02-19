@@ -138,8 +138,8 @@ class Sensor(object):
         self.opt = rep.opt
         
         self.logger = logging.getLogger('report.Sensor.{name}'.format(name=name))
-        self.t_data = 0
-        self.t_plot = 0
+        self.t_data = -1
+        self.t_plot = -1
         self.data = TrackedValues()
         
         self.multipage = multipage
@@ -174,13 +174,20 @@ class Sensor(object):
             pp.title(" ".join([self.name, occasion]))
         else:
             pp.title(self.description)
-        
+
+    def ensure_path(self, full):
+        path = os.path.dirname(full)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        return full
+
     def end_plot(self, t, occasion=""):
         pp.xlabel(self.xlabel)
         pp.ylabel(self.ylabel)
         pp.legend(loc='lower right')
         if self.snapshot:
-            path = self.snap_path.format(**locals())
+            path = self.ensure_path(self.snap_path.format(**locals()))
             self.logger.debug("saving snapshot in '{0}'".format(path) )
             pp.savefig(path)
         
@@ -195,8 +202,32 @@ class Sensor(object):
         if self.mode == 'temporal':
             from itertools import izip_longest
             times, cols = self.data.read()
+            #print times, cols, label
+            if not len(times):
+                return
+            
             for label, row in izip_longest(self.labels, cols.T, fillvalue="none" ):
                 self.plot_func(times, row, label=label)
+            
+            t_trig = np.array(sorted(self.rep.triggers.keys()))
+            y_min = cols.min(axis=1)
+            #y_max = cols.max(axis=1)
+            
+            yt = np.interp(t_trig, times, y_min)
+            y0 = cols.min()
+            for t, y in zip(t_trig, yt):
+                trig = self.rep.triggers[t]
+                pp.annotate(
+                    trig, 
+                    xy=(t,y), 
+                    xytext=(t+.1,.9*y), 
+                    arrowprops=dict(
+                        width = 1.,
+                        headwidth= 4.,
+                        facecolor='black', 
+                        shrink=0.05
+                    ), 
+                )
 
         elif self.mode == 'scatter':
             pp.title("{0}mer R-value scatter plot".format(self.opt.k) )
@@ -205,7 +236,7 @@ class Sensor(object):
             density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.param_name)
             self.logger.info("{self.name} scatter plot".format(**locals()) )
         
-    def update_plot(self, t, occasion=""):
+    def update_plot(self, t, occasion="snapshot"):
         self.start_plot(t, occasion=occasion)
         self.do_plot(t, occasion=occasion)
         self.end_plot(t, occasion=occasion)
@@ -248,8 +279,9 @@ class OptReporting(object):
         self.logger.info("received trigger {occasion} at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
         for s in self.sensors:
-            if s.mode == mode:
-                s.update_plot(t, occasion=occasion)
+            s.update_plot(t, occasion=occasion)
+            #if s.mode == mode:
+                #s.update_plot(t, occasion=occasion)
         
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
@@ -279,9 +311,10 @@ class OptReporting(object):
     def add_sensor_errors(self):
         sensor = Sensor(
             self, "errors",
-            get_func = lambda this : [this.opt.global_error(this.opt.current.R),],
+            get_func = lambda this : this.opt.global_errors(this.opt.current.R),
             plot_func = pp.semilogy,
-            ylabel=r"global error of the model"
+            ylabel=r"kmer R-value mean squared errors",
+            labels=self.conc_labels + ['all']
         )
         return [sensor,]
         
@@ -296,8 +329,8 @@ class OptReporting(object):
                 xlabel=r"observed kmer enrichment $\log_2(R)$",
                 mode='scatter',
                 labels=[label,],
-                fname="{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
-                plot_interval=200,
+                fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
+                plot_interval=1000,
                 multipage=True# 100
             )
             sensors.append(sensor)

@@ -324,8 +324,8 @@ class PWMOptimizer(object):
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
             better = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
-            if self.opt.t < (self.k*3):
-                self.opt.reporter.trigger_plots(self.opt.t, occasion="first_moves")
+            if self.opt.t <= (self.k*3)+1:
+                self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
             
             cum_change = err0 - err
             rel_change = cum_change / err0
@@ -443,6 +443,7 @@ class PWMOptimizer(object):
 
 
     def optimize(self, max_iter=1000, eps=1e-2):
+        self.opt.reporter.tick(0)
         self.opt.reporter.trigger_plots(self.opt.t, occasion="initial")
         for t in range(max_iter):
             if not self.next_move(eps=eps):

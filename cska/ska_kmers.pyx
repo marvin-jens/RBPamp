@@ -43,14 +43,14 @@ letter_to_bits[ord('T')] = 3
 letter_to_bits[ord('U')] = 3
 
 cdef UINT8_t bits_to_letters[4]
-bits_to_letters[:] = [ord('A'), ord('C'), ord('G'), ord('T')]
+bits_to_letters[:] = [ord('A'), ord('C'), ord('G'), ord('U')]
     
 def yield_kmers(k):
     import itertools
     """
     An iterater to all kmers of length k in alphabetical order
     """
-    bases = 'ACGT'
+    bases = 'ACGU'
     for kmer in itertools.product(bases, repeat=k):
         yield ''.join(kmer)
                                 
@@ -362,7 +362,7 @@ def seq_to_index(seq):
     return kbits_to_index(bits, k)
 
 def index_to_seq(index, k):
-    nucs = ['a','c','g','t']
+    nucs = ['a','c','g','u']
     seq = []
     for i in range(k):
         j = index >> ((k-i-1) * 2)
