@@ -85,7 +85,7 @@ class RBNSOpenen(CachedBase):
         
     @property
     def cache_key(self):
-        return "{self.rbns_reads.cache_key} k={self.k} disc={self.disc}".format(self=self)
+        return "{self.rbns_reads.cache_key} k={self.k} disc={self.disc} nmax={self.rbns_reads.n_max}".format(self=self)
 
     @property
     @cached
@@ -156,13 +156,13 @@ class RBNSOpenen(CachedBase):
         if not disc:
             disc = OpenenDiscretization.from_filename(dname)
 
-        self.logger.debug("discretizing {0} using {1}".format(self.fname, disc.to_filename()) )
+        self.logger.debug("discretizing {0} using {1}".format(self.fname, disc.to_filename(N=self.rbns_reads.N)) )
         t0 = time.time()
         
         d_oem = disc.discretize(self.oem)
         if not dname:
             path, fname = os.path.split(self.fname)
-            dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(), fname) )
+            dname = os.path.join(path, "{0}.{1}".format(disc.to_filename(N=self.rbns_reads.N), fname) )
 
         doe = RBNSOpenen(
             dname,
@@ -405,12 +405,12 @@ class OpenenStorage(CachedBase):
     def _make_filename(self, k, disc=None):
         if disc:
             #self.k_disc[k] = OpenenDiscretization(k, self.reads.L, self.dtype)
-            fmt = disc.to_filename()
+            fmt = disc.to_filename(N=self.reads.N)
         else:
             fmt = "raw_L{0}_k{1}_{2}".format(self.reads.L, k, self.raw_dtype.__name__)
 
         base, ext = os.path.splitext(os.path.basename(self.reads.fname))
-        fname = os.path.join(self.path, "{0}.{1}.bin".format(base,fmt) )
+        fname = os.path.join(self.path, "{0}.{1}.bin".format(base, fmt) )
         
         return fname
         
@@ -489,10 +489,11 @@ class OpenenDiscretization(object):
         (40,7) : 28.,
         (40,8) : 30.,
     }
-    def __init__(self, k, L, dtype=np.uint8, mode='gamma'):
+    def __init__(self, k, L, dtype=np.uint8, mode='gamma', N=0):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype
         self.k = k
         self.L = L
+        self.N = N
         self.dtype = dtype
         self.mode = mode
         
@@ -539,18 +540,21 @@ class OpenenDiscretization(object):
     @staticmethod
     def from_filename(fname):
         import re
-        M = re.search(r'discretized_(?P<mode>\w+)_L(?P<L>\d+)_k(?P<k>\d+)_(?P<dtype>\w+)', fname)
+        M = re.search(r'discretized_(?P<mode>\w+)_L(?P<L>\d+)_k(?P<k>\d+)_N(?P<N>\d+)_(?P<dtype>\w+)', fname)
         d = M.groupdict()
         L = int(d['L'])
         k = int(d['k'])
+        N = int(d['N'])
         mode = d['mode']
         dtype_name = d['dtype']
         dtype = getattr(np, dtype_name)
         
-        return OpenenDiscretization(k, L, dtype, mode=mode)
+        return OpenenDiscretization(k, L, dtype, mode=mode, N=N)
         
-    def to_filename(self):
-        return "discretized_{self.mode}_L{self.L}_k{self.k}_{self.dtype.__name__}".format(self = self)
+    def to_filename(self,N=0):
+        if not N:
+            N = self.N
+        return "discretized_{self.mode}_L{self.L}_k{self.k}_N{N}_{self.dtype.__name__}".format(self = self, N=N)
         
     def discretize(self, data):
         #print "data", data.shape

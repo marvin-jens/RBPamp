@@ -576,8 +576,9 @@ class PWMOptimizer(object):
         res = self.kmer_residuals()[need_fit]
         aff = new_params[need_fit]
         kmers = self.opt.mdl.param_name[need_fit]
-        order = aff.argsort()
-        need_fit = new_params[need_fit].argsort()[::-1]
+        order = aff.argsort()[::-1]
+        #order = res.argsort()[::-1]
+        #need_fit = new_param[need_fit].argsort()[::-1]
 
         self.optimize_kmer_set_ordered(kmers[order])
         self.opt.step_scale()

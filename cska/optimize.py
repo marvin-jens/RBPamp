@@ -160,10 +160,10 @@ class ModelOptimization(object):
     def global_error(self, R_new):
         """used"""
         #return (((self.R_obs - R_new)**2)*self.R_obs).sum()
-        #return (self.kmer_errors(R_new)**2).sum()
+        return (self.kmer_errors(R_new)**2).sum()
         lin_err = self.linearity_err(R_new)
         #print lin_err
-        return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).mean()
+        #return ((self.kmer_errors(R_new)**2).sum(axis=1) * (1 + lin_err) ).mean()
     
     def global_error_conc(self, R_new, conc_i):
         return (self.kmer_errors(R_new)[conc_i,:]**2).mean()
@@ -320,11 +320,15 @@ class ModelOptimization(object):
         
         x0 = ground_state.params[param_i]
         if local:
+            mode = 'LOCAL'            
             err0 = self.local_errors(ground_state.R)[param_i]
         else:
+            mode = 'GLOBAL'            
             err0 = self.global_error(ground_state.R)
 
         params = np.array(ground_state.params)
+        name = self.mdl.param_name[param_i]
+        A0 = ground_state.params[param_i]
 
         if param_i < self.nA:
             # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
@@ -347,7 +351,7 @@ class ModelOptimization(object):
             #print params[param_i], err
             return err
 
-        def minimize_logspaced(func, bounds = [], n_samples = 10, **kwargs):
+        def minimize_logspaced(func, bounds = [], n_samples = 10, debug=False, **kwargs):
             """
             first evaluate at log-spaced sampling points along parameter range
             then select at most 3 orders of magnitude around the lowest observed value
@@ -363,14 +367,17 @@ class ModelOptimization(object):
             sample_x = 10**np.linspace(lmin, lmax, n_samples)
             samples = np.array([to_optimize(x) for x in sample_x])
                 
-            #print "logspaced sample", zip(sample_x, samples)
+            if debug:
+                print "logspaced sample", zip(sample_x, samples)
+
             i = samples.argmin()
             li = max(0, i -1)
             ri = min(n_samples-1, i+1)
             
             brent_min = sample_x[li]
             brent_max = sample_x[ri]
-            #print "search optimum between", brent_min, brent_max
+            if debug:
+                print "search optimum between", brent_min, brent_max
             
             res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
             return res
@@ -378,14 +385,18 @@ class ModelOptimization(object):
         t0 = time.time()
         res = minimize_logspaced(to_optimize, bounds = np.array([self.aff_min, self.aff_max]) )
 
+        #self.sweep_param(param_i, x0=res.x)
+
         if res.fun > err0 and not accept_increase:
             #self.sweep_param(param_i, x0=err0)
             # we have actually made it *worse* :(
-            self.logger.warning("optimization increased error by {d_err:.3e}. Returning initial value instead! (err0={err0:.3e})".format(d_err = res.fun - err0, err0=err0) )
+            d_err = res.fun - err0
+            self.logger.warning("{mode} optimization of {name} {x0:.3e}->{res.x:.3e} increased error by {d_err:.3e}. Returning initial value instead! (err0={err0:.3e})".format(**locals()) )
             best = x0
             success = False
             params[param_i] = x0
             new_state = ground_state
+            
         else:
             best = res.x
             success = res.success
@@ -395,15 +406,8 @@ class ModelOptimization(object):
         err = self.global_error(new_state.R)
 
         dt = time.time() - t0
-        name = self.mdl.param_name[param_i]
-        A0 = ground_state.params[param_i]
         rel_change = (best - A0) / A0
 
-        if local:
-            mode = 'LOCAL'
-        else:
-            mode = 'GLOBAL'
-        
         self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best:.3e} (A0={A0:.3e} rel change={rel_change:.3e}) took {dt:.2f}s".format(**locals()) )
 
         return best, err, new_state
@@ -415,6 +419,8 @@ class ModelOptimization(object):
         """
         import matplotlib.pyplot as pp
         pp.figure()
+        name = self.mdl.param_name[param_i]
+        pp.title("parameter optimization")
         #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
         params = np.array(self.current.params)
 
@@ -437,16 +443,26 @@ class ModelOptimization(object):
             glob = self.global_error(state.R)
             err.append(glob)
             
-            error = self.local_errors(self.current.R)[param_i]
+            if param_i < self.nA:
+                error = self.local_errors(self.current.R)[param_i]
+            else:
+                error = np.NaN
             loc.append(error)
          
         #print err
-        pp.loglog(scale, err, label="global error")
-        pp.loglog(scale, loc, label="local (kmer) error")
-        pp.axvline(x0)
-        pp.axhline(self.global_error(self.current.R))
-        pp.axhline(self.local_errors(self.current.R)[param_i])
+        err = np.array(err)
+        pp.semilogx(scale, err, 'r-', label=name)
+        #pp.loglog(scale, loc, 'b-', label="local (kmer) error")
+        pp.vlines(x0, err.min()*.9, err.min()/.9)
+        pp.xlabel("kmer affinity [1/nM]")
+        pp.ylabel("global R-value error")
+        
+        err0 = self.global_error(self.current.R)
+        pp.hlines(err0, scale.min(), scale.max(), color='gray', label='err0', linestyle='dashed')
+        #if param_i < self.nA:
+            #pp.axhline(self.local_errors(self.current.R)[param_i], color='blue')
         pp.legend()
+        pp.tight_layout()
         pp.show()
         pp.close()
 
