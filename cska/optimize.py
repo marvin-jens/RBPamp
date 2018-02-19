@@ -234,6 +234,9 @@ class ModelOptimization(object):
         self.correlations.append(corr)
         self.logger.debug("most recent errors: {0}".format( self.errors[-5:] ))
         
+        if np.fabs(better) > 5: # TODO: make adaptive
+            self.reporter.trigger_plots(self.t, occasion=name, mode='temporal')
+
         if self.previous:
             update = self.current.params - self.previous.params
             #print "{0} step at t={1}".format(name, self.t)
@@ -292,6 +295,7 @@ class ModelOptimization(object):
         t0 = time.time()
         params = np.array(self.current.params)
 
+        err0 = self.global_error(self.current.R)
         scales = []
         errors = []
         def to_optimize(scale):
@@ -313,13 +317,22 @@ class ModelOptimization(object):
 
         res = minimize_scalar(to_optimize, bounds = (min_scale, 1), method='Bounded')
         dt = time.time() - t0
-        self.logger.info("global affinity re-scaling: success={res.success} scale={res.x} took {dt:.2f}s".format(**locals()) )
+        
+        if res.fun > err0:
+            success = False
+            best = 1.
+            scaled = self.current
+        else:
+            success = res.success
+            best = res.x
+            scaled = self.current * best
 
-        scaled = self.current * res.x
-        better = self.update(scaled, self.global_error(scaled.R), "affinity re-scaling")
+        self.logger.info("global affinity re-scaling: success={success} scale={best} took {dt:.2f}s".format(**locals()) )
+
+        better = self.update(scaled, self.global_error(scaled.R), "affinity_scale={:.3e}".format(best))
         self.step_tm_refresh()
         better, new_state, new_err = self.step_betas(update=True)
-        better = self.update(new_state, self.global_error(new_state.R), "betas re-scaling after affinity rescaling")
+        better = self.update(new_state, self.global_error(new_state.R), "betas_after_scale")
         return better, new_state
             
     def optimize_single_param(self, param_i, ground_state=None, local=True, accept_increase=False):

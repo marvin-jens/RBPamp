@@ -279,9 +279,9 @@ class OptReporting(object):
         self.logger.info("received trigger {occasion} at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
         for s in self.sensors:
-            s.update_plot(t, occasion=occasion)
-            #if s.mode == mode:
-                #s.update_plot(t, occasion=occasion)
+            #s.update_plot(t, occasion=occasion)
+            if s.mode == mode:
+                s.update_plot(t, occasion=occasion)
         
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
