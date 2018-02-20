@@ -22,6 +22,13 @@ from cska.reads import RBNSReads
 from cska.analysis import RBNSAnalysis
 from cska.ska_runner import SKARunner
 
+def ensure_path(full):
+    path = os.path.dirname(full)
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    return full
+
 def auto_detect(path='.', exts=["reads","txt"]):
     """
     auto-detect RBP name, reads files and concentrations from files in directory

@@ -50,7 +50,7 @@ class ModelOptimization(object):
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
 
-        self.opt_path = os.path.join(self.out_path, 'opt/{0}mers'.format(self.k))
+        self.opt_path = os.path.join(self.out_path, 'opt')
         if not os.path.exists(self.opt_path):
             os.makedirs(self.opt_path)
 
@@ -234,9 +234,6 @@ class ModelOptimization(object):
         self.correlations.append(corr)
         self.logger.debug("most recent errors: {0}".format( self.errors[-5:] ))
         
-        if np.fabs(better) > 5: # TODO: make adaptive
-            self.reporter.trigger_plots(self.t, occasion=name, mode='temporal')
-
         if self.previous:
             update = self.current.params - self.previous.params
             #print "{0} step at t={1}".format(name, self.t)
@@ -245,6 +242,9 @@ class ModelOptimization(object):
             self.t += 1
             if self.reporter:
                 self.reporter.tick(self.t)
+
+            if self.errors and np.fabs(better) > 5: # TODO: make adaptive
+                self.reporter.trigger_plots(self.t, occasion=name, mode='temporal')
 
         if self.t > 1:
             self.rel_improvements.append(better)

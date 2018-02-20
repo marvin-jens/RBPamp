@@ -2,6 +2,7 @@
 import sys
 import os
 import numpy as np
+import cska
 import cska.ska_kmers as cyska
 bases = 'ACGU'
 base_idx = { 
@@ -318,12 +319,12 @@ class PWMOptimizer(object):
         #while repeat:
         
         for i, mer in zip(kmer_indices, kmers):
-            param0 = self.opt.mdl.state.params[i]
+            param0 = self.opt.current.params[i]
             #if mer.lower() == 'gccca':
                 #self.opt.sweep_param(i,x0=param0)
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
-            better = self.opt.update(new_state, err, "{mer} -> {best:.3e}".format(**locals()))
+            better = self.opt.update(new_state, err, "{mer} {param0:.3e} -> {best:.3e}".format(**locals()))
             if self.opt.t <= (self.k*3)+1:
                 self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
             
@@ -383,7 +384,7 @@ class PWMOptimizer(object):
         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.2f} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
         return pwm, d_err
     
-    def get_pwms(self, thresh=1000.):
+    def get_pwms(self, thresh=100.):
         covered_kmers = set()
         names = self.opt.mdl.param_name
         # kmers in reverse affinity order
@@ -418,32 +419,32 @@ class PWMOptimizer(object):
     def save_pwms(self):
         for pwm in self.get_pwms():
             pwm_path = os.path.join(
-                self.opt.opt_path, 
-                '{pwm.kmer_seed}_t={self.t}'.format(self=self, pwm=pwm)
+                self.opt.opt_path, pwm.consensus,
+                '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
             )
-            pwm.store_params(pwm_path)
+            pwm.store_params(cska.ensure_path(pwm_path))
 
             logo_path = os.path.join(
-                self.opt.opt_path, 
-                'pwm_{pwm.kmer_seed}_t={self.t}.eps'.format(**locals()) 
+                self.opt.opt_path, pwm.consensus,
+                '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
             )
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
             self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{logo_path}'".format(pwm=pwm, logo_path=logo_path) )
 
-            pwm.save_logo(logo_path, title=logo_title)
+            pwm.save_logo(cska.ensure_path(logo_path), title=logo_title)
         
 
     def store_params(self):
         self.opt.mdl.store_params(os.path.join(self.opt.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
 
         # temporary: save partition function samples
-        self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
+        #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
 
         self.save_pwms()
 
 
     def optimize(self, max_iter=1000, eps=1e-2):
-        self.opt.reporter.tick(0)
+        self.opt.reporter.tick(-1)
         self.opt.reporter.trigger_plots(self.opt.t, occasion="initial")
         for t in range(max_iter):
             if not self.next_move(eps=eps):

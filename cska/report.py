@@ -1,10 +1,78 @@
 import os
-import cska
 import numpy as np
+import logging
+import time
+from collections import defaultdict
 import matplotlib
 import matplotlib.pyplot as pp
-import logging
-from collections import defaultdict
+import matplotlib.pyplot as plt
+import cska
+
+#np.random.seed(2016)
+
+#N = 20
+#scatter_data = np.random.rand(N, 3)*10
+
+def repel_labels(x, y, labels, **kwargs):
+    from adjustText import adjust_text
+    texts = []
+    for x_, y_, label in zip(x, y, labels):
+        texts.append(pp.text(x_, y_, label, horizontalalignment='center', color='k'))
+        
+    adjust_text(
+        texts, 
+        #add_objects=lines, 
+        #autoalign='y', 
+        #expand_objects=(0.1, 1),
+        #only_move={'points':'', 'text':'y', 'objects':'y'}, force_text=0.75, force_objects=0.1,
+        arrowprops=dict(arrowstyle="-", color='k', lw=0.5)
+    )
+
+
+#def repel_labels(x, y, labels, k=0.15, ax=None):
+    #import networkx as nx
+    #if ax == None:
+        #ax = plt.gca()
+    #G = nx.DiGraph()
+    #print x.shape, y.shape, len(labels), ax
+    
+    #data_nodes = []
+    #init_pos = {}
+    #for xi, yi, label in zip(x, y, labels):
+        #data_str = 'data_{0}'.format(label)
+        #G.add_node(data_str)
+        #G.add_node(label)
+        #G.add_edge(label, data_str)
+        #data_nodes.append(data_str)
+        #init_pos[data_str] = (xi, yi)
+        #init_pos[label] = (xi, yi)
+
+    #pos = nx.spring_layout(G, pos=init_pos, fixed=data_nodes, k=k, iterations=200)
+
+    ## undo spring_layout's rescaling
+    #pos_after = np.vstack([pos[d] for d in data_nodes])
+    #pos_before = np.vstack([init_pos[d] for d in data_nodes])
+    #scale, shift_x = np.polyfit(pos_after[:,0], pos_before[:,0], 1)
+    #scale, shift_y = np.polyfit(pos_after[:,1], pos_before[:,1], 1)
+    #shift = np.array([shift_x, shift_y])
+    #for key, val in pos.items():
+        #pos[key] = (val*scale) + shift
+
+    #for label, data_str in G.edges():
+        #ax.annotate(label,
+                    #xy=pos[data_str], xycoords='data',
+                    #xytext=pos[label], textcoords='data',
+                    #arrowprops=dict(arrowstyle="-",
+                                    #shrinkA=0, shrinkB=0,
+                                    ##connectionstyle="arc3", 
+                                    #color='k'), )
+    ## expand limits
+    #all_pos = np.vstack(pos.values())
+    #x_span, y_span = np.ptp(all_pos, axis=0)
+    #mins = np.min(all_pos-x_span*0.15, 0)
+    #maxs = np.max(all_pos+y_span*0.15, 0)
+    #ax.set_xlim([mins[0], maxs[0]])
+    #ax.set_ylim([mins[1], maxs[1]])
 
 
 def density_scatter_plot(
@@ -19,7 +87,9 @@ def density_scatter_plot(
     from scipy.stats import kde
 
     # Evaluate a gaussian kde on a regular grid of nbins x nbins over data extents
+    t0 = time.time()
     k = kde.gaussian_kde([x,y])
+    
     
     xmin = x.min()
     xmax = x.max()
@@ -28,10 +98,13 @@ def density_scatter_plot(
     nbins = density_kw['nbins']
     xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
     zi = k(np.vstack([xi.flatten(), yi.flatten()]))
-
+    t1 = time.time()
+    #Z = zi.reshape((len(yi), len(xi)))
+    #print Z.shape
+    #pp.imshow(Z, interpolation='none', cmap=density_kw['cmap'], origin='lower', extent=[xmin,xmax,ymin,ymax])
     pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
     pp.colorbar()
-
+    t2 = time.time()
     if contour:
         pp.contour(xi, yi, zi.reshape(xi.shape))
 
@@ -48,7 +121,8 @@ def density_scatter_plot(
 
     m = xmin + np.log10(3./4.) # always use experiment as reference
     M = xmax + np.log10(4./3.)
-
+    t3 = time.time()
+    
     if len(data_labels):
         # annotate the most enriched and most off-diagonal k-mers
         top = x.argsort()[::-1][:5]
@@ -74,7 +148,14 @@ def density_scatter_plot(
     
     pp.xlim(m,M)
     pp.ylim(m,M)
-        
+
+    t4 = time.time()
+    logger = logging.getLogger('timing.density_plot')
+    t_kde = 1000. * (t1-t0)
+    t_mesh = 1000. * (t2-t1)
+    t_out = 1000. * (t3-t2)
+    t_label = 1000. * (t4-t3)
+    logger.debug('KDE={t_kde:.2f}ms pcolormesh={t_mesh:.2f}ms outliers={t_out:.2f}ms labels={t_label:.2f}ms'.format(**locals()) )
 
         
 class TrackedValues(object):
@@ -175,19 +256,12 @@ class Sensor(object):
         else:
             pp.title(self.description)
 
-    def ensure_path(self, full):
-        path = os.path.dirname(full)
-        if not os.path.exists(path):
-            os.makedirs(path)
-
-        return full
-
     def end_plot(self, t, occasion=""):
         pp.xlabel(self.xlabel)
         pp.ylabel(self.ylabel)
         pp.legend(loc='lower right')
         if self.snapshot:
-            path = self.ensure_path(self.snap_path.format(**locals()))
+            path = cska.ensure_path(self.snap_path.format(**locals()))
             self.logger.debug("saving snapshot in '{0}'".format(path) )
             pp.savefig(path)
         
@@ -201,33 +275,41 @@ class Sensor(object):
     def do_plot(self, t, occasion=""):
         if self.mode == 'temporal':
             from itertools import izip_longest
+            #from adjustText import adjust_text
             times, cols = self.data.read()
             #print times, cols, label
             if not len(times):
                 return
             
+            lines = []
             for label, row in izip_longest(self.labels, cols.T, fillvalue="none" ):
-                self.plot_func(times, row, label=label)
+                lines.extend(self.plot_func(times, row, label=label))
             
+            #print self.name
             t_trig = np.array(sorted(self.rep.triggers.keys()))
             y_min = cols.min(axis=1)
-            #y_max = cols.max(axis=1)
+            #y_max = cols.max(axis=0)
             
             yt = np.interp(t_trig, times, y_min)
-            y0 = cols.min()
-            for t, y in zip(t_trig, yt):
-                trig = self.rep.triggers[t]
-                pp.annotate(
-                    trig, 
-                    xy=(t,y), 
-                    xytext=(t+.1,.9*y), 
-                    arrowprops=dict(
-                        width = 1.,
-                        headwidth= 4.,
-                        facecolor='black', 
-                        shrink=0.05
-                    ), 
-                )
+            labels = [self.rep.triggers[x] for x in t_trig]
+            #print t_trig
+            #print yt
+            #print labels
+            repel_labels(t_trig, yt, labels)
+
+            #for t, y in zip(t_trig, yt):
+                #trig = self.rep.triggers[t]
+                #pp.annotate(
+                    #trig, 
+                    #xy=(t,y), 
+                    #xytext=(t+.1,.9*y), 
+                    #arrowprops=dict(
+                        #width = 1.,
+                        #headwidth= 4.,
+                        #facecolor='black', 
+                        #shrink=0.05
+                    #), 
+                #)
 
         elif self.mode == 'scatter':
             pp.title("{0}mer R-value scatter plot".format(self.opt.k) )
@@ -271,18 +353,24 @@ class OptReporting(object):
 
     def tick(self, t):
         self.logger.debug('broadcasting tick() to {0} sensors'.format(len(self.sensors)) )
+        t0 = time.time()
         # broadcast to all attached sensors
         for sensor in self.sensors:
             sensor.tick(t)
+        t1 = time.time()
+        self.logger.info('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
 
     def trigger_plots(self, t, occasion="trigger", mode="scatter"):
-        self.logger.info("received trigger {occasion} at time {t} for {mode}-sensors".format(**locals()) )
+        self.logger.info("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
+        t0 = time.time()
         for s in self.sensors:
             #s.update_plot(t, occasion=occasion)
             if s.mode == mode:
                 s.update_plot(t, occasion=occasion)
-        
+        t1 = time.time()
+        self.logger.info('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
+
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
         # broadcast to all attached sensors
@@ -593,4 +681,10 @@ class EnrichmentBarPlot(object):
 
 
 if __name__ == "__main__":
-    pass
+    N = 4**6
+    x = np.array(np.random.random(N))
+    y = np.array(x + np.random.random(N) * .1)
+    mers = np.array([str(i) for i in y])
+    logging.basicConfig(level=logging.DEBUG)
+    density_scatter_plot(x,y, data_labels=mers)
+    pp.show()
