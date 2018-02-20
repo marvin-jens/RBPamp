@@ -444,7 +444,7 @@ class PWMOptimizer(object):
 
 
     def optimize(self, max_iter=1000, eps=1e-2):
-        self.opt.reporter.tick(-1)
+        self.opt.reporter.tick(0)
         self.opt.reporter.trigger_plots(self.opt.t, occasion="initial")
         for t in range(max_iter):
             if not self.next_move(eps=eps):
@@ -544,10 +544,14 @@ class PWMOptimizer(object):
 
     def create_optimizer(self, k, params=[]):
         from cska.optimize import ModelOptimization
+        # free some memory
+        self.opt.input_reads.cache_flush('__cached_get_index_matrix')
+        self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
+
         # create new optimizer and model
         new_opt = ModelOptimization(k, self.opt.rbns_analysis,
             rbp_conc=self.opt.rbp_conc, 
-            out_path=self.opt.out_path, 
+            out_path=self.opt.out_path,
             mdl_params = params,
             t0 = self.opt.t,
             reporter = self.opt.reporter,

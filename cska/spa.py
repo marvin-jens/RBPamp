@@ -23,7 +23,7 @@ Further perks are support for a non-specific contribution from background bindin
 """
 
 class SPAState(object):
-    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, openen_bin_counts = [], jacobi = [], sc=None):
+    def __init__(self, mdl, params, Z1, p_bound, pi_kmer, rbp_free, jacobi = [], sc=None):
         self.mdl = mdl
         self.sc=sc
         self.params = params
@@ -33,7 +33,7 @@ class SPAState(object):
         self.p_bound = p_bound
         self.pi_kmer = pi_kmer
         self.rbp_free = rbp_free
-        self.openen_bin_counts = openen_bin_counts
+        #self.openen_bin_counts = openen_bin_counts
         self.jacobi = jacobi
 
         self.N = self.mdl.n_subsample
@@ -152,7 +152,8 @@ class SPAPartition(object):
         kmer_hits = cyska.index_matrix_rows_with_kmer(self.mdl.subsample_index_matrix, self.mdl.k, kmer_i)
         self.kmer_indices = kmer_hits
         self.im_kmer = self.mdl.subsample_index_matrix[kmer_hits]
-        self.oem_kmer = self.mdl.subsample_oem[kmer_hits]
+        #self.oem_kmer = self.mdl.subsample_oem[kmer_hits]
+        self.acc_kmer = self.mdl.subsample_acc[kmer_hits]
         
         pi = self.mdl.state.pi_kmer
         rbp_free = self.mdl.state.rbp_free
@@ -160,7 +161,7 @@ class SPAPartition(object):
         self.p_bound = self.mdl.state.p_bound
         self.rbp_free = self.mdl.state.rbp_free
         
-        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.openen.acc_lookup, self.mdl.params[:self.mdl.nA])
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.acc_kmer, self.mdl.params[:self.mdl.nA])
         kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
@@ -172,7 +173,7 @@ class SPAPartition(object):
         # re-evaluate the model *only* on the sequences with the kmer whose affinity is changed
 
         # update relevant partition functions
-        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.oem_kmer, self.mdl.openen.acc_lookup, params[:self.mdl.nA])
+        kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.acc_kmer, params[:self.mdl.nA])
         self.Z1[self.kmer_indices] = kmer_Z1
 
         # update free protein concentrations (probably not necessary)
@@ -224,7 +225,8 @@ class SPAModel(object):
         self.f0 /= self.f0.sum()
 
         # secondary structure accessibility
-        self.openen = self.reads.acc_storage.get_discretized(k)
+        #self.openen = self.reads.acc_storage.get_discretized(k)
+        self.openen = self.reads.acc_storage.get_raw(k)
         
         # subsampling related stuff
         self.sub_replace = sub_replace
@@ -233,7 +235,8 @@ class SPAModel(object):
         # all subsample fields are set by new_subsample
         self.subsample_indices = []
         self.subsample_index_matrix = []
-        self.subsample_oem = []
+        #self.subsample_oem = []
+        self.subsample_acc = []
         self.new_subsample()
         
         # current state of the model
@@ -261,11 +264,16 @@ class SPAModel(object):
 
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
-        self.subsample_oem = self.openen.oem[indices]
+        #self.subsample_oem = self.openen.oem[indices]
+        self.subsample_acc = self.openen.acc[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
-    def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
-        Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
+    #def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
+        #Z1 = cyska.SPA_partition_function(im, oem, acc_lookup, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
+        #return Z1
+
+    def _spa_partition_function(self, im, acc, kmer_invkd):
+        Z1 = cyska.SPA_partition_function_raw(im, acc, kmer_invkd, self.k, n_max = self.n_subsample, openen_ofs = self.openen.ofs - self.k + 1)
         return Z1
     
     def _spa_free_protein(self, Z1, rbp_conc):
@@ -313,20 +321,21 @@ class SPAModel(object):
         if not len(indices):
             indices = self.subsample_indices
             im = self.subsample_index_matrix
-            oem = self.subsample_oem
+            acc = self.subsample_acc
         else:
             seqm = self.reads.seqm[indices]
             im = cyska.seq_matrix_to_index_matrix(seqm, self.k)
-            oem = self.openen.oem[indices]
+            #oem = self.openen.oem[indices]
+            acc = self.openen.acc[indices]
 
 
         if seq_only == None:
             seq_only = self.seq_only # use SPAModel instance setting
 
-        if seq_only:
-            acc_lookup = np.ones(self.openen.acc_lookup.shape, dtype = np.float32)
-        else:
-            acc_lookup = self.openen.acc_lookup
+        #if seq_only:
+            #acc_lookup = np.ones(self.openen.acc_lookup.shape, dtype = np.float32)
+        #else:
+            #acc_lookup = self.openen.acc_lookup
 
         if not len(rbp_conc):
             rbp_conc = self.rbp_conc
@@ -336,7 +345,8 @@ class SPAModel(object):
             ground_state = self.state
 
         if tm_update:
-            Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+            #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
+            Z1 = self._spa_partition_function(im, acc, kmer_invkd)
             rbp_free = self._spa_free_protein(Z1, rbp_conc)
                 
             p_bound = self._spa_p_rna_bound(Z1, rbp_free)
@@ -349,7 +359,7 @@ class SPAModel(object):
             # Useful when changed parameter is not affinity (i.e. betas)
             # copy all thermodynamic model results from previous state.
 
-            state = SPAState(self, params, ground_state.Z1, ground_state.p_bound, ground_state.pi_kmer, ground_state.rbp_free, ground_state.openen_bin_counts, ground_state.jacobi)
+            state = SPAState(self, params, ground_state.Z1, ground_state.p_bound, ground_state.pi_kmer, ground_state.rbp_free, ground_state.jacobi)
 
         if keep:
             self.params = params

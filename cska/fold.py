@@ -102,7 +102,7 @@ class RBNSOpenen(CachedBase):
         return L
    
     @property
-    @cached
+    #@cached
     def oem(self):
         """
         load and keep all open-energies in memory (optionally discretized)
@@ -144,7 +144,7 @@ class RBNSOpenen(CachedBase):
         return oem
     
     @property
-    #@cached
+    @cached
     def acc(self):
         if not self.discretized:
             return np.exp(-self.oem/self.RT)
