@@ -207,7 +207,7 @@ class TrackedValues(object):
         
 
 class Sensor(object):
-    def __init__(self, rep, name, plot_interval=10, data_interval=1, get_func=lambda this : 0, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
+    def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
         self.name = name.replace(' ','_')
         self.description = description
         self.get_func = get_func

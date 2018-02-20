@@ -78,6 +78,11 @@ class CrosstalkMatrix(CachedBase):
         row = (self.M - np.identity(4**self.k))[kmer_index]
         shadow = [(i, row[i]) for i in row.argsort()[::-1] if row[i] > 0]
         return shadow
+
+    def get_inv_shadow(self, kmer_index):
+        row = (self.M_inv.T - np.identity(4**self.k))[kmer_index]
+        shadow = [(i, row[i]) for i in row.argsort()[::-1] if row[i] > 0]
+        return shadow
     
     def matrix_plot(self, fname='crosstalk_matrix.pdf'):
         M = self.M
@@ -274,3 +279,19 @@ class CrosstalkMatrix(CachedBase):
         dG = Kd_to_kcal(kd, temp=temp).mean(axis=0)
         
         return kmers, kd, dG
+
+if __name__ == "__main__":
+    from cska.reads import RBNSReads
+    import cska.ska_kmers as cyska
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', rbp_name='RBFOX3', storage_kw=dict(T=4))
+    k = 5
+    M = CrosstalkMatrix(k, reads)
+    print "shadow"
+    for i, w in M.get_shadow(cyska.seq_to_index('UUGCA'))[:10]:
+        print cyska.index_to_seq(i,k), w
+    
+    print "inv. shadow"
+    for i, w in M.get_inv_shadow(cyska.seq_to_index('UUGCA'))[:10]:
+        print cyska.index_to_seq(i,k), w
