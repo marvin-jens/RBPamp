@@ -13,7 +13,7 @@ from cska.caching import cached, pickled, CachedBase
 import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='openen', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -32,6 +32,7 @@ class RBNSReads(CachedBase):
         self.n_max = n_max
         self.n_subsamples = n_subsamples
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
+        self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
         
         if len(seqm):
             self.is_subsample = True
@@ -110,7 +111,8 @@ class RBNSReads(CachedBase):
         seqm = cyska.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
         t1 = time.time()
         N, L = seqm.shape
-        self.logger.info("read {0:.3f}M sequences of length {1} in {2:.1f} seconds".format(N/1E6, L, (t1-t0) ) )
+        self.logger.info("read {0:.3f}M sequences of length {1}.".format(N/1E6, L) )
+        self.time_logger.debug("read {0:.3f}M x {1}nt in {2:.2f}ms.".format(N/1E6, L, 1000. * (t1-t0)) )
 
         return seqm
 
@@ -365,9 +367,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     CachedBase.debug_caching=True
     test_reads = [
-        "TGCAGCTGAGCTAGCGTAGCGAT",
+        "TAATTTTTGCATGAAAAATCGAT",
         "AGAGGAGAGAGAGAGTCGCGCGA",
         "CGCGCGCGTCGCGATAGCGTCGA",
     ]
     reads = RBNSReads.from_seqs(test_reads)
-    print reads

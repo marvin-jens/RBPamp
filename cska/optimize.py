@@ -46,6 +46,7 @@ class ModelOptimization(object):
         self.last_tm_refresh = 0
 
         self.logger = logging.getLogger('opt.ModelOptimization')
+        self.time_logger = logging.getLogger('timing.ModelOptimization')
         self.out_path = out_path
         if not os.path.exists(self.out_path):
             os.makedirs(self.out_path)
@@ -70,7 +71,7 @@ class ModelOptimization(object):
         self.errors = [] #self.global_error(self.current.R), ]
         self.correlations = []
         self.rel_improvements = []
-        self.logger.error("kmer_opt_global={0}".format(kmer_opt_global))
+        #self.logger.error("kmer_opt_global={0}".format(kmer_opt_global))
         self.param_local_fit = not kmer_opt_global
         
         # set initial state of the model
@@ -197,11 +198,14 @@ class ModelOptimization(object):
         return False
 
     def step_tm_refresh(self):
+        t0 = time.time()
         R_before = self.current.R
         self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
         R_after = self.current.R
         round_err = np.fabs(R_before - R_after).sum()
-        self.logger.info('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        t1 = time.time()
+        self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        self.time_logger.debug('step_tm_refresh in {0:.2f}ms'.format(1000.*(t1-t0)) )
         self.last_tm_refresh = self.t
 
     def update(self, new_state, err, name, tick=True):
@@ -277,6 +281,7 @@ class ModelOptimization(object):
         return imp, new_state
 
     def step_betas(self, ground_state=None, update=True):
+        t0 = time.time()
         for param_i in range(self.nA, self.n_params):
             best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
             
@@ -287,11 +292,12 @@ class ModelOptimization(object):
 
             ground_state = new_state
             
+        dt = time.time() - t0
+        self.time_logger.debug('step_betas in {0:.2f}ms'.format(1000.*dt))
         return better, new_state, err
     
     def step_scale(self, min_scale=.01, max_scale=1.):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
-        import time
         t0 = time.time()
         params = np.array(self.current.params)
 
@@ -333,6 +339,9 @@ class ModelOptimization(object):
         self.step_tm_refresh()
         better, new_state, new_err = self.step_betas(update=True)
         better = self.update(new_state, self.global_error(new_state.R), "betas_after_scale")
+        dt = time.time() - t0
+        self.time_logger.debug('step_scale in {0:.2f}ms'.format(1000*dt) )
+
         return better, new_state
             
     def optimize_single_param(self, param_i, ground_state=None, local=True, accept_increase=False):
@@ -378,7 +387,7 @@ class ModelOptimization(object):
             then select at most 3 orders of magnitude around the lowest observed value
             for Brent optimization. Requires pos. valued bounds!
             """
-            
+            t0 = time.time()
             bmin = bounds.min()
             bmax = bounds.max()
             
@@ -401,6 +410,10 @@ class ModelOptimization(object):
                 print "search optimum between", brent_min, brent_max
             
             res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
+            t1 = time.time()
+            
+            self.time_logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
+
             return res
             
         t0 = time.time()
@@ -428,8 +441,6 @@ class ModelOptimization(object):
 
         dt = time.time() - t0
         rel_change = (best - A0) / A0
-
-        self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best:.3e} (A0={A0:.3e} rel change={rel_change:.3e}) took {dt:.2f}s".format(**locals()) )
 
         return best, err, new_state
 

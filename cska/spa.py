@@ -45,6 +45,25 @@ class SPAState(object):
         self.pd_sum = self.pd_freq.sum(axis=1)
         self.R = (self.pd_freq/ self.pd_sum[:, np.newaxis] ) / self.mdl.f0[np.newaxis,:]
 
+    def R_at_k(self, k):
+        """
+        Using current self.k-mer model, predict R values at another k
+        """
+        im = self.mdl.reads.get_index_matrix(k)
+        f0 = self.mdl.reads.kmer_frequencies(k)
+        f0 /= f0.sum()
+        
+        n_conc, n = self.p_bound.shape
+        pi_kmer = np.zeros( (n_conc, 4**k), dtype=np.float32)
+        for i in range(n_conc):
+            pi_kmer[i] = cyska.weighted_kmer_counts(im, self.p_bound[i], k)
+
+        pd_freq = pi_kmer + self.betas[:, np.newaxis] * f0 * self.N
+        pd_sum = pd_freq.sum(axis=1)
+        R = (pd_freq / pd_sum[:, np.newaxis]) / f0[np.newaxis,:]
+
+        return R
+
     def __mul__(self, scale):
         """
         multiply all affinities by 'scale'. For scale ~1 rounding errors

@@ -514,6 +514,41 @@ def seq_set_kmer_count_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
 
 
 #@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def kmer_crosstalk_matrix(UINT32_t [:,:] im1, UINT32_t [:,:] im2, UINT64_t k1, UINT64_t k2):
+
+    assert k1 <= k2
+    cdef int N = im1.base.shape[0]
+    assert im2.base.shape[0] == N
+    cdef int L1 = im1.base.shape[1]
+    cdef int L2 = im2.base.shape[1]
+
+    # store k-mer counts here
+    cdef FLOAT32_t [:,:] overlaps = np.zeros((4**k1, 4**k2), dtype = np.float32)
+
+    # helper variables to tell cython the types
+    cdef UINT64_t index1, index2, i, j, l, ofs
+    
+    # because we start inside the 5' adapter,
+    # k2-mer indices start earlier in the sequence if k2 > k1.
+    ofs = k2 - k1
+    
+    with nogil:
+        for j in range(N):
+            for i in range(L1):
+                index1 = im1[j,i]
+                for l in range(max(0, i - k1 + ofs), min(L2, i + k1 + ofs)):
+                    index2 = im2[j,l]
+                    overlaps[index1, index2] += 1
+                    
+    return overlaps.base
+
+
+
+#@cython.boundscheck(False)
 #@cython.wraparound(False)
 #@cython.initializedcheck(False)
 #@cython.cdivision(True)
