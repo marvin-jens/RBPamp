@@ -252,7 +252,7 @@ class PWMOptimizer(object):
         return le
 
     def dump_logratios(self):
-        path = os.path.join(self.opt.opt_path,"{0}mer_logratios.tsv".format(self.k))
+        path = os.path.join(self.opt.out_path,"{0}mer_logratios.tsv".format(self.k))
         self.logger.debug("storing kmer prediction error in {0}".format(path) )
         LR = self.kmer_logratios()
         #print LR.shape
@@ -422,13 +422,13 @@ class PWMOptimizer(object):
     def save_pwms(self):
         for pwm in self.get_pwms():
             pwm_path = os.path.join(
-                self.opt.opt_path, pwm.consensus,
+                self.opt.out_path, pwm.consensus,
                 '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
             )
             pwm.store_params(cska.ensure_path(pwm_path))
 
             logo_path = os.path.join(
-                self.opt.opt_path, pwm.consensus,
+                self.opt.out_path, pwm.consensus,
                 '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
             )
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
@@ -438,7 +438,7 @@ class PWMOptimizer(object):
         
 
     def store_params(self):
-        self.opt.mdl.store_params(os.path.join(self.opt.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
+        self.opt.mdl.store_params(os.path.join(self.opt.out_path, '{self.k}mer_affinities.tsv'.format(self=self)))
 
         # temporary: save partition function samples
         #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
@@ -457,8 +457,8 @@ class PWMOptimizer(object):
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
     def next_move(self, lag=3, eps=1e-2):
-        if self.t == 0:
-            self.increase_k() # force k increase to test degradation of fit
+        #if self.t == 0:
+            #self.increase_k() # force k increase to test degradation of fit
         
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
@@ -516,7 +516,6 @@ class PWMOptimizer(object):
         """
         generate kmer parameters for k+1 by scoring k+1 mers with existing  
         k-mer parameters
-        TODO: weight affinity among groups of kmers proportional to R-value
         """
         k = self.k
         new = np.zeros(4**(k+1) + len(self.opt.rbp_conc), dtype=np.float32) + self.opt.aff0

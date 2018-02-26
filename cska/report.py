@@ -358,10 +358,10 @@ class OptReporting(object):
         for sensor in self.sensors:
             sensor.tick(t)
         t1 = time.time()
-        self.logger.info('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
+        self.logger.debug('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
 
     def trigger_plots(self, t, occasion="trigger", mode="scatter"):
-        self.logger.info("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
+        self.logger.debug("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
         t0 = time.time()
         for s in self.sensors:
@@ -369,7 +369,7 @@ class OptReporting(object):
             if s.mode == mode:
                 s.update_plot(t, occasion=occasion)
         t1 = time.time()
-        self.logger.info('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
+        self.logger.debug('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
 
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )

@@ -211,6 +211,101 @@ class SPAPartition(object):
 
         return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi, rbp_free)
         
+class ParamInterface(object):
+    """
+    Delegate class. Used by SPAModel to handle parameter related functionality. Format checking,
+    conversions, loading and storing to files, etc.
+    """
+    def __init__(self, mdl):
+        self.mdl = mdl
+        self.k = self.mdl.k
+        self.nA = 4**self.mdl.k
+        self.n_beta = self.mdl.n_conc
+        self.n_params = self.nA + self.n_beta
+        self.logger = logging.getLogger("ParamInterface")
+
+    @property
+    def affinities(self):
+        return self.mdl.params[:self.nA]
+    
+    @property
+    def energies(self):
+        return Kd_to_kcal(1./self.affintites, temp=self.mdl.T)
+    
+    @property
+    def betas(self):
+        return self.mdl.params[self.nA:]
+
+    def load(self, fname):
+        params = []
+        k = 0
+        with file(fname, 'r') as f:
+            for line in f:
+                if line.startswith('#'): 
+                    continue
+
+                parts = line.split('\t')
+                params.append(float(parts[1]))
+                if not k:
+                    k = len(parts[0])
+
+        params = np.array(params, dtype=np.float32)
+        assert len(params) == self.n_params
+
+        self.mdl.params = params
+        self.logger.info("loaded model parameters from {0}".format(fname))
+        
+    def assign(self, params):
+        assert len(params) == self.n_params
+        self.mdl.params = np.array(params, dtype=np.float32)
+        
+    def reset(self, betas=[], aff0=1e-7):
+        assert len(betas == self.n_beta)
+        params = np.zeros(self.n_params, dtype=np.float32)
+        params[:self.nA] += aff0
+        params[self.nA:] = betas
+        self.assign(params)
+
+
+    def params_for_next_k(self, core_param=None, waterline=1e-6, aff0=1e-7):
+        k = self.mdl.k
+
+        kmer_seqs = list(cyska.yield_kmers(k+1))
+        kmers = cska.reads.RBNSReads.from_seqs( kmer_seqs )
+        im = kmers.get_index_matrix(k)[:,k-1:k+1] #no "adapters" here!!!
+
+        # prepare parameter vector for k+1 model
+        new = np.zeros(4**(k+1) + self.n_extra, dtype=np.float32)
+        if self.n_extra:
+            new[-self.n_extra:] = self.aff[-self.n_extra:] # beta parameters
+
+        dG = self.energies
+        T = self.T
+        if core_param:
+            dG_core = core_param.energies
+            # second k-mer index right shifted gives k-1 core
+            # shared between both k-mers
+            core_i = im[:,1] >> 2
+            dG_l = dG[im].sum(axis=1) - dG_core[core_i]
+            new_aff = 1./kcal_to_Kd(dG_l, temp=T)
+        else:
+            # add up Boltzmann weights/affinities
+            new_aff = self.affinities[im].sum(axis=1)
+
+            # # use heuristic
+            # for i,(l,r) in enumerate(self.affinities[im]):
+            #     a,b = max(l,r), min(l,r)
+            #     kcal = Kd_to_kcal(1/a, temp=T) + 0.25 * Kd_to_kcal(1/b, temp=T)
+            #     aff = 1./kcal_to_Kd(kcal, temp=T)
+            #     if aff >= waterline:
+            #         new[i] = aff
+            #     else:
+            #         new[i] = min(aff, aff0)
+
+        # implement the waterline
+        new[:4**(k+1)] = np.where(new_aff > waterline, new_aff, aff0)
+        return new
+
 
 class SPAModel(object):
     """
@@ -261,7 +356,11 @@ class SPAModel(object):
         # current state of the model
         self.state = None
         self.params = params
-        
+
+        # delegate class for convenient interface with parameter vector
+        self.parameters = ParamInterface(self)
+
+
     def new_subsample(self):
         t0 = time.time()
 
@@ -410,6 +509,7 @@ class SPAModel(object):
         
         return mdl
         
+    # DEPRECATING!
     def load_params(self, fname):
         params = []
         self.logger.info("reading parameters from '{0}'".format(fname))

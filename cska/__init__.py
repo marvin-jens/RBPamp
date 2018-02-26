@@ -175,12 +175,14 @@ def main():
     for sub in options.info.split(','):
         if not sub:
             continue
+        sub = sub.replace('root',"")
         logging.getLogger(sub).setLevel(logging.INFO)
 
     # set debug log level for specific sub-systems
     for sub in options.debug.split(','):
         if not sub:
             continue
+        sub = sub.replace('root',"")
         logging.getLogger(sub).setLevel(logging.DEBUG)
         if sub == 'cache':
             CachedBase.debug_caching = True
@@ -285,15 +287,11 @@ def main():
 
             opt = ModelOptimization(
                 options.min_k, 
-                rbns_analysis=rbns, 
-                out_path=rbns.out_path, 
-                rbp_conc=rbns.rbp_conc, 
+                rbns,
                 n_subsample=0, 
-                seq_only=False, 
                 sub_replace=False, 
                 param_file=options.mdl_resume,
                 kmer_opt_global=options.kmer_opt_global,
-                sched_params={}
             )
 
             pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
