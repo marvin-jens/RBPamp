@@ -28,7 +28,7 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], T=22., disc=None, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
@@ -37,7 +37,7 @@ class RBNSOpenen(CachedBase):
         
         self.k = k
         self.discretized = ("discretized" in self.fname)
-        self.T = T
+        self.T = rbns_reads.temp
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.logger = logging.getLogger('fold.RBNSOpenen({self.fname} T={self.T}C)'.format(self=self))
 
@@ -169,7 +169,6 @@ class RBNSOpenen(CachedBase):
             self.rbns_reads,
             self.k,
             oem = d_oem,
-            T = self.T
         )
         doe.include_adapters = self.include_adapters
         doe.ofs = self.ofs
@@ -383,7 +382,7 @@ class OpenenStorage(CachedBase):
             
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k, T = self.T)
+        return RBNSOpenen(self._make_filename(k), self.reads, k)
         
     @cached
     def get_discretized(self, k):
@@ -393,7 +392,7 @@ class OpenenStorage(CachedBase):
         fname_disc = self._make_filename(k, disc=disc)
         print fname_disc
         if os.path.exists(fname_disc):
-            return RBNSOpenen(fname_disc, self.reads, k, T=self.T)
+            return RBNSOpenen(fname_disc, self.reads, k)
         else:
             raw = self.get_raw(k)
             self.logger.info("discretizing '{0}' to satisfy get_discretized({1}) request".format(raw.fname, k) )

@@ -12,6 +12,8 @@ import cska.ska_kmers as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
 from cska.sc import SelfConsistency
+import cska
+from cska.affinity import *
 #from cska import timed
 
 """
@@ -222,7 +224,13 @@ class ParamInterface(object):
         self.nA = 4**self.mdl.k
         self.n_beta = self.mdl.n_conc
         self.n_params = self.nA + self.n_beta
-        self.logger = logging.getLogger("ParamInterface")
+        self.logger = logging.getLogger("model.ParamInterface")
+        self.source = "n/a"
+
+        self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
+        self.param_index = {}
+        for i, name in enumerate(self.param_name):
+            self.param_index[name] = i
 
     @property
     def affinities(self):
@@ -230,15 +238,20 @@ class ParamInterface(object):
     
     @property
     def energies(self):
-        return Kd_to_kcal(1./self.affintites, temp=self.mdl.T)
+        return Kd_to_kcal(1./self.affinities, temp=self.mdl.T)
     
     @property
     def betas(self):
         return self.mdl.params[self.nA:]
 
-    def load(self, fname):
+    def load(self, path):
         params = []
         k = 0
+        if os.path.isdir(path):
+            fname = os.path.join(path, '{self.k}mer_affinities.tsv'.format(self=self))
+        else:
+            fname = path
+
         with file(fname, 'r') as f:
             for line in f:
                 if line.startswith('#'): 
@@ -250,14 +263,26 @@ class ParamInterface(object):
                     k = len(parts[0])
 
         params = np.array(params, dtype=np.float32)
+        assert k == self.mdl.k
         assert len(params) == self.n_params
 
         self.mdl.params = params
         self.logger.info("loaded model parameters from {0}".format(fname))
+        self.source = fname
+
+    def store(self, path):
+        fname = os.path.join(path, '{self.k}mer_affinities.tsv'.format(self=self))
+
+        self.logger.info("storing model parameters in '{0}'".format(fname))
+        with file(fname, 'w') as f:
+            f.write('# {0}mer\taffinity [1/nM]\tKd [nM]\n'.format(self.k) )
+            for i in xrange(self.n_params):
+                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], self.mdl.params[i], 1./self.mdl.params[i]))
         
     def assign(self, params):
         assert len(params) == self.n_params
         self.mdl.params = np.array(params, dtype=np.float32)
+        self.source = "assigned"
         
     def reset(self, betas=[], aff0=1e-7):
         assert len(betas == self.n_beta)
@@ -265,30 +290,57 @@ class ParamInterface(object):
         params[:self.nA] += aff0
         params[self.nA:] = betas
         self.assign(params)
+        self.source = "scratch"
 
+    def resume(self, path, k=0, **kwargs):
+        # TODO: also store temperature in file!
+        if not k:
+            k = self.k
+        mdl = SPAModel(self.mdl.reads, k, self.mdl.rbp_conc, T=self.mdl.T, **kwargs)
+        mdl.parameters.load(path)
 
+        return mdl
+
+    def __str__(self):
+        aff = self.affinities
+        aff0 = 1e-6
+        n = (aff > aff0).sum()
+        mina = aff.min()
+        maxa = aff.max()
+        mink = self.param_name[aff.argmin()]
+        maxk = self.param_name[aff.argmax()]
+        return "model params from '{self.source}': {n} above aff0, min_aff={mina:.3e} ({mink}), max_aff={maxa:.3e} ({maxk})".format(**locals()) 
+        
     def params_for_next_k(self, core_param=None, waterline=1e-6, aff0=1e-7):
-        k = self.mdl.k
+        k = self.k
 
         kmer_seqs = list(cyska.yield_kmers(k+1))
         kmers = cska.reads.RBNSReads.from_seqs( kmer_seqs )
         im = kmers.get_index_matrix(k)[:,k-1:k+1] #no "adapters" here!!!
 
         # prepare parameter vector for k+1 model
-        new = np.zeros(4**(k+1) + self.n_extra, dtype=np.float32)
-        if self.n_extra:
-            new[-self.n_extra:] = self.aff[-self.n_extra:] # beta parameters
+        new = np.zeros(4**(k+1) + self.n_beta, dtype=np.float32)
+        if self.n_beta:
+            new[-self.n_beta:] = self.betas
 
-        dG = self.energies
-        T = self.T
-        if core_param:
-            dG_core = core_param.energies
+        
+        T = self.mdl.T
+        if core_param and False:
+            self.logger.info("params_for_next_k(): using parameters from {0} to derive core energies".format(core_param))
+            
             # second k-mer index right shifted gives k-1 core
             # shared between both k-mers
             core_i = im[:,1] >> 2
-            dG_l = dG[im].sum(axis=1) - dG_core[core_i]
+            dG_core = core_param.energies[core_i]
+            dG = self.energies[im]
+            dG_l = np.where(dG_core < 0, dG.sum(axis=1) - dG_core, dG.mean(axis=1) )
             new_aff = 1./kcal_to_Kd(dG_l, temp=T)
+            for i in new_aff.argsort()[:-10:-1]:
+                print cyska.index_to_seq(i,k+1), new_aff[i], dG[i], dG_core[i]
+
+
         else:
+            self.logger.info("params_for_next_k(): summing Boltzmann weights")
             # add up Boltzmann weights/affinities
             new_aff = self.affinities[im].sum(axis=1)
 
@@ -302,6 +354,16 @@ class ParamInterface(object):
             #     else:
             #         new[i] = min(aff, aff0)
 
+        # detect overflows
+        if new_aff.max() > 1000.:
+            io = (new_aff > 1000.).nonzero()[0]
+            self.logger.warning("affinity overlow for {0} kmers".format(len(io)))
+            core_i = im[:,1] >> 2
+            for i in io:
+                print i, cyska.index_to_seq(i, k+1), dG[i], "core", cyska.index_to_seq(core_i[i], k-1), dG_core[i]
+        
+            new_aff = (new_aff / new_aff.max()) * 500.
+
         # implement the waterline
         new[:4**(k+1)] = np.where(new_aff > waterline, new_aff, aff0)
         return new
@@ -311,26 +373,19 @@ class SPAModel(object):
     """
     Single Protein Approximation (SPA) thermodynamic model of RBNS.
     """
-    def __init__(self, reads, k, protein_conc, T=22, sub_replace=True, seq_only=False, out_path="./", n_subsample=100000, params = None):
+    def __init__(self, reads, k, protein_conc, sub_replace=True, seq_only=False, n_subsample=100000, params = None):
         self.k = k
         self.nA = 4**k
         self.rbp_conc = np.array(protein_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
 
-        self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_conc)])
-        self.param_index = {}
-        for i, name in enumerate(self.param_name):
-            self.param_index[name] = i
-
-        self.kmers = self.param_name
-
-        self.T = T
+        self.T = reads.temp
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.logger = logging.getLogger('model.SPAModel')
 
-        self.out_path = out_path
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
+        # self.out_path = out_path
+        # if not os.path.exists(out_path):
+        #     os.makedirs(out_path)
       
         # reads from RBNS random RNA pool and corresonding kmer-frequencies
         self.reads = reads
@@ -382,7 +437,6 @@ class SPAModel(object):
 
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
-        #self.subsample_oem = self.openen.oem[indices]
         self.subsample_acc = self.openen.acc[indices]
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
@@ -401,15 +455,6 @@ class SPAModel(object):
 
     def _spa_p_rna_bound(self, Z1, rbp_free):
         return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32))
-        #n = len(Z1)
-        #n_conc = len(rbp_free)
-        #p_bound = np.zeros( (n_conc, n), dtype=np.float32)
-        
-        #for i in range(n_conc):
-            #Z = rbp_free[i] * Z1
-            #p_bound[i] = Z / (Z + 1)
-        
-        #return p_bound
     
     def _spa_kmer_pi(self, p_bound, im):
         n_conc, n = p_bound.shape
@@ -419,15 +464,6 @@ class SPAModel(object):
             pi[i] = cyska.weighted_kmer_counts(im, p_bound[i], self.k)
 
         return pi
-
-    #def _eval_tm(self, im, oem, acc_lookup, kmer_invkd, rbp_conc):
-        #""" LEGACY: WILL BE REMOVED"""
-        #self.logger.debug("_eval_tm called!")
-        #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
-        #p_bound = self._spa_p_rna_bound(Z1, rbp_conc)
-        #pi = self._spa_kmer_pi(p_bound, im)
-
-        #return Z1, p_bound, pi
 
         
     def evaluate(self, params, keep=False, indices = [], rbp_conc = [], seq_only=None, do_jacobi=False, tm_update=True, ground_state=None):
@@ -485,40 +521,34 @@ class SPAModel(object):
 
         return state
     
-    def store_params(self, fname, params=[]):
-        self.logger.info("storing current parameters in '{0}'".format(fname))
-        with file(fname, 'w') as f:
-            f.write('# {0}mer\taffinity [1/nM]\tKd [nM]\n'.format(self.k) )
-            for i in xrange(len(self.params)):
-                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], self.params[i], 1./self.params[i]))
 
-    def extrapolation(self, k, fname=""):
-        """
-        Using current affinities, extrapolate expected affinties for k > self.k
-        """
-        assert k > self.k
-        kmers = list(cyska.yield_kmers(k))
-        seqm = cyska.read_raw_seqs_chunked(kmers, chunklines=len(kmers))
-        index_matrix = cyska.seq_matrix_to_index_matrix(seqm, self.k)
-        affinities = self.params[index_matrix].sum(axis=1)
+    # def extrapolation(self, k, fname=""):
+    #     """
+    #     Using current affinities, extrapolate expected affinties for k > self.k
+    #     """
+    #     assert k > self.k
+    #     kmers = list(cyska.yield_kmers(k))
+    #     seqm = cyska.read_raw_seqs_chunked(kmers, chunklines=len(kmers))
+    #     index_matrix = cyska.seq_matrix_to_index_matrix(seqm, self.k)
+    #     affinities = self.params[index_matrix].sum(axis=1)
         
-        params = np.concatenate((affinities, self.params[self.nA:]))
-        mdl = SPAModel(self.reads, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
-        if fname:
-            mdl.store_params(fname)
+    #     params = np.concatenate((affinities, self.params[self.nA:]))
+    #     mdl = SPAModel(self.reads, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
+    #     if fname:
+    #         mdl.store_params(fname)
         
-        return mdl
+    #     return mdl
         
-    # DEPRECATING!
-    def load_params(self, fname):
-        params = []
-        self.logger.info("reading parameters from '{0}'".format(fname))
-        with file(fname, 'r') as f:
-            for line in f:
-                if line.startswith('#'): 
-                    continue
-                params.append(float(line.split('\t')[1]))
+    # # DEPRECATING!
+    # def load_params(self, fname):
+    #     params = []
+    #     self.logger.info("reading parameters from '{0}'".format(fname))
+    #     with file(fname, 'r') as f:
+    #         for line in f:
+    #             if line.startswith('#'): 
+    #                 continue
+    #             params.append(float(line.split('\t')[1]))
 
-        #self.evaluate(np.array(params, dtype=np.float32), keep=True)
-        return np.array(params, dtype=np.float32)
+    #     #self.evaluate(np.array(params, dtype=np.float32), keep=True)
+    #     return np.array(params, dtype=np.float32)
 

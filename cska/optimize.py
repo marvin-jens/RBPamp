@@ -18,6 +18,7 @@ from cska.spa import SPAState, SPAPartition, SPAModel
                  
 class ModelOptimization(object):
     def __init__(self, k, rbns_analysis, n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, tm_refresh=.02, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False):
+        self.k = k
 
         # RBNS input sample to iterate on
         self.rbns_analysis = rbns_analysis        
@@ -35,26 +36,13 @@ class ModelOptimization(object):
 
         # the model instance used for optimization
         self.mdl = SPAModel(self.input_reads, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace)
+        self.nA = self.mdl.parameters.nA
 
         self.previous = None
         self.current = None
-        if param_file:
-            # load parameters from file
-            self.mdl.parameters.load(param_file)
-        elif len(mdl_params):
-            # start with given parameterization
-            self.mdl.parameters.assign(mdl_params)
-        else:
-            # start from scratch
-            self.mdl.parameters.reset(betas=self.estimate_background(), aff0=aff0)
-
-        # evaluate the thermodynamic model
-        self.current = self.mdl.evaluate(self.mdl.params, keep = True)
 
         # observations to fit to
         self.R_obs, self.R_err = self.rbns_analysis.R_value_matrix(k)
-        self.k = k
-        self.nA = self.mdl.parameters.nA
 
         # bounds for the affinity parameters
         self.aff0 = aff0
@@ -72,13 +60,28 @@ class ModelOptimization(object):
         self.tm_refresh = max(10, int(tm_refresh * self.mdl.parameters.nA))
         self.last_tm_refresh = 0
 
+        # initialize model
+        if param_file:
+            # load parameters from file
+            self.mdl.parameters.load(param_file)
+        elif len(mdl_params):
+            # start with given parameterization
+            self.mdl.parameters.assign(mdl_params)
+        else:
+            # start from scratch
+            self.mdl.parameters.reset(betas=self.estimate_background(), aff0=aff0)
+
+        # evaluate the thermodynamic model
+        self.current = self.mdl.evaluate(self.mdl.params, keep = True)
+
+
         self.errors.append(self.global_error(self.current.R))
 
         # lastly, initialize the parameter update scheduler
         # self.sched = ParamUpdateScheduler(self, **sched_params)
 
     def estimate_background(self, q=1.):
-        l = self.all_reads[0].L
+        l = self.input_reads.L
         betas = np.nanpercentile(self.R_obs, q, axis=1) / (l - self.mdl.k + 1)
         self.logger.info("estimated background={betas} from {q} percentile of R-value distribution".format(**locals()) )
         return betas
@@ -249,7 +252,7 @@ class ModelOptimization(object):
             err0 = self.global_error(ground_state.R)
 
         params = np.array(ground_state.params)
-        name = self.mdl.param_name[param_i]
+        name = self.mdl.parameters.param_name[param_i]
         A0 = ground_state.params[param_i]
 
         if param_i < self.mdl.parameters.nA:
@@ -343,7 +346,7 @@ class ModelOptimization(object):
         """
         import matplotlib.pyplot as pp
         pp.figure()
-        name = self.mdl.param_name[param_i]
+        name = self.mdl.parameters.param_name[param_i]
         pp.title("parameter optimization")
         #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
         params = np.array(self.current.params)

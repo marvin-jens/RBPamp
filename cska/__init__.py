@@ -14,8 +14,6 @@ import collections
 import traceback
 import cska.ska_kmers
 import matplotlib
-#matplotlib.use('pdf')
-#import matplotlib.pyplot as pp
 
 from cska.caching import cached, pickled, CachedBase
 from cska.reads import RBNSReads
@@ -38,9 +36,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
     files = []
     for ext in exts:
         pattern = os.path.join(path,'*.{0}'.format(ext))
-        #print "looking for",pattern
         hits = list(glob(pattern))
-        #print len(hits), "found"
         files.extend(hits)
     
     rbp_names = defaultdict(int)
@@ -53,7 +49,6 @@ def auto_detect(path='.', exts=["reads","txt"]):
         rbp_names[name] += 1
         rbp_conc.append(conc)
     
-    #print rbp_names
     assert len(rbp_names) == 1
     rbp_conc = np.array(rbp_conc)
     files = np.array(files)
@@ -61,7 +56,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     return rbp_names.keys()[0], files[I], rbp_conc[I]
 
-        
+
 def main():
     from optparse import OptionParser
     usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
@@ -75,12 +70,14 @@ def main():
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--compute-results",dest="results",default="R_value",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
-    parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
     parser.add_option("","--model-epsilon",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
 
-    parser.add_option("","--model-sensors",dest="sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
-    parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
+    parser.add_option("","--model-sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
+    parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    parser.add_option("","--model-report-ignore-trigger",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
+
 
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
@@ -241,6 +238,7 @@ def main():
                 n_max=options.n_max, 
                 pseudo_count=options.pseudo, 
                 rna_conc = options.rna_conc,
+                temp = options.temp,
                 n_subsamples = options.subsamples,
                 adap5=options.adap5,
                 adap3=options.adap3,
@@ -270,7 +268,7 @@ def main():
                 parallel_fold(
                     file(reads.fname,'r'), 
                     reads.acc_storage,
-                    temp = options.temp,
+                    temp = reads.temp,
                     adap5 = options.adap5,
                     adap3 = options.adap3,
                     k_min = options.min_k,
@@ -302,7 +300,12 @@ def main():
                 #comp = None
 
             from cska.report import OptReporting
-            opt.reporter = OptReporting(opt, os.path.join(rbns.out_path, 'plots'), track=options.sensors.split(','))
+            opt.reporter = OptReporting(
+                opt, 
+                os.path.join(rbns.out_path, 'plots'), 
+                track=options.mdl_report_sensors.split(','), 
+                triggers=options.mdl_report_trigger.split(','),
+            )
 
             try:
                 pwm_opt.optimize(eps=options.mdl_epsilon)

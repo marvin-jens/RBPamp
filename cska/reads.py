@@ -13,7 +13,7 @@ from cska.caching import cached, pickled, CachedBase
 import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -21,6 +21,7 @@ class RBNSReads(CachedBase):
         self.rbp_name = rbp_name
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
+        self.temp = temp
         self.adap5 = adap5
         self.adap3 = adap3
         self.l5 = len(adap5)

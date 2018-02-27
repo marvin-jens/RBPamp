@@ -315,7 +315,7 @@ class Sensor(object):
             pp.title("{0}mer R-value scatter plot".format(self.opt.k) )
             x, y = self.get_func(self)
             corr = np.corrcoef(x,y)[0][1]
-            density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.param_name)
+            density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.parameters.param_name)
             self.logger.info("{self.name} scatter plot".format(**locals()) )
         
     def update_plot(self, t, occasion="snapshot"):
@@ -329,7 +329,7 @@ class Sensor(object):
     
         
 class OptReporting(object):
-    def __init__(self, opt, path='./', track=[], report_interval=200, comp=None):
+    def __init__(self, opt, path='./', track=[], report_interval=200, comp=None, triggers=[]):
         self.opt = opt
         self.path = path
         if not os.path.exists(path):
@@ -338,6 +338,7 @@ class OptReporting(object):
         self.logger = logging.getLogger('report.OptReporting')
         self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
         self.triggers = {}
+        self.trigger_filter = set(triggers)
         self.sensors = []
         # populate with sensors
         for name in track:
@@ -364,10 +365,14 @@ class OptReporting(object):
         self.logger.debug("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
         t0 = time.time()
-        for s in self.sensors:
-            #s.update_plot(t, occasion=occasion)
-            if s.mode == mode:
-                s.update_plot(t, occasion=occasion)
+        if occasion in self.trigger_filter:
+            self.logger.info('trigger {0} is filtered! skipping plot updates'.format(occasion) )
+        else:
+            for s in self.sensors:
+                #s.update_plot(t, occasion=occasion)
+                if s.mode == mode:
+                    s.update_plot(t, occasion=occasion)
+
         t1 = time.time()
         self.logger.debug('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
 
@@ -557,7 +562,7 @@ class OptReporting(object):
         if kmer_i == None:
             kmer = "none"
         else:
-            kmer = self.opt.mdl.param_name[kmer_i]
+            kmer = self.opt.mdl.parameters.param_name[kmer_i]
         
         pp.figure()
         pp.title('R-value fit after step {0}'.format(self.opt.t) )
