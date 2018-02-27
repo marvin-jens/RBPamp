@@ -296,7 +296,7 @@ class ParamInterface(object):
         # TODO: also store temperature in file!
         if not k:
             k = self.k
-        mdl = SPAModel(self.mdl.reads, k, self.mdl.rbp_conc, T=self.mdl.T, **kwargs)
+        mdl = SPAModel(self.mdl.reads, k, self.mdl.rbp_conc, **kwargs)
         mdl.parameters.load(path)
 
         return mdl

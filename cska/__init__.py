@@ -77,6 +77,7 @@ def main():
     parser.add_option("","--model-sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
     parser.add_option("","--model-report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
     parser.add_option("","--model-report-ignore-trigger",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
+    parser.add_option("","--reference",dest="ref_file",default="", help="tab-separated file with measured (reference) Kd values (default=use builtin known_kds.csv)")
 
 
     parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
@@ -107,7 +108,7 @@ def main():
     parser.add_option("","--openen-discretize",dest="openen_discretize",default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
-    parser.add_option("","--known-kd",dest="known_kd",default="", help="CSKA reads known dissociation constants for kmers from this file (format: <kmer>\t<Kd_in_nM>).")
+    parser.add_option("","--compare",dest="compare",default="", help="compare to literature values for this protein")
     parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
     # affinity fit parameters
@@ -199,7 +200,6 @@ def main():
             rbp_name = rbp_name,
             out_path = options.output,
             ska_runner = ska,
-            known_kd = options.known_kd,
         )
 
         # TODO: properly integrate simulation
@@ -280,9 +280,7 @@ def main():
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:
-            from cska.optimize import ModelOptimization, ReferenceComparison
-            from cska.pwm import PWMOptimizer
-
+            from cska.optimize import ModelOptimization
             opt = ModelOptimization(
                 options.min_k, 
                 rbns,
@@ -292,6 +290,7 @@ def main():
                 kmer_opt_global=options.kmer_opt_global,
             )
 
+            from cska.pwm import PWMOptimizer
             pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
             
             #if options.known_kd:
@@ -299,12 +298,20 @@ def main():
             #else:
                 #comp = None
 
+            from cska.comparison import RefComparison
+            if options.compare:
+                compare = options.compare
+            else:
+                compare = rbp_name
+            ref = RefComparison(compare, ref_file=options.ref_file)
+
             from cska.report import OptReporting
             opt.reporter = OptReporting(
                 opt, 
                 os.path.join(rbns.out_path, 'plots'), 
                 track=options.mdl_report_sensors.split(','), 
                 triggers=options.mdl_report_trigger.split(','),
+                ref = ref,
             )
 
             try:

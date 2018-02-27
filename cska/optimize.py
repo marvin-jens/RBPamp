@@ -12,7 +12,6 @@ import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
 from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
 from cska.scheduler import ParamUpdateScheduler
-from cska.comparison import ReferenceComparison
 from cska.spa import SPAState, SPAPartition, SPAModel
 
                  

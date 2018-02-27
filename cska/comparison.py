@@ -5,19 +5,21 @@ import numpy as np
 import cska.ska_kmers as cyska
 import logging
 
-class ReferenceComparison(object):
-    def __init__(self, opt, ref_file):
-        self.opt = opt
+class RefComparison(object):
+    def __init__(self, rbp_name, ref_file=""):
+        self.rbp_name = rbp_name
         self.sequences = []
         self.kmer_sets = []
         self.names = []
         self.seqs = []
         self.affinities = []
         self.affinity_errs = []
-        self.uniq_kmers = set()
         
-        self.logger = logging.getLogger("ReferenceComparison")
+        self.logger = logging.getLogger("report.ReferenceComparison")
         import cska.ska_kmers
+        if not ref_file:
+            ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
+
         for line in file(ref_file):
             if line.startswith("#"):
                 continue
@@ -30,19 +32,15 @@ class ReferenceComparison(object):
                 continue
 
             rbp, name, seq, kd, kd_err = parts[:5]
-            if not rbp == self.opt.reads.rbp_name:
+            if not rbp == rbp_name:
                 continue
             
-            kmers = self.split_kmers(seq)
-            if not kmers:
+            if self.noncanonical(seq):
                 # can not predict affinity for sequence with non-canonical bases
                 continue
 
-            self.uniq_kmers |= set(kmers)
-            self.seqs.append(seq)
-            self.kmer_sets.append(np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmers]))
-            
-            self.logger.debug("{seq} {kmers}".format(**locals()) )
+            self.seqs.append(seq)           
+            self.logger.debug("{seq}".format(**locals()) )
 
             a = 1./float(kd)
             self.affinities.append(a)
@@ -51,26 +49,31 @@ class ReferenceComparison(object):
             
         self.observed_affinities = np.array(self.affinities)
         self.observed_affinity_errors = np.array(self.affinity_errs)
-        
-        self.logger.info("read {0} reference affinities".format(len(self.seqs)) )
+        self.seqs = np.array(self.seqs)
+        self.logger.info("found {0} reference affinities for {1}".format(len(self.seqs), rbp_name) )
 
-    def split_kmers(self, seq):
+    def noncanonical(self, seq):
+        S = seq.upper()
+        return S.count('A') + S.count('C') + S.count('G') + S.count('T') + S.count('U') < len(S)
+
+    def split_kmers(self, seq, k):
         kmers = []
-        k = self.opt.k
         seq = seq.upper()
         for i in range(len(seq) - k + 1):
             kmer = seq[i:i+k]
             if kmer.count('A') + kmer.count('C') + kmer.count('G') + kmer.count('U') < k:
                 # discovered non-canonical nucleotide
                 continue
-            kmers.append(kmer)
+            kmers.append(cyska.seq_to_index(kmer))
             
         return kmers
 
-    @property
-    def expected_affinities(self):
+    def predict_affinities(self, mdl):
         a = []
-        for s in self.kmer_sets:
-            a.append(self.opt.current.params[s].sum())
+        aff = mdl.parameters.affinities
+
+        for seq in self.seqs:
+            I = np.array(self.split_kmers(seq, mdl.k))
+            a.append(aff[I].sum())
 
         return np.array(a)
