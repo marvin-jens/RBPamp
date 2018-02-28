@@ -150,8 +150,18 @@ def main():
         
     # prepare outout path
     import datetime
-    datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
-    run_path = ensure_path(os.path.join(options.output, "run_{datestr}/".format(datestr=datestr)))
+    run_folder = "run_{datestr}/".format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+
+    run_path = ensure_path(os.path.join(options.output, run_folder))
+
+    # keep a symlink named "recent" always pointing to last run folder
+    recent_path = os.path.join(options.output, "recent")
+    try:
+        os.remove(recent_path)
+    except OSError:
+        pass
+
+    os.symlink(run_folder, recent_path)
 
     # set up logging
     log_path = os.path.join(run_path,"run.log")
