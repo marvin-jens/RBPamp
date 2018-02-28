@@ -424,7 +424,7 @@ class PWMOptimizer(object):
             rank = i+1 # TODO: improve by how much data "is explained"
             pwm_path = cska.ensure_path(
                 os.path.join(
-                    self.opt.out_path, "motifs", "{rank:02d}_{pwm.consensus}/".format(**locals())
+                    self.opt.out_path, "motifs", "{pwm.n}mer_rank{rank:02d}_{pwm.consensus}/".format(**locals())
                 )
             )
             param_fname = '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
