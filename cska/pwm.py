@@ -252,13 +252,13 @@ class PWMOptimizer(object):
         return le
 
     def dump_logratios(self):
-        path = os.path.join(self.opt.opt_path,"{0}mer_logratios.tsv".format(self.k))
+        path = cska.ensure_path(os.path.join(self.opt.out_path,"affinity","{0}mer_logratios.tsv".format(self.k)))
         self.logger.debug("storing kmer prediction error in {0}".format(path) )
         LR = self.kmer_logratios()
         #print LR.shape
         #print self.opt.mdl.param_name.shape
         f = file(path, 'w')
-        for kmer, aff, lr in zip(self.opt.mdl.param_name, self.opt.mdl.params, LR.T):
+        for kmer, aff, lr in zip(self.opt.mdl.parameters.param_name, self.opt.mdl.params, LR.T):
             row = [kmer, str(aff), ] + [str(l) for l in lr]
             f.write("\t".join(row) + '\n')
         
@@ -266,7 +266,7 @@ class PWMOptimizer(object):
         #residual = self.kmer_residuals()
         residual = self.kmer_logerrors()
         w = self.masked / self.weights
-        i = np.fabs((residual * w)).argmax()
+        i = (residual * w).argmin()
         kmer = cyska.index_to_seq(i, self.k)
         self.weights = np.where(self.weights > 1, self.weights - 1, 1)
         self.weights[i] *= 2
@@ -318,23 +318,26 @@ class PWMOptimizer(object):
         #repeat = True
         #while repeat:
         
-        for i, mer in zip(kmer_indices, kmers):
+        N = float(len(kmers))
+        for n, (i, mer) in enumerate(zip(kmer_indices, kmers)):
             param0 = self.opt.current.params[i]
             #if mer.lower() == 'gccca':
                 #self.opt.sweep_param(i,x0=param0)
                 
             best, err, new_state = self.opt.optimize_single_param(i, local = False)
             better = self.opt.update(new_state, err, "{mer} {param0:.3e} -> {best:.3e}".format(**locals()))
-            if self.opt.t <= (self.k*3)+1:
-                self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
+            #if self.opt.t <= (self.k*3)+1:
+                #self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
             
             cum_change = err0 - err
             rel_change = cum_change / err0
             if rel_change > .1:
                 self.logger.warning('substantial changes accumulated during kmer_set fit -> re-freshing')
                 self.opt.step_tm_refresh()
-                b, n, err0 = self.opt.step_betas()
+                b, new_state, err0 = self.opt.step_betas()
 
+            if n >= 100 and (n % 100 == 0):
+                self.logger.warning('{0:.2f}%  of kmer set optimized'.format(100. * n/N) )
                     #repeat = True
                     #break
                 #else:
@@ -381,12 +384,12 @@ class PWMOptimizer(object):
                 self.pwm_by_kmer[mer.lower()] = pwm
             self.pwms[pwm.kmer_seed] = pwm
         
-        self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.2f} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
+        self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.3e} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
         return pwm, d_err
     
     def get_pwms(self, thresh=100.):
         covered_kmers = set()
-        names = self.opt.mdl.param_name
+        names = self.opt.mdl.parameters.param_name
         # kmers in reverse affinity order
         aff = self.opt.current.params[:self.opt.nA]
         I = aff.argsort()[::-1]
@@ -417,25 +420,25 @@ class PWMOptimizer(object):
                 yield pwm
 
     def save_pwms(self):
-        for pwm in self.get_pwms():
-            pwm_path = os.path.join(
-                self.opt.opt_path, pwm.consensus,
-                '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
+        for i,pwm in enumerate(self.get_pwms()):
+            rank = i+1 # TODO: improve by how much data "is explained"
+            pwm_path = cska.ensure_path(
+                os.path.join(
+                    self.opt.out_path, "motifs", "{pwm.n}mer_rank{rank:02d}_{pwm.consensus}/".format(**locals())
+                )
             )
-            pwm.store_params(cska.ensure_path(pwm_path))
+            param_fname = '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
+            pwm.store_params(os.path.join(pwm_path, param_fname))
 
-            logo_path = os.path.join(
-                self.opt.opt_path, pwm.consensus,
-                '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
-            )
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
-            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{logo_path}'".format(pwm=pwm, logo_path=logo_path) )
+            logo_fname = '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
+            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{pwm_path}'".format(pwm=pwm, pwm_path=pwm_path) )
 
-            pwm.save_logo(cska.ensure_path(logo_path), title=logo_title)
+            pwm.save_logo(os.path.join(pwm_path, logo_fname), title=logo_title)
         
 
     def store_params(self):
-        self.opt.mdl.store_params(os.path.join(self.opt.opt_path, '{self.k}mer_affinities.tsv'.format(self=self)))
+        self.opt.mdl.parameters.store(os.path.join(self.opt.out_path, "affinity"))
 
         # temporary: save partition function samples
         #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
@@ -445,7 +448,7 @@ class PWMOptimizer(object):
 
     def optimize(self, max_iter=1000, eps=1e-2):
         self.opt.reporter.tick(0)
-        self.opt.reporter.trigger_plots(self.opt.t, occasion="initial")
+        self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
         for t in range(max_iter):
             if not self.next_move(eps=eps):
                 break
@@ -454,8 +457,8 @@ class PWMOptimizer(object):
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
     def next_move(self, lag=3, eps=1e-2):
-        #if self.t == 0:
-            #self.increase_k() # force k increase to test degradation of fit
+        # if self.t == 0:
+        #     self.increase_k() # force k increase to test degradation of fit
         
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
@@ -469,7 +472,7 @@ class PWMOptimizer(object):
             mean_improve = np.mean(np.array(self.last_improvements)[-lag:])
             last_error = self.errors[-1]
             rel_change = - mean_improve / last_error
-            self.logger.debug("mean_improve={mean_improve:.2e}, last_error={last_error:.2e} rel_change={rel_change:.2e} eps={eps}".format(**locals()))
+            self.logger.info("mean_improve={mean_improve:.2e}, last_error={last_error:.2e} rel_change={rel_change:.2e} eps={eps}".format(**locals()))
             
             if rel_change < eps:
                 self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))
@@ -511,35 +514,20 @@ class PWMOptimizer(object):
         
     def params_for_k_increase(self, waterline = None):
         """
-        generate kmer parameters for k+1 by scoring k+1 mers with existing
+        generate kmer parameters for k+1 by scoring k+1 mers with existing  
         k-mer parameters
         """
-        new = np.zeros(4**(self.k+1) + len(self.opt.rbp_conc), dtype=np.float32)
-        params = self.opt.current.params
+        k = self.k
+        try:
+            # try to load k-1 mer ("core") affinities to determine energy contributed by overlap
+            # between k-mers
+            core_mdl = self.opt.mdl.parameters.resume(os.path.join(self.opt.out_path,"affinities"), k=k-1)
+            core = core_mdl.parameters
+            self.logger.warning("using '{0}' as core energies".format(core))
+        except IOError:
+            core = None
         
-        if waterline == None:
-            waterline = 2*self.opt.aff0
-        
-        import cska.reads
-        kmers = cska.reads.RBNSReads.from_seqs( list(cyska.yield_kmers(self.k+1)) )
-        im = kmers.get_index_matrix(self.k)[:,self.k-1:self.k+1] #no "adapters" here!!!
-        oem = np.zeros(im.shape, dtype=np.uint8)
-        lookup = np.ones(256, dtype=np.float32)
-        Z1 = cyska.SPA_partition_function(im, oem, lookup, params[:self.nA], self.k)
-        #print params
-        #print "IM",im.shape
-        #print "="*100
-        #print Z1.shape, Z1.min(), Z1.max(), params[:self.nA].min(), params[:self.nA].max(), self.opt.aff0
-        #print Z1[:10],Z1[-10:]
-
-        S = params[im].sum(axis=1)
-        #print "S", S.shape, S.min(), S.max()
-        #print "polyU", im[4095], params[1023], Z1[4095], S[4095], cyska.index_to_seq(4095,6)
-        # new affinities from partition function
-        new[:-self.opt.n_conc] = np.where(Z1 > waterline, Z1, self.opt.aff0)
-        # copy over beta values
-        new[-self.opt.n_conc:] = params[-self.opt.n_conc:]
-
+        new = self.opt.mdl.parameters.params_for_next_k(core_param=core, waterline=10*self.opt.aff0, aff0=self.opt.aff0)
         return new
 
     def create_optimizer(self, k, params=[]):
@@ -550,8 +538,6 @@ class PWMOptimizer(object):
 
         # create new optimizer and model
         new_opt = ModelOptimization(k, self.opt.rbns_analysis,
-            rbp_conc=self.opt.rbp_conc, 
-            out_path=self.opt.out_path,
             mdl_params = params,
             t0 = self.opt.t,
             reporter = self.opt.reporter,
@@ -565,38 +551,56 @@ class PWMOptimizer(object):
         self.opt.reporter.set_opt(new_opt)
         return new_opt
 
-
-
     def increase_k(self, cutoff=.01):
         # get new optimizer and model with expanded kmer model parameters
-        new_params = self.params_for_k_increase()
+        corr = self.opt.correlation()
+        self.logger.warning("{self.k}mer correlations BEFORE k-increase {corr}".format(**locals()) )
+
+        waterline = self.opt.aff0 * 10
+        new_params = self.params_for_k_increase(waterline=waterline)
                
         self.opt = self.create_optimizer(self.k+1, params=new_params)
+        self.logger.warning("new {0} mer parameters:'{1}'".format(self.k+1, self.opt.mdl.parameters))
         self.k = self.k + 1
         self.nA = 4**self.k
-    
+
+        corr = self.opt.correlation()
+        self.logger.warning("new {self.k}mer correlations before scaling {corr}".format(**locals()) )
+
         rep = self.opt.reporter
         rep.trigger_plots(self.opt.t, occasion="param_expansion")
-        self.opt.step_betas()
+        # self.opt.step_betas()
+        # corr = self.opt.correlation()
+        # self.logger.warning("new {self.k}mer correlations after beta {corr}".format(**locals()) )
+
         self.opt.step_scale(min_scale=.001, max_scale=4.)
+        corr = self.opt.correlation()
+        self.logger.warning("new {self.k}mer correlations after scaling {corr}".format(**locals()) )
+
         rep.trigger_plots(self.opt.t, occasion="param_expansion_rescaled")
         
         # all parameters that have been changed from background levels
-        need_fit = (new_params[:self.opt.nA] > self.opt.aff0).nonzero()[0]
+        need_fit = (new_params[:self.opt.nA] > waterline).nonzero()[0]
 
         n_fit = len(need_fit)
         self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
         
         res = self.kmer_residuals()[need_fit]
         aff = new_params[need_fit]
-        kmers = self.opt.mdl.param_name[need_fit]
+        kmers = self.opt.mdl.parameters.param_name[need_fit]
         order = aff.argsort()[::-1]
         #order = res.argsort()[::-1]
         #need_fit = new_param[need_fit].argsort()[::-1]
 
         self.optimize_kmer_set_ordered(kmers[order])
+        corr = self.opt.correlation()
+        self.logger.warning("new {self.k}mer correlations after param opt {corr}".format(**locals()) )
+
         rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized")
         self.opt.step_scale()
+        corr = self.opt.correlation()
+        self.logger.warning("new {self.k}mer correlations after final scaling {corr}".format(**locals()) )
+
         rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized_scaled")
         
         old_pwms = self.pwms
@@ -616,26 +620,28 @@ class PWMOptimizer(object):
         self.masked = np.ones(self.nA, dtype=np.uint8)
         self.weights = np.ones(self.nA, dtype=np.uint8)
 
-        # migrate PWMs, ordered by affinity
-        for pwm in pwm_list:
-            l, left, r, right = self.digest_cues(pwm.kmer_seed)
+        # # migrate PWMs, ordered by affinity
+        # for pwm in pwm_list:
+        #     l, left, r, right = self.digest_cues(pwm.kmer_seed)
 
-            # expand the PWM's seed kmer in the direction indicated by the cues
-            new_seed_candidates = np.array(list(expand([pwm.kmer_seed,],l > r)))
+        #     # expand the PWM's seed kmer in the direction indicated by the cues
+        #     new_seed_candidates = np.array(list(expand([pwm.kmer_seed,],l > r)))
             
-            # optimize the 4 versions of the extended (k+1) seed kmer
-            kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
-            self.opt.step_betas()
-            rep.trigger_plots(self.opt.t, occasion="increase_k_pwm_{pwm.kmer_seed}_update".format(pwm=pwm))
-            a0 = aff[0] # highest affinity comes first
-            for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
-                if a >= a0 * cutoff:
-                    # affinity is within reasonable range of the optimum
-                    #hull_kmers = hull(kmer)
-                    #hull_indices = np.array([cyska.seq_to_index(mer) for mer in hull_kmers])
-                    ##new_pwm = PSAM.from_kmer_variants(hull_kmers, self.opt.mdl.params[hull_indices])
+        #     # optimize the 4 versions of the extended (k+1) seed kmer
+        #     kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
+        #     self.opt.step_betas()
+        #     rep.trigger_plots(self.opt.t, occasion="increase_k_pwm_{pwm.kmer_seed}_update".format(pwm=pwm))
+        #     a0 = aff[0] # highest affinity comes first
+        #     for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
+        #         if a >= a0 * cutoff:
+        #             # affinity is within reasonable range of the optimum
+        #             #hull_kmers = hull(kmer)
+        #             #hull_indices = np.array([cyska.seq_to_index(mer) for mer in hull_kmers])
+        #             ##new_pwm = PSAM.from_kmer_variants(hull_kmers, self.opt.mdl.params[hull_indices])
                     
-                    self.pwm_optimize_hull(kmer)
+        #             self.pwm_optimize_hull(kmer)
+        #     corr = self.opt.correlation()
+        #     self.logger.warning("{self.k}mer correlations with new parameters after optimizing PWM {pwm.kmer_seed} corr={corr}".format(**locals()) )
 
         # reset migration cues
         self.kmer_queues = defaultdict(set)

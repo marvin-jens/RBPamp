@@ -286,12 +286,67 @@ if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.DEBUG)
     reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', rbp_name='RBFOX3', storage_kw=dict(T=4))
-    k = 5
-    M = CrosstalkMatrix(k, reads)
-    print "shadow"
-    for i, w in M.get_shadow(cyska.seq_to_index('UUGCA'))[:10]:
-        print cyska.index_to_seq(i,k), w
+    pd = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_80.txt', rbp_name='RBFOX3', storage_kw=dict(T=4))
+
     
-    print "inv. shadow"
-    for i, w in M.get_inv_shadow(cyska.seq_to_index('UUGCA'))[:10]:
-        print cyska.index_to_seq(i,k), w
+    def kmer_increase_weights(reads, k):
+        im1 = reads.get_index_matrix(k)
+        im2 = reads.get_index_matrix(k+1)
+        #print im1
+        #print im2
+        #import cska.ska_kmers as cyska
+        M = cyska.kmer_crosstalk_matrix(im1, im2, k, k+1)
+        return M
+    k = 5
+    mer = 'UGCAUG'
+    ind = cyska.seq_to_index(mer)
+    
+    M = kmer_increase_weights(reads, k)
+    P = kmer_increase_weights(pd, k)
+    contrib = P[:,ind]
+    #print contrib.sum()
+    #I = contrib.nonzero()[0]
+    I = contrib.argsort()[::-1]
+    
+
+    Z1 = M[:,ind].max()
+    Z2 = P[:,ind].max()
+
+    MAX = M.max(axis=0)
+    W = M / MAX[np.newaxis,:] # normalize weights to maximal contribution of 1
+    print (M[:,ind] / Z1).sum()
+    print (P[:,ind] / Z2).sum()
+    for i in I[:20]:
+        x = M[i,ind] / Z1
+        y = P[i,ind] / Z2
+        print cyska.index_to_seq(i,5), x, y, y/x 
+    
+    from cska.spa import SPAModel
+    mdl = SPAModel(reads, 5, [5,20,80,320,1300], T=4, n_subsample=0)
+    state = mdl.evaluate(params = mdl.load_params('/scratch/data/RBNS/RBFOX3/5mer_affinities.tsv'), keep=True)
+    aff = state.params[:mdl.nA]
+    #M = CrosstalkMatrix(k, reads)
+    #P = CrosstalkMatrix(k, pd)
+    aff2 = np.dot(aff, W)
+
+    #print "shadow"
+    #for i, w in P.get_shadow(ind)[:10]:
+        #print cyska.index_to_seq(i,k), w
+    
+    #print "inv. shadow"
+    #for i, w in M.get_inv_shadow(ind)[:10]:
+        #print cyska.index_to_seq(i,k), w
+    
+    
+    
+    #print "R-value of crosstalk"
+    #in_slice = M.M[ind]
+    #pd_slice = P.M[ind]
+    #print in_slice
+    #print pd_slice
+    #R = np.where(in_slice > 0, pd_slice / in_slice, 0)
+    #R = pd_slice - in_slice
+    #print R
+    #for i in R.argsort()[:10]:
+        ##w = 
+        #print cyska.index_to_seq(i,k), R[i], in_slice[i], pd_slice[i]
