@@ -394,6 +394,9 @@ class PWMOptimizer(object):
         aff = self.opt.current.params[:self.opt.nA]
         I = aff.argsort()[::-1]
         A0 = aff[I[0]]
+        last_explained = np.zeros(self.opt.n_conc)
+
+        high_affinity_pwms = []
         for i in I:
             #print "covered", sorted(covered_kmers)
             a = aff[i]
@@ -416,8 +419,25 @@ class PWMOptimizer(object):
 
             if pwm.kmer_seed.lower() not in covered_kmers:
                 covered_kmers |= set([mer.lower() for mer in pwm.kmer_set])
-                #print "yielding", pwm.kmer_seed
+
+                fraction_explained = np.array([reads.reads_with_kmer_set(list(pwm.kmer_set)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
+                pwm.fraction_explained = fraction_explained
+                high_affinity_pwms.append(pwm)
+        
+        pwms_ordered = sorted(high_affinity_pwms, key = lambda pwm : - pwm.fraction_explained.mean())
+        f0 = pwms_ordered[0].fraction_explained
+        kmer_set_selected = set()
+        n = 0
+        for pwm in pwms_ordered:
+            if (pwm.fraction_explained / f0 > .25).any():
                 yield pwm
+                kmer_set_selected |= set(pwm.kmer_set)
+                n += 1
+            else:
+                break
+
+        total_fraction_explained = np.array([reads.reads_with_kmer_set(list(kmer_set_selected)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
+        self.logger.info("{0} selected PWMS explain {1} of RBNS reads".format(n, total_fraction_explained))
 
     def save_pwms(self):
         for i,pwm in enumerate(self.get_pwms()):
@@ -460,6 +480,10 @@ class PWMOptimizer(object):
         # if self.t == 0:
         #     self.increase_k() # force k increase to test degradation of fit
         
+        # if self.t == 0:
+        #     for pwm in self.get_pwms():
+        #         print pwm
+
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
         last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-lag:]])

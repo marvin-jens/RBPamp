@@ -1767,9 +1767,6 @@ def store_pure_reads(
 @cython.cdivision(True)
 @cython.overflowcheck(False)
 def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
-    # largest index in array of DNA/RNA k-mer counts
-    cdef UINT32_t MAX_INDEX = 4**k - 1
-    
     cdef UINT32_t N = len(index_matrix)
     cdef UINT32_t L = len(index_matrix[0])
 
@@ -1803,6 +1800,32 @@ def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
             
 
     return hit_counts.base
+
+
+
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
+    cdef UINT32_t N = len(index_matrix)
+    cdef UINT32_t L = len(index_matrix[0])
+
+    # helper variables to tell cython the types
+    cdef UINT64_t index, i, j, hit=0, n_reads=0
+    
+    with nogil:
+        for j in range(N):
+            hit = 0
+            # iterate over all k-mers in the read
+            for i in range(L):
+                index = index_matrix[j,i]
+                hit += kmap[index]
+
+            n_reads += (hit > 0)
+
+    return n_reads
 
 
 

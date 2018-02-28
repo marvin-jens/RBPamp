@@ -357,7 +357,7 @@ class OptReporting(object):
         self.ref = ref
         self.sensors = []
         
-        if ref and ref.seqs:
+        if ref and len(ref.seqs):
             self.sensors.extend(self.add_sensor_ref())
 
         # populate with sensors

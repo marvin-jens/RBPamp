@@ -258,6 +258,22 @@ class RBNSAnalysis(CachedBase):
         out_path = None
         return self._make_matrices("pure_F_ratios", k, candidates, out_path=out_path, n_sample = self.n_pure_samples)
 
+    def explained_matrix(self, k):
+        X = []
+        X_err = []
+        for reads in self.reads:
+            x = reads.fraction_of_reads_with_kmers(k)
+            X.append(x)
+
+            xx = np.array([sub.fraction_of_reads_with_kmers(k) for sub in reads.subsamples])
+            print xx[:,xx.argsort(axis=1)[-10:]]
+            err = np.sqrt(((xx - x[np.newaxis,:])**2).mean(axis=0) / reads.n_subsamples)
+            
+            X_err.append(err)
+
+        return np.array(X), np.array(X_err)
+
+
         
     @cached
     def get_optimal_kmer_ranking(self, k):

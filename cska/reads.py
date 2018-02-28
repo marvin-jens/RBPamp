@@ -133,6 +133,7 @@ class RBNSReads(CachedBase):
             adap5 = cyska.seq_to_bits(self.adap5[-k+1:]),
             adap3 = cyska.seq_to_bits(self.adap3[:k-1]),
         )
+        self.logger.debug("get_index_matrix")
         return im
             
        
@@ -217,6 +218,22 @@ class RBNSReads(CachedBase):
         return res
 
     @cached
+    @pickled
+    def reads_with_kmer_set(self, kmers):
+        t0 = time.time()
+        # construct kmer lookup table
+        k = len(kmers[0])
+        kmap = np.zeros(4**k, dtype=np.uint8)
+        for mer in kmers:
+            kmap[cyska.seq_to_index(mer)] = 1
+
+        res = cyska.count_reads_with_kmap_hit(self.get_index_matrix(k), kmap)
+        t = time.time() - t0
+        self.logger.debug("counted reads with {0}mers {1:.3f} ms".format( k, 1000.*t ) )
+        
+        return res
+
+    @cached
     def kmer_presence(self, kmer):
         k = len(kmer)
         kmer_index = cyska.kmer_to_index(kmer)
@@ -231,6 +248,12 @@ class RBNSReads(CachedBase):
         # NOTE: since multiple kmers occur in the same read, this does not sum up to 1!
         return (self.reads_with_kmers(k) + self.pseudo_count) / float(self.N + self.pseudo_count)
         
+    @cached
+    @pickled
+    def fraction_of_reads_with_kmer_set(self, kmers):
+        # NOTE: since multiple kmers occur in the same read, this does not sum up to 1!
+        return (self.reads_with_kmer_set(kmers) + self.pseudo_count) / float(self.N + self.pseudo_count)
+
     @cached
     @pickled
     def fraction_of_reads_with_pure_kmers(self, k, candidates, out_file=None, n_sample=100000):
