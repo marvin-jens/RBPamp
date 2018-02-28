@@ -12,126 +12,76 @@ import cska.ska_kmers as cyska
 from cska.caching import CachedBase, cached, pickled
 from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
 from cska.scheduler import ParamUpdateScheduler
-#from cska.psam import PSAMState
-#from cska import timed
-#from cska.optimize import ModelOptimization
-from cska.comparison import ReferenceComparison
 from cska.spa import SPAState, SPAPartition, SPAModel
 
                  
 class ModelOptimization(object):
-    def __init__(self, k, rbns_analysis, known_params = [], rbp_conc=[40.], out_path="./", n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, seq_only=False, tm_refresh=.02, sched_params = {}, beta_interval = .01, scale_interval=100000000000000, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False): # scale_interval=.02
+    def __init__(self, k, rbns_analysis, n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, tm_refresh=.02, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False):
         self.k = k
-        self.nA = 4**k
 
         # RBNS input sample to iterate on
         self.rbns_analysis = rbns_analysis        
-        self.all_reads = rbns_analysis.reads
-        self.reads = self.all_reads[0] # try and phase out! TODO needs cleanup
-        self.input_reads = self.all_reads[0]
-        self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
+        self.out_path = self.rbns_analysis.out_path
+
+        # self.all_reads = rbns_analysis.reads
+        # self.reads = self.all_reads[0] # try and phase out! TODO needs cleanup
+        self.input_reads = self.rbns_analysis.reads[0]
+        self.rbp_conc = np.array(self.rbns_analysis.rbp_conc, dtype=np.float32)
         self.n_conc = len(self.rbp_conc)
-
-        self.n_params = self.nA + self.n_conc
-
-        self.beta_interval = int(beta_interval * self.nA)
-        self.scale_interval = int(scale_interval * self.nA)
-        self.strategy_window = int(.1 * self.nA) # number of steps average last error to
-        # decide if we want to switch from local to global optimization
-        self.last_beta = 0
-        self.last_scale = 0
         
-        self.t = t0
-        self.tm_refresh = max(10, int(tm_refresh * self.nA))
-        self.last_tm_refresh = 0
-
         self.logger = logging.getLogger('opt.ModelOptimization')
-        self.out_path = out_path
-        if not os.path.exists(self.out_path):
-            os.makedirs(self.out_path)
+        self.time_logger = logging.getLogger('timing.ModelOptimization')
+        self.reporter = reporter
 
-        self.opt_path = os.path.join(self.out_path, 'opt')
-        if not os.path.exists(self.opt_path):
-            os.makedirs(self.opt_path)
+        # the model instance used for optimization
+        self.mdl = SPAModel(self.input_reads, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace)
+        self.nA = self.mdl.parameters.nA
 
-        self.reporter=reporter
+        self.previous = None
+        self.current = None
+
         # observations to fit to
         self.R_obs, self.R_err = self.rbns_analysis.R_value_matrix(k)
-        
+
         # bounds for the affinity parameters
         self.aff0 = aff0
         self.aff_min = aff_min
         self.aff_max = aff_max
-
-        # the model to be trained
-        self.mdl = SPAModel(self.input_reads, k, self.rbp_conc, n_subsample=n_subsample, sub_replace=sub_replace, seq_only=seq_only)
         
         # monitor progress
         self.errors = [] #self.global_error(self.current.R), ]
         self.correlations = []
         self.rel_improvements = []
-        self.logger.error("kmer_opt_global={0}".format(kmer_opt_global))
+        #self.logger.error("kmer_opt_global={0}".format(kmer_opt_global))
         self.param_local_fit = not kmer_opt_global
-        
-        # set initial state of the model
-        self.previous = None
-        self.current = None
+
+        self.t = t0
+        self.tm_refresh = max(10, int(tm_refresh * self.mdl.parameters.nA))
+        self.last_tm_refresh = 0
+
+        # initialize model
         if param_file:
-            #self.update(self.mdl.load_params(param_file), np.Inf, "resuming from {0}".format(param_file))
-            self.logger.info("resuming from {0}".format(param_file))
-            self.current = self.mdl.evaluate(self.mdl.load_params(param_file), keep = True)
-            
-            ### TESTING: compare observed and predicted affinity distributions
-            #import matplotlib.pyplot as pp
-            #aff_in = AffinityDistribution(self.mdl, self.all_reads[0], self.storages[0].get_discretized(self.k))
-            #bg = aff_in.get_affinity_distribution()
-            #print "input", bg
-            #for i, conc in enumerate(self.rbp_conc):
-                #beta = self.mdl.params[self.mdl.nA+i]
-                #pred = aff_in.predict_affinity_distribution(conc, beta=beta, bg=bg[0])
-                #print "predicted", pred
-                #aff = AffinityDistribution(self.mdl, self.all_reads[i+1], self.storages[i+1].get_discretized(self.k))
-                #obs = aff.get_affinity_distribution()
-                #print "observed", obs
-                #x = (aff_in.bins[1:] + aff_in.bins[:-1])/2.
-                #pp.plot(x, pred[0], '-', label='pred {0}nM'.format(conc) )
-                #pp.plot(x, obs[0], '.', label='obs {0}nM'.format(conc) )
-                #pp.show()
-                
-            #pp.xlabel('predicted')
-            #pp.ylabel('observed')
-            #pp.legend()
-            #pp.show()
-            #1/0
-            
+            # load parameters from file
+            self.mdl.parameters.load(param_file)
         elif len(mdl_params):
             # start with given parameterization
-            params = np.array(mdl_params, dtype=np.float32)
-            assert len(params) == self.nA + len(rbp_conc)
-            self.current = self.mdl.evaluate(params, keep = True)
+            self.mdl.parameters.assign(mdl_params)
         else:
             # start from scratch
-            params = np.zeros(self.nA + len(rbp_conc), dtype=np.float32)
-            params[0:self.nA] += aff0
-            betas = self.estimate_background()
-            params[-len(betas):] = betas
-            self.current = self.mdl.evaluate(params, keep = True)
-            #self.update(params, np.Inf, "initialize")
-        
+            self.mdl.parameters.reset(betas=self.estimate_background(), aff0=aff0)
+
+        # evaluate the thermodynamic model
+        self.current = self.mdl.evaluate(self.mdl.params, keep = True)
+
+
         self.errors.append(self.global_error(self.current.R))
-        
-        # in case we know some parameters, use this as a reference
-        if len(known_params):
-            self.known_params = known_params
-        else:
-            self.known_params = np.ones(self.current.params.shape, dtype=np.float32) * np.nan
 
         # lastly, initialize the parameter update scheduler
-        self.sched = ParamUpdateScheduler(self, **sched_params)
+        # self.sched = ParamUpdateScheduler(self, **sched_params)
 
     def estimate_background(self, q=1.):
-        l = self.all_reads[0].L
-        betas = np.nanpercentile(self.R_obs, q, axis=1) / (l - self.k + 1)
+        l = self.input_reads.L
+        betas = np.nanpercentile(self.R_obs, q, axis=1) / (l - self.mdl.k + 1)
         self.logger.info("estimated background={betas} from {q} percentile of R-value distribution".format(**locals()) )
         return betas
         
@@ -140,17 +90,6 @@ class ModelOptimization(object):
             R_new = self.current.R
         return np.array([np.corrcoef(np.log(Ro), np.log(Rp))[0][1] for Ro, Rp in zip(self.R_obs, R_new)])
     
-    def linearity_err(self, R_new=[]):
-        if not len(R_new):
-            R_new = self.current.R
-
-        lin = []
-        for i in range(self.n_conc):
-            slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(R_new[i,:], self.R_obs[i,:])
-            lin.append( np.fabs(1 - slope) + np.fabs(intercept) )
-
-        return np.array(lin)
- 
     def kmer_errors(self, R_new):
         return R_new - self.R_obs
            
@@ -180,35 +119,21 @@ class ModelOptimization(object):
         """return squared kmer R-value delta, averaged across concentrations"""
         return ((self.kmer_errors(R_new))**2).mean(axis=0)
     
-    def converged(self, last=20, tol=.001):
-        if len(self.rel_improvements) < last:
-            return False
-        
-        tol *= 4**(- (self.k-5) ) # expect slower convergence for higher k, bc each kmer alone will have less to explain
-        recent = np.array(self.errors[-last:])
-        mean = recent.mean()
-        #avg = recent.mean()
-        dev = recent.std() / mean 
-        self.logger.debug("mean error over past {0} iteration steps={1}, relative change={2}".format(last, mean, dev) )
-        if dev < tol:
-            self.logger.info("convergence with mean improvement of {0}".format(dev) )
-            return True
-        
-        return False
-
     def step_tm_refresh(self):
+        t0 = time.time()
         R_before = self.current.R
         self.current = self.mdl.evaluate(self.current.params, tm_update=True, keep = True)
         R_after = self.current.R
         round_err = np.fabs(R_before - R_after).sum()
-        self.logger.info('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        t1 = time.time()
+        self.logger.debug('re-freshed thermodynamic model: rounding errors={0}'.format(round_err))
+        self.time_logger.debug('step_tm_refresh in {0:.2f}ms'.format(1000.*(t1-t0)) )
         self.last_tm_refresh = self.t
 
     def update(self, new_state, err, name, tick=True):
         from copy import copy
         self.previous = copy(self.current)
-        
-        self.current.params[self.nA:]
+
         if self.errors:
             better = (self.errors[-1] - err)* 100./self.errors[-1]
         else:
@@ -221,8 +146,6 @@ class ModelOptimization(object):
         # subsamples should remain stable throughout one iteration step!
         if self.t - self.last_tm_refresh >= self.tm_refresh:
             self.step_tm_refresh()
-
-        self.current.params[self.nA:]
 
         #self.mdl.new_subsample()
         self.errors.append(self.global_error(self.current.R))
@@ -251,47 +174,24 @@ class ModelOptimization(object):
 
         return better
         
-    def step_param(self, show_sweep = False):
-        self.logger.info("===parameter optimization===")
-        param_i = self.sched.find_worst_param()
-               
-        if self.param_local_fit and len(self.rel_improvements) >= self.strategy_window:
-            avg_improvement = np.mean(self.rel_improvements[-self.strategy_window:])
-            self.logger.info("performing local fits, past rel. improvements average={0}".format(avg_improvement) )
-            
-            if avg_improvement < 0:
-                self.logger.info("switching to global optimization at step {0}".format(self.t))
-                self.param_local_fit = False
-            
-        best, err, new_state = self.optimize_single_param(param_i, local = self.param_local_fit)
-
-        update = new_state.params - self.current.params
-        name = self.mdl.param_name[param_i]
-        imp = self.update(new_state, err, "single parameter optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
-        # notify the scheduler of the param change and its consequences
-        self.sched.param_changed(param_i, self.t, imp)
-
-        if not imp and show_sweep:
-            self.sweep_param(param_i, best)
-
-        return imp, new_state
-
     def step_betas(self, ground_state=None, update=True):
-        for param_i in range(self.nA, self.n_params):
+        t0 = time.time()
+        for param_i in range(self.mdl.parameters.nA, self.mdl.parameters.n_params):
             best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
             
             if update:
-                better = self.update(new_state, err, "beta{0}".format(param_i - self.nA), tick=False)
+                better = self.update(new_state, err, "beta{0}".format(param_i - self.mdl.parameters.nA), tick=False)
             else:
                 better = np.nan
 
             ground_state = new_state
             
+        dt = time.time() - t0
+        self.time_logger.debug('step_betas in {0:.2f}ms'.format(1000.*dt))
         return better, new_state, err
     
     def step_scale(self, min_scale=.01, max_scale=1.):
         from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
-        import time
         t0 = time.time()
         params = np.array(self.current.params)
 
@@ -333,6 +233,9 @@ class ModelOptimization(object):
         self.step_tm_refresh()
         better, new_state, new_err = self.step_betas(update=True)
         better = self.update(new_state, self.global_error(new_state.R), "betas_after_scale")
+        dt = time.time() - t0
+        self.time_logger.debug('step_scale in {0:.2f}ms'.format(1000*dt) )
+
         return better, new_state
             
     def optimize_single_param(self, param_i, ground_state=None, local=True, accept_increase=False):
@@ -348,10 +251,10 @@ class ModelOptimization(object):
             err0 = self.global_error(ground_state.R)
 
         params = np.array(ground_state.params)
-        name = self.mdl.param_name[param_i]
+        name = self.mdl.parameters.param_name[param_i]
         A0 = ground_state.params[param_i]
 
-        if param_i < self.nA:
+        if param_i < self.mdl.parameters.nA:
             # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
             tm_update = True
             opt = SPAPartition(self.mdl, param_i)
@@ -378,7 +281,7 @@ class ModelOptimization(object):
             then select at most 3 orders of magnitude around the lowest observed value
             for Brent optimization. Requires pos. valued bounds!
             """
-            
+            t0 = time.time()
             bmin = bounds.min()
             bmax = bounds.max()
             
@@ -401,6 +304,10 @@ class ModelOptimization(object):
                 print "search optimum between", brent_min, brent_max
             
             res = minimize_scalar(func, bounds = np.array([brent_min, brent_max]), method='Bounded', **kwargs)
+            t1 = time.time()
+            
+            self.time_logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
+
             return res
             
         t0 = time.time()
@@ -412,7 +319,7 @@ class ModelOptimization(object):
             #self.sweep_param(param_i, x0=err0)
             # we have actually made it *worse* :(
             d_err = res.fun - err0
-            self.logger.warning("{mode} optimization of {name} {x0:.3e}->{res.x:.3e} increased error by {d_err:.3e}. Returning initial value instead! (err0={err0:.3e})".format(**locals()) )
+            self.logger.debug("{mode} optimization of {name} {x0:.3e}->{res.x:.3e} increased error by {d_err:.3e}. Returning initial value instead! (err0={err0:.3e})".format(**locals()) )
             best = x0
             success = False
             params[param_i] = x0
@@ -429,8 +336,6 @@ class ModelOptimization(object):
         dt = time.time() - t0
         rel_change = (best - A0) / A0
 
-        self.logger.debug("{mode} optimal {name} affinity/value search success={success} A={best:.3e} (A0={A0:.3e} rel change={rel_change:.3e}) took {dt:.2f}s".format(**locals()) )
-
         return best, err, new_state
 
     def sweep_param(self, param_i, x0=1.):
@@ -440,12 +345,12 @@ class ModelOptimization(object):
         """
         import matplotlib.pyplot as pp
         pp.figure()
-        name = self.mdl.param_name[param_i]
+        name = self.mdl.parameters.param_name[param_i]
         pp.title("parameter optimization")
         #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
         params = np.array(self.current.params)
 
-        if param_i < self.nA:
+        if param_i < self.mdl.parameters.nA:
             # evaluate thermodynamic model, but only on the subset of sequences containing the kmer
             tm_update = True
             opt = SPAPartition(self.mdl, param_i)
@@ -464,7 +369,7 @@ class ModelOptimization(object):
             glob = self.global_error(state.R)
             err.append(glob)
             
-            if param_i < self.nA:
+            if param_i < self.mdl.parameters.nA:
                 error = self.local_errors(self.current.R)[param_i]
             else:
                 error = np.NaN
@@ -487,3 +392,56 @@ class ModelOptimization(object):
         pp.show()
         pp.close()
 
+    # def step_param(self, show_sweep = False):
+    #     self.logger.info("===parameter optimization===")
+    #     param_i = self.sched.find_worst_param()
+               
+    #     if self.param_local_fit and len(self.rel_improvements) >= self.strategy_window:
+    #         avg_improvement = np.mean(self.rel_improvements[-self.strategy_window:])
+    #         self.logger.info("performing local fits, past rel. improvements average={0}".format(avg_improvement) )
+            
+    #         if avg_improvement < 0:
+    #             self.logger.info("switching to global optimization at step {0}".format(self.t))
+    #             self.param_local_fit = False
+            
+    #     best, err, new_state = self.optimize_single_param(param_i, local = self.param_local_fit)
+
+    #     update = new_state.params - self.current.params
+    #     name = self.mdl.param_name[param_i]
+    #     imp = self.update(new_state, err, "single parameter optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
+    #     # notify the scheduler of the param change and its consequences
+    #     self.sched.param_changed(param_i, self.t, imp)
+
+    #     if not imp and show_sweep:
+    #         self.sweep_param(param_i, best)
+
+    #     return imp, new_state
+
+
+    # def converged(self, last=20, tol=.001):
+    #     if len(self.rel_improvements) < last:
+    #         return False
+        
+    #     tol *= 4**(- (self.k-5) ) # expect slower convergence for higher k, bc each kmer alone will have less to explain
+    #     recent = np.array(self.errors[-last:])
+    #     mean = recent.mean()
+    #     #avg = recent.mean()
+    #     dev = recent.std() / mean 
+    #     self.logger.debug("mean error over past {0} iteration steps={1}, relative change={2}".format(last, mean, dev) )
+    #     if dev < tol:
+    #         self.logger.info("convergence with mean improvement of {0}".format(dev) )
+    #         return True
+        
+    #     return False
+
+    # def linearity_err(self, R_new=[]):
+    #     if not len(R_new):
+    #         R_new = self.current.R
+
+    #     lin = []
+    #     for i in range(self.n_conc):
+    #         slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(R_new[i,:], self.R_obs[i,:])
+    #         lin.append( np.fabs(1 - slope) + np.fabs(intercept) )
+
+    #     return np.array(lin)
+ 

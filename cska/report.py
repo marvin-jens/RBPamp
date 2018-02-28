@@ -29,50 +29,50 @@ def repel_labels(x, y, labels, **kwargs):
     )
 
 
-#def repel_labels(x, y, labels, k=0.15, ax=None):
-    #import networkx as nx
-    #if ax == None:
-        #ax = plt.gca()
-    #G = nx.DiGraph()
-    #print x.shape, y.shape, len(labels), ax
+def repel_labels_nx(x, y, labels, k=0.15, ax=None):
+    import networkx as nx
+    if ax == None:
+        ax = plt.gca()
+    G = nx.DiGraph()
+    print x.shape, y.shape, len(labels), ax
     
-    #data_nodes = []
-    #init_pos = {}
-    #for xi, yi, label in zip(x, y, labels):
-        #data_str = 'data_{0}'.format(label)
-        #G.add_node(data_str)
-        #G.add_node(label)
-        #G.add_edge(label, data_str)
-        #data_nodes.append(data_str)
-        #init_pos[data_str] = (xi, yi)
-        #init_pos[label] = (xi, yi)
+    data_nodes = []
+    init_pos = {}
+    for xi, yi, label in zip(x, y, labels):
+        data_str = 'data_{0}'.format(label)
+        G.add_node(data_str)
+        G.add_node(label)
+        G.add_edge(label, data_str)
+        data_nodes.append(data_str)
+        init_pos[data_str] = (xi, yi)
+        init_pos[label] = (xi, yi)
 
-    #pos = nx.spring_layout(G, pos=init_pos, fixed=data_nodes, k=k, iterations=200)
+    pos = nx.spring_layout(G, pos=init_pos, fixed=data_nodes, k=k, iterations=200)
 
-    ## undo spring_layout's rescaling
-    #pos_after = np.vstack([pos[d] for d in data_nodes])
-    #pos_before = np.vstack([init_pos[d] for d in data_nodes])
-    #scale, shift_x = np.polyfit(pos_after[:,0], pos_before[:,0], 1)
-    #scale, shift_y = np.polyfit(pos_after[:,1], pos_before[:,1], 1)
-    #shift = np.array([shift_x, shift_y])
-    #for key, val in pos.items():
-        #pos[key] = (val*scale) + shift
+    # undo spring_layout's rescaling
+    pos_after = np.vstack([pos[d] for d in data_nodes])
+    pos_before = np.vstack([init_pos[d] for d in data_nodes])
+    scale, shift_x = np.polyfit(pos_after[:,0], pos_before[:,0], 1)
+    scale, shift_y = np.polyfit(pos_after[:,1], pos_before[:,1], 1)
+    shift = np.array([shift_x, shift_y])
+    for key, val in pos.items():
+        pos[key] = (val*scale) + shift
 
-    #for label, data_str in G.edges():
-        #ax.annotate(label,
-                    #xy=pos[data_str], xycoords='data',
-                    #xytext=pos[label], textcoords='data',
-                    #arrowprops=dict(arrowstyle="-",
-                                    #shrinkA=0, shrinkB=0,
-                                    ##connectionstyle="arc3", 
-                                    #color='k'), )
-    ## expand limits
-    #all_pos = np.vstack(pos.values())
-    #x_span, y_span = np.ptp(all_pos, axis=0)
-    #mins = np.min(all_pos-x_span*0.15, 0)
-    #maxs = np.max(all_pos+y_span*0.15, 0)
-    #ax.set_xlim([mins[0], maxs[0]])
-    #ax.set_ylim([mins[1], maxs[1]])
+    for label, data_str in G.edges():
+        ax.annotate(label,
+                    xy=pos[data_str], xycoords='data',
+                    xytext=pos[label], textcoords='data',
+                    arrowprops=dict(arrowstyle="-",
+                                    shrinkA=0, shrinkB=0,
+                                    #connectionstyle="arc3", 
+                                    color='k'), )
+    # expand limits
+    all_pos = np.vstack(pos.values())
+    x_span, y_span = np.ptp(all_pos, axis=0)
+    mins = np.min(all_pos-x_span*0.15, 0)
+    maxs = np.max(all_pos+y_span*0.15, 0)
+    ax.set_xlim([mins[0], maxs[0]])
+    ax.set_ylim([mins[1], maxs[1]])
 
 
 def density_scatter_plot(
@@ -82,14 +82,15 @@ def density_scatter_plot(
     plot_kw = dict(style=".k"), 
     contour=False, 
     plot_outliers=True,
-    label="none", data_labels=[]
+    label="none", data_labels=[],
+    dens_thresh=1000,
     ):
     from scipy.stats import kde
 
     # Evaluate a gaussian kde on a regular grid of nbins x nbins over data extents
     t0 = time.time()
     k = kde.gaussian_kde([x,y])
-    
+    N = len(x)
     
     xmin = x.min()
     xmax = x.max()
@@ -102,44 +103,67 @@ def density_scatter_plot(
     #Z = zi.reshape((len(yi), len(xi)))
     #print Z.shape
     #pp.imshow(Z, interpolation='none', cmap=density_kw['cmap'], origin='lower', extent=[xmin,xmax,ymin,ymax])
-    pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
-    pp.colorbar()
+    if N > dens_thresh:
+        pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
+        pp.colorbar()
     t2 = time.time()
     if contour:
         pp.contour(xi, yi, zi.reshape(xi.shape))
 
     if plot_outliers and outlier_percentile > 0:
         data = np.vstack([x,y])
-        dens_at_points = k(data)
-        
-        lower = np.percentile(dens_at_points, outlier_percentile)
-        out = dens_at_points < lower
+        if N <= 20:
+            print "plotting all data points"
+            out = np.arange(N)
+        else:
+            dens_at_points = k(data)
+            lower = np.percentile(dens_at_points, outlier_percentile)
+            out = dens_at_points < lower
 
         out_x = x[out]
         out_y = y[out]
         pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label)
 
-    m = xmin + np.log10(3./4.) # always use experiment as reference
-    M = xmax + np.log10(4./3.)
+    if N > dens_thresh:
+        # use experiment as reference
+        m = xmin  
+        M = xmax
+    else:
+        # show full range
+        m = min(xmin, ymin)
+        M = max(xmax, ymax)
+    
+    # add margin in log-space
+    m += np.log10(3./4.)
+    M += np.log(4./3.)
+
     t3 = time.time()
     
     if len(data_labels):
-        # annotate the most enriched and most off-diagonal k-mers
-        top = x.argsort()[::-1][:5]
-        pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
+        if N < dens_thresh*.1:
+            print "just add the damn labels"
+            print x,y, data_labels
+            repel_labels_nx(x, y, data_labels)
+        else:
+            # annotate the most enriched and most off-diagonal k-mers
+            top = x.argsort()[::-1][:5]
+            print "top", top
+            pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
 
-        for _x, _y, mer in zip(x[top], y[top], data_labels[top]):
-            mer = mer.upper().replace('T','U')
-            #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
-            pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='red', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
-            
-        off = np.fabs(x-y).argsort()[::-1][:10]
-        pp.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
+            repel_labels_nx(x[top], y[top], data_labels[top])
+            # for _x, _y, mer in zip(x[top], y[top], data_labels[top]):
+            #     mer = mer.upper().replace('T','U')
+            #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
+            #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='red', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
+                
+            off = np.fabs(x-y).argsort()[::-1][:10]
+            pp.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
 
-        for _x, _y, mer in zip(x[off], y[off], data_labels[off]):
-            #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
-            mer = mer.upper().replace('T','U')
-            pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
+            repel_labels_nx(x[off], y[off], data_labels[off])
+            # for _x, _y, mer in zip(x[off], y[off], data_labels[off]):
+            #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
+            #     mer = mer.upper().replace('T','U')
+            #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
 
     # draw guides through zero and the diagonal
     pp.plot([m,M],[m,M], '--k', zorder=np.inf, linewidth=.1)
@@ -207,11 +231,12 @@ class TrackedValues(object):
         
 
 class Sensor(object):
-    def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
+    def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, setup_func = None, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
         self.name = name.replace(' ','_')
         self.description = description
         self.get_func = get_func
         self.plot_func = plot_func
+        self.setup_func = setup_func
         self.mode = mode
         self.data_interval = data_interval
         self.plot_interval = plot_interval
@@ -292,30 +317,20 @@ class Sensor(object):
             
             yt = np.interp(t_trig, times, y_min)
             labels = [self.rep.triggers[x] for x in t_trig]
-            #print t_trig
-            #print yt
-            #print labels
             repel_labels(t_trig, yt, labels)
 
-            #for t, y in zip(t_trig, yt):
-                #trig = self.rep.triggers[t]
-                #pp.annotate(
-                    #trig, 
-                    #xy=(t,y), 
-                    #xytext=(t+.1,.9*y), 
-                    #arrowprops=dict(
-                        #width = 1.,
-                        #headwidth= 4.,
-                        #facecolor='black', 
-                        #shrink=0.05
-                    #), 
-                #)
-
         elif self.mode == 'scatter':
-            pp.title("{0}mer R-value scatter plot".format(self.opt.k) )
-            x, y = self.get_func(self)
-            corr = np.corrcoef(x,y)[0][1]
-            density_scatter_plot(x, y, label="{0} R={1:.3f}".format(self.labels[0], corr), data_labels=self.opt.mdl.param_name)
+            if self.setup_func:
+                x, y, title, label, data_labels = self.setup_func(self)
+            else:
+                title = "{0}mer R-value scatter plot".format(self.opt.k)
+                x, y = self.get_func(self)
+                corr = np.corrcoef(x,y)[0][1]
+                label = "{0} R={1:.3f}".format(self.labels[0], corr)
+                data_labels = self.opt.mdl.parameters.param_name
+
+            pp.title(title)
+            density_scatter_plot(x, y, label=label, data_labels=data_labels)
             self.logger.info("{self.name} scatter plot".format(**locals()) )
         
     def update_plot(self, t, occasion="snapshot"):
@@ -329,7 +344,7 @@ class Sensor(object):
     
         
 class OptReporting(object):
-    def __init__(self, opt, path='./', track=[], report_interval=200, comp=None):
+    def __init__(self, opt, path='./', track=[], report_interval=200, comp=None, triggers=[], ref=None):
         self.opt = opt
         self.path = path
         if not os.path.exists(path):
@@ -338,7 +353,13 @@ class OptReporting(object):
         self.logger = logging.getLogger('report.OptReporting')
         self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
         self.triggers = {}
+        self.trigger_filter = set(triggers)
+        self.ref = ref
         self.sensors = []
+        
+        if ref:
+            self.sensors.extend(self.add_sensor_ref())
+
         # populate with sensors
         for name in track:
             adder = getattr(self, "add_sensor_{0}".format(name))
@@ -358,18 +379,22 @@ class OptReporting(object):
         for sensor in self.sensors:
             sensor.tick(t)
         t1 = time.time()
-        self.logger.info('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
+        self.logger.debug('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
 
     def trigger_plots(self, t, occasion="trigger", mode="scatter"):
-        self.logger.info("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
+        self.logger.debug("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
         self.triggers[t] = occasion
         t0 = time.time()
-        for s in self.sensors:
-            #s.update_plot(t, occasion=occasion)
-            if s.mode == mode:
-                s.update_plot(t, occasion=occasion)
+        if occasion in self.trigger_filter:
+            self.logger.info('trigger {0} is filtered! skipping plot updates'.format(occasion) )
+        else:
+            for s in self.sensors:
+                #s.update_plot(t, occasion=occasion)
+                if s.mode == mode:
+                    s.update_plot(t, occasion=occasion)
+
         t1 = time.time()
-        self.logger.info('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
+        self.logger.debug('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
 
     def set_opt(self, opt):
         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
@@ -423,7 +448,32 @@ class OptReporting(object):
             )
             sensors.append(sensor)
         return sensors
-    
+
+    def add_sensor_ref(self):
+        def setup_func(this):
+            x = np.log10(this.rep.ref.observed_affinities)
+            y = np.log10(this.rep.ref.predict_affinities(this.opt.mdl))
+
+            corr = np.corrcoef(x, y)[0][1]
+            title = "comparison to literature values"
+            label = "log-affinity R={0:.3f}".format(corr)
+            data_labels = this.rep.ref.seqs
+            print x, y, title, label, data_labels
+            return x, y, title, label, data_labels
+
+        sensor = Sensor(
+            self, "reference",
+            setup_func = setup_func,
+            ylabel=r"modeled affinity $-\log_{10}(K_d)$",
+            xlabel=r"literature affinity $-\log_{10}(K_d)$",
+            mode='scatter',
+            labels=["reference",],
+            fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
+            plot_interval=1000,
+            multipage=True# 100
+        )
+        return [sensor,]
+        
         #self.comp = comp
         #if comp and not track:
             #track = sorted(comp.uniq_kmers)
@@ -557,7 +607,7 @@ class OptReporting(object):
         if kmer_i == None:
             kmer = "none"
         else:
-            kmer = self.opt.mdl.param_name[kmer_i]
+            kmer = self.opt.mdl.parameters.param_name[kmer_i]
         
         pp.figure()
         pp.title('R-value fit after step {0}'.format(self.opt.t) )

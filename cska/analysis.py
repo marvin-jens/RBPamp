@@ -8,7 +8,7 @@ import numpy as np
 import time
 import logging
 import cska.ska_kmers
-
+from cska import ensure_path
 from cska.caching import cached, pickled, CachedBase
 
         
@@ -296,7 +296,7 @@ class RBNSAnalysis(CachedBase):
         
         for name in results:
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
-            path = os.path.join(self.out_path, fname)
+            path = ensure_path(os.path.join(self.out_path, "metrics", fname))
 
             if name == 'cooccurrence_tensor':
                 rbns.cooccurrence_tensor_analysis(k)
