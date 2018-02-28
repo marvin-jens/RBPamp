@@ -1766,47 +1766,28 @@ def store_pure_reads(
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
-def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
+def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT32_t MAX_INDEX = 4**k - 1
     
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
-    cdef UINT32_t l = L-k+1
+    cdef UINT32_t N = len(index_matrix)
+    cdef UINT32_t L = len(index_matrix[0])
 
     # count reads containing a given kmer, for all kmers
-    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(4**k ,dtype=np.uint32)
+    cdef UINT32_t [:] hit_counts = np.zeros(4**k ,dtype=np.uint32)
     # keep distinct kmer indices from each read here
-    cdef np.ndarray[UINT64_t, ndim=1] _dindices = np.zeros(l ,dtype=np.uint64)
-    
-    # a MemoryView into each sequence (already converted 
-    # from letters to bits)
-    
-    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-    cdef UINT32_t [::1] hit_counts = _hit_counts
-    cdef UINT64_t [::1] dindices = _dindices
+    cdef UINT32_t [:] dindices = np.zeros(L ,dtype=np.uint32)
     
     # helper variables to tell cython the types
-    cdef UINT8_t s
-    cdef UINT64_t ofs, index, i, j, m, n_distinct=0, append=1
+    cdef UINT64_t index, i, j, m, n_distinct=0, append=1
     
     with nogil:
         for j in range(N):
-            ofs = j*L
-            
-            # compute index of first k-1 mer by bit-shiftkmer_profile(self.seqm, k)s
-            index = 0
-            for i in range(k-1):
-                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
-
             n_distinct = 0
-            # iterate over remaining k-mers
-            for i in range(0, l):
-                # get next "letter"
-                s = _seq_matrix[ofs+i+k-1]
-                # compute next index from previous by shift + next letter
-                index = ((index << 2) | s ) & MAX_INDEX
-                
+            # iterate over all k-mers in the read
+            for i in range(L):
+                index = index_matrix[j,i]
+
                 # make sure we do not have this index already
                 append = 1
                 for m in range(n_distinct):
@@ -1817,12 +1798,11 @@ def count_reads_with_kmers(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
                 if append:
                     dindices[n_distinct] = index
                     n_distinct += 1
+                    # record the read for each of the contained kmers *once*
+                    hit_counts[index] += 1
             
-            # record the read for each of the contained kmers *once*
-            for m in range(n_distinct):
-                hit_counts[dindices[m]] += 1
 
-    return _hit_counts
+    return hit_counts.base
 
 
 

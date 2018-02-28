@@ -210,7 +210,7 @@ class RBNSReads(CachedBase):
     @pickled
     def reads_with_kmers(self, k):
         t0 = time.time()
-        res = cyska.count_reads_with_kmers(self.seqm, k)
+        res = cyska.count_reads_with_kmers(self.get_index_matrix(k), k)
         t = time.time() - t0
         self.logger.debug("counted reads with {0}mers {1:.3f} ms".format( k, 1000.*t ) )
         
