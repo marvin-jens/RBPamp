@@ -339,6 +339,10 @@ class OptReporting(object):
         self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
         self.triggers = {}
         self.sensors = []
+        
+        if ref and ref.seqs:
+            self.sensors.extend(self.add_sensor_ref())
+
         # populate with sensors
         for name in track:
             adder = getattr(self, "add_sensor_{0}".format(name))
