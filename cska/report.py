@@ -82,7 +82,8 @@ def density_scatter_plot(
     plot_kw = dict(style=".k"), 
     contour=False, 
     plot_outliers=True,
-    label="none", data_labels=[]
+    label="none", data_labels=[],
+    dens_thresh=1000,
     ):
     from scipy.stats import kde
 
@@ -102,7 +103,7 @@ def density_scatter_plot(
     #Z = zi.reshape((len(yi), len(xi)))
     #print Z.shape
     #pp.imshow(Z, interpolation='none', cmap=density_kw['cmap'], origin='lower', extent=[xmin,xmax,ymin,ymax])
-    if N > 20:
+    if N > dens_thresh:
         pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
         pp.colorbar()
     t2 = time.time()
@@ -123,12 +124,23 @@ def density_scatter_plot(
         out_y = y[out]
         pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label)
 
-    m = xmin + np.log10(3./4.) # always use experiment as reference
-    M = xmax + np.log10(4./3.)
+    if N > dens_thresh:
+        # use experiment as reference
+        m = xmin  
+        M = xmax
+    else:
+        # show full range
+        m = min(xmin, ymin)
+        M = max(xmax, ymax)
+    
+    # add margin in log-space
+    m += np.log10(3./4.)
+    M += np.log(4./3.)
+
     t3 = time.time()
     
     if len(data_labels):
-        if N < 20:
+        if N < dens_thresh*.1:
             print "just add the damn labels"
             print x,y, data_labels
             repel_labels_nx(x, y, data_labels)

@@ -12,13 +12,9 @@ import os
 import logging
 import collections
 import traceback
-import cska.ska_kmers
+#import cska.ska_kmers
 import matplotlib
 
-from cska.caching import cached, pickled, CachedBase
-from cska.reads import RBNSReads
-from cska.analysis import RBNSAnalysis
-from cska.ska_runner import SKARunner
 
 def ensure_path(full):
     path = os.path.dirname(full)
@@ -64,7 +60,6 @@ def main():
     parser = OptionParser(usage=usage)
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
-    parser.add_option("-f","--fold-path",dest="fold_path",default="acc",help="path where folding results are to be stored and found (default='acc')")
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
@@ -127,6 +122,11 @@ def main():
     
     options,args = parser.parse_args()
 
+    from cska.caching import cached, pickled, CachedBase
+    from cska.reads import RBNSReads
+    from cska.analysis import RBNSAnalysis
+    from cska.ska_runner import SKARunner
+
     if options.version:
         print __version__
         print __license__
@@ -150,11 +150,12 @@ def main():
     CachedBase._do_not_unpickle= options.disable_unpickle
         
     # prepare outout path
-    if not os.path.exists(options.output):
-        os.makedirs(options.output)
+    import datetime
+    datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
+    run_path = ensure_path(os.path.join(options.output, "run_{datestr}/".format(datestr=datestr)))
 
     # set up logging
-    log_path = os.path.join(options.output,"run.log")
+    log_path = os.path.join(run_path,"run.log")
 
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
@@ -198,7 +199,7 @@ def main():
         # start a new analysis
         rbns = RBNSAnalysis(
             rbp_name = rbp_name,
-            out_path = options.output,
+            out_path = run_path,
             ska_runner = ska,
         )
 
@@ -221,7 +222,7 @@ def main():
                     
 
         # open energy prediction from folding
-        fold_path = os.path.join(options.fold_path)
+        fold_path = os.path.join(options.output, "acc")
         storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear')
         if int(options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(options.openen_discretize))
@@ -308,7 +309,7 @@ def main():
             from cska.report import OptReporting
             opt.reporter = OptReporting(
                 opt, 
-                os.path.join(rbns.out_path, 'plots'), 
+                os.path.join(run_path, 'plots'), 
                 track=options.mdl_report_sensors.split(','), 
                 triggers=options.mdl_report_trigger.split(','),
                 ref = ref,

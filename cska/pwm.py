@@ -252,7 +252,7 @@ class PWMOptimizer(object):
         return le
 
     def dump_logratios(self):
-        path = os.path.join(self.opt.out_path,"{0}mer_logratios.tsv".format(self.k))
+        path = cska.ensure_path(os.path.join(self.opt.out_path,"affinity","{0}mer_logratios.tsv".format(self.k)))
         self.logger.debug("storing kmer prediction error in {0}".format(path) )
         LR = self.kmer_logratios()
         #print LR.shape
@@ -420,25 +420,25 @@ class PWMOptimizer(object):
                 yield pwm
 
     def save_pwms(self):
-        for pwm in self.get_pwms():
-            pwm_path = os.path.join(
-                self.opt.out_path, pwm.consensus,
-                '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
+        for i,pwm in enumerate(self.get_pwms()):
+            rank = i+1 # TODO: improve by how much data "is explained"
+            pwm_path = cska.ensure_path(
+                os.path.join(
+                    self.opt.out_path, "motifs", "{rank:02d}_{pwm.consensus}/".format(**locals())
+                )
             )
-            pwm.store_params(cska.ensure_path(pwm_path))
+            param_fname = '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
+            pwm.store_params(os.path.join(pwm_path, param_fname))
 
-            logo_path = os.path.join(
-                self.opt.out_path, pwm.consensus,
-                '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
-            )
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
-            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{logo_path}'".format(pwm=pwm, logo_path=logo_path) )
+            logo_fname = '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
+            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{pwm_path}'".format(pwm=pwm, pwm_path=pwm_path) )
 
-            pwm.save_logo(cska.ensure_path(logo_path), title=logo_title)
+            pwm.save_logo(os.path.join(pwm_path, logo_fname), title=logo_title)
         
 
     def store_params(self):
-        self.opt.mdl.parameters.store(os.path.join(self.opt.out_path, "affinities"))
+        self.opt.mdl.parameters.store(os.path.join(self.opt.out_path, "affinity"))
 
         # temporary: save partition function samples
         #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
