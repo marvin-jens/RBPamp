@@ -1,10 +1,11 @@
 import numpy as np
 import matplotlib
-matplotlib.use('pdf')
+# matplotlib.use('pdf')
 import matplotlib.pyplot as pp
 
 from itertools import izip_longest
 import cska.ska_kmers as cyska
+from cska.ska_kmers import yield_kmers
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
@@ -105,6 +106,16 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
+    def to_PSAM(self):
+        m = self.matrix + 1
+        psam = m / m.max(axis=1)[:,np.newaxis]
+        # print m
+        # print psam
+        A0 = self.matrix.max(axis=1).sum()
+        from cska.pwm import PSAM
+        return PSAM(psam, A0=A0)
+        
+
 class DependentKmerAnalysis(object):
     def __init__(self, rbns, km=4):
         self.rbns = rbns
@@ -114,10 +125,7 @@ class DependentKmerAnalysis(object):
         self.B = Alignment()
         self.parts = [self.A, self.B]
         self.partscores = [0, 0]
-
-        import matplotlib.pyplot as pp
-        from cska.ska_kmers import yield_kmers
-        kmers = list(yield_kmers(km))
+        
         profs = []
         joints = []
         for reads in rbns.reads:
@@ -126,33 +134,31 @@ class DependentKmerAnalysis(object):
             prof = reads.kmer_mutual_information_profile(km)
             profs.append(prof)
         
-        profs = np.array(profs)
-        joints = np.array(joints)
-        j0 = joints[0]
+        self.profs = np.array(profs)
+        self.joints = np.array(joints)
+        self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
+        print "best_sample", self.best_sample
 
-        best_sample = np.unravel_index(joints.argmax(), joints.shape)[0]
-        print "best_sample", best_sample
 
-        joint = joints[best_sample]
-        reads = rbns.reads[best_sample]
+    def build_matrices(self, thresh=.75):
+        j0 = self.joints[0]
+
+        joint = self.joints[self.best_sample]
+        reads = self.rbns.reads[self.best_sample]
         S_lin = 0
         S_A = 0
         S_B = 0
+        kmers = list(cyska.yield_kmers(self.km))
         for d in range(18):
             print reads.name, d
             
-            # print joint[:,:,d]
-            # pp.figure()
-            # pp.pcolormesh(joint[:,:,d])
-            # pp.show()
             jR = np.log2(joint / j0)
             jRm = jR.max()
             I = jR[:,:,d].flatten().argsort()[::-1]
-            # print I
+
             for n in I:
                 i, j = np.unravel_index(n, joint.shape[:2])
-                # print n, i, j
-                if jR[i,j,d] < jRm * .75:
+                if jR[i,j,d] < jRm * thresh:
                     break
                 
                 # print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
@@ -167,42 +173,49 @@ class DependentKmerAnalysis(object):
                 S_A += s_A
                 S_B += s_B
 
-                # autodetect order of sub-motifs
-                Z = np.array([p.max_score for p in self.parts])
-                sA = np.array([p.align(kmers[i])[1] for p in self.parts]) / Z
-                sB = np.array([p.align(kmers[j])[1] for p in self.parts]) / Z
+                # # autodetect order of sub-motifs
+                # Z = np.array([p.max_score for p in self.parts])
+                # sA = np.array([p.align(kmers[i])[1] for p in self.parts]) / Z
+                # sB = np.array([p.align(kmers[j])[1] for p in self.parts]) / Z
 
-                iA = sA.argmax()
-                iB = sB.argmax()
+                # iA = sA.argmax()
+                # iB = sB.argmax()
 
 
-                if iB != iA + 1:
-                    print "weird scores"
-                    print kmers[i], sA
-                    print kmers[j], sB
+                # if iB != iA + 1:
+                #     print "weird scores"
+                #     print kmers[i], sA
+                #     print kmers[j], sB
+        self.lin_score = S_lin
+        self.A_score = S_A
+        self.B_score = S_B
 
-        print "linear alignment"
-        print self.linear
-        print self.linear.matrix
+    def interaction_plot(self):
+        reads = self.rbns.reads[self.best_sample]
+        psam_A = self.A.to_PSAM()
+        psam_B = self.B.to_PSAM()
 
-        print "left"
-        print self.A
-        print self.A.matrix
+        aff_A = psam_A.affinities
+        aff_B = psam_B.affinities
 
-        print "right"
-        print self.B
-        print self.B.matrix
+        Z_A = aff_A[reads.get_index_matrix(psam_A.n)]
+        Z_B = aff_B[reads.get_index_matrix(psam_B.n)]
 
-        print "wlen", self.linear.wlen, self.A.wlen, self.B.wlen
-        print self.linear.score / self.linear.wlen
-        print self.A.score / self.A.wlen
-        print self.B.score / self.B.wlen
-        ls = S_lin/ self.linear.wlen
-        ABs = (S_A + S_B) / (self.A.wlen + self.B.wlen)
-        print ls, ABs, ls/ABs
-        self.linear.save_logo("linear.eps")
-        self.A.save_logo("A.eps")
-        self.B.save_logo("B.eps")
+        # TODO: implement multiplication/accumulation
+        # cyska.interaction(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n, d_max=15)
+
+        pp.plot(Z_A.mean(axis=0))
+        pp.plot(Z_B.mean(axis=0))
+
+        pp.show()
+
+    @property
+    def linear_motif_score(self):
+        ls = self.lin_score / self.linear.wlen
+        ABs = (self.A_score + self.B_score) / (self.A.wlen + self.B.wlen)
+
+        return ls / ABs
+
         # pp.figure()
         # pp.title(rbp_name)
         # for prof,reads in zip(profs[1:], rbns.reads[1:]):
@@ -254,7 +267,44 @@ if __name__ == "__main__":
         )
         rbns.add_reads(reads)
 
-    DependentKmerAnalysis(rbns)    
+    DK = DependentKmerAnalysis(rbns)    
+    DK.build_matrices()
+
+    DK.linear.save_logo("linear.eps")
+    DK.A.save_logo("A.eps")
+    DK.B.save_logo("B.eps")
+
+    DK.interaction_plot()
+    print "linear alignment"
+    print DK.linear
+    print DK.linear.matrix
+
+    print "left"
+    print DK.A
+    print DK.A.matrix
+
+    print "right"
+    print DK.B
+    print DK.B.matrix
+
+    print "wlen", DK.linear.wlen, DK.A.wlen, DK.B.wlen
+    print DK.linear.score / DK.linear.wlen
+    print DK.A.score / DK.A.wlen
+    print DK.B.score / DK.B.wlen
+    print DK.linear_motif_score
+
+    print "A"
+    psam = DK.A.to_PSAM()
+    for mer, aff in zip(*psam.kmer_affinities):
+        print mer, aff
+
+    print "B"
+    psam = DK.B.to_PSAM()
+    kmers, aff = psam.kmer_affinities
+    for mer, a in zip(kmers, aff):
+        print mer, a
+
+
 
     # # TESTING mutual information
     # import matplotlib.pyplot as pp

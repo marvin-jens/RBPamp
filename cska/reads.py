@@ -233,6 +233,8 @@ class RBNSReads(CachedBase):
         
         return res
 
+    @cached
+    @pickled
     def joint_kmer_freq_distance_profile(self, k):
         # warning! You don't want to use high values of k here!
         im = self.get_index_matrix(k)
@@ -248,8 +250,6 @@ class RBNSReads(CachedBase):
         # print indep.sum(), joint.sum(axis=(1,0))
 
         return (joint * np.log2(joint / (np.outer(indep, indep)[:,:,np.newaxis]))).sum(axis=(1,0))
-
-
 
     @cached
     def kmer_presence(self, kmer):

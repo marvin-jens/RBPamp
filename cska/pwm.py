@@ -4,7 +4,7 @@ import os
 import numpy as np
 import cska
 import cska.ska_kmers as cyska
-bases = 'ACGU'
+bases = np.array(list('ACGU'))
 base_idx = { 
     'A' : 0,
     'C' : 1,
@@ -149,7 +149,37 @@ class PSAM(object):
         psam.kmer_set = kmers
         return psam
 
-            
+
+    @property
+    def kmer_affinities(self):
+        cog = self.psam.argmax(axis=1)
+        cognate = bases[cog]
+        
+        kmers = ["".join(cognate)]
+        aff = [1.]
+        for i in range(self.n):
+            for j in range(4):
+                if j == cog[i]:
+                    continue
+                aff.append(self.psam[i,j])
+                mer = np.array(cognate)
+                mer[i] = bases[j]
+                kmers.append("".join(mer))
+        
+        kmers = np.array(kmers)
+        aff = np.array(aff) * self.A0
+
+        I = aff.argsort()[::-1]
+        return kmers[I], aff[I]
+
+    @property
+    def affinities(self):
+        aff = np.zeros(4**self.n, dtype=np.float32)
+        for kmer, a in zip(*self.kmer_affinities):
+            aff[cyska.seq_to_index(kmer)] = a
+
+        return aff
+
     @property
     def consensus(self):
         return "".join([project_column(col) for col in self.psam])

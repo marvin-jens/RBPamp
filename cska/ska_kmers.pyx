@@ -974,6 +974,47 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
     return Z.base
 
 
+
+# # @cython.boundscheck(False)
+# # @cython.wraparound(False)
+# # @cython.initializedcheck(False)
+# # @cython.cdivision(True)
+# # @cython.overflowcheck(False)
+# def SPA_interaction(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
+#     assert k <= 8 # must fit into UINT16 kmer-indices!
+
+#     cdef UINT64_t N = index_matrix.base.shape[0]
+#     cdef UINT64_t l = index_matrix.base.shape[1]
+    
+#     # result will be stored here (Z = 'Zustandssumme' sum of states)
+#     cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    
+#     # helper variables to tell cython the types
+#     cdef FLOAT32_t a=0
+#     cdef UINT64_t i=0, j=0
+#     cdef UINT32_t index=0
+#     cdef FLOAT32_t w=0
+#     cdef FLOAT64_t Z1=0 # Single protein partition function
+
+#     if n_max:
+#         N = min(N, n_max)
+
+#     with nogil, parallel():
+#         for j in prange(N, schedule='guided'):
+#             Z1 = 0
+#             # iterate over all k-mers
+#             for i in range(0, l):
+#                 # assigned variables are thread-local
+#                 index = index_matrix[j, i]
+#                 a = acc_matrix[j, i + openen_ofs]
+#                 w = kmer_invkd[index] * a
+#                 Z1 = Z1 + w
+            
+#             Z[j] = Z1
+
+#     return Z.base
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
