@@ -233,6 +233,24 @@ class RBNSReads(CachedBase):
         
         return res
 
+    def joint_kmer_freq_distance_profile(self, k):
+        # warning! You don't want to use high values of k here!
+        im = self.get_index_matrix(k)
+        joint = np.array(cyska.joint_freq_at_distance(im, k) + self.pseudo_count, dtype=np.float32)
+        joint_freqs = joint / joint.sum(axis=(1,0))[np.newaxis,np.newaxis,:]
+
+        return joint_freqs
+
+    def kmer_mutual_information_profile(self, k):
+        joint = self.joint_kmer_freq_distance_profile(k)
+        indep = self.kmer_frequencies(k)
+        indep /= indep.sum()
+        # print indep.sum(), joint.sum(axis=(1,0))
+
+        return (joint * np.log2(joint / (np.outer(indep, indep)[:,:,np.newaxis]))).sum(axis=(1,0))
+
+
+
     @cached
     def kmer_presence(self, kmer):
         k = len(kmer)

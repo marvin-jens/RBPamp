@@ -69,6 +69,24 @@ def expand(kmer_set, left=True):
             else:
                 yield kmer + nt
     
+def weblogo_save(counts, fname="pwm.eps", title=""):
+        import weblogolib as wl
+        from corebio.seq import unambiguous_rna_alphabet
+        #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
+        data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
+        #import sys
+        #sys.stderr.write(str( data))
+        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=True, resolution=300)
+        # options.title = "A Logo Title"
+        fmt = wl.LogoFormat(data, options)
+        dump = wl.eps_formatter( data, fmt)
+        
+        if fname:
+            with file(fname,'wb') as f:
+                f.write(dump)
+        
+        return fname
+
 class PSAM(object):
     def __init__(self, psam, A0 = 1e-6):
         self.psam = np.array(psam, dtype=np.float32)
@@ -170,24 +188,8 @@ class PSAM(object):
         file(fname, 'w').write(str(self))
         
     def save_logo(self, fname='pwm.eps', title=""):
-        import weblogolib as wl
         counts = self.psam
-        from corebio.seq import unambiguous_rna_alphabet
-        #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
-        data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
-        #import sys
-        #sys.stderr.write(str( data))
-        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=False, resolution=300)
-        options.title = "A Logo Title"
-        fmt = wl.LogoFormat(data, options)
-        dump = wl.eps_formatter( data, fmt)
-        
-        
-        if fname:
-            with file(fname,'wb') as f:
-                f.write(dump)
-        
-        return fname
+        weblogo_save(self.psam, fname=fname, title=title)
 
 from collections import defaultdict 
 import logging

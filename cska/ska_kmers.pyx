@@ -1803,11 +1803,11 @@ def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
 
 
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.initializedcheck(False)
-# @cython.cdivision(True)
-# @cython.overflowcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
     cdef UINT32_t N = len(index_matrix)
     cdef UINT32_t L = len(index_matrix[0])
@@ -1826,6 +1826,36 @@ def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
             n_reads += (hit > 0)
 
     return n_reads
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def joint_freq_at_distance(UINT32_t [:,:] index_matrix, UINT64_t k):
+    cdef UINT32_t N = len(index_matrix)
+    cdef UINT32_t L = len(index_matrix[0])
+    cdef UINT32_t Nk = 4**k
+
+    cdef UINT32_t [:,:,:] joint = np.zeros((Nk, Nk, L-k) ,dtype=np.uint32)
+
+    # helper variables to tell cython the types
+    cdef UINT64_t index_A, index_B, i, j, d, hit=0, n_reads=0
+    
+    
+    with nogil:
+        for j in range(N):
+            hit = 0
+            # iterate over all k-mers in the read
+            for i in range(L-k):
+                index_A = index_matrix[j,i]
+                for d in range(k, L-i):
+                    index_B = index_matrix[j,i+d]
+                    joint[index_A, index_B, d-k] += 1
+
+    return joint.base
 
 
 
