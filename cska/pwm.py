@@ -221,6 +221,33 @@ class PSAM(object):
         counts = self.psam
         weblogo_save(self.psam, fname=fname, title=title)
 
+    def shrink(self, thresh = .75):
+        disc = self.discrimination
+        D = disc.sum()
+
+        best = {self.n : (1,0,self.n)}
+        for i in range(self.n):
+            for j in range(i, self.n+1):
+                
+                d = disc[i:j].sum()/D
+                if d >= thresh:
+                    best[j-i] = (d, i,j)
+
+        bylength = sorted(best)        
+        for l in bylength:
+            d,i,j = best[l]
+            print l, d, i,j, self.consensus[i:j]
+
+        d, i, j = best[bylength[0]]
+        psam = self.psam[i:j,:]
+        A0 = self.A0 
+        if i > 0:
+            A0 *= self.psam[:i,:].mean()
+        if j < self.n:
+            A0 *= self.psam[j:,:].mean()
+
+        return PSAM(psam, A0 = A0)
+
 from collections import defaultdict 
 import logging
 class PWMOptimizer(object):

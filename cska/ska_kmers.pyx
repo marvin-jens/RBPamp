@@ -975,44 +975,62 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 
 
 
-# # @cython.boundscheck(False)
-# # @cython.wraparound(False)
-# # @cython.initializedcheck(False)
-# # @cython.cdivision(True)
-# # @cython.overflowcheck(False)
-# def SPA_interaction(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
-#     assert k <= 8 # must fit into UINT16 kmer-indices!
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
+    cdef UINT64_t N = len(Z_A)
+    assert N == len(Z_B)
+    # assert k1 >= k2
 
-#     cdef UINT64_t N = index_matrix.base.shape[0]
-#     cdef UINT64_t l = index_matrix.base.shape[1]
+    cdef UINT64_t L1 = len(Z_A[0])
+    cdef UINT64_t L2 = len(Z_B[0])
     
-#     # result will be stored here (Z = 'Zustandssumme' sum of states)
-#     cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    cdef UINT64_t L_max = max(L1, L2)
+
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z_corr = np.zeros(2*L_max, dtype=np.float32)
+    cdef FLOAT32_t [:] n_corr = np.zeros(2*L_max, dtype=np.float32)
+
+    # helper variables to tell cython the types
+    cdef FLOAT32_t a=0
+    cdef int i=0, j=0, n=0, ofs = k1 - k2, d =0, shift = 0
+    cdef UINT64_t L1_max, L2_max, L2_start
+
+    # if k1 <= k2:
+    #     ofs = k2 - k1
+    #     L1_max = L1 - k2
+    #     L2_start = k1 - ofs # first k2 mer that does not overlap first k1 mer
+    #     L2_max = L2
     
-#     # helper variables to tell cython the types
-#     cdef FLOAT32_t a=0
-#     cdef UINT64_t i=0, j=0
-#     cdef UINT32_t index=0
-#     cdef FLOAT32_t w=0
-#     cdef FLOAT64_t Z1=0 # Single protein partition function
+    # else:
+    #     ofs = k1 - k2
+    #     L1_max = L2 + ofs - k1
+    #     L2_start = 0
+    #     L2_max = L2
 
-#     if n_max:
-#         N = min(N, n_max)
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w=0
+    cdef FLOAT64_t Z1=0 # Single protein partition function
 
-#     with nogil, parallel():
-#         for j in prange(N, schedule='guided'):
-#             Z1 = 0
-#             # iterate over all k-mers
-#             for i in range(0, l):
-#                 # assigned variables are thread-local
-#                 index = index_matrix[j, i]
-#                 a = acc_matrix[j, i + openen_ofs]
-#                 w = kmer_invkd[index] * a
-#                 Z1 = Z1 + w
+    # with nogil, parallel():
+        # for j in prange(N, schedule='guided'):
+    # with nogil:
+    for n in range(N):
+        # iterate over all k-mers
+        for i in range(L1):
+            for j in range(L2):
+                d = j-i+ofs # separation between the two mers
+                # print k1, k2, ofs, "i,j", i,j, "d",d
+                Z_corr[d+L_max] += Z_A[n,i] * Z_B[n,j]
+                n_corr[d+L_max] += 1
             
-#             Z[j] = Z1
 
-#     return Z.base
+    # print L_max
+    # return (Z_corr.base / n_corr.base)[L_max+1:]
+    return Z_corr.base
 
 
 @cython.boundscheck(False)

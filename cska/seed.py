@@ -145,10 +145,13 @@ class DependentKmerAnalysis(object):
 
         joint = self.joints[self.best_sample]
         reads = self.rbns.reads[self.best_sample]
+
         S_lin = 0
         S_A = 0
         S_B = 0
         kmers = list(cyska.yield_kmers(self.km))
+        self.spaced_score = np.zeros(18,dtype=np.float32)
+
         for d in range(18):
             print reads.name, d
             
@@ -172,6 +175,7 @@ class DependentKmerAnalysis(object):
                 S_lin += s_lin
                 S_A += s_A
                 S_B += s_B
+                self.spaced_score[d] += s_A + s_B
 
                 # # autodetect order of sub-motifs
                 # Z = np.array([p.max_score for p in self.parts])
@@ -191,21 +195,76 @@ class DependentKmerAnalysis(object):
         self.B_score = S_B
 
     def interaction_plot(self):
+        ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[self.best_sample]
+        psam_lin = self.linear.to_PSAM()
         psam_A = self.A.to_PSAM()
         psam_B = self.B.to_PSAM()
+        psam_A.save_logo('A_psam.eps')
+        psam_B.save_logo('B_psam.eps')
+
+        # pp.figure()
+        # pp.plot(psam_A.discrimination,'r', label=psam_A.consensus)
+        # pp.plot(psam_B.discrimination,'b', label=psam_B.consensus)
+
+        print "shrinking linear motif"
+        psam_lin = psam_lin.shrink()
+        psam_lin.save_logo('lin_shrunk.eps')
+        print "shrinking A"
+        psam_A = psam_A.shrink()
+        print "shrinking B"
+        psam_B = psam_B.shrink()
+        psam_A.save_logo('A_shrunk.eps')
+        psam_B.save_logo('B_shrunk.eps')
+        # pp.plot(psam_A.discrimination,'r--', label=psam_A.consensus)
+        # pp.plot(psam_B.discrimination,'b--', label=psam_B.consensus)
+
+        # pp.legend()
+        psam_A.A0 = 1
+        psam_B.A0 = 1
+
+        print psam_A
+        print psam_B
+        # pp.figure()
+        # pp.plot(self.spaced_score)
+        # pp.show()
+
 
         aff_A = psam_A.affinities
         aff_B = psam_B.affinities
 
-        Z_A = aff_A[reads.get_index_matrix(psam_A.n)]
-        Z_B = aff_B[reads.get_index_matrix(psam_B.n)]
+        # print aff_A, aff_B
 
-        # TODO: implement multiplication/accumulation
-        # cyska.interaction(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n, d_max=15)
+        Z_A = aff_A[ctrl.get_index_matrix(psam_A.n)]
+        Z_B = aff_B[ctrl.get_index_matrix(psam_B.n)]
+        xctrl = cyska.xcorr_Z(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n) / (Z_A.sum() + Z_B.sum())
 
-        pp.plot(Z_A.mean(axis=0))
-        pp.plot(Z_B.mean(axis=0))
+        x = np.arange(len(xctrl)) - len(xctrl)/2
+        # xcorr = cyska.xcorr_Z(Z_B, Z_A, k1 = psam_B.n, k2 = psam_A.n)
+        print xctrl
+
+        # pp.figure()
+        # pp.plot(Z_A.mean(axis=0))
+        # pp.plot(Z_B.mean(axis=0))
+
+        pp.figure()
+        pp.title('{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+        for reads in self.rbns.reads[1:]:
+            Z_A = aff_A[reads.get_index_matrix(psam_A.n)]
+            Z_B = aff_B[reads.get_index_matrix(psam_B.n)]
+
+            # TODO: implement multiplication/accumulation
+            xcorr = cyska.xcorr_Z(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n) / (Z_A.sum() + Z_B.sum())
+            print xcorr
+
+        # pp.plot(x, xcorr, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+        # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+            pp.plot(x, np.log2(xcorr/xctrl), '-.', linestyle='steps-mid', label=reads.name)
+        # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+        pp.xlabel("distance [nt]")
+        pp.ylabel("cross affinity log2-enrichment")
+        pp.axvline(psam_A.n)
+        pp.legend()
 
         pp.show()
 
@@ -258,7 +317,7 @@ if __name__ == "__main__":
             fname, 
             rbp_conc=rbp_conc,
             rbp_name = rbp_name,
-            n_max=1000000,
+            n_max=10000000,
             pseudo_count=10, 
             rna_conc = 1000.,
             temp = 4,
