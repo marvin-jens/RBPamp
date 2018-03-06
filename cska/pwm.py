@@ -69,14 +69,14 @@ def expand(kmer_set, left=True):
             else:
                 yield kmer + nt
     
-def weblogo_save(counts, fname="pwm.eps", title=""):
+def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
         import weblogolib as wl
         from corebio.seq import unambiguous_rna_alphabet
         #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
         data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
         #import sys
         #sys.stderr.write(str( data))
-        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=True, resolution=300)
+        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=scale_width, resolution=300)
         # options.title = "A Logo Title"
         fmt = wl.LogoFormat(data, options)
         dump = wl.eps_formatter( data, fmt)
@@ -219,9 +219,9 @@ class PSAM(object):
         
     def save_logo(self, fname='pwm.eps', title=""):
         counts = self.psam
-        weblogo_save(self.psam, fname=fname, title=title)
+        weblogo_save(self.psam, fname=fname, title=title, scale_width=False)
 
-    def shrink(self, thresh = .75):
+    def shrink(self, thresh = .75, n=0):
         disc = self.discrimination
         D = disc.sum()
 
@@ -238,7 +238,11 @@ class PSAM(object):
             d,i,j = best[l]
             print l, d, i,j, self.consensus[i:j]
 
-        d, i, j = best[bylength[0]]
+        if n:
+            d, i, j = best[n]
+        else:
+            d, i, j = best[bylength[0]]    
+
         psam = self.psam[i:j,:]
         A0 = self.A0 
         if i > 0:

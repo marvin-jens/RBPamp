@@ -934,6 +934,8 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
 
     return Z.base
 
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
@@ -973,6 +975,68 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 
     return Z.base
 
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def SPA_bipartite_partition_function_raw(
+    UINT32_t [:,:] index_matrix, 
+    FLOAT32_t [:,:] acc_matrix, 
+    FLOAT32_t [:] aff_A, 
+    FLOAT32_t [:] aff_B, 
+    FLOAT32_t [:] dist_cost, 
+    UINT64_t k, 
+    int n_max=0, 
+    int openen_ofs=0
+    ):
+
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t L = index_matrix.base.shape[1]
+    cdef UINT64_t d_max = len(dist_cost.base)
+
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    cdef FLOAT32_t a=0
+    cdef int i=0, j=0, m=0, d=0
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w_A=0, w_B=0
+    cdef FLOAT32_t [:] Z_A = np.zeros(L, dtype=np.float32) # Single protein partition function terms
+    cdef FLOAT32_t [:] Z_B = np.zeros(L, dtype=np.float32) # Single protein partition function terms
+
+    cdef FLOAT32_t Z1 = 0
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            Z1 = 0 # make thread-local
+            # iterate over all k-mers and fill in single motif partition functions
+            for i in range(L):
+                # assigned variables are thread-local
+                index = index_matrix[j, i]
+                a = acc_matrix[j, i + openen_ofs]
+                w_A = aff_A[index] * a
+                w_B = aff_B[index] * a
+                Z_A[i] = w_A
+                # Z_B[i] = w_B
+                
+                Z1 = Z1 + w_A + w_B # add single motif contributions
+
+                # scan "backwards" to add bi-partite contributions
+                # w_B fixed, w_A is read from already populated part of Z_A
+                for m in range(i):
+                    d = i - m
+                    Z1 = Z1 + w_B * dist_cost[d] * Z_A[m]
+            
+            Z[j] = Z1
+
+    return Z.base
 
 
 # @cython.boundscheck(False)

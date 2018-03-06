@@ -106,12 +106,50 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self):
-        m = self.matrix + 1
+    def to_PSAM(self, keep_weight=1, n_max=0):
+        frac = self.matrix.sum(axis=1) 
+        F = self.matrix.sum()
+        n = len(self.matrix)
+
+        best = {n : (1 ,0 ,n)}
+        for i in range(n):
+            for j in range(i, n+1):
+                
+                f = frac[i:j].sum()/F
+                l = j-i
+                if l in best:
+                    if f < best[l][0]:
+                        continue
+
+                best[l] = (f, i, j)
+
+        bylength = sorted(best)
+        for l in bylength:
+            f,i,j = best[l]
+            if f >= keep_weight:
+                break
+
+        if not n_max or j-i <= n_max:
+            m = self.matrix[i:j] + 1
+        else:
+            if n_max <= n:
+                f, i, j = best[n_max]
+                m = self.matrix[i:j] + 1
+            else:
+                # need to pad
+                s = n_max - n
+                m = self.matrix
+                left = s/2
+                right = s - left
+                if left:
+                    m = np.concatenate((np.zeros((left,4), m)))
+                if right:
+                    m = np.concatenate((m, np.zeros((right,4))))
+
         psam = m / m.max(axis=1)[:,np.newaxis]
         # print m
         # print psam
-        A0 = self.matrix.max(axis=1).sum()
+        A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
         return PSAM(psam, A0=A0)
         
@@ -140,7 +178,7 @@ class DependentKmerAnalysis(object):
         print "best_sample", self.best_sample
 
 
-    def build_matrices(self, thresh=.75):
+    def build_matrices(self, thresh=.7):
         j0 = self.joints[0]
 
         joint = self.joints[self.best_sample]
@@ -194,72 +232,67 @@ class DependentKmerAnalysis(object):
         self.A_score = S_A
         self.B_score = S_B
 
-    def interaction_plot(self):
-        ctrl = self.rbns.reads[0]
-        reads = self.rbns.reads[self.best_sample]
-        psam_lin = self.linear.to_PSAM()
-        psam_A = self.A.to_PSAM()
-        psam_B = self.B.to_PSAM()
-        psam_A.save_logo('A_psam.eps')
-        psam_B.save_logo('B_psam.eps')
+    def linear_PSAM_seed(self, n_max=11):
+        # find compact representation of linear motif
+        psam_lin = self.linear.to_PSAM(keep_weight=.9, n_max=11)
+        return psam_lin
 
-        # pp.figure()
-        # pp.plot(psam_A.discrimination,'r', label=psam_A.consensus)
-        # pp.plot(psam_B.discrimination,'b', label=psam_B.consensus)
+    def bipartite_PSAM_seeds(self):
+        # find compact representations of sub-motifs
+        pA = self.A.to_PSAM(keep_weight=.9)
+        pB = self.B.to_PSAM(keep_weight=.9)
+        k = max(pA.n, pB.n)
 
-        print "shrinking linear motif"
-        psam_lin = psam_lin.shrink()
-        psam_lin.save_logo('lin_shrunk.eps')
-        print "shrinking A"
-        psam_A = psam_A.shrink()
-        print "shrinking B"
-        psam_B = psam_B.shrink()
-        psam_A.save_logo('A_shrunk.eps')
-        psam_B.save_logo('B_shrunk.eps')
-        # pp.plot(psam_A.discrimination,'r--', label=psam_A.consensus)
-        # pp.plot(psam_B.discrimination,'b--', label=psam_B.consensus)
+        # use same k for both of them
+        psam_A = self.A.to_PSAM(n_max=k)
+        psam_B = self.B.to_PSAM(n_max=k)
+        return psam_A, psam_B
 
-        # pp.legend()
+    def bipartite_PSAM_spacings(self, sample=0):
+        psam_A, psam_B = self.bipartite_PSAM_seeds()
         psam_A.A0 = 1
         psam_B.A0 = 1
-
-        print psam_A
-        print psam_B
-        # pp.figure()
-        # pp.plot(self.spaced_score)
-        # pp.show()
-
 
         aff_A = psam_A.affinities
         aff_B = psam_B.affinities
 
-        # print aff_A, aff_B
+        if not sample:
+            sample = self.best_sample
+        ctrl = self.rbns.reads[0]
+        reads = self.rbns.reads[sample]
 
         Z_A = aff_A[ctrl.get_index_matrix(psam_A.n)]
         Z_B = aff_B[ctrl.get_index_matrix(psam_B.n)]
         xctrl = cyska.xcorr_Z(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n) / (Z_A.sum() + Z_B.sum())
 
-        x = np.arange(len(xctrl)) - len(xctrl)/2
-        # xcorr = cyska.xcorr_Z(Z_B, Z_A, k1 = psam_B.n, k2 = psam_A.n)
-        print xctrl
+        Z_A = aff_A[reads.get_index_matrix(psam_A.n)]
+        Z_B = aff_B[reads.get_index_matrix(psam_B.n)]
+        xcorr = cyska.xcorr_Z(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n) / (Z_A.sum() + Z_B.sum())
 
-        # pp.figure()
-        # pp.plot(Z_A.mean(axis=0))
-        # pp.plot(Z_B.mean(axis=0))
+        return np.log2(xcorr/xctrl)
+
+
+    def interaction_plot(self):
+        ctrl = self.rbns.reads[0]
+        reads = self.rbns.reads[self.best_sample]
+        
+        psam_lin = self.linear_PSAM_seed()
+        psam_lin.save_logo('lin_psam.eps')
+        print psam_lin
+
+        psam_A, psam_B = self.bipartite_PSAM_seeds()
+        psam_A.save_logo('A_psam.eps')
+        psam_B.save_logo('B_psam.eps')
+        print psam_A
+        print psam_B
+
+        spacing_w = self.bipartite_PSAM_spacings()
+        L = len(spacing_w)
+        x = np.arange(L) - L/2
 
         pp.figure()
         pp.title('{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
-        for reads in self.rbns.reads[1:]:
-            Z_A = aff_A[reads.get_index_matrix(psam_A.n)]
-            Z_B = aff_B[reads.get_index_matrix(psam_B.n)]
-
-            # TODO: implement multiplication/accumulation
-            xcorr = cyska.xcorr_Z(Z_A, Z_B, k1 = psam_A.n, k2 = psam_B.n) / (Z_A.sum() + Z_B.sum())
-            print xcorr
-
-        # pp.plot(x, xcorr, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
-        # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
-            pp.plot(x, np.log2(xcorr/xctrl), '-.', linestyle='steps-mid', label=reads.name)
+        pp.plot(x, spacing_w, '-.', linestyle='steps-mid', label=self.rbns.reads[self.best_sample].name)
         # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
         pp.xlabel("distance [nt]")
         pp.ylabel("cross affinity log2-enrichment")
@@ -329,28 +362,17 @@ if __name__ == "__main__":
     DK = DependentKmerAnalysis(rbns)    
     DK.build_matrices()
 
-    DK.linear.save_logo("linear.eps")
-    DK.A.save_logo("A.eps")
-    DK.B.save_logo("B.eps")
+    # DK.linear.save_logo("linear.eps")
+    # DK.A.save_logo("A.eps")
+    # DK.B.save_logo("B.eps")
+    # print "linear alignment"
+    # print DK.linear
+    # print DK.linear.matrix
+
+    print "linear_motif score", DK.linear_motif_score
 
     DK.interaction_plot()
-    print "linear alignment"
-    print DK.linear
-    print DK.linear.matrix
 
-    print "left"
-    print DK.A
-    print DK.A.matrix
-
-    print "right"
-    print DK.B
-    print DK.B.matrix
-
-    print "wlen", DK.linear.wlen, DK.A.wlen, DK.B.wlen
-    print DK.linear.score / DK.linear.wlen
-    print DK.A.score / DK.A.wlen
-    print DK.B.score / DK.B.wlen
-    print DK.linear_motif_score
 
     print "A"
     psam = DK.A.to_PSAM()
