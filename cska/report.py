@@ -89,7 +89,6 @@ def density_scatter_plot(
 
     # Evaluate a gaussian kde on a regular grid of nbins x nbins over data extents
     t0 = time.time()
-    k = kde.gaussian_kde([x,y])
     N = len(x)
     
     xmin = x.min()
@@ -97,22 +96,25 @@ def density_scatter_plot(
     ymin = y.min()
     ymax = y.max()
     nbins = density_kw['nbins']
-    xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
-    zi = k(np.vstack([xi.flatten(), yi.flatten()]))
     t1 = time.time()
     #Z = zi.reshape((len(yi), len(xi)))
     #print Z.shape
     #pp.imshow(Z, interpolation='none', cmap=density_kw['cmap'], origin='lower', extent=[xmin,xmax,ymin,ymax])
     if N > dens_thresh:
+        k = kde.gaussian_kde([x,y])
+        xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
+        zi = k(np.vstack([xi.flatten(), yi.flatten()]))
+
         pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
         pp.colorbar()
+        if contour:
+            pp.contour(xi, yi, zi.reshape(xi.shape))
+
     t2 = time.time()
-    if contour:
-        pp.contour(xi, yi, zi.reshape(xi.shape))
 
     if plot_outliers and outlier_percentile > 0:
         data = np.vstack([x,y])
-        if N <= 20:
+        if N <= dens_thresh:
             print "plotting all data points"
             out = np.arange(N)
         else:

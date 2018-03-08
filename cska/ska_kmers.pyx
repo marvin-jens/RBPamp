@@ -942,7 +942,7 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
 @cython.cdivision(True)
 @cython.overflowcheck(False)
 def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
-    assert k <= 8 # must fit into UINT16 kmer-indices!
+    assert k <= 16 # must fit into UINT32 kmer-indices!
 
     cdef UINT64_t N = index_matrix.base.shape[0]
     cdef UINT64_t l = index_matrix.base.shape[1]
@@ -1039,11 +1039,11 @@ def SPA_bipartite_partition_function_raw(
     return Z.base
 
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.initializedcheck(False)
-# @cython.cdivision(True)
-# @cython.overflowcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
     cdef UINT64_t N = len(Z_A)
     assert N == len(Z_B)

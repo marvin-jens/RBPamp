@@ -160,6 +160,11 @@ class SPAState(object):
 
         return grad
         
+    def dump(self, msg=""):
+        I = self.params[:self.mdl.nA].argsort()[::-1]
+        for i in I[:10]:
+            print msg, cyska.index_to_seq(i,self.mdl.k), self.params[i], self.R[:,i]
+
 
 class SPAPartition(object):
     """
@@ -227,6 +232,7 @@ class ParamInterface(object):
         self.logger = logging.getLogger("model.ParamInterface")
         self.source = "n/a"
 
+        # TODO: replace this lookup by a function to avoid memory waste for high k
         self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
         self.param_index = {}
         for i, name in enumerate(self.param_name):
@@ -301,8 +307,8 @@ class ParamInterface(object):
 
         return mdl
 
-    def __str__(self):
-        aff = self.affinities
+    def aff_str(self, affinities):
+        aff = affinities
         aff0 = 1e-6
         n = (aff > aff0).sum()
         mina = aff.min()
@@ -310,7 +316,10 @@ class ParamInterface(object):
         mink = self.param_name[aff.argmin()]
         maxk = self.param_name[aff.argmax()]
         return "model params from '{self.source}': {n} above aff0, min_aff={mina:.3e} ({mink}), max_aff={maxa:.3e} ({maxk})".format(**locals()) 
-        
+
+    def __str__(self):
+        return self.aff_str(self.affinities)
+
     def params_for_next_k(self, core_param=None, waterline=1e-6, aff0=1e-7):
         k = self.k
 
@@ -498,6 +507,7 @@ class SPAModel(object):
         if ground_state == None:
             ground_state = self.state
 
+        # print "tm_update=",tm_update
         if tm_update:
             #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
@@ -512,7 +522,6 @@ class SPAModel(object):
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)
             # copy all thermodynamic model results from previous state.
-
             state = SPAState(self, params, ground_state.Z1, ground_state.p_bound, ground_state.pi_kmer, ground_state.rbp_free, ground_state.jacobi)
 
         if keep:

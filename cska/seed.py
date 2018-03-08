@@ -1,11 +1,14 @@
 import numpy as np
-import matplotlib
+# import matplotlib
 # matplotlib.use('pdf')
 import matplotlib.pyplot as pp
+import logging
+import os
 
 from itertools import izip_longest
 import cska.ska_kmers as cyska
 from cska.ska_kmers import yield_kmers
+import cska
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
@@ -175,7 +178,7 @@ class DependentKmerAnalysis(object):
         self.profs = np.array(profs)
         self.joints = np.array(joints)
         self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
-        print "best_sample", self.best_sample
+        # print "best_sample", self.best_sample
 
 
     def build_matrices(self, thresh=.7):
@@ -191,7 +194,7 @@ class DependentKmerAnalysis(object):
         self.spaced_score = np.zeros(18,dtype=np.float32)
 
         for d in range(18):
-            print reads.name, d
+            # print reads.name, d
             
             jR = np.log2(joint / j0)
             jRm = jR.max()
@@ -232,9 +235,9 @@ class DependentKmerAnalysis(object):
         self.A_score = S_A
         self.B_score = S_B
 
-    def linear_PSAM_seed(self, n_max=11):
+    def linear_PSAM_seed(self, keep_weight=.9, n_max=11):
         # find compact representation of linear motif
-        psam_lin = self.linear.to_PSAM(keep_weight=.9, n_max=11)
+        psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
     def bipartite_PSAM_seeds(self):
@@ -248,8 +251,14 @@ class DependentKmerAnalysis(object):
         psam_B = self.B.to_PSAM(n_max=k)
         return psam_A, psam_B
 
-    def bipartite_PSAM_spacings(self, sample=0):
-        psam_A, psam_B = self.bipartite_PSAM_seeds()
+    def bipartite_PSAM_spacings(self, sample=0, psam_A=None, psam_B=None):
+        if psam_A == None or psam_B == None:
+            psam_A, psam_B = self.bipartite_PSAM_seeds()
+
+        from copy import copy
+        psam_A = copy(psam_A)
+        psam_B = copy(psam_B)
+
         psam_A.A0 = 1
         psam_B.A0 = 1
 
@@ -258,6 +267,7 @@ class DependentKmerAnalysis(object):
 
         if not sample:
             sample = self.best_sample
+
         ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[sample]
 
@@ -277,14 +287,14 @@ class DependentKmerAnalysis(object):
         reads = self.rbns.reads[self.best_sample]
         
         psam_lin = self.linear_PSAM_seed()
-        psam_lin.save_logo('lin_psam.eps')
-        print psam_lin
+        # psam_lin.save_logo('lin_psam.eps')
+        # print psam_lin
 
         psam_A, psam_B = self.bipartite_PSAM_seeds()
         psam_A.save_logo('A_psam.eps')
         psam_B.save_logo('B_psam.eps')
-        print psam_A
-        print psam_B
+        # print psam_A
+        # print psam_B
 
         spacing_w = self.bipartite_PSAM_spacings()
         L = len(spacing_w)
@@ -319,6 +329,100 @@ class DependentKmerAnalysis(object):
         # pp.show()
         # sys.exit(0)
 
+class SeedRefinement(object):
+    def __init__(self, rbns):
+        self.rbns = rbns
+        self.logger = logging.getLogger("opt.SeedRefinement")
+        self.analysis = DependentKmerAnalysis(self.rbns)
+        self.analysis.build_matrices()
+        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=.75)
+        self.logger.info("linear_motif score={0:.2f} for {1}mer {2}".format(self.analysis.linear_motif_score, self.psam_lin.n, self.psam_lin.consensus))
+        self.psam_A, self.psam_B = self.analysis.bipartite_PSAM_seeds()
+        self.linear_k = self.psam_lin.n
+        self.bipart_k = self.psam_A.n
+        
+        if self.analysis.linear_motif_score < .9:
+            self.logger.info("bipartite motifs are potentially a better match for this RBP")
+            self.spacings = self.analysis.bipartite_PSAM_spacings(psam_A=self.psam_A, psam_B=self.psam_B)
+            L = len(self.spacings)
+            self.dist_cost = self.spacings[L/2:]
+            self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
+
+        self.store_logos()
+
+    def distance_xcorr_plot(self, fname="xcorr.pdf"):
+        ctrl = self.rbns.reads[0]
+        reads = self.rbns.reads[self.analysis.best_sample]
+        
+        spacing_w = self.analysis.bipartite_PSAM_spacings(psam_A = self.psam_A, psam_B = self.psam_B)
+        L = len(spacing_w)
+        x = np.arange(L) - L/2
+
+        pp.figure(figsize=(4,3))
+        pp.title('{0} -> {1} linear_motif_score={2:.3f}'.format(self.psam_A.consensus, self.psam_B.consensus, self.analysis.linear_motif_score))
+        pp.plot(x[L/2:], spacing_w[L/2:], '-.', linestyle='steps-mid', label=self.rbns.reads[self.analysis.best_sample].name)
+        # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+        pp.xlabel("distance [nt]")
+        pp.ylabel("cross affinity log2-enrichment")
+        pp.axvline(self.psam_A.n)
+        pp.legend()
+        pp.tight_layout()
+        pp.savefig(fname)
+        pp.close()
+
+    def store_logos(self):
+        path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
+        rbp_name = self.rbns.reads[0].rbp_name
+
+        self.psam_lin.save_logo(os.path.join(path, '{0}_linear.eps'.format(rbp_name)))
+        self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.eps'.format(rbp_name)))
+        self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.eps'.format(rbp_name)))
+        self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
+
+
+    def linear_seed_params(self, A0=1., aff0=1e-6):
+        psam = self.psam_lin
+        psam.A0 = A0
+        print psam
+        aff = psam.affinities + aff0
+        for i in (-aff).argsort()[:100]:
+            print cyska.index_to_seq(i, psam.n), aff[i]
+
+        # for mer, a in zip(*psam.kmer_affinities):
+        #     print mer, a
+
+        # sys.exit(0)
+        return aff
+
+    # def optimize(self, eps=1e-3, A0=1.):
+
+    #     from cska.optimize import ModelOptimization
+    #     # free some memory
+    #     self.opt.input_reads.cache_flush('__cached_get_index_matrix')
+    #     self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
+
+    #     # create new optimizer and model
+    #     new_opt = ModelOptimization(k, self.opt.rbns_analysis,
+    #         mdl_params = params,
+    #         t0 = self.opt.t,
+    #         reporter = self.opt.reporter,
+    #         kmer_opt_global = not self.opt.param_local_fit,
+    #     )
+    #     new_opt.errors = self.opt.errors + new_opt.errors
+    #     new_opt.correlations = self.opt.correlations
+    #     new_opt.rel_improvements = self.opt.rel_improvements
+
+    #     # some plumbing to make reports/plots contiguous
+    #     self.opt.reporter.set_opt(new_opt)
+    #     self.opt.reporter.tick(0)
+    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
+
+    #     self.opt = new_opt
+    #     self.opt.step_scale(min_scale=.01, max_scale=1000.)
+    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="scale")
+
+    # def store_params(self):
+    #     self.opt.mdl.parameters.store(cska.ensure_path(os.path.join(self.opt.out_path, "affinity/"))
 
 if __name__ == "__main__":
 

@@ -60,11 +60,13 @@ def main():
     parser = OptionParser(usage=usage)
     parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
+    parser.add_option("","--run-path",dest="run",default="run_{datestr}",help="pattern for run-folder name (default='run_{datestr}')")
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=False, action="store_true",help="SWITCH: activate initial dependent kmer analysis to seed the motifs")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
     parser.add_option("","--model-epsilon",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
@@ -150,7 +152,7 @@ def main():
         
     # prepare outout path
     import datetime
-    run_folder = "run_{datestr}/".format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+    run_folder = (options.run+"/").format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
 
     run_path = ensure_path(os.path.join(options.output, run_folder))
 
@@ -250,7 +252,6 @@ def main():
                 rna_conc = options.rna_conc,
                 temp = options.temp,
                 n_subsamples = options.subsamples,
-                adap5=options.adap5,
                 adap3=options.adap3,
                 acc_storage_path = fold_path,
                 storage_kw=storage_kw
@@ -288,26 +289,31 @@ def main():
                     skip_adap = options.skip_adap,
                 )
 
+
+        # prime the optimization from dependent-kmer analysis
+        if options.seed_analysis:
+            from cska.seed import SeedRefinement
+            SR = SeedRefinement(rbns)
+            k = SR.linear_k
+        else:
+            k = options.min_k
+
         # fit of thermodynamic model parameters (affinities)
         if options.model:
             from cska.optimize import ModelOptimization
             opt = ModelOptimization(
-                options.min_k, 
+                k, 
                 rbns,
                 n_subsample=0, 
                 sub_replace=False, 
                 param_file=options.mdl_resume,
                 kmer_opt_global=options.kmer_opt_global,
+
             )
 
             from cska.pwm import PWMOptimizer
-            pwm_opt = PWMOptimizer(options.min_k, options.max_k, opt)
+            pwm_opt = PWMOptimizer(k, options.max_k, opt)
             
-            #if options.known_kd:
-                #comp = ReferenceComparison(opt, options.known_kd)
-            #else:
-                #comp = None
-
             from cska.comparison import RefComparison
             if options.compare:
                 compare = options.compare
@@ -323,6 +329,16 @@ def main():
                 triggers=options.mdl_report_trigger.split(','),
                 ref = ref,
             )
+
+            if options.seed_analysis:
+                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params()
+                print "first eval"
+                opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
+                opt.mdl.state.dump("initial")
+                print "opt betas"
+                opt.step_betas()
+                print "step scale"
+                opt.step_scale(min_scale=.01, max_scale=100.)
 
             try:
                 pwm_opt.optimize(eps=options.mdl_epsilon)

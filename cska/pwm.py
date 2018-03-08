@@ -152,6 +152,8 @@ class PSAM(object):
 
     @property
     def kmer_affinities(self):
+        # TODO: need smarter way to (recursively) construct set of relevant kmers
+        # with A >= thresh * A0
         cog = self.psam.argmax(axis=1)
         cognate = bases[cog]
         
@@ -161,16 +163,35 @@ class PSAM(object):
             for j in range(4):
                 if j == cog[i]:
                     continue
-                aff.append(self.psam[i,j])
                 mer = np.array(cognate)
-                mer[i] = bases[j]
-                kmers.append("".join(mer))
-        
+                mer[i] = bases[j].lower()
+
+                # edit distance 1 and 2 from cognate
+                for l in range(self.n):
+                    if l == i:
+                        continue
+                    ori = mer[l]
+                    for m in range(4):
+                        mer[l] = bases[m].lower()
+                        for l3 in range(self.n):
+                            if l3 == i or l3 == l:
+                                continue
+                            ori3 = mer[l3]
+                            for m3 in range(4):
+                                aff.append(self.psam[i,j] * self.psam[l,m] * self.psam[l3,m3])
+                                mer[l3] = bases[m3].lower()
+                                kmers.append("".join(mer))
+                            mer[l3] = ori3
+                    
+                    mer[l] = ori
+
+
         kmers = np.array(kmers)
         aff = np.array(aff) * self.A0
 
-        I = aff.argsort()[::-1]
-        return kmers[I], aff[I]
+        # I = aff.argsort()[::-1]
+        # return kmers[I], aff[I]
+        return kmers, aff
 
     @property
     def affinities(self):

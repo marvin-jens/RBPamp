@@ -196,16 +196,26 @@ class ModelOptimization(object):
         params = np.array(self.current.params)
 
         err0 = self.global_error(self.current.R)
+        # print ">>>err0", err0
         scales = []
         errors = []
+        
+
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)
             t0 = time.time()
             scaled = self.current * scale
+            # scaled.dump("scaled")
             t1 = time.time()
-            #better, new_state = self.step_betas(ground_state = state, update=False)
+            better, new_state, err = self.step_betas(ground_state = scaled, update=False)
             t2 = time.time()
-            err = self.global_error(scaled.R)
+            # err = self.global_error(new_state.R)
+
+            # print "scale, err", scale, err
+            # print scaled.rbp_free, new_state.rbp_free
+            # print self.mdl.parameters.aff_str(new_state.params[:self.mdl.nA])
+            # new_state.dump("beta")
+
             t3 = time.time()
             t_scale = 1000*(t1-t0)
             t_beta = 1000*(t2-t1)
@@ -213,11 +223,21 @@ class ModelOptimization(object):
             #print "global error={err} at scale={scale} after beta fit. t_scale={t_scale:.2f}ms t_beta={t_beta:.2f}ms t_err={t_err:.2f}ms".format(**locals())
             
             errors.append(err)
+            scales.append(scale)
             return err
 
-        res = minimize_scalar(to_optimize, bounds = (min_scale, 1), method='Bounded')
+        # for scale in 10**np.arange(-3,3,.5):
+        #     to_optimize(scale)
+
+        res = minimize_scalar(to_optimize, bounds = (min_scale, max_scale), method='Bounded')
         dt = time.time() - t0
         
+        # import matplotlib.pyplot as pp
+        # pp.figure()
+        # pp.loglog(scales, errors, 'x')
+        # pp.axhline(err0)
+        # pp.show()
+
         if res.fun > err0:
             success = False
             best = 1.
@@ -262,7 +282,7 @@ class ModelOptimization(object):
             # do not evaluate the thermodynamic model, only re-compute R-values (for beta optimization)
             tm_update = False
             opt = self.mdl
-            
+        
         def to_optimize(aff):
             params[param_i] = aff #* .0001
             state = opt.evaluate(params, tm_update=tm_update, ground_state = ground_state)
@@ -329,7 +349,7 @@ class ModelOptimization(object):
             best = res.x
             success = res.success
             params[param_i] = best
-            new_state = opt.evaluate(params, tm_update=tm_update)
+            new_state = opt.evaluate(params, tm_update=tm_update, ground_state = ground_state)
 
         err = self.global_error(new_state.R)
 
