@@ -1,6 +1,6 @@
 import numpy as np
-# import matplotlib
-# matplotlib.use('pdf')
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as pp
 import logging
 import os

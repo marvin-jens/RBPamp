@@ -87,6 +87,61 @@ def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
         
         return fname
 
+
+class OptimizationStatus(object):
+    def __init__(self, pwm, state, opt):
+        self.pwm = pwm
+        self.state = state
+        self.opt = opt
+
+    def mispredicted_kmer_set(self, cutoff=.01, n_max=100):
+        # gather kmers that have prediction errors within the range 
+        # of max(abs(errors)) ... cutoff*max(abs(error))[:n_max]
+        errors = self.opt.kmer_errors(self.state.R)
+        MAX = np.fabs(errors).max(axis=0)
+        I = MAX.argsort()[::-1]
+        
+        E0 = MAX[I[0]]
+        
+        pwm_rel = defaultdict(list)
+        pwm_rel_error = defaultdict(float)
+        
+        unrel = defaultdict(list)
+        unrel_error = defaultdict(float)
+        
+        for kmer_i in I[:n_max]:
+            kmer = cyska.index_to_seq(kmer_i, self.opt.k)
+            delta = errors[:,kmer_i]
+            cat, arg, frac = self.pwm.align(kmer)
+            merr = delta.mean()
+            
+            if frac > 0:
+                pwm_rel_error[cat] += merr * frac
+                pwm_rel[cat].append( (merr, arg, frac, kmer, kmer_i, delta) )
+            
+            if frac < 1:
+                unrel[cat].append( (merr, arg, 1-frac, kmer, kmer_i, delta) )
+                unrel_error[cat] += merr * (1-frac)
+            
+            if MAX[kmer_i] < cutoff * E0:
+                break
+            
+        print ">>>>PWM related errors", pwm_rel_error
+        for cat, values in pwm_rel.items():
+            for v in values:
+                print cat, v
+        
+        print ">>>>PWM un-related errors", unrel_error
+        for cat, values in unrel.items():
+            for v in values:
+                print cat, v
+
+        return pwm_rel, pwm_rel_error, unrel, unrel_error
+            
+    def best_update_set(self):
+        pass
+
+
 class PSAM(object):
     def __init__(self, psam, A0 = 1e-6):
         self.psam = np.array(psam, dtype=np.float32)
@@ -148,6 +203,10 @@ class PSAM(object):
         #print psam
         psam.kmer_set = kmers
         return psam
+
+
+    def propagate_kmer_change(self):
+        pass # TODO: implement
 
 
     @property
@@ -217,6 +276,25 @@ class PSAM(object):
         psam /= amax[:, np.newaxis]
         
         return PSAMState(psam, max(self.A0, mdl.A0))
+
+    def align(self, kmer):
+        """ slide kmer over matrix and classify best, gapless alignment"""
+        from cska.seed import Alignment
+        A = Alignment()
+        A.matrix = self.psam
+        
+        ofs, score = A.align(kmer)
+        frac = score / (self.n - abs(ofs) )
+
+        if ofs == 0:
+            cat = ("match", kmer, frac)
+        elif ofs < 0:
+            cat = ("left-shift", kmer[:-ofs], frac )
+        elif ofs > 0:
+            cat = ("right-shift", kmer[-ofs:], frac )
+        
+        return cat
+            
 
     @property
     def discrimination(self):
@@ -570,6 +648,10 @@ class PWMOptimizer(object):
 
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
+        status = OptimizationStatus(self.pwm0, self.opt.current, self.opt)
+        status.mispredicted_kmer_set()
+        
+        
         last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-lag:]])
         
         err0 = self.opt.global_error(self.opt.current.R)

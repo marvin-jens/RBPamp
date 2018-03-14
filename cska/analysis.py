@@ -311,6 +311,8 @@ class RBNSAnalysis(CachedBase):
         all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
         
         for name in results:
+            if not name:
+                continue
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
             path = ensure_path(os.path.join(self.out_path, "metrics", fname))
 

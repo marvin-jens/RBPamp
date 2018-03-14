@@ -232,6 +232,48 @@ class TrackedValues(object):
         return self.times, data
         
 
+def p_bound_plot(state, fname = "pbound.pdf", bins=1000):
+    pp.figure()
+    
+    lZ = np.log(state.Z1)
+    counts, bins = np.histogram(lZ, bins=bins)
+    bins = np.exp(bins)
+    # midpoint integration
+    aff = (bins[1:] + bins[:-1])/2.
+            
+    N = counts.sum()
+    expected = []
+    for conc, beta in zip(state.rbp_free, state.betas):
+        Z = conc * aff
+        pb = Z/(Z + 1.)
+        pp.semilogx(aff, pb, label="{0:.2f} nM free RBP".format(conc) )
+        
+        x = counts * (pb + beta)
+        expected.append( N * x/x.sum() )
+
+
+    pp.axhline(1, color="k")
+    pp.axhline(.5, color="gray", linestyle='dashed')
+    pp.legend()
+    pp.xlabel("total read affinity [1/nM]")
+    pp.ylabel(r"$\psi$")
+    pp.savefig(fname)
+    pp.close()
+
+    pp.figure()
+    
+    pp.loglog(aff, counts, color="gray", label="random RNA pool")
+    for conc, x in zip(state.rbp_free, expected):
+        pp.loglog(aff, x, label="predicted @ {0:.2f}nM free RBP".format(conc))
+
+    pp.legend(loc = 'upper left')
+    pp.xlabel("total read affinity [1/nM]")
+    pp.ylabel("count")
+    pp.savefig("aff_dist.pdf")
+    pp.close()
+    
+    # cska -a --run-path=blup --n-max=1000000 --metrics="" --model-report-ignore-trigger="init" --seed-analysis --model
+
 class Sensor(object):
     def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, setup_func = None, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
         self.name = name.replace(' ','_')

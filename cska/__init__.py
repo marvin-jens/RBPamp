@@ -260,8 +260,9 @@ def main():
             rbns.add_reads(reads)
         
         # first, compute RBNS metrics
+        metrics = options.results.strip().split(',')
         for k in range(options.min_k, options.max_k + 1):
-            rbns.compute_results(k, options, results=options.results.split(','), report=options.reports)
+            rbns.compute_results(k, options, results=metrics, report=options.reports)
             rbns.flush()
 
         ### special run modes: 
@@ -334,11 +335,14 @@ def main():
                 opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params()
                 print "first eval"
                 opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
-                opt.mdl.state.dump("initial")
+                from cska.report import p_bound_plot
+                p_bound_plot(opt.current)
+                #opt.mdl.state.dump("initial")
                 print "opt betas"
                 opt.step_betas()
-                print "step scale"
-                opt.step_scale(min_scale=.01, max_scale=100.)
+                #print "step scale"
+                #opt.step_scale(min_scale=.01, max_scale=100.)
+                pwm_opt.pwm0 = SR.psam_lin
 
             try:
                 pwm_opt.optimize(eps=options.mdl_epsilon)
