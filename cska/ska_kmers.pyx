@@ -934,6 +934,8 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
 
     return Z.base
 
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.initializedcheck(False)
@@ -972,6 +974,127 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
             Z[j] = Z1
 
     return Z.base
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def SPA_bipartite_partition_function_raw(
+    UINT32_t [:,:] index_matrix, 
+    FLOAT32_t [:,:] acc_matrix, 
+    FLOAT32_t [:] aff_A, 
+    FLOAT32_t [:] aff_B, 
+    FLOAT32_t [:] dist_cost, 
+    UINT64_t k, 
+    int n_max=0, 
+    int openen_ofs=0
+    ):
+
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t L = index_matrix.base.shape[1]
+    cdef UINT64_t d_max = len(dist_cost.base)
+
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z = np.empty(N, dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    cdef FLOAT32_t a=0
+    cdef int i=0, j=0, m=0, d=0
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w_A=0, w_B=0
+    cdef FLOAT32_t [:] Z_A = np.zeros(L, dtype=np.float32) # Single protein partition function terms
+    cdef FLOAT32_t [:] Z_B = np.zeros(L, dtype=np.float32) # Single protein partition function terms
+
+    cdef FLOAT32_t Z1 = 0
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            Z1 = 0 # make thread-local
+            # iterate over all k-mers and fill in single motif partition functions
+            for i in range(L):
+                # assigned variables are thread-local
+                index = index_matrix[j, i]
+                a = acc_matrix[j, i + openen_ofs]
+                w_A = aff_A[index] * a
+                w_B = aff_B[index] * a
+                Z_A[i] = w_A
+                # Z_B[i] = w_B
+                
+                Z1 = Z1 + w_A + w_B # add single motif contributions
+
+                # scan "backwards" to add bi-partite contributions
+                # w_B fixed, w_A is read from already populated part of Z_A
+                for m in range(i):
+                    d = i - m
+                    Z1 = Z1 + w_B * dist_cost[d] * Z_A[m]
+            
+            Z[j] = Z1
+
+    return Z.base
+
+
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
+    cdef UINT64_t N = len(Z_A)
+    assert N == len(Z_B)
+    # assert k1 >= k2
+
+    cdef UINT64_t L1 = len(Z_A[0])
+    cdef UINT64_t L2 = len(Z_B[0])
+    
+    cdef UINT64_t L_max = max(L1, L2)
+
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:] Z_corr = np.zeros(2*L_max, dtype=np.float32)
+    cdef FLOAT32_t [:] n_corr = np.zeros(2*L_max, dtype=np.float32)
+
+    # helper variables to tell cython the types
+    cdef FLOAT32_t a=0
+    cdef int i=0, j=0, n=0, ofs = k1 - k2, d =0, shift = 0
+    cdef UINT64_t L1_max, L2_max, L2_start
+
+    # if k1 <= k2:
+    #     ofs = k2 - k1
+    #     L1_max = L1 - k2
+    #     L2_start = k1 - ofs # first k2 mer that does not overlap first k1 mer
+    #     L2_max = L2
+    
+    # else:
+    #     ofs = k1 - k2
+    #     L1_max = L2 + ofs - k1
+    #     L2_start = 0
+    #     L2_max = L2
+
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w=0
+    cdef FLOAT64_t Z1=0 # Single protein partition function
+
+    # with nogil, parallel():
+        # for j in prange(N, schedule='guided'):
+    # with nogil:
+    for n in range(N):
+        # iterate over all k-mers
+        for i in range(L1):
+            for j in range(L2):
+                d = j-i+ofs # separation between the two mers
+                # print k1, k2, ofs, "i,j", i,j, "d",d
+                Z_corr[d+L_max] += Z_A[n,i] * Z_B[n,j]
+                n_corr[d+L_max] += 1
+            
+
+    # print L_max
+    # return (Z_corr.base / n_corr.base)[L_max+1:]
+    return Z_corr.base
 
 
 @cython.boundscheck(False)
@@ -1803,11 +1926,11 @@ def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
 
 
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.initializedcheck(False)
-# @cython.cdivision(True)
-# @cython.overflowcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
     cdef UINT32_t N = len(index_matrix)
     cdef UINT32_t L = len(index_matrix[0])
@@ -1826,6 +1949,36 @@ def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
             n_reads += (hit > 0)
 
     return n_reads
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
+def joint_freq_at_distance(UINT32_t [:,:] index_matrix, UINT64_t k):
+    cdef UINT32_t N = len(index_matrix)
+    cdef UINT32_t L = len(index_matrix[0])
+    cdef UINT32_t Nk = 4**k
+
+    cdef UINT32_t [:,:,:] joint = np.zeros((Nk, Nk, L-k) ,dtype=np.uint32)
+
+    # helper variables to tell cython the types
+    cdef UINT64_t index_A, index_B, i, j, d, hit=0, n_reads=0
+    
+    
+    with nogil:
+        for j in range(N):
+            hit = 0
+            # iterate over all k-mers in the read
+            for i in range(L-k):
+                index_A = index_matrix[j,i]
+                for d in range(k, L-i):
+                    index_B = index_matrix[j,i+d]
+                    joint[index_A, index_B, d-k] += 1
+
+    return joint.base
 
 
 

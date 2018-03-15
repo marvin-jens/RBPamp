@@ -4,7 +4,7 @@ import os
 import numpy as np
 import cska
 import cska.ska_kmers as cyska
-bases = 'ACGU'
+bases = np.array(list('ACGU'))
 base_idx = { 
     'A' : 0,
     'C' : 1,
@@ -69,6 +69,24 @@ def expand(kmer_set, left=True):
             else:
                 yield kmer + nt
     
+def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
+        import weblogolib as wl
+        from corebio.seq import unambiguous_rna_alphabet
+        #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
+        data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
+        #import sys
+        #sys.stderr.write(str( data))
+        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=scale_width, resolution=300)
+        # options.title = "A Logo Title"
+        fmt = wl.LogoFormat(data, options)
+        dump = wl.eps_formatter( data, fmt)
+        
+        if fname:
+            with file(fname,'wb') as f:
+                f.write(dump)
+        
+        return fname
+
 class PSAM(object):
     def __init__(self, psam, A0 = 1e-6):
         self.psam = np.array(psam, dtype=np.float32)
@@ -131,7 +149,37 @@ class PSAM(object):
         psam.kmer_set = kmers
         return psam
 
-            
+
+    @property
+    def kmer_affinities(self):
+        cog = self.psam.argmax(axis=1)
+        cognate = bases[cog]
+        
+        kmers = ["".join(cognate)]
+        aff = [1.]
+        for i in range(self.n):
+            for j in range(4):
+                if j == cog[i]:
+                    continue
+                aff.append(self.psam[i,j])
+                mer = np.array(cognate)
+                mer[i] = bases[j]
+                kmers.append("".join(mer))
+        
+        kmers = np.array(kmers)
+        aff = np.array(aff) * self.A0
+
+        I = aff.argsort()[::-1]
+        return kmers[I], aff[I]
+
+    @property
+    def affinities(self):
+        aff = np.zeros(4**self.n, dtype=np.float32)
+        for kmer, a in zip(*self.kmer_affinities):
+            aff[cyska.seq_to_index(kmer)] = a
+
+        return aff
+
     @property
     def consensus(self):
         return "".join([project_column(col) for col in self.psam])
@@ -170,24 +218,39 @@ class PSAM(object):
         file(fname, 'w').write(str(self))
         
     def save_logo(self, fname='pwm.eps', title=""):
-        import weblogolib as wl
         counts = self.psam
-        from corebio.seq import unambiguous_rna_alphabet
-        #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
-        data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
-        #import sys
-        #sys.stderr.write(str( data))
-        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=False, resolution=300)
-        options.title = "A Logo Title"
-        fmt = wl.LogoFormat(data, options)
-        dump = wl.eps_formatter( data, fmt)
-        
-        
-        if fname:
-            with file(fname,'wb') as f:
-                f.write(dump)
-        
-        return fname
+        weblogo_save(self.psam, fname=fname, title=title, scale_width=False)
+
+    def shrink(self, thresh = .75, n=0):
+        disc = self.discrimination
+        D = disc.sum()
+
+        best = {self.n : (1,0,self.n)}
+        for i in range(self.n):
+            for j in range(i, self.n+1):
+                
+                d = disc[i:j].sum()/D
+                if d >= thresh:
+                    best[j-i] = (d, i,j)
+
+        bylength = sorted(best)        
+        for l in bylength:
+            d,i,j = best[l]
+            print l, d, i,j, self.consensus[i:j]
+
+        if n:
+            d, i, j = best[n]
+        else:
+            d, i, j = best[bylength[0]]    
+
+        psam = self.psam[i:j,:]
+        A0 = self.A0 
+        if i > 0:
+            A0 *= self.psam[:i,:].mean()
+        if j < self.n:
+            A0 *= self.psam[j:,:].mean()
+
+        return PSAM(psam, A0 = A0)
 
 from collections import defaultdict 
 import logging

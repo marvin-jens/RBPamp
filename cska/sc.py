@@ -9,6 +9,7 @@ class SelfConsistency(object):
         self.Z1 = Z1
         self.N = len(Z1)
         self.rna_conc = rna_conc
+        self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))
         
         if bins:
             # logarithmic binning
@@ -34,7 +35,8 @@ class SelfConsistency(object):
         res = minimize_scalar(to_optimize, bounds = (0, rbp_total), method='Bounded')
         t1 = time.time()
         perc = 100. * res.x / rbp_total
-        self.logger.debug("total={0:.1f} free={1:.1f} ({2:.2f}%) in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0)) )
+        complex = rbp_total - res.x
+        self.logger.debug("total RBP={0:.1f} free={1:.1f} ({2:.2f}%) complex={4:.2e} nM in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0), complex) )
         
         return res.x
         
