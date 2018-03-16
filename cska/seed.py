@@ -166,10 +166,13 @@ class DependentKmerAnalysis(object):
         self.B = Alignment()
         self.parts = [self.A, self.B]
         self.partscores = [0, 0]
+        self.logger = logging.getLogger("seed.DependentKmerAnalysis")
         
         profs = []
         joints = []
+        
         for reads in rbns.reads:
+            self.logger.debug("collecting joint kmer frequencies for {reads.name}".format(reads=reads))
             joint = reads.joint_kmer_freq_distance_profile(km)
             joints.append(joint)
             prof = reads.kmer_mutual_information_profile(km)
@@ -177,8 +180,12 @@ class DependentKmerAnalysis(object):
         
         self.profs = np.array(profs)
         self.joints = np.array(joints)
-        self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
-        # print "best_sample", self.best_sample
+        #self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
+        self.best_sample = self.profs.max(axis=1)[1:].argmax() + 1
+        print "best_sample_candidates", self.best_sample, len(rbns.reads)
+        print self.joints.max(axis=3).max(axis=2).max(axis=1)
+        print self.profs.max(axis=1)
+        self.logger.debug("best_sample = {0}".format(rbns.reads[self.best_sample].name) )
 
 
     def build_matrices(self, thresh=.7):
@@ -195,6 +202,7 @@ class DependentKmerAnalysis(object):
 
         for d in range(18):
             # print reads.name, d
+            self.logger.debug("build_matrices(d={0})".format(d))
             
             jR = np.log2(joint / j0)
             jRm = jR.max()
@@ -202,10 +210,10 @@ class DependentKmerAnalysis(object):
 
             for n in I:
                 i, j = np.unravel_index(n, joint.shape[:2])
-                if jR[i,j,d] < jRm * thresh:
+                if jR[i,j,d] <= jRm * thresh:
                     break
                 
-                # print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
+                print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
                 merge = kmers[i] + "-" * d + kmers[j]
                 score = jR[i,j,d]
                 
@@ -234,13 +242,16 @@ class DependentKmerAnalysis(object):
         self.lin_score = S_lin
         self.A_score = S_A
         self.B_score = S_B
+        self.logger.debug("build_matrices() done.")
 
     def linear_PSAM_seed(self, keep_weight=.9, n_max=11):
         # find compact representation of linear motif
+        self.logger.debug("building linear PSAM")
         psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
     def bipartite_PSAM_seeds(self):
+        self.logger.debug("building bipartite PSAMs")
         # find compact representations of sub-motifs
         pA = self.A.to_PSAM(keep_weight=.9)
         pB = self.B.to_PSAM(keep_weight=.9)
@@ -252,9 +263,11 @@ class DependentKmerAnalysis(object):
         return psam_A, psam_B
 
     def bipartite_PSAM_spacings(self, sample=0, psam_A=None, psam_B=None):
+        
         if psam_A == None or psam_B == None:
             psam_A, psam_B = self.bipartite_PSAM_seeds()
 
+        self.logger.debug("computing bipartite PSAM spacing cross-correlations")
         from copy import copy
         psam_A = copy(psam_A)
         psam_B = copy(psam_B)
@@ -283,6 +296,7 @@ class DependentKmerAnalysis(object):
 
 
     def interaction_plot(self):
+        self.logger.debug("generating interaction plot")
         ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[self.best_sample]
         
@@ -351,6 +365,8 @@ class SeedRefinement(object):
         self.store_logos()
 
     def distance_xcorr_plot(self, fname="xcorr.pdf"):
+        self.logger.debug("generating xcorr plot")
+
         ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[self.analysis.best_sample]
         
@@ -371,6 +387,7 @@ class SeedRefinement(object):
         pp.close()
 
     def store_logos(self):
+        self.logger.debug("generating sequence logos")
         path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
