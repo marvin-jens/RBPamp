@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.7"
+__version__ = "0.9.8"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -240,7 +240,7 @@ def main():
             storage_kw.update(dict(discretize=True, disc_dtype=dtype))
         else:
             storage_kw.update(dict(discretize=False, raw_dtype=np.float32))
-
+        logger.info("populating RBNS analysis with reads")
         # populate with experimental data
         for fname, rbp_conc in zip(reads_files, rbp_concentrations):
             reads = RBNSReads(
@@ -258,9 +258,10 @@ def main():
             )
             
             rbns.add_reads(reads)
-        
         # first, compute RBNS metrics
         metrics = options.results.strip().split(',')
+        logger.info("computing RBNS metrics '{0}'".format(metrics))
+
         for k in range(options.min_k, options.max_k + 1):
             rbns.compute_results(k, options, results=metrics, report=options.reports)
             rbns.flush()
@@ -268,6 +269,7 @@ def main():
         ### special run modes: 
         # secondary structure prediction and accessibility recording
         if options.folding:
+            logger.info("folding reads with '{0}' threads".format(options.parallel))
             from cska.fold import parallel_fold
             # prepare outout path
             if not os.path.exists(fold_path):
@@ -288,6 +290,7 @@ def main():
                     n_max = options.n_max,
                     l_insert = rbns.reads[0].L,
                     skip_adap = options.skip_adap,
+                    n_parallel= options.parallel,
                 )
 
 
@@ -332,14 +335,44 @@ def main():
             )
 
             if options.seed_analysis:
-                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params()
+                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params(A0=100., aff0=1e-4)
                 print "first eval"
                 opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
-                from cska.report import p_bound_plot
-                p_bound_plot(opt.current)
                 #opt.mdl.state.dump("initial")
                 print "opt betas"
                 opt.step_betas()
+
+                from copy import copy
+                from cska.report import p_bound_plot
+                p_bound_plot(opt.current)
+                import matplotlib.pyplot as pp
+                pp.figure()
+                # Zs = []N 
+                global Zs
+                for reads in rbns.reads:
+                    im = reads.get_index_matrix(opt.k, _do_not_cache=True)
+                    acc = reads.acc_storage.get_raw(opt.k, _do_not_cache=True).acc
+                    Z1 = opt.mdl._spa_partition_function(im, acc, opt.mdl.parameters.affinities)
+                    Zs.append(Z1)
+                    # state = copy(opt.current)
+                    # state.Z1 = Z1
+
+                    lZ = np.log(Z1)
+                    counts, bins = np.histogram(lZ, bins=1000)
+                    bins = np.exp(bins)
+                    # midpoint integration
+                    aff = (bins[1:] + bins[:-1])/2.
+                    if reads.rbp_conc == 0:
+                        pp.loglog(aff, counts, label=reads.name, color='black')
+                    else:
+                        pp.loglog(aff, counts, label=reads.name)
+
+                pp.legend(loc = 'upper left')
+                pp.xlabel("total read affinity [1/nM]")
+                pp.ylabel("count")
+                pp.savefig("aff_dist_observed.pdf")
+                pp.close()
+                sys.exit(0)
                 #print "step scale"
                 #opt.step_scale(min_scale=.01, max_scale=100.)
                 pwm_opt.pwm0 = SR.psam_lin
@@ -390,6 +423,8 @@ def main():
     else:
         logger.info("run completed.")
         sys.exit(0)
-        
+
+Zs = []
+
 if __name__ == '__main__':
     main()
