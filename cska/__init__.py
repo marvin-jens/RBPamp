@@ -260,8 +260,6 @@ def main():
             rbns.add_reads(reads)
         # first, compute RBNS metrics
         metrics = [m.strip() for m in options.results.strip().split(',') if m.strip()]
-        print metrics
-
         if metrics:
             logger.info("computing RBNS metrics '{0}'".format(metrics))
             for k in range(options.min_k, options.max_k + 1):
