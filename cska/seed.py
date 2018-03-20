@@ -177,6 +177,9 @@ class DependentKmerAnalysis(object):
             joints.append(joint)
             prof = reads.kmer_mutual_information_profile(km)
             profs.append(prof)
+            # free some memory!
+            reads.cache_flush("__cached_get_index_matrix")
+            reads.cache_flush("__cached_seqm")
         
         self.profs = np.array(profs)
         self.joints = np.array(joints)

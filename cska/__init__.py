@@ -259,12 +259,14 @@ def main():
             
             rbns.add_reads(reads)
         # first, compute RBNS metrics
-        metrics = options.results.strip().split(',')
-        logger.info("computing RBNS metrics '{0}'".format(metrics))
+        metrics = [m.strip() for m in options.results.strip().split(',') if m.strip()]
+        print metrics
 
-        for k in range(options.min_k, options.max_k + 1):
-            rbns.compute_results(k, options, results=metrics, report=options.reports)
-            rbns.flush()
+        if metrics:
+            logger.info("computing RBNS metrics '{0}'".format(metrics))
+            for k in range(options.min_k, options.max_k + 1):
+                rbns.compute_results(k, options, results=metrics, report=options.reports)
+                rbns.flush()
 
         ### special run modes: 
         # secondary structure prediction and accessibility recording

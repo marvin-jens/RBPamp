@@ -133,7 +133,7 @@ class RBNSReads(CachedBase):
             adap5 = cyska.seq_to_bits(self.adap5[-k+1:]),
             adap3 = cyska.seq_to_bits(self.adap3[:k-1]),
         )
-        self.logger.debug("get_index_matrix")
+        self.logger.debug("get_index_matrix k={0}".format(k))
         return im
             
        
