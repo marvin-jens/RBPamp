@@ -66,7 +66,7 @@ def main():
     parser.add_option("","--reports",dest="reports",default=False, action="store_true",help="SWITCH: generate PDF reports (default=off)")
     parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
-    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=False, action="store_true",help="SWITCH: activate initial dependent kmer analysis to seed the motifs")
+    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
     parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
     parser.add_option("","--model-epsilon",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
@@ -296,8 +296,9 @@ def main():
 
         # prime the optimization from dependent-kmer analysis
         if options.seed_analysis:
+            logger.info("performing seed analysis")
             from cska.seed import SeedRefinement
-            SR = SeedRefinement(rbns)
+            SR = SeedRefinement(rbns, km=options.seed_analysis)
             k = SR.linear_k
         else:
             k = options.min_k

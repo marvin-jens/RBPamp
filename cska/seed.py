@@ -347,10 +347,11 @@ class DependentKmerAnalysis(object):
         # sys.exit(0)
 
 class SeedRefinement(object):
-    def __init__(self, rbns):
+    def __init__(self, rbns, km=4):
         self.rbns = rbns
-        self.logger = logging.getLogger("opt.SeedRefinement")
-        self.analysis = DependentKmerAnalysis(self.rbns)
+        self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
+        self.km = km
+        self.analysis = DependentKmerAnalysis(self.rbns, km=km)
         self.analysis.build_matrices()
         self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=.75)
         self.logger.info("linear_motif score={0:.2f} for {1}mer {2}".format(self.analysis.linear_motif_score, self.psam_lin.n, self.psam_lin.consensus))
@@ -483,7 +484,7 @@ if __name__ == "__main__":
         )
         rbns.add_reads(reads)
 
-    DK = DependentKmerAnalysis(rbns)    
+    DK = DependentKmerAnalysis(rbns, km=3)    
     DK.build_matrices()
 
     # DK.linear.save_logo("linear.eps")
@@ -492,7 +493,13 @@ if __name__ == "__main__":
     # print "linear alignment"
     # print DK.linear
     # print DK.linear.matrix
+    ls = DK.lin_score / DK.linear.wlen
+    ABs = (DK.A_score + DK.B_score) / (DK.A.wlen + DK.B.wlen)
+    print "A effective length", DK.A.wlen, "score", DK.A_score, "score-density", DK.A_score/DK.A.wlen
+    print "B effective length", DK.B.wlen, "score", DK.B_score, "score-density", DK.B_score/DK.B.wlen
+    print "combined", DK.A.wlen + DK.B.wlen, "score", DK.A_score + DK.B_score, "score-density", (DK.A_score + DK.B_score)/(DK.A.wlen + DK.B.wlen)
 
+    print "linear eff length", DK.linear.wlen, "score", DK.lin_score, "score-density", DK.lin_score/DK.linear.wlen
     print "linear_motif score", DK.linear_motif_score
 
     DK.interaction_plot()
