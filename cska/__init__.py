@@ -97,7 +97,9 @@ def main():
     parser.add_option("","--disable-caching",dest="disable_caching",default=False, action="store_true",help="DEBUG: disable transparent caching (SLOW!)")
     parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
+    
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
+    parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("","--fold",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
@@ -245,6 +247,7 @@ def main():
         for fname, rbp_conc in zip(reads_files, rbp_concentrations):
             reads = RBNSReads(
                 fname, 
+                format = options.format,
                 rbp_conc=rbp_conc,
                 rbp_name = rbp_name,
                 n_max=options.n_max, 
@@ -278,9 +281,8 @@ def main():
             # fold the reads
             for reads in rbns.reads:
                 logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
-                
                 parallel_fold(
-                    file(reads.fname,'r'), 
+                    reads.iter_reads(), 
                     reads.acc_storage,
                     temp = reads.temp,
                     adap5 = options.adap5,
