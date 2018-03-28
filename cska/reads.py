@@ -66,9 +66,9 @@ class RBNSReads(CachedBase):
 
 
     @classmethod
-    def from_seqs(cls, seqs, **kwargs):
+    def from_seqs(cls, seqs, fname = "", **kwargs):
         
-        reads = cls("", **kwargs)
+        reads = cls(fname, **kwargs)
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
         seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)

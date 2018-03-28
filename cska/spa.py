@@ -250,6 +250,26 @@ class ParamInterface(object):
     def betas(self):
         return self.mdl.params[self.nA:]
 
+    def load_rbpbind(self, path):
+        params = np.zeros(self.n_params, dtype=np.float32)
+
+        aff = []
+        ind = []
+        for i, line in enumerate(file(path)):
+            if i < 2:
+                # skip header
+                continue
+            seq, a = line.split()
+            aff.append(a)
+            ind.append(cyska.seq_to_index(seq))
+
+        aff = np.array(aff, dtype=np.float32)
+        ind = np.array(ind)
+        params[ind] = aff
+
+        self.mdl.params = params
+
+
     def load(self, path):
         params = []
         k = 0
@@ -270,9 +290,14 @@ class ParamInterface(object):
 
         params = np.array(params, dtype=np.float32)
         assert k == self.mdl.k
-        assert len(params) == self.n_params
+        if len(params) != self.n_params:
+            self.logger.warning("expected {0} but read {1} params. Trying to accomodate.".format(self.n_params, len(params)))
 
-        self.mdl.params = params
+        if len(params) < self.n_params:
+            self.mdl.params[:self.nA] = params[:self.nA]
+        else:
+            self.mdl.params = params[:self.n_params]
+
         self.logger.info("loaded model parameters from {0}".format(fname))
         self.source = fname
 
@@ -425,24 +450,24 @@ class SPAModel(object):
         self.parameters = ParamInterface(self)
 
 
-    def new_subsample(self):
+    def new_subsample(self, indices = []):
         t0 = time.time()
 
-        if not self.n_subsample:
-            if len(self.subsample_indices):
-                # de-activated subsampling and we already have everything in place!
-                return
-            
-            indices = np.arange(self.reads.N)
-        else:
-            self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
-            if self.sub_replace:
-                indices = cyska.fast_randint(self.n_subsample, self.reads.N)
+        if not len(indices):
+            if not self.n_subsample:
+                if len(self.subsample_indices):
+                    # de-activated subsampling and we already have everything in place!
+                    return
+                
+                indices = np.arange(self.reads.N)
             else:
-                indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
-            t1 = time.time()
-            self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
-
+                self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
+                if self.sub_replace:
+                    indices = cyska.fast_randint(self.n_subsample, self.reads.N)
+                else:
+                    indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+                t1 = time.time()
+                self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
 
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
@@ -487,7 +512,12 @@ class SPAModel(object):
             acc = self.subsample_acc
         else:
             seqm = self.reads.seqm[indices]
-            im = cyska.seq_matrix_to_index_matrix(seqm, self.k)
+            im = cyska.seq_matrix_to_index_matrix(
+                seqm, 
+                self.k,
+                adap5 = cyska.seq_to_bits(self.reads.adap5[-self.k+1:]),
+                adap3 = cyska.seq_to_bits(self.reads.adap3[:self.k-1]),
+            )
             #oem = self.openen.oem[indices]
             acc = self.openen.acc[indices]
 
