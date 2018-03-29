@@ -209,6 +209,48 @@ class PSAM(object):
         pass # TODO: implement
 
 
+    def kmer_affinity_table(self, relA_thresh=1e-6):
+
+        I = (-self.psam).argsort()
+        A0 = self.A0
+
+        ind0 = self.psam.argmax(axis=1)
+        mers = [''.join(bases[ind0]),]
+        aff = [A0,]
+        uniq = set()
+        mers = []
+        aff = []
+        def recurse(A0, IND, col_first):
+            # print "recurse", A0, IND, col_first
+            if col_first >= self.n:
+                return
+
+            # for col in range(col_first, self.n):
+            col = col_first
+            ind = np.array(IND) # make a fresh copy
+            for i in range(0,4):
+                row = I[col,i] 
+                a0 = A0 * self.psam[col, row]
+
+                if a0 < relA_thresh*self.A0:
+                    # print col_first, col, i, "break"
+                    break
+                
+                ind[col] = row
+                mer = ''.join(bases[ind])                
+                if not mer in uniq:
+                    mers.append(mer)
+                    aff.append(a0)
+                    # print col_first, col, i, mer, '->', a0
+                    uniq.add(mer)
+
+                for j in range(col_first+1, self.n):
+                    recurse(a0, ind, j)
+
+        recurse(self.A0, ind0, 0)
+        return np.array(mers), np.array(aff)
+
+
     @property
     def kmer_affinities(self):
         # TODO: need smarter way to (recursively) construct set of relevant kmers
@@ -315,7 +357,25 @@ class PSAM(object):
 
     def store_params(self, fname):
         file(fname, 'w').write(str(self))
-        
+
+    @classmethod
+    def load(cls, fname):
+        A0 = 1.
+        aff = []
+        with file(fname) as f:
+            for line in f:
+                if line.startswith('PSAM'):
+                    A0 = float(line.split()[1].split('=')[1])
+                elif line.startswith('seeded'):
+                    break
+                else:
+                    parts = line.split('\t')
+                    aff.append(parts[:4])
+
+        psam = np.array(aff, dtype=np.float32)
+        return cls(psam, A0=A0)
+
+
     def save_logo(self, fname='pwm.eps', title=""):
         counts = self.psam
         weblogo_save(self.psam, fname=fname, title=title, scale_width=False)
@@ -960,25 +1020,35 @@ def opt_merge(p0, pk, padding):
     
     
 if __name__ == "__main__":
-    def is_shifted(kmer, s_max=2):
-        k = len(kmer)
-        kmer_pwm_map = {'TGCATG':1}
-        #print "mapped", sorted(self.pwm_by_kmer.keys())
-        for x in range(1,s_max+1):
-            for pad in list(cyska.yield_kmers(x)):
-                rshifted = (pad + kmer[:k-x]).lower()
-                lshifted = (kmer[x:]+pad).lower()
-                print "l", x, kmer, lshifted
-                print "r", x, kmer, rshifted
-                if lshifted in kmer_pwm_map:
-                    seed = kmer_pwm_map[lshifted].kmer_seed
-                    return -x, seed, kmer[:x] + seed
-                elif rshifted in kmer_pwm_map:
-                    seed = kmer_pwm_map[rshifted].kmer_seed
-                    return x, seed, seed + kmer[-x:]
+    # def is_shifted(kmer, s_max=2):
+    #     k = len(kmer)
+    #     kmer_pwm_map = {'TGCATG':1}
+    #     #print "mapped", sorted(self.pwm_by_kmer.keys())
+    #     for x in range(1,s_max+1):
+    #         for pad in list(cyska.yield_kmers(x)):
+    #             rshifted = (pad + kmer[:k-x]).lower()
+    #             lshifted = (kmer[x:]+pad).lower()
+    #             print "l", x, kmer, lshifted
+    #             print "r", x, kmer, rshifted
+    #             if lshifted in kmer_pwm_map:
+    #                 seed = kmer_pwm_map[lshifted].kmer_seed
+    #                 return -x, seed, kmer[:x] + seed
+    #             elif rshifted in kmer_pwm_map:
+    #                 seed = kmer_pwm_map[rshifted].kmer_seed
+    #                 return x, seed, seed + kmer[-x:]
 
-        return 0, kmer, kmer
+    #     return 0, kmer, kmer
 
-    "gggcat is 1-shift of TGCATG"
-    "ttgggc is 2-shift of GTGCAT"
-    print is_shifted('gggcat')
+    # "gggcat is 1-shift of TGCATG"
+    # "ttgggc is 2-shift of GTGCAT"
+    # print is_shifted('gggcat')
+    import sys
+    psam = PSAM.load(sys.argv[1])
+
+    print psam
+    # psam.kmer_affinity_table()
+    kmers, aff = psam.kmer_affinity_table()
+    print len(kmers)
+    I = aff.argsort()[::-1]
+    for mer, a in zip(kmers[I], aff[I]):
+        print mer, a
