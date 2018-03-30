@@ -68,6 +68,7 @@ def main():
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
     parser.add_option("","--model-resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
+    parser.add_option("","--model-pwm-init",dest="mdl_pwm_init",default=None,help="start with affinity parameters from this PWM file for further optimization")
     parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
     parser.add_option("","--model-epsilon",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
     parser.add_option("","--model-sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
@@ -297,11 +298,18 @@ def main():
 
 
         # prime the optimization from dependent-kmer analysis
+        from cska.pwm import PWMOptimizer, PSAM
         if options.seed_analysis:
             logger.info("performing seed analysis")
             from cska.seed import SeedRefinement
             SR = SeedRefinement(rbns, km=options.seed_analysis)
             k = SR.linear_k
+
+        elif options.mdl_pwm_init:
+            logger.info("resuming from PWM: '{0}'".format(options.mdl_pwm_init))
+            pwm = PSAM.load(options.mdl_pwm_init)
+            k = pwm.n
+            print pwm
         else:
             k = options.min_k
 
@@ -315,10 +323,7 @@ def main():
                 sub_replace=False, 
                 param_file=options.mdl_resume,
                 kmer_opt_global=options.kmer_opt_global,
-
             )
-
-            from cska.pwm import PWMOptimizer
             pwm_opt = PWMOptimizer(k, options.max_k, opt)
             
             from cska.comparison import RefComparison
@@ -338,47 +343,57 @@ def main():
             )
 
             if options.seed_analysis:
-                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params(A0=100., aff0=1e-4)
+                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params(A0=100., aff0=1e-5)
                 print "first eval"
                 opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
                 #opt.mdl.state.dump("initial")
                 print "opt betas"
                 opt.step_betas()
+                pwm_opt.pwm0 = SR.psam_lin
 
-                from copy import copy
-                from cska.report import p_bound_plot
-                p_bound_plot(opt.current)
-                import matplotlib.pyplot as pp
-                pp.figure()
-                # Zs = []N 
-                global Zs
-                for reads in rbns.reads:
-                    im = reads.get_index_matrix(opt.k, _do_not_cache=True)
-                    acc = reads.acc_storage.get_raw(opt.k, _do_not_cache=True).acc
-                    Z1 = opt.mdl._spa_partition_function(im, acc, opt.mdl.parameters.affinities)
-                    Zs.append(Z1)
-                    # state = copy(opt.current)
-                    # state.Z1 = Z1
+            if options.mdl_pwm_init:
+                opt.mdl.params[:opt.mdl.nA] = pwm.kmer_affinity_table(aff0=1e-5)
+                print "first eval"
+                opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
+                #opt.mdl.state.dump("initial")
+                print "opt betas"
+                opt.step_betas()
+                pwm_opt.pwm0 = pwm
 
-                    lZ = np.log(Z1)
-                    counts, bins = np.histogram(lZ, bins=1000)
-                    bins = np.exp(bins)
-                    # midpoint integration
-                    aff = (bins[1:] + bins[:-1])/2.
-                    if reads.rbp_conc == 0:
-                        pp.loglog(aff, counts, label=reads.name, color='black')
-                    else:
-                        pp.loglog(aff, counts, label=reads.name)
+                # from copy import copy
+                # from cska.report import p_bound_plot
+                # p_bound_plot(opt.current)
+                # import matplotlib.pyplot as pp
+                # pp.figure()
+                # # Zs = []N 
+                # global Zs
+                # for reads in rbns.reads:
+                #     im = reads.get_index_matrix(opt.k, _do_not_cache=True)
+                #     acc = reads.acc_storage.get_raw(opt.k, _do_not_cache=True).acc
+                #     Z1 = opt.mdl._spa_partition_function(im, acc, opt.mdl.parameters.affinities)
+                #     Zs.append(Z1)
+                #     # state = copy(opt.current)
+                #     # state.Z1 = Z1
 
-                pp.legend(loc = 'upper left')
-                pp.xlabel("total read affinity [1/nM]")
-                pp.ylabel("count")
-                pp.savefig("aff_dist_observed.pdf")
-                pp.close()
-                sys.exit(0)
+                #     lZ = np.log(Z1)
+                #     counts, bins = np.histogram(lZ, bins=1000)
+                #     bins = np.exp(bins)
+                #     # midpoint integration
+                #     aff = (bins[1:] + bins[:-1])/2.
+                #     if reads.rbp_conc == 0:
+                #         pp.loglog(aff, counts, label=reads.name, color='black')
+                #     else:
+                #         pp.loglog(aff, counts, label=reads.name)
+
+                # pp.legend(loc = 'upper left')
+                # pp.xlabel("total read affinity [1/nM]")
+                # pp.ylabel("count")
+                # pp.savefig("aff_dist_observed.pdf")
+                # pp.close()
+
                 #print "step scale"
                 #opt.step_scale(min_scale=.01, max_scale=100.)
-                pwm_opt.pwm0 = SR.psam_lin
+                
 
             try:
                 pwm_opt.optimize(eps=options.mdl_epsilon)

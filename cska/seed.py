@@ -347,13 +347,13 @@ class DependentKmerAnalysis(object):
         # sys.exit(0)
 
 class SeedRefinement(object):
-    def __init__(self, rbns, km=4):
+    def __init__(self, rbns, km=4, keep_weight=.75):
         self.rbns = rbns
         self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
         self.km = km
         self.analysis = DependentKmerAnalysis(self.rbns, km=km)
         self.analysis.build_matrices()
-        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=.75)
+        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=keep_weight)
         self.logger.info("linear_motif score={0:.2f} for {1}mer {2}".format(self.analysis.linear_motif_score, self.psam_lin.n, self.psam_lin.consensus))
         self.psam_A, self.psam_B = self.analysis.bipartite_PSAM_seeds()
         self.linear_k = self.psam_lin.n
@@ -404,16 +404,8 @@ class SeedRefinement(object):
     def linear_seed_params(self, A0=1., aff0=1e-6):
         psam = self.psam_lin
         psam.A0 = A0
-        print psam
-        aff = psam.affinities + aff0
-        for i in (-aff).argsort()[:100]:
-            print cyska.index_to_seq(i, psam.n), aff[i]
 
-        # for mer, a in zip(*psam.kmer_affinities):
-        #     print mer, a
-
-        # sys.exit(0)
-        return aff
+        return psam.kmer_affinity_table(aff0-aff0)
 
     # def optimize(self, eps=1e-3, A0=1.):
 

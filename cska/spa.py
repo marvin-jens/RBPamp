@@ -233,10 +233,16 @@ class ParamInterface(object):
         self.source = "n/a"
 
         # TODO: replace this lookup by a function to avoid memory waste for high k
-        self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
-        self.param_index = {}
-        for i, name in enumerate(self.param_name):
-            self.param_index[name] = i
+        # self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
+        # self.param_index = {}
+        # for i, name in enumerate(self.param_name):
+        #     self.param_index[name] = i
+
+    def get_param_name(self, i):
+        if i < self.nA:
+            return cyska.index_to_seq(i, self.k)
+        else:
+            return "beta{0}".format(i - self.nA)
 
     @property
     def affinities(self):
@@ -301,14 +307,16 @@ class ParamInterface(object):
         self.logger.info("loaded model parameters from {0}".format(fname))
         self.source = fname
 
-    def store(self, path):
-        fname = os.path.join(path, '{self.k}mer_affinities.tsv'.format(self=self))
+    def store(self, path, params=[], suffix=""):
+        fname = os.path.join(path, '{self.k}mer_affinities{suffix}.tsv'.format(self=self, suffix=suffix))
+        if not len(params):
+            params = self.mdl.params
 
         self.logger.info("storing model parameters in '{0}'".format(fname))
         with file(fname, 'w') as f:
             f.write('# {0}mer\taffinity [1/nM]\tKd [nM]\n'.format(self.k) )
-            for i in xrange(self.n_params):
-                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], self.mdl.params[i], 1./self.mdl.params[i]))
+            for i in xrange(len(params)):
+                f.write('{0}\t{1}\t{2}\n'.format(self.get_param_name(i), params[i], 1./params[i]))
         
     def assign(self, params):
         assert len(params) == self.n_params
@@ -338,8 +346,8 @@ class ParamInterface(object):
         n = (aff > aff0).sum()
         mina = aff.min()
         maxa = aff.max()
-        mink = self.param_name[aff.argmin()]
-        maxk = self.param_name[aff.argmax()]
+        mink = self.get_param_name(aff.argmin())
+        maxk = self.get_param_name(aff.argmax())
         return "model params from '{self.source}': {n} above aff0, min_aff={mina:.3e} ({mink}), max_aff={maxa:.3e} ({maxk})".format(**locals()) 
 
     def __str__(self):
