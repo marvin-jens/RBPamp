@@ -16,7 +16,7 @@ from cska.spa import SPAState, SPAPartition, SPAModel
 
                  
 class ModelOptimization(object):
-    def __init__(self, k, rbns_analysis, n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=10000, param_file=None, tm_refresh=.02, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False):
+    def __init__(self, k, rbns_analysis, n_subsample=0, sub_replace=False, aff0=1e-6, aff_min=1e-12, aff_max=1000, param_file=None, tm_refresh=.02, reporter=None, mdl_params=[],t0=0, kmer_opt_global=False):
         self.k = k
 
         # RBNS input sample to iterate on
@@ -271,7 +271,7 @@ class ModelOptimization(object):
             err0 = self.global_error(ground_state.R)
 
         params = np.array(ground_state.params)
-        name = self.mdl.parameters.get_param_name(param_i)
+        name = self.mdl.parameters.param_name[param_i]
         A0 = ground_state.params[param_i]
 
         if param_i < self.mdl.parameters.nA:
@@ -365,7 +365,7 @@ class ModelOptimization(object):
         """
         import matplotlib.pyplot as pp
         pp.figure()
-        name = self.mdl.parameters.get_param_name(param_i)
+        name = self.mdl.parameters.param_name[param_i]
         pp.title("parameter optimization")
         #pp.title("t={0} conc={1}".format(self.t, self.rbp_conc[conc_i]))
         params = np.array(self.current.params)
@@ -427,7 +427,7 @@ class ModelOptimization(object):
     #     best, err, new_state = self.optimize_single_param(param_i, local = self.param_local_fit)
 
     #     update = new_state.params - self.current.params
-    #     name = self.mdl.get_param_name(param_i)
+    #     name = self.mdl.param_name[param_i]
     #     imp = self.update(new_state, err, "single parameter optimization {name} -> {best:.3e} (err={err:.3e})".format(**locals()))
     #     # notify the scheduler of the param change and its consequences
     #     self.sched.param_changed(param_i, self.t, imp)

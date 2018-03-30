@@ -597,9 +597,9 @@ class PWMOptimizer(object):
     
     def get_pwms(self, thresh=100.):
         covered_kmers = set()
+        names = self.opt.mdl.parameters.param_name
         # kmers in reverse affinity order
         aff = self.opt.current.params[:self.opt.nA]
-        # get_param_name = self.opt.mdl.parameters.get_param_name
         I = aff.argsort()[::-1]
         A0 = aff[I[0]]
         last_explained = np.zeros(self.opt.n_conc)
@@ -608,7 +608,7 @@ class PWMOptimizer(object):
         for i in I:
             #print "covered", sorted(covered_kmers)
             a = aff[i]
-            kmer_seed = self.opt.mdl.parameters.get_param_name(i).lower()
+            kmer_seed = names[i].lower()
             #print "checking ",kmer_seed,aff[i]
             if a < A0/thresh:
                 break

@@ -218,6 +218,30 @@ class SPAPartition(object):
 
         return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi, rbp_free)
         
+class ParamNameProxy(object):
+    def __init__(self, iface):
+        self.iface = iface
+    
+    def __len__(self):
+        return self.iface.n_params
+    
+    def __getitem__(self, I):
+        if hasattr(I, "__len__"):
+            # it's an array
+            return np.array([self.get_param_name(i) for i in I])
+        else:
+            return self.get_param_name(I)
+
+    def get_param_name(self, i):
+        if i < self.iface.nA:
+            return cyska.index_to_seq(i, self.iface.k)
+        else:
+            return "beta{0}".format(i - self.iface.nA)
+
+    def __iter__(self):
+        for i in xrange(self.iface.n_params):
+            yield self[i]
+
 class ParamInterface(object):
     """
     Delegate class. Used by SPAModel to handle parameter related functionality. Format checking,
@@ -231,6 +255,7 @@ class ParamInterface(object):
         self.n_params = self.nA + self.n_beta
         self.logger = logging.getLogger("model.ParamInterface")
         self.source = "n/a"
+        self.param_name = ParamNameProxy(self)
 
         # TODO: replace this lookup by a function to avoid memory waste for high k
         # self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
@@ -238,11 +263,11 @@ class ParamInterface(object):
         # for i, name in enumerate(self.param_name):
         #     self.param_index[name] = i
 
-    def get_param_name(self, i):
-        if i < self.nA:
-            return cyska.index_to_seq(i, self.k)
-        else:
-            return "beta{0}".format(i - self.nA)
+    # def get_param_name(self, i):
+    #     if i < self.nA:
+    #         return cyska.index_to_seq(i, self.k)
+    #     else:
+    #         return "beta{0}".format(i - self.nA)
 
     @property
     def affinities(self):
@@ -308,7 +333,7 @@ class ParamInterface(object):
         self.source = fname
 
     def store(self, path, params=[], suffix=""):
-        fname = os.path.join(path, '{self.k}mer_affinities{suffix}.tsv'.format(self=self, suffix=suffix))
+        fname = cska.ensure_path(os.path.join(path, '{self.k}mer_affinities{suffix}.tsv'.format(self=self, suffix=suffix)))
         if not len(params):
             params = self.mdl.params
 
@@ -316,7 +341,7 @@ class ParamInterface(object):
         with file(fname, 'w') as f:
             f.write('# {0}mer\taffinity [1/nM]\tKd [nM]\n'.format(self.k) )
             for i in xrange(len(params)):
-                f.write('{0}\t{1}\t{2}\n'.format(self.get_param_name(i), params[i], 1./params[i]))
+                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], params[i], 1./params[i]))
         
     def assign(self, params):
         assert len(params) == self.n_params
@@ -346,8 +371,8 @@ class ParamInterface(object):
         n = (aff > aff0).sum()
         mina = aff.min()
         maxa = aff.max()
-        mink = self.get_param_name(aff.argmin())
-        maxk = self.get_param_name(aff.argmax())
+        mink = self.param_name[aff.argmin()]
+        maxk = self.param_name[aff.argmax()]
         return "model params from '{self.source}': {n} above aff0, min_aff={mina:.3e} ({mink}), max_aff={maxa:.3e} ({maxk})".format(**locals()) 
 
     def __str__(self):
