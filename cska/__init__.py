@@ -324,7 +324,7 @@ def main():
                 param_file=options.mdl_resume,
                 kmer_opt_global=options.kmer_opt_global,
             )
-            pwm_opt = PWMOptimizer(k, options.max_k, opt)
+            pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
             
             from cska.comparison import RefComparison
             if options.compare:
@@ -342,22 +342,13 @@ def main():
                 ref = ref,
             )
 
+            seed_params = None
             if options.seed_analysis:
-                opt.mdl.params[:opt.mdl.nA] = SR.linear_seed_params(A0=100., aff0=1e-5)
-                print "first eval"
-                opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
-                #opt.mdl.state.dump("initial")
-                print "opt betas"
-                opt.step_betas()
+                seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
                 pwm_opt.pwm0 = SR.psam_lin
 
             if options.mdl_pwm_init:
-                opt.mdl.params[:opt.mdl.nA] = pwm.kmer_affinity_table(aff0=1e-5)
-                print "first eval"
-                opt.current = opt.mdl.evaluate(opt.mdl.params, tm_update=True, keep=True)
-                #opt.mdl.state.dump("initial")
-                print "opt betas"
-                opt.step_betas()
+                seed_params = pwm.kmer_affinity_table(aff0=1e-5)
                 pwm_opt.pwm0 = pwm
 
                 # from copy import copy
@@ -396,9 +387,11 @@ def main():
                 
 
             try:
-                pwm_opt.optimize(eps=options.mdl_epsilon)
+                pwm_opt.optimize(seed_params=seed_params)
             except KeyboardInterrupt:
-                opt.logger.warning("Keyboard interrupt")
+                opt.logger.warning("Keyboard interrupt while in:")
+                exc = traceback.format_exc()
+                logger.error(exc)
                 
             opt.reporter.close()
             pwm_opt.store_params()

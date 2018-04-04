@@ -256,18 +256,9 @@ class ParamInterface(object):
         self.logger = logging.getLogger("model.ParamInterface")
         self.source = "n/a"
         self.param_name = ParamNameProxy(self)
-
-        # TODO: replace this lookup by a function to avoid memory waste for high k
-        # self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
-        # self.param_index = {}
-        # for i, name in enumerate(self.param_name):
-        #     self.param_index[name] = i
-
-    # def get_param_name(self, i):
-    #     if i < self.nA:
-    #         return cyska.index_to_seq(i, self.k)
-    #     else:
-    #         return "beta{0}".format(i - self.nA)
+        # initialize empty parameter vector
+        if self.mdl.params == None or len(self.mdl.params) == 0:
+            self.mdl.params = np.ones(self.n_params, dtype=np.float32)
 
     @property
     def affinities(self):

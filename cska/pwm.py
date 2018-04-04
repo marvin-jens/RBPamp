@@ -131,10 +131,10 @@ class OptimizationStatus(object):
             for v in values:
                 print cat, v
         
-        print ">>>>PWM un-related errors", unrel_error
-        for cat, values in unrel.items():
-            for v in values:
-                print cat, v
+        # print ">>>>PWM un-related errors", unrel_error
+        # for cat, values in unrel.items():
+        #     for v in values:
+        #         print cat, v
 
         return pwm_rel, pwm_rel_error, unrel, unrel_error
             
@@ -272,8 +272,8 @@ class PSAM(object):
         params = np.zeros(4**self.n, dtype=np.float32) + aff0
         kmers, aff = self.kmer_affinities(relA_thresh=aff0/self.A0)
 
-        for i in (-aff).argsort()[:100]:
-            print kmers[i], aff[i]
+        # for i in (-aff).argsort()[:100]:
+        #     print kmers[i], aff[i]
 
         ind = np.array([cyska.seq_to_index(mer) for mer in kmers])
         params[ind] = aff
@@ -399,11 +399,14 @@ class PSAM(object):
 from collections import defaultdict 
 import logging
 class PWMOptimizer(object):
-    def __init__(self, k_min, k_max, opt):
+    def __init__(self, k_min, k_max, opt, lag=3, eps=1e-2, max_iter=1000):
         self.k = k_min
         self.k_max = k_max
         self.nA = 4**k_min
         self.opt = opt
+        self.lag = lag
+        self.eps = eps
+        self.max_iter = max_iter
         self.pwm_by_kmer = {}
         self.pwms = {}
         self.errors = []
@@ -568,6 +571,12 @@ class PWMOptimizer(object):
 
         return kmers[I], kmer_indices[I], kmer_aff[I]
 
+    def build_pwm(self, kmer_seed):
+        # build the PWM from its hull
+        kmer_set, kmer_indices, kmer_aff = self.retrieve_aff_kmer_set(PSAM.from_kmer(kmer_seed).kmer_set, self.opt.current)
+        pwm = PSAM.from_kmer_variants(kmer_set, kmer_aff)
+        return pwm
+
     def pwm_optimize_hull(self, kmer, keep_pwm=True):
         
         # create a PWM "centered" on the seeding kmer
@@ -595,6 +604,14 @@ class PWMOptimizer(object):
         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.3e} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
         return pwm, d_err
     
+    def pwm_optimize_shell(self, pwm):
+        kmers, aff = pwm.kmer_affinities(relA_thresh=self.opt.aff0/pwm.A0)
+        I = (-aff).argsort()
+        kmer_set = kmers[I]
+        kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
+        return self.build_pwm(kmers[0]), d_err
+            
+
     def get_pwms(self, thresh=100.):
         covered_kmers = set()
         names = self.opt.mdl.parameters.param_name
@@ -681,17 +698,46 @@ class PWMOptimizer(object):
         self.save_pwms()
 
 
-    def optimize(self, max_iter=1000, eps=1e-2):
+    def rel_change(self):
+        if len(self.last_improvements) > self.lag:
+            mean_improve = np.mean(np.array(self.last_improvements)[-self.lag:])
+            mean_error = np.mean(np.array(self.errors)[-self.lag:])
+            last_error = self.errors[-1]
+            rc = mean_improve / mean_error
+            self.logger.debug("t={self.t} mean_improve={mean_improve:.2e}, mean_error={mean_error:.2e} last_error={last_error:.2e} rel_change={rc:.2e} eps={self.eps}".format(**locals()))
+            
+            return rc
+        else:
+            return self.eps
+
+    def optimize(self, seed_params=[]):
+        if len(seed_params):
+            self.opt.mdl.params[:len(seed_params)] = seed_params
+            self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
+            self.opt.step_betas()
+
         self.opt.reporter.tick(0)
         self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
-        for t in range(max_iter):
-            if not self.next_move(eps=eps):
-                break
+        
+        err0 = self.opt.global_error(self.opt.current.R)
+        self.errors.append(err0)
+
+        for t in xrange(self.max_iter):
+            err = self.next_move()
+            d_err = self.errors[-1] - err
+            self.errors.append(err)
+            self.last_improvements.append(d_err)
+
+            if self.rel_change() < self.eps:
+                if not len(seed_params) and self.k < self.k_max:
+                    self.increase_k()
+                else:
+                    break
 
         self.opt.reporter.trigger_plots(self.opt.t, occasion="final")
         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
         
-    def next_move(self, lag=3, eps=1e-2):
+    def next_move(self):
         # if self.t == 0:
         #     self.increase_k() # force k increase to test degradation of fit
         
@@ -701,28 +747,7 @@ class PWMOptimizer(object):
 
         corr = self.opt.correlation()
         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
-        last_improvements = ",".join(["{0:.3e}".format(i) for i in self.last_improvements[-lag:]])
         
-        err0 = self.opt.global_error(self.opt.current.R)
-        self.errors.append(err0)
-        self.logger.debug("current_error={err0:.2e} last last_improvements: {last_improvements}".format(**locals()) )
-        
-        if len(self.last_improvements) >= lag:
-            mean_improve = np.mean(np.array(self.last_improvements)[-lag:])
-            last_error = self.errors[-1]
-            rel_change = - mean_improve / last_error
-            self.logger.info("mean_improve={mean_improve:.2e}, last_error={last_error:.2e} rel_change={rel_change:.2e} eps={eps}".format(**locals()))
-            
-            if rel_change < eps:
-                self.logger.warning("t={self.t} no reasonable improvements achieved over past {lag} iterations. Switching to k+1={kn}".format(lag=lag, kn=self.k+1, self=self))
-                self.store_params()
-                if self.k < self.k_max:
-                    self.opt.reporter.trigger_plots(self.opt.t, occasion="before_increase_k")
-                    self.increase_k()
-                    return True
-                else:
-                    return False
-
         status = OptimizationStatus(self.pwm0, self.opt.current, self.opt)
         op, data = status.best_update_set()
         self.logger.debug("best_update: {0} ({1})".format(op, data))
@@ -747,9 +772,13 @@ class PWMOptimizer(object):
         aff = self.opt.mdl.parameters.affinities
         best_kmer_i = aff.argmax()
         best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
+
+
         print "best kmer after op", best_kmer, aff[best_kmer_i]
-        self.pwm0, d_err = self.pwm_optimize_hull(best_kmer)
+        pwm0 = self.build_pwm(best_kmer)
+        self.pwm0, d_err = self.pwm_optimize_shell(pwm0)
         print self.pwm0
+        self.save_pwms()
 
         # i, kmer, res = self.worst_kmer(debug=True)
         # keep_pwm = True
@@ -772,12 +801,7 @@ class PWMOptimizer(object):
         err = self.opt.global_error(self.opt.current.R)
 
         self.t += 1
-        self.last_improvements.append(err-err0)
-        
-        # test new PWM output
-        self.save_pwms()
-
-        return self.pwm0
+        return err
         
     def params_for_k_increase(self, waterline = None):
         """

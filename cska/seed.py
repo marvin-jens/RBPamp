@@ -247,7 +247,7 @@ class DependentKmerAnalysis(object):
         self.B_score = S_B
         self.logger.debug("build_matrices() done.")
 
-    def linear_PSAM_seed(self, keep_weight=.9, n_max=11):
+    def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
         # find compact representation of linear motif
         self.logger.debug("building linear PSAM")
         psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
