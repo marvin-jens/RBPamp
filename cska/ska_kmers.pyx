@@ -1253,6 +1253,37 @@ def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_thre
 @cython.initializedcheck(False)
 @cython.cdivision(True)
 @cython.overflowcheck(False)
+def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
+    cdef UINT64_t k = pwm.base.shape[0]
+    cdef UINT64_t Na = 4**k
+
+    # store parameters here
+    cdef FLOAT32_t [:] params = np.zeros(Na, dtype = np.float32) + aff0
+    cdef int i,j,n,ind,l
+    cdef FLOAT32_t A=0
+
+    with nogil, parallel(num_threads=8):
+        for i in prange(Na, schedule='guided'):
+    # for i in range(Na):
+            A = A0
+            ind = i
+            l = k-1
+            for j in range(k):
+                n = ind & 3
+                A = A * pwm[l,n]
+                ind = ind >> 2
+                l = l - 1
+            params[i] = max(A, aff0)
+            
+    return params.base
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+@cython.overflowcheck(False)
 def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
