@@ -4,6 +4,7 @@ import os
 import numpy as np
 import cska
 import cska.ska_kmers as cyska
+
 bases = np.array(list('ACGU'))
 base_idx = { 
     'A' : 0,
@@ -16,7 +17,7 @@ base_idx = {
 ambig = "-NMRWSYKVHDBACGUT"
 ambig_index = dict([(code, n) for n,code in enumerate(ambig)])
 ambig_vectors = np.array([
-    # A    C    G    T
+    # A    C    G    U
     [0.0, 0.0, 0.0, 0.0],
     [.25, .25, .25, .25],
     [0.5, 0.5, 0.0, 0.0],
@@ -269,14 +270,7 @@ class PSAM(object):
 
 
     def kmer_affinity_table(self, aff0=1e-6):
-        params = np.zeros(4**self.n, dtype=np.float32) + aff0
-        kmers, aff = self.kmer_affinities(relA_thresh=aff0/self.A0)
-
-        # for i in (-aff).argsort()[:100]:
-        #     print kmers[i], aff[i]
-
-        ind = np.array([cyska.seq_to_index(mer) for mer in kmers])
-        params[ind] = aff
+        params = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
         return params
 
     @property
@@ -1088,8 +1082,17 @@ if __name__ == "__main__":
 
     print psam
     # psam.kmer_affinity_table()
-    kmers, aff = psam.kmer_affinity_table()
-    print len(kmers)
-    I = aff.argsort()[::-1]
-    for mer, a in zip(kmers[I], aff[I]):
-        print mer, a
+    params = psam.kmer_affinity_table(aff0=1e-6)
+    # print len(kmers)
+    # I = aff.argsort()[::-1]
+    # for mer, a in zip(kmers[I], aff[I]):
+    #     print mer, a
+
+    import cska.ska_kmers as cyska
+    params_new = cyska.params_from_pwm(psam.psam, A0=psam.A0, aff0=1e-6)
+
+    import matplotlib.pyplot as pp
+    pp.figure()
+    pp.loglog(params, params_new)
+    print np.fabs(params - params_new).sum()
+    pp.show()

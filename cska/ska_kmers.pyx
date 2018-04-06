@@ -1,3 +1,7 @@
+#!python
+#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+
 __license__ = "MIT"
 __version__ = "0.9.8"
 __authors__ = ["Marvin Jens"]
@@ -58,6 +62,7 @@ cdef UINT64_t rand_state[2]
 cdef UINT64_t RAND_MAX = 2**64 - 1
 cdef FLOAT32_t FRAND_MAX = RAND_MAX
 
+@cython.overflowcheck(False)
 cdef inline UINT64_t randint():
     """
     Cython version of xorshift128plus by Vigna, Sebastiano 
@@ -75,6 +80,7 @@ cdef inline FLOAT32_t rand():
     cdef FLOAT32_t x = randint()
     return x / FRAND_MAX
 
+@cython.overflowcheck(False)
 def rand_seed(UINT64_t seed, burn=1000):
     cdef UINT64_t rnd
     
@@ -110,11 +116,6 @@ def random():
 import time
 rand_seed(int(1000*time.time()) + 11)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
 cdef inline UINT8_t rand_choice_uint8(UINT64_t [:] cum, int ofs, int n):
     cdef UINT64_t rnd = randint()
     cdef UINT8_t x = 0
@@ -137,11 +138,6 @@ def generate_random_sequence_matrix(UINT32_t l, UINT32_t N):
             
     return seqm_
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
 def generate_random_sequence_matrix_dinuc(UINT32_t l, UINT32_t N, np.ndarray[FLOAT32_t] nt_freqs, np.ndarray[FLOAT32_t, ndim=2] di_freqs):
     cdef np.ndarray[UINT8_t, ndim=2] seqm_ = np.empty((N, l), dtype=np.uint8)
     cdef UINT8_t [:, :] seqm = seqm_ # MemoryView
@@ -168,11 +164,7 @@ def generate_random_sequence_matrix_dinuc(UINT32_t l, UINT32_t N, np.ndarray[FLO
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)    
+
 def simulate_rbns_reads(
         UINT32_t L, 
         UINT32_t N,
@@ -254,9 +246,6 @@ def simulate_rbns_reads(
     return seqm_, float(N)/n_simulated
 
 
-
-
-
 def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x, FLOAT32_t [:] kfreqs):
     """
     Used to compute the overlap matrix.
@@ -300,12 +289,6 @@ def weighted_kmer_shifts(UINT64_t index, UINT64_t k, UINT64_t L, UINT64_t x, FLO
     return sweights_, sindices_
         
     
-    
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)    
 def write_seqm(np.ndarray[UINT8_t, ndim=2] seqm_, f):
     cdef UINT64_t N = seqm_.shape[0], l = seqm_.shape[1], i, j
     
@@ -322,12 +305,6 @@ def write_seqm(np.ndarray[UINT8_t, ndim=2] seqm_, f):
         f.write(seq_)
     
     
-
-@cython.boundscheck(True)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
 def seq_to_bits(unsigned char *seq):
     cdef UINT32_t x, L
     cdef UINT8_t n
@@ -342,11 +319,7 @@ def seq_to_bits(unsigned char *seq):
 
     return _res
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
+
 cdef inline UINT64_t kbits_to_index(UINT8_t[:] kbits, UINT32_t k) nogil:
     cdef UINT64_t i, index = 0
     
@@ -370,11 +343,6 @@ def index_to_seq(index, k):
 
     return "".join(seq)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.overflowcheck(False)
-@cython.cdivision(True)
 def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32_t n_skip=0, int chunklines=1000000):
     cdef unsigned char* l
     cdef UINT64_t i, N=0, n=0, n0=0, L=0
@@ -439,11 +407,6 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
     return cat.reshape((N,L))
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
@@ -485,11 +448,6 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     return _counts
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def seq_set_kmer_count_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
@@ -518,11 +476,7 @@ def seq_set_kmer_count_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
     return counts.base
 
 
-#@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def kmer_crosstalk_matrix(UINT32_t [:,:] im1, UINT32_t [:,:] im2, UINT64_t k1, UINT64_t k2):
 
     assert k1 <= k2
@@ -553,11 +507,7 @@ def kmer_crosstalk_matrix(UINT32_t [:,:] im1, UINT32_t [:,:] im2, UINT64_t k1, U
 
 
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
-#@cython.initializedcheck(False)
-#@cython.cdivision(True)
-#@cython.overflowcheck(False)
+
 #def seq_set_kmer_flag(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT64_t kmer_index):
     ## largest index in array of DNA/RNA k-mer counts
     #cdef UINT64_t MAX_INDEX = 4**k - 1
@@ -717,11 +667,6 @@ def kmer_crosstalk_matrix(UINT32_t [:,:] im1, UINT32_t [:,:] im2, UINT64_t k1, U
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:] adap5, UINT8_t [:] adap3):
     """
     Converts a matrix of nucleotide values (0..3 instead of ACGT) into
@@ -767,11 +712,7 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
                 
     return indices.base
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def index_matrix_rows_with_kmer(UINT32_t [:,:] index_matrix, UINT64_t k, UINT32_t kmer_index, int n_threads=8):
     """
     searches for sequences that contain the desired kmer at least once.
@@ -900,11 +841,7 @@ def index_matrix_rows_with_kmer(UINT32_t [:,:] index_matrix, UINT64_t k, UINT32_
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
     #assert k <= 8 # must fit into UINT16 kmer-indices!
 
@@ -941,11 +878,6 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
     assert k <= 16 # must fit into UINT32 kmer-indices!
 
@@ -1035,11 +967,6 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def SPA_bipartite_partition_function_raw(
     UINT32_t [:,:] index_matrix, 
     FLOAT32_t [:,:] acc_matrix, 
@@ -1097,11 +1024,6 @@ def SPA_bipartite_partition_function_raw(
     return Z.base
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
     cdef UINT64_t N = len(Z_A)
     assert N == len(Z_B)
@@ -1155,11 +1077,6 @@ def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
     return Z_corr.base
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, UINT64_t k, int n_max=0, int openen_ofs=0, int num_threads=8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
 
@@ -1190,11 +1107,6 @@ def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_ma
             
     return weights.base
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t n_conc = rbp_conc_vector.base.shape[0]
@@ -1216,11 +1128,6 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
     return p_bound.base
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_threads = 8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
@@ -1248,11 +1155,6 @@ def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_thre
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     cdef UINT64_t k = pwm.base.shape[0]
     cdef UINT64_t Na = 4**k
@@ -1279,11 +1181,6 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UINT64_t k, int n_threads = 8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
@@ -1314,12 +1211,6 @@ def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UIN
 
 
 
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def kmer_openen_counts(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
@@ -1354,12 +1245,6 @@ def kmer_openen_counts(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, UI
 
 
 
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] openen_lookup, int k_seq, int k_openen, int ofs):
     """
     Compute the mean open-energy levels relative to the 
@@ -1371,7 +1256,6 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     (into different position).
     """
     
-    print k_seq, k_openen
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX_SEQ = 4**k_seq - 1
     cdef UINT64_t MAX_INDEX_OE = 4**k_openen - 1
@@ -1425,11 +1309,6 @@ def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_mat
     return counts.base
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, int k_seq, UINT32_t kmer_index, int k_openen, int ofs):
     """
     Compute the mean open-energy levels relative to the 
@@ -1490,11 +1369,6 @@ def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def joint_kmer_profiles(UINT8_t [:,:] seq_matrix, int k_core, int k_flank, int pseudo=1):
     """
     Compute the co-occurrence frequency of k_flank mers relative to the 
@@ -1558,12 +1432,6 @@ def joint_kmer_profiles(UINT8_t [:,:] seq_matrix, int k_core, int k_flank, int p
             
     return freqs.base #/ counts.base[:,:,np.newaxis]
 
-
-@cython.initializedcheck(False)
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
 def seq_set_SKA(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[FLOAT32_t] _weights, np.ndarray[FLOAT32_t] _background, UINT32_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT32_t MAX_INDEX = 4**k - 1
@@ -1633,277 +1501,277 @@ def seq_set_SKA(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[FLOAT32_t] _w
     return _weights
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
-def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _order):
-    # largest index in array of DNA/RNA k-mer counts
-    cdef UINT64_t k = np.log2(len(_order))/2
-    cdef UINT32_t MAX_INDEX = 4**k - 1
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+# def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _order):
+#     # largest index in array of DNA/RNA k-mer counts
+#     cdef UINT64_t k = np.log2(len(_order))/2
+#     cdef UINT32_t MAX_INDEX = 4**k - 1
     
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
-    cdef UINT32_t l = L-k+1
+#     cdef UINT32_t N = len(seq_matrix)
+#     cdef UINT32_t L = len(seq_matrix[0])
+#     cdef UINT32_t l = L-k+1
 
-    # count reads covered by kmer with best rank
-    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_order) ,dtype=np.uint32)
+#     # count reads covered by kmer with best rank
+#     cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_order) ,dtype=np.uint32)
     
-    # a MemoryView into each sequence (already converted 
-    # from letters to bits)
+#     # a MemoryView into each sequence (already converted 
+#     # from letters to bits)
     
-    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-    cdef UINT32_t [::1] order = _order
-    cdef UINT32_t [::1] hit_counts = _hit_counts
-    cdef UINT8_t [::1] seq_bits
+#     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+#     cdef UINT32_t [::1] order = _order
+#     cdef UINT32_t [::1] hit_counts = _hit_counts
+#     cdef UINT8_t [::1] seq_bits
     
-    # helper variables to tell cython the types
-    cdef UINT8_t s
-    cdef UINT32_t best_order = MAX_INDEX
-    cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0
+#     # helper variables to tell cython the types
+#     cdef UINT8_t s
+#     cdef UINT32_t best_order = MAX_INDEX
+#     cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0
     
-    with nogil:
-        for j in range(N):
-            best_order=MAX_INDEX
-            ofs = j*L
+#     with nogil:
+#         for j in range(N):
+#             best_order=MAX_INDEX
+#             ofs = j*L
 
-            # compute index of first k-1 mer by bit-shifts
-            index = 0
-            for i in range(k-1):
-                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+#             # compute index of first k-1 mer by bit-shifts
+#             index = 0
+#             for i in range(k-1):
+#                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
 
-            # iterate over remaining k-mers
-            for i in range(0, l):
-                # get next "letter"
-                s = _seq_matrix[ofs+i+k-1]
-                # compute next index from previous by shift + next letter
-                index = ((index << 2) | s ) & MAX_INDEX
+#             # iterate over remaining k-mers
+#             for i in range(0, l):
+#                 # get next "letter"
+#                 s = _seq_matrix[ofs+i+k-1]
+#                 # compute next index from previous by shift + next letter
+#                 index = ((index << 2) | s ) & MAX_INDEX
                 
-                # assign hit to kmer with best rank
-                if order[index] < best_order:
-                    best_index = index
-                    best_order = order[index]
+#                 # assign hit to kmer with best rank
+#                 if order[index] < best_order:
+#                     best_index = index
+#                     best_order = order[index]
 
-            hit_counts[best_index] += 1
+#             hit_counts[best_index] += 1
 
-    return _hit_counts
+#     return _hit_counts
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
-def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
-    # largest index in array of DNA/RNA k-mer counts
-    cdef UINT64_t k = np.log2(len(_candidates))/2
-    cdef UINT32_t MAX_INDEX = 4**k - 1
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+# def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
+#     # largest index in array of DNA/RNA k-mer counts
+#     cdef UINT64_t k = np.log2(len(_candidates))/2
+#     cdef UINT32_t MAX_INDEX = 4**k - 1
     
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
-    cdef UINT32_t l = L-k+1
+#     cdef UINT32_t N = len(seq_matrix)
+#     cdef UINT32_t L = len(seq_matrix[0])
+#     cdef UINT32_t l = L-k+1
 
-    # count reads with only one and no other kmer out of the candidates
-    cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
-    cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
-    cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
-    cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
+#     # count reads with only one and no other kmer out of the candidates
+#     cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
+#     cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
+#     cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
+#     cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
     
         
-    # a MemoryView into each sequence (already converted 
-    # from letters to bits)
-    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-    cdef UINT32_t [::1] candidates = _candidates
-    cdef UINT32_t [::1] hit_counts = _hit_counts
+#     # a MemoryView into each sequence (already converted 
+#     # from letters to bits)
+#     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+#     cdef UINT32_t [::1] candidates = _candidates
+#     cdef UINT32_t [::1] hit_counts = _hit_counts
     
-    cdef UINT8_t [::1] seq = _seq
-    cdef UINT8_t [::1] kmer = _kmer
-    cdef UINT32_t [::1] n = _n
+#     cdef UINT8_t [::1] seq = _seq
+#     cdef UINT8_t [::1] kmer = _kmer
+#     cdef UINT32_t [::1] n = _n
     
-    # helper variables to tell cython the types
-    cdef UINT8_t s
-    cdef UINT32_t hit_id = 0
-    cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0, best_i = 0, ov=0, best=MAX_INDEX, do_write=0
+#     # helper variables to tell cython the types
+#     cdef UINT8_t s
+#     cdef UINT32_t hit_id = 0
+#     cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0, best_i = 0, ov=0, best=MAX_INDEX, do_write=0
     
-    if out_file:
-        # avoid GIL issues if we want to write to this file
-        do_write = 1
+#     if out_file:
+#         # avoid GIL issues if we want to write to this file
+#         do_write = 1
     
-    with nogil:
-        for j in range(N):
-            hit_id = 0
-            n_hits = 0
-            ofs = j*L
+#     with nogil:
+#         for j in range(N):
+#             hit_id = 0
+#             n_hits = 0
+#             ofs = j*L
 
-            # compute index of first k-1 mer by bit-shifts
-            index = 0
-            for i in range(k-1):
-                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+#             # compute index of first k-1 mer by bit-shifts
+#             index = 0
+#             for i in range(k-1):
+#                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
 
-            # iterate over remaining k-mers
-            for i in range(0, l):
-                # get next "letter"
-                s = _seq_matrix[ofs+i+k-1]
-                # compute next index from previous by shift + next letter
-                index = ((index << 2) | s ) & MAX_INDEX
+#             # iterate over remaining k-mers
+#             for i in range(0, l):
+#                 # get next "letter"
+#                 s = _seq_matrix[ofs+i+k-1]
+#                 # compute next index from previous by shift + next letter
+#                 index = ((index << 2) | s ) & MAX_INDEX
                 
-                # assign hit to kmer with best rank
-                if candidates[index] > 0:
-                    if ov == 0:
-                        # non-overlapping hit. Always counts!
-                        n_hits += 1
+#                 # assign hit to kmer with best rank
+#                 if candidates[index] > 0:
+#                     if ov == 0:
+#                         # non-overlapping hit. Always counts!
+#                         n_hits += 1
 
-                    if candidates[index] < best:
-                        # attribute read to lowest-ranked kmer
-                        best = candidates[index]
-                        best_index = index
-                        best_i = i
+#                     if candidates[index] < best:
+#                         # attribute read to lowest-ranked kmer
+#                         best = candidates[index]
+#                         best_index = index
+#                         best_i = i
                     
-                    ov = 7 # re-start overlap count-down
+#                     ov = 7 # re-start overlap count-down
 
-                if ov > 0:
-                    ov -= 1
+#                 if ov > 0:
+#                     ov -= 1
             
-            if n_hits != 1:
-                # do not count ambiguous or no hit
-                continue
+#             if n_hits != 1:
+#                 # do not count ambiguous or no hit
+#                 continue
 
-            hit_counts[best_index] += 1
-            if do_write and n[best_index] < n_sample:
-                with gil:
-                    n[best_index] += 1
+#             hit_counts[best_index] += 1
+#             if do_write and n[best_index] < n_sample:
+#                 with gil:
+#                     n[best_index] += 1
 
-                    # convert seq entries back to string
-                    for i in range(L):
-                        seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
+#                     # convert seq entries back to string
+#                     for i in range(L):
+#                         seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
 
-                    # convert hit index back to kmer
-                    for i in range(k):
-                        s = best_index >> ((k - i-1) * 2)
-                        kmer[i] = bits_to_letters[s & 3]
+#                     # convert hit index back to kmer
+#                     for i in range(k):
+#                         s = best_index >> ((k - i-1) * 2)
+#                         kmer[i] = bits_to_letters[s & 3]
                     
-                    out_file.write(">{0} | p={1} | r={2} | n={3}\n{4}\n".format(_kmer.tobytes(), best_i, best, n[best_index], _seq.tobytes()) )
+#                     out_file.write(">{0} | p={1} | r={2} | n={3}\n{4}\n".format(_kmer.tobytes(), best_i, best, n[best_index], _seq.tobytes()) )
                         
 
-    return _hit_counts
+#     return _hit_counts
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
-def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000, str adap5='', str adap3=''):
-    # largest index in array of DNA/RNA k-mer counts
-    cdef UINT64_t k = np.log2(len(_candidates))/2
-    cdef UINT32_t MAX_INDEX = 4**k - 1
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
+# def count_reads_with_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000, str adap5='', str adap3=''):
+#     # largest index in array of DNA/RNA k-mer counts
+#     cdef UINT64_t k = np.log2(len(_candidates))/2
+#     cdef UINT32_t MAX_INDEX = 4**k - 1
     
-    cdef UINT32_t N = len(seq_matrix)
-    cdef UINT32_t L = len(seq_matrix[0])
-    cdef UINT32_t l = L-k+1
-    cdef UINT64_t l_adap5 = len(adap5)
+#     cdef UINT32_t N = len(seq_matrix)
+#     cdef UINT32_t L = len(seq_matrix[0])
+#     cdef UINT32_t l = L-k+1
+#     cdef UINT64_t l_adap5 = len(adap5)
 
-    # count reads with only one and no other kmer out of the candidates
-    cdef np.ndarray[UINT32_t, ndim=1] _kmer_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
-    cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
-    cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
-    cdef np.ndarray[UINT8_t] _kmer = np.zeros(l*(k+2), dtype=np.uint8) + ord(',')
-    cdef np.ndarray[UINT64_t] _hit_indices = np.zeros(l, dtype=np.uint64)
-    cdef np.ndarray[UINT64_t] _nonhit_indices = np.zeros(l, dtype=np.uint64)
-    cdef np.ndarray[UINT64_t] _hit_pos = np.zeros(l, dtype=np.uint64)
-    cdef np.ndarray[UINT64_t] _nonhit_pos = np.zeros(l, dtype=np.uint64)
+#     # count reads with only one and no other kmer out of the candidates
+#     cdef np.ndarray[UINT32_t, ndim=1] _kmer_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
+#     cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
+#     cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
+#     cdef np.ndarray[UINT8_t] _kmer = np.zeros(l*(k+2), dtype=np.uint8) + ord(',')
+#     cdef np.ndarray[UINT64_t] _hit_indices = np.zeros(l, dtype=np.uint64)
+#     cdef np.ndarray[UINT64_t] _nonhit_indices = np.zeros(l, dtype=np.uint64)
+#     cdef np.ndarray[UINT64_t] _hit_pos = np.zeros(l, dtype=np.uint64)
+#     cdef np.ndarray[UINT64_t] _nonhit_pos = np.zeros(l, dtype=np.uint64)
         
-    # a MemoryView into each sequence (already converted 
-    # from letters to bits)
-    cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-    cdef UINT32_t [::1] candidates = _candidates
-    cdef UINT32_t [::1] kmer_counts = _kmer_counts
+#     # a MemoryView into each sequence (already converted 
+#     # from letters to bits)
+#     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
+#     cdef UINT32_t [::1] candidates = _candidates
+#     cdef UINT32_t [::1] kmer_counts = _kmer_counts
     
-    cdef UINT8_t [::1] seq = _seq
-    cdef UINT8_t [::1] kmer = _kmer
-    cdef UINT32_t [::1] n = _n
-    cdef UINT64_t [::1] hit_indices = _hit_indices
-    cdef UINT64_t [::1] nonhit_indices = _nonhit_indices
-    cdef UINT64_t [::1] hit_pos = _hit_pos
-    cdef UINT64_t [::1] nonhit_pos = _nonhit_pos
+#     cdef UINT8_t [::1] seq = _seq
+#     cdef UINT8_t [::1] kmer = _kmer
+#     cdef UINT32_t [::1] n = _n
+#     cdef UINT64_t [::1] hit_indices = _hit_indices
+#     cdef UINT64_t [::1] nonhit_indices = _nonhit_indices
+#     cdef UINT64_t [::1] hit_pos = _hit_pos
+#     cdef UINT64_t [::1] nonhit_pos = _nonhit_pos
     
-    # helper variables to tell cython the types
-    cdef UINT8_t s
-    cdef UINT32_t hit_id = 0
-    cdef UINT64_t ofs, index, i, j, n_hits=0, n_nonhits=0, o=0, dont_need=0, do_write=0
+#     # helper variables to tell cython the types
+#     cdef UINT8_t s
+#     cdef UINT32_t hit_id = 0
+#     cdef UINT64_t ofs, index, i, j, n_hits=0, n_nonhits=0, o=0, dont_need=0, do_write=0
     
-    if out_file:
-        # avoid GIL issues if we want to write to this file
-        do_write = 1
+#     if out_file:
+#         # avoid GIL issues if we want to write to this file
+#         do_write = 1
     
-    with nogil:
-        for j in range(N):
-            hit_id = 0
-            n_hits = 0
-            n_nonhits = 0
-            dont_need = 0
-            ofs = j*L
+#     with nogil:
+#         for j in range(N):
+#             hit_id = 0
+#             n_hits = 0
+#             n_nonhits = 0
+#             dont_need = 0
+#             ofs = j*L
 
-            # compute index of first k-1 mer by bit-shifts
-            index = 0
-            for i in range(k-1):
-                index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
+#             # compute index of first k-1 mer by bit-shifts
+#             index = 0
+#             for i in range(k-1):
+#                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
 
-            # iterate over remaining k-mers
-            for i in range(0, l):
-                # get next "letter"
-                s = _seq_matrix[ofs+i+k-1]
-                # compute next index from previous by shift + next letter
-                index = ((index << 2) | s ) & MAX_INDEX
+#             # iterate over remaining k-mers
+#             for i in range(0, l):
+#                 # get next "letter"
+#                 s = _seq_matrix[ofs+i+k-1]
+#                 # compute next index from previous by shift + next letter
+#                 index = ((index << 2) | s ) & MAX_INDEX
                 
-                # track hits
-                if candidates[index] > 0:
-                    hit_indices[n_hits] = index
-                    hit_pos[n_hits] = i
-                    n_hits += 1
-                    if n[index] >= n_sample:
-                        dont_need += 1
+#                 # track hits
+#                 if candidates[index] > 0:
+#                     hit_indices[n_hits] = index
+#                     hit_pos[n_hits] = i
+#                     n_hits += 1
+#                     if n[index] >= n_sample:
+#                         dont_need += 1
                 
-                # track non-hits
-                else:
-                    nonhit_indices[n_nonhits] = index
-                    nonhit_pos[n_nonhits] = i
-                    n_nonhits += 1
+#                 # track non-hits
+#                 else:
+#                     nonhit_indices[n_nonhits] = index
+#                     nonhit_pos[n_nonhits] = i
+#                     n_nonhits += 1
                     
-            if not n_hits:
-                # no candidate hits! count the non-hits 
-                for i in range(n_nonhits):
-                    index = nonhit_indices[i]
-                    kmer_counts[index] += 1
-            else:
-                # one or more candidate hits. count only those
-                for i in range(n_hits):
-                    index = hit_indices[i]
-                    kmer_counts[index] += 1
-                    n[index] += 1
+#             if not n_hits:
+#                 # no candidate hits! count the non-hits 
+#                 for i in range(n_nonhits):
+#                     index = nonhit_indices[i]
+#                     kmer_counts[index] += 1
+#             else:
+#                 # one or more candidate hits. count only those
+#                 for i in range(n_hits):
+#                     index = hit_indices[i]
+#                     kmer_counts[index] += 1
+#                     n[index] += 1
                     
-            if do_write and dont_need < n_hits:
+#             if do_write and dont_need < n_hits:
 
-                # convert seq entries back to string
-                for i in range(L):
-                    seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
+#                 # convert seq entries back to string
+#                 for i in range(L):
+#                     seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
                 
-                for o in range(n_hits):
-                    index = hit_indices[o]
+#                 for o in range(n_hits):
+#                     index = hit_indices[o]
 
-                    # convert hit index back to kmer
-                    for i in range(k):
-                        s = index >> ((k - i-1) * 2)
-                        kmer[i+(k+1)*o] = bits_to_letters[s & 3]
+#                     # convert hit index back to kmer
+#                     for i in range(k):
+#                         s = index >> ((k - i-1) * 2)
+#                         kmer[i+(k+1)*o] = bits_to_letters[s & 3]
                         
-                with gil:
-                    pos_str = ",".join( [str(p + l_adap5) for p in hit_pos[:n_hits]] )
-                    out_file.write(">{0} | p={1}\n{2}{3}{4}\n".format(_kmer[:n_hits*(k+1)-1].tobytes(), pos_str, adap5, _seq.tobytes(), adap3))
+#                 with gil:
+#                     pos_str = ",".join( [str(p + l_adap5) for p in hit_pos[:n_hits]] )
+#                     out_file.write(">{0} | p={1}\n{2}{3}{4}\n".format(_kmer[:n_hits*(k+1)-1].tobytes(), pos_str, adap5, _seq.tobytes(), adap3))
                     
 
-    return _kmer_counts
+#     return _kmer_counts
 
 
 @cython.boundscheck(False)
@@ -2015,11 +1883,7 @@ def count_reads_with_kmers(UINT32_t [:,:] index_matrix, UINT64_t k):
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
     cdef UINT32_t N = len(index_matrix)
     cdef UINT32_t L = len(index_matrix[0])
@@ -2041,11 +1905,7 @@ def count_reads_with_kmap_hit(UINT32_t [:,:] index_matrix, UINT8_t [:] kmap):
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def joint_freq_at_distance(UINT32_t [:,:] index_matrix, UINT64_t k):
     cdef UINT32_t N = len(index_matrix)
     cdef UINT32_t L = len(index_matrix[0])
@@ -2057,25 +1917,28 @@ def joint_freq_at_distance(UINT32_t [:,:] index_matrix, UINT64_t k):
     cdef UINT64_t index_A, index_B, i, j, d, hit=0, n_reads=0
     
     
-    with nogil:
-        for j in range(N):
-            hit = 0
-            # iterate over all k-mers in the read
-            for i in range(L-k):
-                index_A = index_matrix[j,i]
-                for d in range(k, L-i):
-                    index_B = index_matrix[j,i+d]
-                    joint[index_A, index_B, d-k] += 1
+    # with nogil:
+    for j in range(N):
+        hit = 0
+        # iterate over all k-mers in the read
+        for i in range(L-k):
+            index_A = index_matrix[j,i]
+            for d in range(k, L-i):
+                
+                index_B = index_matrix[j,i+d]
+                if d < k:
+                    print j,i,k,d
+                assert d-k >= 0
+                assert d-k < L-k
+                assert index_A < Nk
+                assert index_B < Nk
+                joint[index_A, index_B, d-k] += 1
 
     return joint.base
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def kmer_count_pos_per_read(UINT8_t [:,:] seq_matrix, UINT64_t kmer_index, UINT8_t k):
     """
     Examine each read for occurrences of the indicated kmer. Record the number of
@@ -2118,11 +1981,7 @@ def kmer_count_pos_per_read(UINT8_t [:,:] seq_matrix, UINT64_t kmer_index, UINT8
     return counts.base, last_pos.base
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def digitize_32fp_8bit(np.ndarray[FLOAT32_t, ndim=2] data, FLOAT32_t [:] bins):
     cdef UINT64_t n = len(bins.base)
     assert n <= 257
@@ -2164,11 +2023,7 @@ def digitize_32fp_8bit(np.ndarray[FLOAT32_t, ndim=2] data, FLOAT32_t [:] bins):
     #print np.array(steps).mean(), "average steps"
     return np.reshape(res.base, (N,L)) + 1
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def aggregate_binned_profiles(UINT8_t [:,:] bin_matrix, UINT8_t [:] pos, UINT8_t upstream, UINT8_t downstream):
     """
     Examine each read for occurrences of the indicated kmer. Record the number of
@@ -2209,11 +2064,11 @@ def aggregate_binned_profiles(UINT8_t [:,:] bin_matrix, UINT8_t [:] pos, UINT8_t
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.initializedcheck(False)
+# @cython.cdivision(True)
+# @cython.overflowcheck(False)
 def kmer_profiles(np.ndarray[UINT8_t, ndim=2] _seq_matrix, UINT64_t k):
     """
     count the occurrences of each kmer at each position from 0-L-k+1 
@@ -2269,11 +2124,7 @@ def kmer_profiles(np.ndarray[UINT8_t, ndim=2] _seq_matrix, UINT64_t k):
     #print "outof",_profiles.sum()
     return _profiles
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, np.ndarray[UINT64_t, ndim=1] _kmer_lookup, UINT64_t k, UINT64_t n_kmers):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT32_t MAX_INDEX = 4**k - 1
@@ -2344,11 +2195,7 @@ def kmer_cooccurrence_distance_tensor(np.ndarray[UINT8_t, ndim=2] _seq_matrix, n
     return _tensor
       
     
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-@cython.overflowcheck(False)
+
 def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_flank=3):
     cdef UINT64_t k = len(kmer)
     
