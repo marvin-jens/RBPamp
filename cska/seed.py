@@ -178,8 +178,9 @@ class DependentKmerAnalysis(object):
             prof = reads.kmer_mutual_information_profile(km)
             profs.append(prof)
             # free some memory!
-            reads.cache_flush("__cached_get_index_matrix")
-            reads.cache_flush("__cached_seqm")
+            # reads.cache_flush("__cached_get_index_matrix")
+            # reads.cache_flush("__cached_seqm")
+            reads.cache_flush()
         
         self.profs = np.array(profs)
         self.joints = np.array(joints)
@@ -347,13 +348,13 @@ class DependentKmerAnalysis(object):
         # sys.exit(0)
 
 class SeedRefinement(object):
-    def __init__(self, rbns, km=4, keep_weight=.75):
+    def __init__(self, rbns, km=4, keep_weight=.75, max_linear_k=11):
         self.rbns = rbns
         self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
         self.km = km
         self.analysis = DependentKmerAnalysis(self.rbns, km=km)
         self.analysis.build_matrices()
-        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=keep_weight)
+        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=keep_weight, n_max=max_linear_k)
         self.logger.info("linear_motif score={0:.2f} for {1}mer {2}".format(self.analysis.linear_motif_score, self.psam_lin.n, self.psam_lin.consensus))
         self.psam_A, self.psam_B = self.analysis.bipartite_PSAM_seeds()
         self.linear_k = self.psam_lin.n
