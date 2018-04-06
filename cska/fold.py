@@ -148,7 +148,9 @@ class RBNSOpenen(CachedBase):
     @cached
     def acc(self):
         if self.dummy:
-            return np.ones((self.N, self.L), dtype=np.float32)
+            # WARNING self.N and self.L seem to *not* always coincide with
+            # oem.shape. Specifically L can be smaller than oem axis 1 WTF?
+            return np.ones(self.oem.shape, dtype=np.float32)
 
         if not self.discretized:
             return np.exp(-self.oem/self.RT)
