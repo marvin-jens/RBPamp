@@ -9,6 +9,82 @@ from byo.io import fasta_chunks
 import os, sys, logging
 logging.basicConfig(level=logging.DEBUG)
 
+class MutualInformationScore(object):
+    def __init__(self, X, Y,n=10, n_permut = 100):
+        self.X = X
+        self.Y = Y
+        self.n = n
+        self.n_permut = n_permut
+        self.xbins, self.Xd, self.Xf = self.make_eq_bins(X, n=n)
+        self.xbins, self.Yd, self.Yf = self.make_eq_bins(Y, n=n)
+        
+        self.joint = MutualInformationScore.joint_freq(self.Xd, self.Yd, n)
+        # print self.joint.shape
+        self.indep = np.outer(self.Xf, self.Yf)
+        # print self.indep.shape
+        self.MI = MutualInformationScore.mutual_information(self.joint, self.indep)
+
+        self.MI_permut = []
+        N = len(self.Xd)
+        for i in xrange(n_permut):
+            perm = np.random.permutation(N)
+            xd = self.Xd[perm]
+            joint = MutualInformationScore.joint_freq(xd, self.Yd, n)
+            self.MI_permut.append(MutualInformationScore.mutual_information(joint, self.indep))
+        
+        self.MI_permut = np.array(self.MI_permut)
+        
+        # ad hoc p-value
+        s = np.std(self.MI_permut)
+        m = np.mean(self.MI_permut)
+        self.z = (self.MI - m)/s
+        self.p_value = scipy.stats.norm.sf(self.z)
+
+    
+    @staticmethod
+    def mutual_information(joint, indep):
+        return (joint * np.log2(joint/indep)).sum()
+
+    @staticmethod
+    def joint_freq(xd, yd, n):
+        joint = np.ones((n, n), dtype=np.float32)
+        for x,y in zip(xd, yd):
+            joint[x,y] += 1
+
+        joint /= float(joint.sum())
+        return joint
+    
+    def heatmap_plot(self, fname):
+        pp.figure()
+        pp.pcolor(self.joint, cmap='viridis')
+        pp.colorbar(orientation='horizontal')
+        pp.savefig(fname)
+        pp.close()
+
+    def dist_plot(self, fname):
+        pp.figure()
+        pp.hist(self.MI_permut, lw=2, histtype='step', bins=self.n_permut/self.n)
+        pp.axvline(self.MI)
+        pp.savefig(fname)
+        pp.close()
+
+    def make_eq_bins(self, x, n=10):
+        I = x.argsort()
+        N = len(I)
+
+        bp_i = np.linspace(0,N-1, num=n)
+
+        bins = [x[I[bp]] for bp in bp_i]
+        d = np.digitize(x, bins, right=True) # discretized version
+        n = np.bincount(d) + 1
+        f = n / float(n.sum())
+        # print bins, f
+
+        return bins, d, f
+
+
+
+
 class nsRBNSOligos(object):
 
     def __init__(self, fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT'):
@@ -514,13 +590,42 @@ def detailed_analysis(i, flavor='detail'):
 
 nsrbns = nsRBNSOligos()
 exp = nsRBNSExperiment(nsrbns, sys.argv[1], sys.argv[2], skip_xtalk=False)
+for conc, obs, expect in zip(exp.rbp_conc, exp.enr, exp.enr_expect):
+    mis = MutualInformationScore(obs, expect)
+    # mis.heatmap_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
+    print conc, "observed vs expected", mis.MI, 'bits'
+    print "null", np.mean(mis.MI_permut), np.std(mis.MI_permut)
+    mis.dist_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
+    print mis.z, mis.p_value
 # nsrbns.xtalk_plot()
 # exp.affinity_selection_plot()
 # exp.GC_bias_plot()
 # exp.entropy_plot()
 # exp.scatter_plot()
 # exp.heatmap_plot()
+print "analysis"
 exp.error_analysis(nsrbns.entropy, name='entropy')
+print "residual log error vs. entropy"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.entropy[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
 exp.error_analysis(nsrbns.GC, name='GC_content')
+print "residual log error vs. GC content"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.GC[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
 exp.error_analysis(nsrbns.xtalk_score, name='xtalk')
+print "residual log error vs. xtalk"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.xtalk_score[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
 pp.show()
