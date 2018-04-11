@@ -87,13 +87,13 @@ class MutualInformationScore(object):
 
 class nsRBNSOligos(object):
 
-    def __init__(self, fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT'):
+    def __init__(self, fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out'):
         self._seqs_raw = []
         self._fa_ids_raw = []
         self._index = {}
         self._seqs = {}
 
-        self.GC = []
+        self.nt_freqs = []
         def GC_content(seq):
             gc = 0
             for s in seq:
@@ -106,6 +106,7 @@ class nsRBNSOligos(object):
             S = seq.upper().replace('U','T')
             counts = np.array([S.count('A'), S.count('C'), S.count('G'), S.count('T')])
             f = counts / float(counts.sum())
+            self.nt_freqs.append(f)
 
             return - np.where(f > 0, f * np.log2(f), 0).sum()
 
@@ -120,15 +121,15 @@ class nsRBNSOligos(object):
             self._fa_ids_raw.append(fa_id)
             self._seqs[fa_id] = seq
             self._index[fa_id] = i
-            self.GC.append(GC_content(seq))
             self.entropy.append(nt_entropy(seq))
 
         self.N = len(self._seqs_raw)
         self.SEQ = [s[self.l5:-self.l3] for s in self._seqs_raw] 
-        self.GC = np.array(self.GC)
+        self.nt_freqs = np.array(self.nt_freqs)
+        self.GC = self.nt_freqs[:,[1,2]].sum(axis=1)
         self.entropy = np.array(self.entropy)
 
-        self.xtalk, self.xtalk_score = self.xtalk_from_blast()
+        self.xtalk, self.xtalk_score = self.xtalk_from_blast(fname=xtalk_file)
 
     def xtalk_from_blast(self, fname='blast/results.out'):
         N = self.N
@@ -177,12 +178,12 @@ def phist(*argc, **kwargs):
 
 
 class nsRBNSExperiment(object):
-    def __init__(self, nsrbns, fcount_matrix, faffinities, name='nsRBNS', rbp_conc = [25.,125.,625.], pseudo=10, skip_xtalk=True):
+    def __init__(self, nsrbns, fcount_matrix, faffinities, name='nsRBNS', rbp_conc = [25.,125.,625.], pseudo=10, skip_xtalk=True, skip_low=True):
         self.name = name
         self.ns = nsrbns
         
         self.fcount_matrix = fcount_matrix
-        self.indices, self.counts = self.load_counts(fcount_matrix, skip_xtalk=skip_xtalk)
+        self.indices, self.counts = self.load_counts(fcount_matrix, skip_xtalk=skip_xtalk, skip_low=skip_low)
 
         self.N = self.counts.sum(axis=1)
         self.scale = self.N[1:]/self.N[0]
@@ -197,7 +198,7 @@ class nsRBNSExperiment(object):
         
         self.enr_expect, self.pearson, self.ppval, self.spearman, self.spval = self.prediction()
 
-    def load_counts(self, fname, skip_xtalk=True):
+    def load_counts(self, fname, skip_xtalk=True, skip_low=True):
         counts = []
         indices = []
 
@@ -206,6 +207,10 @@ class nsRBNSExperiment(object):
             name = parts[0]
             if skip_xtalk and (self.ns.xtalk_score[self.ns._index[name]] > 0):
                 # skip cross-talking oligos!
+                continue
+
+            n0 = float(parts[1]) # freq in input
+            if skip_low and n0 < 100:
                 continue
 
             indices.append(self.ns._index[name])
@@ -249,6 +254,73 @@ class nsRBNSExperiment(object):
         state = mdl.evaluate(mdl.params)
 
         return state
+
+    def noaffinity_analysis(self, perc=10.):
+        thresh = np.percentile(self.state.Z1, perc)
+        I = self.state.Z1 < thresh
+
+        from sklearn import linear_model
+        from sklearn import preprocessing
+        import pandas as pd
+        from sklearn.metrics import mean_squared_error, r2_score
+
+        acc = self.state.mdl.reads.acc_storage.get_raw(11).acc[self.indices].mean(axis=1)
+        print acc.shape
+        A,C,G,T = self.ns.nt_freqs[self.indices].T
+        GC = C+G
+        AT = A+T
+        res = []
+        for conc, enr in zip(self.rbp_conc, self.enr):
+            data = np.array([
+                A, C, G, T, GC/(1-GC),
+                np.log(self.f0),
+                self.ns.entropy[self.indices],
+                np.log(self.state.Z1),
+                acc*0,
+            ])
+            data = preprocessing.scale(data.T)
+            df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'f0', 'entropy','binding','mean_acc'])
+            # df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'f0', 'entropy','binding',])
+
+            # reg = linear_model.LinearRegression()
+            reg = linear_model.RidgeCV(alphas=[.1,.3,.5,.75,1.])
+            # reg.fit(df.iloc[I], y[I])
+            y = np.log2(enr)
+            reg.fit(df, y)
+            # predict on full data
+            y_pred = reg.predict(df)
+            R, p_val = spearmanr(y,y_pred)
+            
+            pp.figure()
+            pp.plot(y, y_pred, '.', label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
+            pp.xlabel('log2 nsRBNS enrichment')
+            pp.ylabel('linear model prediction')
+            pp.legend()
+            
+            pp.figure()
+            res = y-y_pred
+            # pp.plot(df['A'], res, '.', label='A')
+            # pp.plot(df['C'], res, '.', label='C')
+            # pp.plot(df['G'], res, '.', label='G')
+            # pp.plot(df['T'], res, '.', label='T')
+            # pp.plot(df['GC'], res, '.', label='log(GC)')
+            # pp.plot(df['f0'], res, '.', label='log(f0)')
+            # pp.plot(df['entropy'], res, '.', label='entropy')
+            pp.plot(df['binding'], res, '.', label='log(Z1)')
+
+            print "coeff", reg.coef_
+            print "intercept", reg.intercept_
+            print "r2 on bg", r2_score(y[I], y_pred[I])
+            print "r2 full ", r2_score(y, y_pred)
+            print "alpha", reg.alpha_
+
+            # res.append() # keep the residuals
+
+
+        pp.show()
+
+
+
 
     def optimal_betas(self):
         betas = []
@@ -320,7 +392,7 @@ class nsRBNSExperiment(object):
         from scipy.optimize import minimize_scalar
 
         opt = minimize_scalar(to_opt, bounds=[0,1.], method='bounded')
-        print opt
+        # print opt
         return opt.x
 
 
@@ -445,6 +517,57 @@ class nsRBNSExperiment(object):
         pp.close()
 
         
+
+
+nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
+# nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
+exp = nsRBNSExperiment(nsrbns, sys.argv[1], sys.argv[2], skip_xtalk=True)
+# exp.noaffinity_analysis(nsrbns.GC, 'GC content')
+# exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
+exp.noaffinity_analysis()
+
+for conc, obs, expect in zip(exp.rbp_conc, exp.enr, exp.enr_expect):
+    mis = MutualInformationScore(obs, expect)
+    # mis.heatmap_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
+    print conc, "observed vs expected", mis.MI, 'bits'
+    print "null", np.mean(mis.MI_permut), np.std(mis.MI_permut)
+    mis.dist_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
+    print mis.z, mis.p_value
+
+nsrbns.xtalk_plot()
+exp.affinity_selection_plot()
+exp.GC_bias_plot()
+exp.entropy_plot()
+exp.scatter_plot()
+exp.heatmap_plot()
+print "analysis"
+exp.error_analysis(nsrbns.entropy, name='entropy')
+print "residual log error vs. entropy"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.entropy[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
+exp.error_analysis(nsrbns.GC, name='GC_content')
+print "residual log error vs. GC content"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.GC[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
+exp.error_analysis(nsrbns.xtalk_score, name='xtalk')
+print "residual log error vs. xtalk"
+all_lfc = np.log2(exp.enr_expect/exp.enr)
+for conc, lfc in zip(exp.rbp_conc, all_lfc):
+    mis = MutualInformationScore(lfc, nsrbns.xtalk_score[exp.indices])
+    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+    print conc,"nM", mis.MI, mis.z, mis.p_value
+
+pp.show()
+
+
 
 # pp.figure()
 # pp.loglog(frac[0], frac[1],'x')
@@ -587,45 +710,3 @@ def detailed_analysis(i, flavor='detail'):
 
 # pp.loglog(a[GC < .4], b[GC < .4],'.',color='gray')
 # pp.loglog(a[GC > .6], b[GC > .6],'r.')
-
-nsrbns = nsRBNSOligos()
-exp = nsRBNSExperiment(nsrbns, sys.argv[1], sys.argv[2], skip_xtalk=False)
-for conc, obs, expect in zip(exp.rbp_conc, exp.enr, exp.enr_expect):
-    mis = MutualInformationScore(obs, expect)
-    # mis.heatmap_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
-    print conc, "observed vs expected", mis.MI, 'bits'
-    print "null", np.mean(mis.MI_permut), np.std(mis.MI_permut)
-    mis.dist_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
-    print mis.z, mis.p_value
-# nsrbns.xtalk_plot()
-# exp.affinity_selection_plot()
-# exp.GC_bias_plot()
-# exp.entropy_plot()
-# exp.scatter_plot()
-# exp.heatmap_plot()
-print "analysis"
-exp.error_analysis(nsrbns.entropy, name='entropy')
-print "residual log error vs. entropy"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.entropy[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
-
-exp.error_analysis(nsrbns.GC, name='GC_content')
-print "residual log error vs. GC content"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.GC[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
-
-exp.error_analysis(nsrbns.xtalk_score, name='xtalk')
-print "residual log error vs. xtalk"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.xtalk_score[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
-
-pp.show()
