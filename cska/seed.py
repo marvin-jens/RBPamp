@@ -9,6 +9,7 @@ from itertools import izip_longest
 import cska.ska_kmers as cyska
 from cska.ska_kmers import yield_kmers
 import cska
+from cska.caching import CachedBase, cached, pickled
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
@@ -157,7 +158,7 @@ class Alignment(object):
         return PSAM(psam, A0=A0)
         
 
-class DependentKmerAnalysis(object):
+class DependentKmerAnalysis(CachedBase):
     def __init__(self, rbns, km=4):
         self.rbns = rbns
         self.km = km
@@ -168,6 +169,8 @@ class DependentKmerAnalysis(object):
         self.partscores = [0, 0]
         self.logger = logging.getLogger("seed.DependentKmerAnalysis")
         
+        CachedBase.__init__(self)
+
         profs = []
         joints = []
         
@@ -191,7 +194,11 @@ class DependentKmerAnalysis(object):
         print self.profs.max(axis=1)
         self.logger.debug("best_sample = {0}".format(rbns.reads[self.best_sample].name) )
 
+    @property
+    def cache_key(self):
+        return "{self.rbns.cache_key}.km={self.km}".format(self=self)    
 
+    # @pickled
     def build_matrices(self, thresh=.7):
         j0 = self.joints[0]
 
@@ -248,12 +255,14 @@ class DependentKmerAnalysis(object):
         self.B_score = S_B
         self.logger.debug("build_matrices() done.")
 
+    # @pickled
     def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
         # find compact representation of linear motif
         self.logger.debug("building linear PSAM")
         psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
+    # @pickled
     def bipartite_PSAM_seeds(self):
         self.logger.debug("building bipartite PSAMs")
         # find compact representations of sub-motifs
@@ -266,6 +275,7 @@ class DependentKmerAnalysis(object):
         psam_B = self.B.to_PSAM(n_max=k)
         return psam_A, psam_B
 
+    # @pickled
     def bipartite_PSAM_spacings(self, sample=0, psam_A=None, psam_B=None):
         
         if psam_A == None or psam_B == None:
@@ -399,7 +409,7 @@ class SeedRefinement(object):
         self.psam_lin.save_logo(os.path.join(path, '{0}_linear.eps'.format(rbp_name)))
         self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.eps'.format(rbp_name)))
         self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.eps'.format(rbp_name)))
-        self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
+        # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
 
 
     def linear_seed_params(self, A0=1., aff0=1e-6):

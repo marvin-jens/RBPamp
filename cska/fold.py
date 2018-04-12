@@ -136,7 +136,8 @@ class RBNSOpenen(CachedBase):
         else:
             delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
             raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
-            
+        
+        L = int(L)
         oem = oem.reshape( (N,L) )
         if self.rbns_reads.n_max:
             self.logger.debug("truncating to reads.n_max={0}".format(self.rbns_reads.n_max) )

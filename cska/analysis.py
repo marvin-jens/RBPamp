@@ -238,7 +238,11 @@ class RBNSAnalysis(CachedBase):
         self.runs = {}
         self.AUCs = {}
         #self.pair_screens = collections.defaultdict(dict)
-        
+   
+    @property
+    def cache_key(self):
+        return ".".join([r.cache_key for r in self.reads])
+
     def flush(self):
         for comp in self.comparisons:
             comp.cache_flush()

@@ -8,6 +8,8 @@ import cska.ska_kmers as cyska
 from byo.io import fasta_chunks
 import os, sys, logging
 logging.basicConfig(level=logging.DEBUG)
+logging.getLogger('matplotlib').setLevel(logging.INFO)
+
 
 class MutualInformationScore(object):
     def __init__(self, X, Y,n=10, n_permut = 100):
@@ -74,7 +76,7 @@ class MutualInformationScore(object):
 
         bp_i = np.linspace(0,N-1, num=n)
 
-        bins = [x[I[bp]] for bp in bp_i]
+        bins = [x[I[int(bp)]] for bp in bp_i]
         d = np.digitize(x, bins, right=True) # discretized version
         n = np.bincount(d) + 1
         f = n / float(n.sum())
@@ -145,7 +147,7 @@ class nsRBNSOligos(object):
             xtalk[i,j] += float(score)
 
         rowsum = xtalk.sum(axis=1)
-        ind = rowsum > 80
+        ind = rowsum > 800
         xtalk = xtalk[ind,:][:,ind]
         # xtalk = xtalk[:100,:100]
         return xtalk, rowsum
@@ -264,22 +266,30 @@ class nsRBNSExperiment(object):
         import pandas as pd
         from sklearn.metrics import mean_squared_error, r2_score
 
-        acc = self.state.mdl.reads.acc_storage.get_raw(11).acc[self.indices].mean(axis=1)
+        acc = np.log(self.state.mdl.reads.acc_storage.get_raw(11).acc[self.indices].mean(axis=1))
         print acc.shape
         A,C,G,T = self.ns.nt_freqs[self.indices].T
         GC = C+G
         AT = A+T
         res = []
+        GC_score = preprocessing.scale(GC/(1-GC))
+        Z1 = preprocessing.scale(np.log(self.state.Z1))
+        entropy = 2 - self.ns.entropy[self.indices]
         for conc, enr in zip(self.rbp_conc, self.enr):
+            P = conc * .001
+            n = 1.
             data = np.array([
-                A, C, G, T, GC/(1-GC),
+                A, C, G, T, GC_score, GC_score**2,
                 np.log(self.f0),
-                self.ns.entropy[self.indices],
-                np.log(self.state.Z1),
-                acc*0,
+                entropy,
+                # np.log((P*self.state.Z1)**n/(1 + (P*self.state.Z1)**n)),
+                Z1,
+                Z1**2,
+                Z1**3,
+                acc,
             ])
             data = preprocessing.scale(data.T)
-            df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'f0', 'entropy','binding','mean_acc'])
+            df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'GC2', 'f0', 'entropy','binding','bind2', 'bind3', 'mean_acc'])
             # df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'f0', 'entropy','binding',])
 
             # reg = linear_model.LinearRegression()
@@ -290,14 +300,16 @@ class nsRBNSExperiment(object):
             # predict on full data
             y_pred = reg.predict(df)
             R, p_val = spearmanr(y,y_pred)
-            
+
             pp.figure()
-            pp.plot(y, y_pred, '.', label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
+            # pp.plot(y, y_pred, '.', label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
+            density_scatter_plot(y, y_pred,x_ref=False, label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
             pp.xlabel('log2 nsRBNS enrichment')
             pp.ylabel('linear model prediction')
-            pp.legend()
+            pp.legend(loc='upper center', facecolor='white')
+            pp.savefig('{conc}_scatter.pdf'.format(**locals()))
+            pp.close()
             
-            pp.figure()
             res = y-y_pred
             # pp.plot(df['A'], res, '.', label='A')
             # pp.plot(df['C'], res, '.', label='C')
@@ -306,18 +318,25 @@ class nsRBNSExperiment(object):
             # pp.plot(df['GC'], res, '.', label='log(GC)')
             # pp.plot(df['f0'], res, '.', label='log(f0)')
             # pp.plot(df['entropy'], res, '.', label='entropy')
-            pp.plot(df['binding'], res, '.', label='log(Z1)')
-
+            
+            # pp.plot(df['binding'], res, '.', label='log(Z1)')
             print "coeff", reg.coef_
             print "intercept", reg.intercept_
             print "r2 on bg", r2_score(y[I], y_pred[I])
-            print "r2 full ", r2_score(y, y_pred)
+            print ">>>>>", conc, "r2 full ", r2_score(y, y_pred)
             print "alpha", reg.alpha_
+
+            for col in df.columns:
+                pp.figure()
+                density_scatter_plot(df[col], res, x_ref=False, label=col)
+                pp.legend(loc='upper center', facecolor='white')
+                pp.savefig('{col}_{conc}_residual.pdf'.format(**locals()))
+                pp.close()
 
             # res.append() # keep the residuals
 
 
-        pp.show()
+        # pp.show()
 
 
 
