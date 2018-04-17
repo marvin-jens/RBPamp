@@ -584,34 +584,3 @@ class SPAModel(object):
 
         return state
     
-
-    # def extrapolation(self, k, fname=""):
-    #     """
-    #     Using current affinities, extrapolate expected affinties for k > self.k
-    #     """
-    #     assert k > self.k
-    #     kmers = list(cyska.yield_kmers(k))
-    #     seqm = cyska.read_raw_seqs_chunked(kmers, chunklines=len(kmers))
-    #     index_matrix = cyska.seq_matrix_to_index_matrix(seqm, self.k)
-    #     affinities = self.params[index_matrix].sum(axis=1)
-        
-    #     params = np.concatenate((affinities, self.params[self.nA:]))
-    #     mdl = SPAModel(self.reads, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
-    #     if fname:
-    #         mdl.store_params(fname)
-        
-    #     return mdl
-        
-    # # DEPRECATING!
-    # def load_params(self, fname):
-    #     params = []
-    #     self.logger.info("reading parameters from '{0}'".format(fname))
-    #     with file(fname, 'r') as f:
-    #         for line in f:
-    #             if line.startswith('#'): 
-    #                 continue
-    #             params.append(float(line.split('\t')[1]))
-
-    #     #self.evaluate(np.array(params, dtype=np.float32), keep=True)
-    #     return np.array(params, dtype=np.float32)
-

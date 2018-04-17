@@ -963,6 +963,61 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
 
     return Z.base
 
+from libc.string cimport memset #faster than np.zeros
+def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, FLOAT32_t [:] psi, UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] psam, UINT64_t k_mer, int n_max=0):
+    cdef UINT64_t N = seqm.base.shape[0]
+    cdef UINT64_t L = seqm.base.shape[1]
+    cdef UINT64_t k = psam.base.shape[0]
+    cdef UINT64_t l = L - k + 1
+    cdef UINT64_t l_im = index_matrix.shape[1]
+    cdef UINT64_t zero_bytes = k*4*4
+
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:,:,:] grad = np.zeros((4**k_mer,k,4), dtype=np.float32)
+
+    cdef UINT64_t i=0, j=0, d=0, n=0
+    cdef UINT32_t index=0
+    cdef FLOAT32_t w=0
+    cdef FLOAT32_t [:,:] dZ_dM = np.zeros((k,4), dtype=np.float32)
+    # cdef FLOAT64_t Z1=0 # Single protein partition function
+    
+    # mutliplication is faster than division
+    cdef FLOAT32_t [:,:] psam_inv = 1./psam.base
+
+    if n_max:
+        N = min(N, n_max)
+
+    # with nogil, parallel():
+    #     for j in prange(N, schedule='guided'):
+
+    for j in range(N):
+        w = psi[j] - psi[j] * psi[j] / Zj[j]
+        # w = w - w*w 
+        # w /= Zj[j]  # w = (psi - psi^2) * 1/Z_j
+
+        # zero out dZj_dM
+        memset(&dZ_dM[0,0], 0, zero_bytes)
+        # for d in range(k):
+        #     for n in range(4):
+        #         dZ_dM[d,n] = 0
+
+        # compute dZj_dM gradient matrix
+        for i in range(l):
+            for d in range(k):
+                n = seqm[j, i+d]
+                dZ_dM[d, n] += Z[j,i] * psam_inv[d,n] * w
+
+        # print j, "dZ_dM", dZ_dM.base
+        # propagate effect to pulldown kmer frequencies
+        for i in range(l_im):
+            index = index_matrix[j,i]
+            for d in range(k):
+                for n in range(4):
+                    grad[index, d, n] += dZ_dM[d,n]
+
+    return grad.base
+                    
+            
 
 
 
