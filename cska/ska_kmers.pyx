@@ -912,6 +912,59 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
 
     return Z.base
 
+def seqm_pad_adapters(UINT8_t [:,:] seqm, UINT8_t [:] adap5, UINT8_t [:] adap3, UINT64_t k):
+    cdef UINT64_t N = seqm.shape[0]
+    cdef UINT64_t l = seqm.shape[1]
+    cdef UINT64_t L = l + 2* (k-1)
+    cdef UINT8_t [:,:] padded = np.empty((N,L), dtype=np.uint8)
+    cdef UINT64_t l5 = len(adap5.base)
+    cdef UINT64_t l3 = len(adap3.base)
+    cdef UINT64_t i = 0, j=0
+
+    with nogil:
+        for j in prange(N):
+            for i in range(k-1):
+                padded[j,i] = adap5[l5 - k + i + 1]
+            for i in range(l):
+                padded[j,i+k-1] = seqm[j,i]
+            for i in range(k-1):
+                padded[j,i+k-1+l] = adap3[i]
+    
+    return padded.base
+
+
+def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:,:] psam, int n_max=0, int openen_ofs=0):
+    cdef UINT64_t N = seqm.base.shape[0]
+    cdef UINT64_t L = seqm.base.shape[1]
+    cdef UINT64_t k = psam.base.shape[0]
+    cdef UINT64_t l = L - k + 1
+    
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:,:] Z = np.ones((N,l), dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    # cdef FLOAT32_t a=0
+    cdef UINT64_t i=0, j=0, d=0, n=0
+    # cdef UINT32_t index=0
+    # cdef FLOAT32_t w=0
+    # cdef FLOAT64_t Z1=0 # Single protein partition function
+
+    if n_max:
+        N = min(N, n_max)
+
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            # iterate over all PSAM start positions
+            for i in range(l):
+                Z[j,i] *= acc_matrix[j, i + openen_ofs]
+                for d in range(k):
+                    n = seqm[j,i+d]
+                    Z[j,i] *= psam[d,n]
+
+    return Z.base
+
+
+
 
 # @cython.boundscheck(False)
 # @cython.wraparound(False)

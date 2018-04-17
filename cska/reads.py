@@ -426,3 +426,13 @@ if __name__ == "__main__":
         "CGCGCGCGTCGCGATAGCGTCGA",
     ]
     reads = RBNSReads.from_seqs(test_reads)
+
+    import cska.ska_kmers as cyska
+    adap5 = cyska.seq_to_bits(reads.adap5)
+    adap3 = cyska.seq_to_bits(reads.adap3)
+    print adap5
+    print adap3
+    
+    padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, 5)
+    for r in padded:
+        print r
