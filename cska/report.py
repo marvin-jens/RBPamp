@@ -78,18 +78,18 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
 def density_scatter_plot(
     x,y, 
     outlier_percentile=10, 
-    density_kw = dict(cmap=pp.cm.hot_r, nbins=100), 
+    density_kw = dict(cmap=pp.cm.gist_heat_r, nbins=100), 
     plot_kw = dict(style=".k"), 
     contour=False, 
     plot_outliers=True,
     label="none", data_labels=[],
     dens_thresh=1000,
+    x_ref=True,
     ):
     from scipy.stats import kde
-
+    import seaborn as sns
     # Evaluate a gaussian kde on a regular grid of nbins x nbins over data extents
     t0 = time.time()
-    k = kde.gaussian_kde([x,y])
     N = len(x)
     
     xmin = x.min()
@@ -97,89 +97,116 @@ def density_scatter_plot(
     ymin = y.min()
     ymax = y.max()
     nbins = density_kw['nbins']
-    xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
-    zi = k(np.vstack([xi.flatten(), yi.flatten()]))
     t1 = time.time()
     #Z = zi.reshape((len(yi), len(xi)))
     #print Z.shape
     #pp.imshow(Z, interpolation='none', cmap=density_kw['cmap'], origin='lower', extent=[xmin,xmax,ymin,ymax])
-    if N > dens_thresh:
-        pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'])
-        pp.colorbar()
-    t2 = time.time()
-    if contour:
-        pp.contour(xi, yi, zi.reshape(xi.shape))
+    style = { 
+        'axes.linewidth': .1, 
+        'axes.grid' : False, 
+        'legend.frameon' : True,
+        'legend.fancybox' : False,
+    }
+    import matplotlib
+    with sns.axes_style("ticks", style):
+        matplotlib.rc('xtick.major', width = .1)
+        matplotlib.rc('ytick.major', width = .1)
 
-    if plot_outliers and outlier_percentile > 0:
-        data = np.vstack([x,y])
-        if N <= 20:
-            print "plotting all data points"
-            out = np.arange(N)
+        if N > dens_thresh:
+            k = kde.gaussian_kde([x,y])
+            xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
+            zi = k(np.vstack([xi.flatten(), yi.flatten()]))
+
+            # pca().set_facecolor('w')
+            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0)
+            m.set_rasterized(True)
+            cb = pp.colorbar(label='density', shrink=.5, ticks = matplotlib.ticker.MaxNLocator(nbins=3, )) #orientation='horizontal', fraction=.05)
+            cb.ax.tick_params(axis='y', direction='out')
+            # cb.ax.yaxis.set_major_locator(matplotlib.ticker.AutoLocator())
+            # cb.locator = matplotlib.ticker.MaxNLocator(nbins=4)
+            # cb.update_ticks()
+
+            if contour:
+                pp.contour(xi, yi, zi.reshape(xi.shape))
+            
+            pp.grid(False)
+
+        t2 = time.time()
+
+        if plot_outliers and outlier_percentile > 0:
+            data = np.vstack([x,y])
+            if N <= dens_thresh:
+                print "plotting all data points"
+                out = np.arange(N)
+            else:
+                dens_at_points = k(data)
+                lower = np.percentile(dens_at_points, outlier_percentile)
+                out = dens_at_points < lower
+
+            out_x = x[out]
+            out_y = y[out]
+            pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label)
+
+        if N > dens_thresh and x_ref:
+            # use experiment as reference
+            m = xmin  
+            M = xmax
         else:
-            dens_at_points = k(data)
-            lower = np.percentile(dens_at_points, outlier_percentile)
-            out = dens_at_points < lower
+            # show full range
+            m = min(xmin, ymin)
+            M = max(xmax, ymax)
+        
+        # add margin in log-space
+        m += np.log10(3./4.)
+        M += np.log(4./3.)
 
-        out_x = x[out]
-        out_y = y[out]
-        pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label)
+        t3 = time.time()
+        
+        if len(data_labels):
+            if N < dens_thresh*.1:
+                print "just add the damn labels"
+                print x,y, data_labels
+                repel_labels_nx(x, y, data_labels)
+            else:
+                # annotate the most enriched and most off-diagonal k-mers
+                top = x.argsort()[::-1][:5]
+                print "top", top
+                pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
 
-    if N > dens_thresh:
-        # use experiment as reference
-        m = xmin  
-        M = xmax
-    else:
-        # show full range
-        m = min(xmin, ymin)
-        M = max(xmax, ymax)
-    
-    # add margin in log-space
-    m += np.log10(3./4.)
-    M += np.log(4./3.)
+                repel_labels_nx(x[top], y[top], data_labels[top])
+                # for _x, _y, mer in zip(x[top], y[top], data_labels[top]):
+                #     mer = mer.upper().replace('T','U')
+                #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
+                #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='red', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
+                    
+                off = np.fabs(x-y).argsort()[::-1][:10]
+                pp.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
 
-    t3 = time.time()
-    
-    if len(data_labels):
-        if N < dens_thresh*.1:
-            print "just add the damn labels"
-            print x,y, data_labels
-            repel_labels_nx(x, y, data_labels)
-        else:
-            # annotate the most enriched and most off-diagonal k-mers
-            top = x.argsort()[::-1][:5]
-            print "top", top
-            pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
+                repel_labels_nx(x[off], y[off], data_labels[off])
+                # for _x, _y, mer in zip(x[off], y[off], data_labels[off]):
+                #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
+                #     mer = mer.upper().replace('T','U')
+                #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
 
-            repel_labels_nx(x[top], y[top], data_labels[top])
-            # for _x, _y, mer in zip(x[top], y[top], data_labels[top]):
-            #     mer = mer.upper().replace('T','U')
-            #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
-            #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='red', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
-                
-            off = np.fabs(x-y).argsort()[::-1][:10]
-            pp.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
+        # draw guides through zero and the diagonal
+        mM = np.array([m,M])
+        mM = (mM - mM.mean()) *.75 + mM.mean()
+        pp.plot(mM,mM, '-k', linewidth=.5, alpha=.3)
+        pp.plot([0,0],mM, '-k', linewidth=.5, alpha=.3)
+        pp.plot(mM,[0,0], '-k', linewidth=.5, alpha=.3)
+        
+        pp.xlim(m,M)
+        pp.ylim(m,M)
 
-            repel_labels_nx(x[off], y[off], data_labels[off])
-            # for _x, _y, mer in zip(x[off], y[off], data_labels[off]):
-            #     #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
-            #     mer = mer.upper().replace('T','U')
-            #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
-
-    # draw guides through zero and the diagonal
-    pp.plot([m,M],[m,M], '--k', zorder=np.inf, linewidth=.1)
-    pp.axvline(0,linestyle='dashed', color='k', linewidth=.1)
-    pp.axhline(0,linestyle='dashed', color='k', linewidth=.1)
-    
-    pp.xlim(m,M)
-    pp.ylim(m,M)
-
-    t4 = time.time()
-    logger = logging.getLogger('timing.density_plot')
-    t_kde = 1000. * (t1-t0)
-    t_mesh = 1000. * (t2-t1)
-    t_out = 1000. * (t3-t2)
-    t_label = 1000. * (t4-t3)
-    logger.debug('KDE={t_kde:.2f}ms pcolormesh={t_mesh:.2f}ms outliers={t_out:.2f}ms labels={t_label:.2f}ms'.format(**locals()) )
+        t4 = time.time()
+        logger = logging.getLogger('timing.density_plot')
+        t_kde = 1000. * (t1-t0)
+        t_mesh = 1000. * (t2-t1)
+        t_out = 1000. * (t3-t2)
+        t_label = 1000. * (t4-t3)
+        logger.debug('KDE={t_kde:.2f}ms pcolormesh={t_mesh:.2f}ms outliers={t_out:.2f}ms labels={t_label:.2f}ms'.format(**locals()) )
+        
+        sns.despine(trim=True)
 
         
 class TrackedValues(object):
@@ -230,14 +257,61 @@ class TrackedValues(object):
         return self.times, data
         
 
+def p_bound_plot(state, fname = "pbound.pdf", bins=1000):
+    pp.figure()
+    
+    lZ = np.log(state.Z1)
+    counts, bins = np.histogram(lZ, bins=bins)
+    bins = np.exp(bins)
+    # midpoint integration
+    aff = (bins[1:] + bins[:-1])/2.
+            
+    N = counts.sum()
+    expected = []
+    state.betas = [0.0008, 0.003,0.02,0.1,0.2]
+    for conc, beta in zip(state.rbp_free, state.betas):
+        Z = conc * aff
+        pb = Z/(Z + 1.)
+        pp.semilogx(aff, pb, label="{0:.2f} nM free RBP".format(conc) )
+        
+        x = counts * (pb + beta)
+        print x.min(), x.max(), np.median(x)
+        expected.append( N * x/x.sum() )
+
+        print conc, beta, "pb", pb.min(), pb.max(), np.median(pb)
+
+
+    pp.axhline(1, color="k")
+    pp.axhline(.5, color="gray", linestyle='dashed')
+    pp.legend(loc='upper center', faceolor='white')
+    pp.xlabel("total read affinity [1/nM]")
+    pp.ylabel(r"$\psi$")
+    pp.savefig(fname)
+    pp.close()
+
+    pp.figure()
+    
+    pp.loglog(aff, counts, color="black", label="random RNA pool")
+    for conc, x in zip(state.rbp_free, expected):
+        pp.loglog(aff, np.clip(x, a_min=1, a_max=None) , label="predicted @ {0:.2f}nM free RBP".format(conc))
+
+    pp.legend(loc = 'upper left')
+    pp.xlabel("total read affinity [1/nM]")
+    pp.ylabel("count")
+    pp.savefig("aff_dist.pdf")
+    pp.close()
+    
+    # cska -a --run-path=blup --n-max=1000000 --metrics="" --model-report-ignore-trigger="init" --seed-analysis --model
+
 class Sensor(object):
-    def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, setup_func = None, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description=""):
+    def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, setup_func = None, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description="", scatter_func = density_scatter_plot):
         self.name = name.replace(' ','_')
         self.description = description
         self.get_func = get_func
         self.plot_func = plot_func
         self.setup_func = setup_func
         self.mode = mode
+        self.scatter_func = scatter_func
         self.data_interval = data_interval
         self.plot_interval = plot_interval
         self.rep = rep
@@ -330,7 +404,7 @@ class Sensor(object):
                 data_labels = self.opt.mdl.parameters.param_name
 
             pp.title(title)
-            density_scatter_plot(x, y, label=label, data_labels=data_labels)
+            self.scatter_func(x, y, label=label, data_labels=data_labels)
             self.logger.info("{self.name} scatter plot".format(**locals()) )
         
     def update_plot(self, t, occasion="snapshot"):
@@ -441,6 +515,7 @@ class OptReporting(object):
                 ylabel=r"predicted kmer enrichment $\log_2(R)$",
                 xlabel=r"observed kmer enrichment $\log_2(R)$",
                 mode='scatter',
+                scatter_func = density_scatter_plot,
                 labels=[label,],
                 fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
                 plot_interval=1000,
@@ -454,9 +529,12 @@ class OptReporting(object):
             x = np.log10(this.rep.ref.observed_affinities)
             y = np.log10(this.rep.ref.predict_affinities(this.opt.mdl))
 
-            corr = np.corrcoef(x, y)[0][1]
+            from scipy.stats import spearmanr, pearsonr
+            R, ppval = pearsonr(x,y)
+            rho, pval = spearmanr(x,y)
+
             title = "comparison to literature values"
-            label = "log-affinity R={0:.3f}".format(corr)
+            label = r"log-affinity R={R:.3f} (P < {ppval:.3e}) $\rho$={rho:.3f} (P < {pval:.3e}) ".format(**locals())
             data_labels = this.rep.ref.seqs
             print x, y, title, label, data_labels
             return x, y, title, label, data_labels
@@ -467,6 +545,7 @@ class OptReporting(object):
             ylabel=r"modeled affinity $-\log_{10}(K_d)$",
             xlabel=r"literature affinity $-\log_{10}(K_d)$",
             mode='scatter',
+            scatter_func = density_scatter_plot,
             labels=["reference",],
             fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
             plot_interval=1000,
@@ -736,5 +815,6 @@ if __name__ == "__main__":
     y = np.array(x + np.random.random(N) * .1)
     mers = np.array([str(i) for i in y])
     logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('matplotlib').setLevel(logging.INFO)
     density_scatter_plot(x,y, data_labels=mers)
     pp.show()

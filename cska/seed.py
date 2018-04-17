@@ -1,11 +1,15 @@
 import numpy as np
 import matplotlib
-# matplotlib.use('pdf')
+matplotlib.use('agg')
 import matplotlib.pyplot as pp
+import logging
+import os
 
 from itertools import izip_longest
 import cska.ska_kmers as cyska
 from cska.ska_kmers import yield_kmers
+import cska
+from cska.caching import CachedBase, cached, pickled
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
@@ -154,7 +158,7 @@ class Alignment(object):
         return PSAM(psam, A0=A0)
         
 
-class DependentKmerAnalysis(object):
+class DependentKmerAnalysis(CachedBase):
     def __init__(self, rbns, km=4):
         self.rbns = rbns
         self.km = km
@@ -163,21 +167,38 @@ class DependentKmerAnalysis(object):
         self.B = Alignment()
         self.parts = [self.A, self.B]
         self.partscores = [0, 0]
+        self.logger = logging.getLogger("seed.DependentKmerAnalysis")
         
+        CachedBase.__init__(self)
+
         profs = []
         joints = []
+        
         for reads in rbns.reads:
+            self.logger.debug("collecting joint kmer frequencies for {reads.name}".format(reads=reads))
             joint = reads.joint_kmer_freq_distance_profile(km)
             joints.append(joint)
             prof = reads.kmer_mutual_information_profile(km)
             profs.append(prof)
+            # free some memory!
+            # reads.cache_flush("__cached_get_index_matrix")
+            # reads.cache_flush("__cached_seqm")
+            reads.cache_flush()
         
         self.profs = np.array(profs)
         self.joints = np.array(joints)
-        self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
-        print "best_sample", self.best_sample
+        #self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
+        self.best_sample = self.profs.max(axis=1)[1:].argmax() + 1
+        print "best_sample_candidates", self.best_sample, len(rbns.reads)
+        print self.joints.max(axis=3).max(axis=2).max(axis=1)
+        print self.profs.max(axis=1)
+        self.logger.debug("best_sample = {0}".format(rbns.reads[self.best_sample].name) )
 
+    @property
+    def cache_key(self):
+        return "{self.rbns.cache_key}.km={self.km}".format(self=self)    
 
+    # @pickled
     def build_matrices(self, thresh=.7):
         j0 = self.joints[0]
 
@@ -191,7 +212,8 @@ class DependentKmerAnalysis(object):
         self.spaced_score = np.zeros(18,dtype=np.float32)
 
         for d in range(18):
-            print reads.name, d
+            # print reads.name, d
+            self.logger.debug("build_matrices(d={0})".format(d))
             
             jR = np.log2(joint / j0)
             jRm = jR.max()
@@ -199,10 +221,10 @@ class DependentKmerAnalysis(object):
 
             for n in I:
                 i, j = np.unravel_index(n, joint.shape[:2])
-                if jR[i,j,d] < jRm * thresh:
+                if jR[i,j,d] <= jRm * thresh:
                     break
                 
-                # print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
+                print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
                 merge = kmers[i] + "-" * d + kmers[j]
                 score = jR[i,j,d]
                 
@@ -231,13 +253,18 @@ class DependentKmerAnalysis(object):
         self.lin_score = S_lin
         self.A_score = S_A
         self.B_score = S_B
+        self.logger.debug("build_matrices() done.")
 
-    def linear_PSAM_seed(self, n_max=11):
+    # @pickled
+    def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
         # find compact representation of linear motif
-        psam_lin = self.linear.to_PSAM(keep_weight=.9, n_max=11)
+        self.logger.debug("building linear PSAM")
+        psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
+    # @pickled
     def bipartite_PSAM_seeds(self):
+        self.logger.debug("building bipartite PSAMs")
         # find compact representations of sub-motifs
         pA = self.A.to_PSAM(keep_weight=.9)
         pB = self.B.to_PSAM(keep_weight=.9)
@@ -248,8 +275,17 @@ class DependentKmerAnalysis(object):
         psam_B = self.B.to_PSAM(n_max=k)
         return psam_A, psam_B
 
-    def bipartite_PSAM_spacings(self, sample=0):
-        psam_A, psam_B = self.bipartite_PSAM_seeds()
+    # @pickled
+    def bipartite_PSAM_spacings(self, sample=0, psam_A=None, psam_B=None):
+        
+        if psam_A == None or psam_B == None:
+            psam_A, psam_B = self.bipartite_PSAM_seeds()
+
+        self.logger.debug("computing bipartite PSAM spacing cross-correlations")
+        from copy import copy
+        psam_A = copy(psam_A)
+        psam_B = copy(psam_B)
+
         psam_A.A0 = 1
         psam_B.A0 = 1
 
@@ -258,6 +294,7 @@ class DependentKmerAnalysis(object):
 
         if not sample:
             sample = self.best_sample
+
         ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[sample]
 
@@ -273,18 +310,19 @@ class DependentKmerAnalysis(object):
 
 
     def interaction_plot(self):
+        self.logger.debug("generating interaction plot")
         ctrl = self.rbns.reads[0]
         reads = self.rbns.reads[self.best_sample]
         
         psam_lin = self.linear_PSAM_seed()
-        psam_lin.save_logo('lin_psam.eps')
-        print psam_lin
+        # psam_lin.save_logo('lin_psam.eps')
+        # print psam_lin
 
         psam_A, psam_B = self.bipartite_PSAM_seeds()
         psam_A.save_logo('A_psam.eps')
         psam_B.save_logo('B_psam.eps')
-        print psam_A
-        print psam_B
+        # print psam_A
+        # print psam_B
 
         spacing_w = self.bipartite_PSAM_spacings()
         L = len(spacing_w)
@@ -319,6 +357,96 @@ class DependentKmerAnalysis(object):
         # pp.show()
         # sys.exit(0)
 
+class SeedRefinement(object):
+    def __init__(self, rbns, km=4, keep_weight=.75, max_linear_k=11):
+        self.rbns = rbns
+        self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
+        self.km = km
+        self.analysis = DependentKmerAnalysis(self.rbns, km=km)
+        self.analysis.build_matrices()
+        self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=keep_weight, n_max=max_linear_k)
+        self.logger.info("linear_motif score={0:.2f} for {1}mer {2}".format(self.analysis.linear_motif_score, self.psam_lin.n, self.psam_lin.consensus))
+        self.psam_A, self.psam_B = self.analysis.bipartite_PSAM_seeds()
+        self.linear_k = self.psam_lin.n
+        self.bipart_k = self.psam_A.n
+        
+        if self.analysis.linear_motif_score < .9:
+            self.logger.info("bipartite motifs are potentially a better match for this RBP")
+            self.spacings = self.analysis.bipartite_PSAM_spacings(psam_A=self.psam_A, psam_B=self.psam_B)
+            L = len(self.spacings)
+            self.dist_cost = self.spacings[L/2:]
+            self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
+
+        self.store_logos()
+
+    def distance_xcorr_plot(self, fname="xcorr.pdf"):
+        self.logger.debug("generating xcorr plot")
+
+        ctrl = self.rbns.reads[0]
+        reads = self.rbns.reads[self.analysis.best_sample]
+        
+        spacing_w = self.analysis.bipartite_PSAM_spacings(psam_A = self.psam_A, psam_B = self.psam_B)
+        L = len(spacing_w)
+        x = np.arange(L) - L/2
+
+        pp.figure(figsize=(4,3))
+        pp.title('{0} -> {1} linear_motif_score={2:.3f}'.format(self.psam_A.consensus, self.psam_B.consensus, self.analysis.linear_motif_score))
+        pp.plot(x[L/2:], spacing_w[L/2:], '-.', linestyle='steps-mid', label=self.rbns.reads[self.analysis.best_sample].name)
+        # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
+        pp.xlabel("distance [nt]")
+        pp.ylabel("cross affinity log2-enrichment")
+        pp.axvline(self.psam_A.n)
+        pp.legend()
+        pp.tight_layout()
+        pp.savefig(fname)
+        pp.close()
+
+    def store_logos(self):
+        self.logger.debug("generating sequence logos")
+        path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
+        rbp_name = self.rbns.reads[0].rbp_name
+
+        self.psam_lin.save_logo(os.path.join(path, '{0}_linear.eps'.format(rbp_name)))
+        self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.eps'.format(rbp_name)))
+        self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.eps'.format(rbp_name)))
+        # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
+
+
+    def linear_seed_params(self, A0=1., aff0=1e-6):
+        psam = self.psam_lin
+        psam.A0 = A0
+
+        return psam.kmer_affinity_table(aff0-aff0)
+
+    # def optimize(self, eps=1e-3, A0=1.):
+
+    #     from cska.optimize import ModelOptimization
+    #     # free some memory
+    #     self.opt.input_reads.cache_flush('__cached_get_index_matrix')
+    #     self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
+
+    #     # create new optimizer and model
+    #     new_opt = ModelOptimization(k, self.opt.rbns_analysis,
+    #         mdl_params = params,
+    #         t0 = self.opt.t,
+    #         reporter = self.opt.reporter,
+    #         kmer_opt_global = not self.opt.param_local_fit,
+    #     )
+    #     new_opt.errors = self.opt.errors + new_opt.errors
+    #     new_opt.correlations = self.opt.correlations
+    #     new_opt.rel_improvements = self.opt.rel_improvements
+
+    #     # some plumbing to make reports/plots contiguous
+    #     self.opt.reporter.set_opt(new_opt)
+    #     self.opt.reporter.tick(0)
+    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
+
+    #     self.opt = new_opt
+    #     self.opt.step_scale(min_scale=.01, max_scale=1000.)
+    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="scale")
+
+    # def store_params(self):
+    #     self.opt.mdl.parameters.store(cska.ensure_path(os.path.join(self.opt.out_path, "affinity/"))
 
 if __name__ == "__main__":
 
@@ -359,7 +487,7 @@ if __name__ == "__main__":
         )
         rbns.add_reads(reads)
 
-    DK = DependentKmerAnalysis(rbns)    
+    DK = DependentKmerAnalysis(rbns, km=3)    
     DK.build_matrices()
 
     # DK.linear.save_logo("linear.eps")
@@ -368,7 +496,13 @@ if __name__ == "__main__":
     # print "linear alignment"
     # print DK.linear
     # print DK.linear.matrix
+    ls = DK.lin_score / DK.linear.wlen
+    ABs = (DK.A_score + DK.B_score) / (DK.A.wlen + DK.B.wlen)
+    print "A effective length", DK.A.wlen, "score", DK.A_score, "score-density", DK.A_score/DK.A.wlen
+    print "B effective length", DK.B.wlen, "score", DK.B_score, "score-density", DK.B_score/DK.B.wlen
+    print "combined", DK.A.wlen + DK.B.wlen, "score", DK.A_score + DK.B_score, "score-density", (DK.A_score + DK.B_score)/(DK.A.wlen + DK.B.wlen)
 
+    print "linear eff length", DK.linear.wlen, "score", DK.lin_score, "score-density", DK.lin_score/DK.linear.wlen
     print "linear_motif score", DK.linear_motif_score
 
     DK.interaction_plot()

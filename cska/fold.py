@@ -28,7 +28,7 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, dummy=False, **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
@@ -45,6 +45,7 @@ class RBNSOpenen(CachedBase):
         # to be initialized upon first access to oem
         self.include_adapters = None
         self.ofs = 0
+        self.dummy = dummy
         
         if self.discretized:
             # recovering discretization scheme from file-name
@@ -135,7 +136,8 @@ class RBNSOpenen(CachedBase):
         else:
             delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
             raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
-            
+        
+        L = int(L)
         oem = oem.reshape( (N,L) )
         if self.rbns_reads.n_max:
             self.logger.debug("truncating to reads.n_max={0}".format(self.rbns_reads.n_max) )
@@ -146,6 +148,11 @@ class RBNSOpenen(CachedBase):
     @property
     @cached
     def acc(self):
+        if self.dummy:
+            # WARNING self.N and self.L seem to *not* always coincide with
+            # oem.shape. Specifically L can be smaller than oem axis 1 WTF?
+            return np.ones(self.oem.shape, dtype=np.float32)
+
         if not self.discretized:
             return np.exp(-self.oem/self.RT)
         else:
@@ -382,7 +389,7 @@ class OpenenStorage(CachedBase):
             
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k)
+        return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
         
     @cached
     def get_discretized(self, k):
@@ -392,7 +399,7 @@ class OpenenStorage(CachedBase):
         fname_disc = self._make_filename(k, disc=disc)
         print fname_disc
         if os.path.exists(fname_disc):
-            return RBNSOpenen(fname_disc, self.reads, k)
+            return RBNSOpenen(fname_disc, self.reads, k, dummy=self.dummy)
         else:
             raw = self.get_raw(k)
             self.logger.info("discretizing '{0}' to satisfy get_discretized({1}) request".format(raw.fname, k) )

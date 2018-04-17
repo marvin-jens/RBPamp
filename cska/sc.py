@@ -7,6 +7,7 @@ class SelfConsistency(object):
     def __init__(self, Z1, rna_conc, bins=0):
         self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1
+        print Z1.shape, Z1.min(), Z1.max()
         self.N = len(Z1)
         self.rna_conc = rna_conc
         self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))

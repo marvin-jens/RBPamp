@@ -8,10 +8,61 @@ import numpy as np
 import time
 import logging
 import cska.ska_kmers
+import cska.ska_kmers as cyska
 from cska import ensure_path
 from cska.caching import cached, pickled, CachedBase
 
-        
+
+class RBNSSample(CachedBase):
+    def __init__(self, reads):
+        self.reads = reads
+        self.nt_counts_profile = np.array(cyska.kmer_profiles(self.reads.seqm, 1), dtype=np.float32)
+        self.nt_counts = self.nt_counts_profile.sum(axis=1)
+        self.nt_freqs = self.nt_counts / self.nt_counts.sum()
+        self.nt_freqs_profile = self.nt_counts_profile / self.nt_counts_profile.sum(axis=0)[np.newaxis,:]
+    
+        self.nt_entropy = -(np.log2(self.nt_freqs_profile) * self.nt_freqs_profile).sum(axis=0)
+
+        im = self.reads.get_index_matrix(1)
+        counts = np.array(cyska.joint_freq_at_distance(im,1), dtype=np.float32)
+        freq = counts / counts.sum(axis=(0,1))[np.newaxis, np.newaxis,:]
+        indep = np.outer(self.nt_freqs, self.nt_freqs)
+
+        self.MI = (freq * np.log2(freq / indep[:,:,np.newaxis])).sum(axis=(0,1))
+
+        print self.nt_freqs
+
+    def nt_entropy_profile(self):
+        freq = self.nt_freqs_profile
+        ent = -(np.log2(freq) * freq).sum(axis=0)
+        import matplotlib.pyplot as pp
+        pp.subplot(211)
+        pp.plot(ent, linestyle='steps-mid', label=self.reads.name)
+        pp.ylim(1,2)
+        pp.ylabel("nt. entropy [bits]")
+        pp.xlabel("read position [nt]")
+        pp.legend(loc='lower center')
+        pp.subplot(212)
+        pp.pcolor(freq, cmap='viridis')
+        pp.yticks(np.arange(4)+.5, list('ACGU'))
+        pp.colorbar(label="rel. frequency", orientation='horizontal', fraction=.05)
+
+    def MI_profile(self):
+        im = self.reads.get_index_matrix(1)
+        print im.min(), im.max()
+        counts = np.array(cyska.joint_freq_at_distance(im,1), dtype=np.float32)
+        freq = counts / counts.sum(axis=(0,1))[np.newaxis, np.newaxis,:]
+        indep = np.outer(self.nt_freqs, self.nt_freqs)
+
+        import matplotlib.pyplot as pp
+        MI = (freq * np.log2(freq / indep[:,:,np.newaxis])).sum(axis=(0,1))
+        pp.figure()
+        pp.plot(MI)
+        pp.show()
+        print MI
+
+
+
 class RBNSComparison(CachedBase):
     def __init__(self, in_reads, pd_reads, ska_runner = None):
         
@@ -187,7 +238,11 @@ class RBNSAnalysis(CachedBase):
         self.runs = {}
         self.AUCs = {}
         #self.pair_screens = collections.defaultdict(dict)
-        
+   
+    @property
+    def cache_key(self):
+        return ".".join([r.cache_key for r in self.reads])
+
     def flush(self):
         for comp in self.comparisons:
             comp.cache_flush()
@@ -197,6 +252,9 @@ class RBNSAnalysis(CachedBase):
     def add_reads(self, rbns_reads):
         self.logger.info("adding {0}".format(rbns_reads.name) )
         self.reads.append(rbns_reads)
+        # sample = RBNSSample(rbns_reads)
+        # sample.nt_entropy_profile()
+        # sample.MI_profile()
 
         # secondary structure open-energies/accessibility storage
         from cska.fold import OpenenStorage
@@ -302,7 +360,7 @@ class RBNSAnalysis(CachedBase):
         kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
         return kmers, order[:rank_cut], best_sample_i+1
         
-    def compute_results(self, k, options, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"], report=False ):
+    def compute_results(self, k, options, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"]):
         if len(self.reads) < 2:
             self.logger.warning("need at least two samples to compute '{0}'".format(results))
             return
@@ -311,6 +369,8 @@ class RBNSAnalysis(CachedBase):
         all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
         
         for name in results:
+            if not name:
+                continue
             fname = "{self.rbp_name}.{name}.{k}mer.tsv".format(**locals())
             path = ensure_path(os.path.join(self.out_path, "metrics", fname))
 
@@ -321,14 +381,14 @@ class RBNSAnalysis(CachedBase):
             else:
                 values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
                 self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
-                if report and name == "R_value":
-                    from cska.rbns_reports import EnrichmentBarPlot
-                    for comp in self.comparisons:
-                        path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
-                        if not os.path.exists(path):
-                            os.makedirs(path)
-                        plot = EnrichmentBarPlot(comp)
-                        plot.make_plot(k, dest=path)
+                # if report and name == "R_value":
+                #     from cska.rbns_reports import EnrichmentBarPlot
+                #     for comp in self.comparisons:
+                #         path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
+                #         if not os.path.exists(path):
+                #             os.makedirs(path)
+                #         plot = EnrichmentBarPlot(comp)
+                #         plot.make_plot(k, dest=path)
                     
 
     def cooccurrence_tensor_analysis(self, k):

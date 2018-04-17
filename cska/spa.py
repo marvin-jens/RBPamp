@@ -160,6 +160,11 @@ class SPAState(object):
 
         return grad
         
+    def dump(self, msg=""):
+        I = self.params[:self.mdl.nA].argsort()[::-1]
+        for i in I[:10]:
+            print msg, cyska.index_to_seq(i,self.mdl.k), self.params[i], self.R[:,i]
+
 
 class SPAPartition(object):
     """
@@ -213,6 +218,30 @@ class SPAPartition(object):
 
         return SPAState(self.mdl, params, self.Z1, self.mdl.state.p_bound, pi, rbp_free)
         
+class ParamNameProxy(object):
+    def __init__(self, iface):
+        self.iface = iface
+    
+    def __len__(self):
+        return self.iface.n_params
+    
+    def __getitem__(self, I):
+        if hasattr(I, "__len__"):
+            # it's an array
+            return np.array([self.get_param_name(i) for i in I])
+        else:
+            return self.get_param_name(I)
+
+    def get_param_name(self, i):
+        if i < self.iface.nA:
+            return cyska.index_to_seq(i, self.iface.k)
+        else:
+            return "beta{0}".format(i - self.iface.nA)
+
+    def __iter__(self):
+        for i in xrange(self.iface.n_params):
+            yield self[i]
+
 class ParamInterface(object):
     """
     Delegate class. Used by SPAModel to handle parameter related functionality. Format checking,
@@ -226,11 +255,10 @@ class ParamInterface(object):
         self.n_params = self.nA + self.n_beta
         self.logger = logging.getLogger("model.ParamInterface")
         self.source = "n/a"
-
-        self.param_name = np.array(list(cyska.yield_kmers(self.k)) + ["beta{0}".format(i) for i in range(self.n_beta)])
-        self.param_index = {}
-        for i, name in enumerate(self.param_name):
-            self.param_index[name] = i
+        self.param_name = ParamNameProxy(self)
+        # initialize empty parameter vector
+        if self.mdl.params == None or len(self.mdl.params) == 0:
+            self.mdl.params = np.ones(self.n_params, dtype=np.float32)
 
     @property
     def affinities(self):
@@ -243,6 +271,26 @@ class ParamInterface(object):
     @property
     def betas(self):
         return self.mdl.params[self.nA:]
+
+    def load_rbpbind(self, path):
+        params = np.zeros(self.n_params, dtype=np.float32)
+
+        aff = []
+        ind = []
+        for i, line in enumerate(file(path)):
+            if i < 2:
+                # skip header
+                continue
+            seq, a = line.split()
+            aff.append(a)
+            ind.append(cyska.seq_to_index(seq))
+
+        aff = np.array(aff, dtype=np.float32)
+        ind = np.array(ind)
+        params[ind] = aff
+
+        self.mdl.params = params
+
 
     def load(self, path):
         params = []
@@ -264,20 +312,27 @@ class ParamInterface(object):
 
         params = np.array(params, dtype=np.float32)
         assert k == self.mdl.k
-        assert len(params) == self.n_params
+        if len(params) != self.n_params:
+            self.logger.warning("expected {0} but read {1} params. Trying to accomodate.".format(self.n_params, len(params)))
 
-        self.mdl.params = params
+        if len(params) < self.n_params:
+            self.mdl.params[:self.nA] = params[:self.nA]
+        else:
+            self.mdl.params = params[:self.n_params]
+
         self.logger.info("loaded model parameters from {0}".format(fname))
         self.source = fname
 
-    def store(self, path):
-        fname = os.path.join(path, '{self.k}mer_affinities.tsv'.format(self=self))
+    def store(self, path, params=[], suffix=""):
+        fname = cska.ensure_path(os.path.join(path, '{self.k}mer_affinities{suffix}.tsv'.format(self=self, suffix=suffix)))
+        if not len(params):
+            params = self.mdl.params
 
         self.logger.info("storing model parameters in '{0}'".format(fname))
         with file(fname, 'w') as f:
             f.write('# {0}mer\taffinity [1/nM]\tKd [nM]\n'.format(self.k) )
-            for i in xrange(self.n_params):
-                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], self.mdl.params[i], 1./self.mdl.params[i]))
+            for i in xrange(len(params)):
+                f.write('{0}\t{1}\t{2}\n'.format(self.param_name[i], params[i], 1./params[i]))
         
     def assign(self, params):
         assert len(params) == self.n_params
@@ -301,8 +356,8 @@ class ParamInterface(object):
 
         return mdl
 
-    def __str__(self):
-        aff = self.affinities
+    def aff_str(self, affinities):
+        aff = affinities
         aff0 = 1e-6
         n = (aff > aff0).sum()
         mina = aff.min()
@@ -310,7 +365,10 @@ class ParamInterface(object):
         mink = self.param_name[aff.argmin()]
         maxk = self.param_name[aff.argmax()]
         return "model params from '{self.source}': {n} above aff0, min_aff={mina:.3e} ({mink}), max_aff={maxa:.3e} ({maxk})".format(**locals()) 
-        
+
+    def __str__(self):
+        return self.aff_str(self.affinities)
+
     def params_for_next_k(self, core_param=None, waterline=1e-6, aff0=1e-7):
         k = self.k
 
@@ -416,24 +474,24 @@ class SPAModel(object):
         self.parameters = ParamInterface(self)
 
 
-    def new_subsample(self):
+    def new_subsample(self, indices = []):
         t0 = time.time()
 
-        if not self.n_subsample:
-            if len(self.subsample_indices):
-                # de-activated subsampling and we already have everything in place!
-                return
-            
-            indices = np.arange(self.reads.N)
-        else:
-            self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
-            if self.sub_replace:
-                indices = cyska.fast_randint(self.n_subsample, self.reads.N)
+        if not len(indices):
+            if not self.n_subsample:
+                if len(self.subsample_indices):
+                    # de-activated subsampling and we already have everything in place!
+                    return
+                
+                indices = np.arange(self.reads.N)
             else:
-                indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
-            t1 = time.time()
-            self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
-
+                self.logger.debug('subsampling {self.n_subsample} out of {self.reads.N} sequences. replacement={self.sub_replace}'.format(self=self) )
+                if self.sub_replace:
+                    indices = cyska.fast_randint(self.n_subsample, self.reads.N)
+                else:
+                    indices = np.random.choice(self.reads.N, size=self.n_subsample, replace= self.sub_replace)
+                t1 = time.time()
+                self.logger.debug('generating random subsample indices took {0:.2f} ms'.format(1000* (t1-t0)) )
 
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
@@ -478,7 +536,12 @@ class SPAModel(object):
             acc = self.subsample_acc
         else:
             seqm = self.reads.seqm[indices]
-            im = cyska.seq_matrix_to_index_matrix(seqm, self.k)
+            im = cyska.seq_matrix_to_index_matrix(
+                seqm, 
+                self.k,
+                adap5 = cyska.seq_to_bits(self.reads.adap5[-self.k+1:]),
+                adap3 = cyska.seq_to_bits(self.reads.adap3[:self.k-1]),
+            )
             #oem = self.openen.oem[indices]
             acc = self.openen.acc[indices]
 
@@ -498,6 +561,7 @@ class SPAModel(object):
         if ground_state == None:
             ground_state = self.state
 
+        # print "tm_update=",tm_update
         if tm_update:
             #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
@@ -512,7 +576,6 @@ class SPAModel(object):
             # skip thermodynamic model. 
             # Useful when changed parameter is not affinity (i.e. betas)
             # copy all thermodynamic model results from previous state.
-
             state = SPAState(self, params, ground_state.Z1, ground_state.p_bound, ground_state.pi_kmer, ground_state.rbp_free, ground_state.jacobi)
 
         if keep:

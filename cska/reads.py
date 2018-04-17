@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.6"
+__version__ = "0.9.8"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -13,7 +13,7 @@ from cska.caching import cached, pickled, CachedBase
 import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -34,7 +34,8 @@ class RBNSReads(CachedBase):
         self.n_subsamples = n_subsamples
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
-        
+        self.format = format
+
         if len(seqm):
             self.is_subsample = True
             self.cache_preload("seqm", seqm)
@@ -47,10 +48,27 @@ class RBNSReads(CachedBase):
         # TODO: rel-path
         self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
+    def iter_reads(self):
+        if hasattr(self.fname, "read"):
+            # already file-like
+            return self.fname
+
+        f = file(self.fname,'r')
+        if self.format == 'raw':
+            return f
+
+        elif self.format == 'fasta':
+            import byo.io
+            def readsrc():
+                for fa_id, seq in byo.io.fasta_chunks(f):
+                    yield seq
+            return readsrc()
+
+
     @classmethod
-    def from_seqs(cls, seqs, **kwargs):
+    def from_seqs(cls, seqs, fname = "", **kwargs):
         
-        reads = cls("", **kwargs)
+        reads = cls(fname, **kwargs)
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
         seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
@@ -102,14 +120,8 @@ class RBNSReads(CachedBase):
         """
         self.logger.info('reading sequences from {self.fname}'.format(self=self) )
 
-        if isinstance(self.fname, basestring):
-            src = file(self.fname)
-        else:
-            # already file-like
-            src = self.fname
-
         t0 = time.time()
-        seqm = cyska.read_raw_seqs_chunked(src, chunklines=self.chunklines, n_max=self.n_max)
+        seqm = cyska.read_raw_seqs_chunked(self.iter_reads(), chunklines=self.chunklines, n_max=self.n_max)
         t1 = time.time()
         N, L = seqm.shape
         self.logger.info("read {0:.3f}M sequences of length {1}.".format(N/1E6, L) )
@@ -133,7 +145,7 @@ class RBNSReads(CachedBase):
             adap5 = cyska.seq_to_bits(self.adap5[-k+1:]),
             adap3 = cyska.seq_to_bits(self.adap3[:k-1]),
         )
-        self.logger.debug("get_index_matrix")
+        self.logger.debug("get_index_matrix k={0}".format(k))
         return im
             
        
