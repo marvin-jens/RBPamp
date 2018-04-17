@@ -328,6 +328,7 @@ class nsRBNSExperiment(object):
 
             for col in df.columns:
                 pp.figure()
+                pp.title('{0} residuals'.format(col))
                 density_scatter_plot(df[col], res, x_ref=False, label=col)
                 pp.legend(loc='upper center', facecolor='white')
                 pp.savefig('{col}_{conc}_residual.pdf'.format(**locals()))
