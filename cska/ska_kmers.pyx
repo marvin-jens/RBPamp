@@ -974,10 +974,11 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
 
     # result will be stored here (Z = 'Zustandssumme' sum of states)
     cdef FLOAT32_t [:,:,:] grad = np.zeros((4**k_mer,k,4), dtype=np.float32)
+    cdef FLOAT32_t [:] kmer_bound = np.zeros(4**k_mer, dtype=np.float32)
 
     cdef UINT64_t i=0, j=0, d=0, n=0
     cdef UINT32_t index=0
-    cdef FLOAT32_t w=0
+    cdef FLOAT32_t w=0, p=0
     cdef FLOAT32_t [:,:] dZ_dM = np.zeros((k,4), dtype=np.float32)
     # cdef FLOAT64_t Z1=0 # Single protein partition function
     
@@ -991,7 +992,8 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     #     for j in prange(N, schedule='guided'):
 
     for j in range(N):
-        w = psi[j] - psi[j] * psi[j] / Zj[j]
+        p = psi[j]
+        w = p - p * p / Zj[j]
         # w = w - w*w 
         # w /= Zj[j]  # w = (psi - psi^2) * 1/Z_j
 
@@ -1011,11 +1013,12 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
         # propagate effect to pulldown kmer frequencies
         for i in range(l_im):
             index = index_matrix[j,i]
+            kmer_bound[index] += p
             for d in range(k):
                 for n in range(4):
                     grad[index, d, n] += dZ_dM[d,n]
 
-    return grad.base
+    return kmer_bound.base, grad.base
                     
             
 

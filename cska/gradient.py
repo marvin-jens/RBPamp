@@ -12,27 +12,51 @@ test_reads = [
     "AAAAAAAAGCAGGAAAAAAAAAA",
     "AAAAAAAAGCAGGAAAAAAAAAA",
     "AAAAAAAAGCAGGAAAAAAAAAA",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
+    "CCCCCCCCGCATGCCCCCCCCCC",
     # "CGCACGCGCCCCGCCCGCGCCGC",
     # "AGAGGACGGAGAGAGTCGCGCGA",
     "TTTTTTTTGCACGTTTTTTTTTT",
     "TTTTTTTTGCACGTTTTTTTTTT",
     "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
+    "TTTTTTTTGCACGTTTTTTTCTT",
+    "TTTTTTTTGGACGTTTTTTTTTT",
+    "TTTTTTTTGGACGTTTTTTATTT",
+    "TTTTTTTTGGACGTTTTTTATTT",
+    "TTTTTTTTGGACGTTTAATTTTT",
+    "GGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGTAGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGTCGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGG",
+    "GGGGGGGGGGGGGGGGGGGGGGG",
 ]
 reads = RBNSReads.from_seqs(test_reads)
 
 
 from cska.pwm import PSAM
-motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .12, .002])
-sm = reads.seqm
+# motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .12, .1])
+motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
+motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .5, .8])
+# motif_correct = PSAM.from_kmer_variants(['GCATG', ], [1., ])
+# motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [5., .06, .05])
+# sm = reads.seqm
 
-psam = motif.psam + 1e-6
+psam_correct = motif_correct.psam + 1e-6
+psam_variant = motif_variant.psam + 1e-6
 
-k = motif.n
+k = len(psam_correct)
 L = reads.L - k + 1
 def part_func(seq, psam):
     L = len(seq) -  k + 1
@@ -71,31 +95,102 @@ adap5 = cyska.seq_to_bits(reads.adap5)
 adap3 = cyska.seq_to_bits(reads.adap3)
     
 padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, k)
-cyZ = cyska.PSAM_partition_function(padded, np.ones(padded.shape, dtype=np.float32), psam)
 
-grad = []
-emp = []
-for read, seq, z in zip(test_reads, padded, cyZ):
-    print read
-    Z = part_func(seq, psam)
-    print Z.shape, z.shape
-    print Z
-    print z
-    print Z.sum(), z.sum()
-    grad.append( gradient(seq, psam, Z).flatten() )
-    emp.append( emp_grad(seq, psam, Z).flatten() )
+# grad = []
+# emp = []
+# for read, seq, z in zip(test_reads, padded, cyZ):
+#     print read
+#     Z = part_func(seq, psam)
+#     print Z.shape, z.shape
+#     print Z
+#     print z
+#     print Z.sum(), z.sum()
+#     grad.append( gradient(seq, psam, Z).flatten() )
+#     emp.append( emp_grad(seq, psam, Z).flatten() )
 
-Zj = cyZ.sum(axis=1)
 
-P = 1.
-psi = P*Zj/ (P*Zj+1)
-print "PSI", psi, psi.min(), psi.mean(), psi.max()
+def predict_R(psam, k=2, P=1.):
+    f0 = reads.kmer_frequencies(k)
+    f0 /= f0.sum()
 
-im = reads.get_index_matrix(1)
-kmer_grad = cyska.PSAM_kmer_gradient(padded, cyZ, Zj, psi, im, psam, 1)
+    cyZ = cyska.PSAM_partition_function(padded, np.ones(padded.shape, dtype=np.float32), psam)
+    Zj = cyZ.sum(axis=1)
+    psi = P*Zj/ (P*Zj+1)
+    # print "PSI", psi, psi.min(), psi.mean(), psi.max()
+    im = reads.get_index_matrix(k)
 
-for grad in kmer_grad:
-    print grad
+    pi, d_pi = cyska.PSAM_kmer_gradient(padded, cyZ, Zj, psi, im, psam, k)
+
+    # print "d_pi"
+    # for nt, grad, f in zip('ACGT', d_pi, pi):
+    #     print ">>>", nt, f
+    #     print PSAM(grad, A0=1)
+
+    R = pi / pi.sum() / f0
+    # print R.shape, d_pi.shape
+    dR = (R/pi)[:,np.newaxis,np.newaxis] * (d_pi - (f0 * R)[:,np.newaxis, np.newaxis] * d_pi.sum(axis=0)[np.newaxis,:,:])
+
+    return R, dR
+
+def grad_from_R(R0, R1, dR):
+    grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
+    return unity(grad)
+
+def unity(M):
+    F = M.flatten()
+    i = np.fabs(F).argmax()
+    if F[i] > 0:
+        return M / F[i]
+    else:
+        return -M / F[i]
+
+def delta(M1, M2):
+    return np.fabs(M1 - M2).sum()
+
+R0, dR0 = predict_R(psam_correct)
+pp.plot(R0, 'x')
+
+print "R0:", R0
+for t in range(200):
+    R1, dR = predict_R(psam_variant)
+    print "R1:", R1
+    if not t % 10:
+        pp.plot(R1, '.')
+
+    grad = grad_from_R(R0, R1, dR)
+    psam_variant += .02*unity(grad)
+
+print motif_correct
+print PSAM(psam_variant)
+# print "R0:", R0
+# print "R1:", R1
+
+# print "d_R"
+# for nt, grad, f in zip('ACGT', dR, R1-R0):
+#     print ">>>", nt, f
+#     print np.round(grad, 3)
+
+# print "resulting gradient"
+# print np.round(grad, 3)
+# print np.round(unity(grad), 3)
+
+# print delta(psam_correct, psam_variant)
+# print delta(psam_correct, psam_variant)
+
+# print "R0:", R0
+# print "R1:", R1
+# R1, dR = predict_R(psam_variant)
+# print "R1:", R1
+# pp.plot(R1, '.')
+# grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
+# psam_variant -= .1*unity(grad)
+# R1, dR = predict_R(psam_variant)
+# pp.plot(R1, '.')
+pp.show()
+
+# psam_variant += .01*unity(grad)
+# print delta(psam_correct, psam_variant)
+
 
 
 # grad = np.array(grad)
