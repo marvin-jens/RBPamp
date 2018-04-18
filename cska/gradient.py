@@ -42,7 +42,7 @@ test_reads = [
     "GGGGGGGGGGGGGGGGGGGGGGG",
     "GGGGGGGGGGGGGGGGGGGGGGG",
 ]
-reads = RBNSReads.from_seqs(test_reads)
+reads = RBNSReads.from_seqs(test_reads, pseudo_count=1)
 
 
 from cska.pwm import PSAM
@@ -53,10 +53,13 @@ motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .5, .8
 # motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [5., .06, .05])
 # sm = reads.seqm
 
-psam_correct = motif_correct.psam + 1e-6
-psam_variant = motif_variant.psam + 1e-6
-
+psam_correct = motif_correct.psam + 1e-6 
 k = len(psam_correct)
+psam_variant = motif_variant.psam + 1e-6
+# np.random.seed(4711)
+# psam_correct += .1 * np.random.rand(k,4)
+# psam_variant += .1 * np.random.rand(k,4)
+
 L = reads.L - k + 1
 def part_func(seq, psam):
     L = len(seq) -  k + 1
@@ -120,7 +123,7 @@ def predict_R(psam, k=2, P=1.):
     im = reads.get_index_matrix(k)
 
     pi, d_pi = cyska.PSAM_kmer_gradient(padded, cyZ, Zj, psi, im, psam, k)
-
+    # pi += pseudo
     # print "d_pi"
     # for nt, grad, f in zip('ACGT', d_pi, pi):
     #     print ">>>", nt, f
@@ -145,7 +148,7 @@ def grad_from_R(R0, R1, dR):
     return unity(grad)
 
 def apply_delta(psam, delta):
-    p = np.clip(psam + delta, 1e-6, None)
+    p = np.clip(psam + delta, 1e-9, None)
     p /= p.max(axis=1)[:,np.newaxis]
     return p
 
@@ -168,7 +171,7 @@ def line_search(R0, psam, grad):
         # print s,"->",e
         return e
 
-    res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([1e-6, .5])))
+    res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([1e-7, .5])))
     # print res
     # pp.figure()
     # pp.loglog(grid, errs)
@@ -186,8 +189,11 @@ R1, dR = predict_R(psam_variant)
 # pp.plot(R1, '.k', label='initial')
 
 errs = [(R1-R0),]
+scales = []
+deltas = []
+deltas.append(delta(psam_correct, psam_variant))
 print "R0:", R0
-for t in range(100):
+for t in range(200):
     
     print "R1:", R1
     # if not t % 10:
@@ -196,14 +202,28 @@ for t in range(100):
     grad = grad_from_R(R0, R1, dR)
     s = line_search(R0, psam_variant, grad)
     psam_variant = apply_delta(psam_variant, s*grad)
-    print s
+    # print s
+    scales.append(s)
     R1, dR = predict_R(psam_variant)
+    deltas.append(delta(psam_correct, psam_variant))
     errs.append((R1-R0))
     # pp.figure(0)
     # pp.plot(R1, '.', label=str(t+1))
 
 pp.figure()
-pp.pcolor(np.array(errs), cmap='seismic', vmin=-2, vmax=2)
+pp.subplot(311)
+pp.pcolor(np.array(errs).T, cmap='RdBu', vmin=-.1, vmax=.1)
+pp.xlabel('time step')
+pp.ylabel('kmer index')
+pp.colorbar(label='R-value difference', orientation='horizontal', shrink=.5)
+
+pp.subplot(312)
+pp.semilogy(np.array(scales), label='step size')
+pp.legend(loc='upper right')
+pp.subplot(313)
+pp.semilogy(np.array(deltas), label='abs. total PSAM error')
+pp.legend(loc='upper right')
+pp.tight_layout()
 # pp.legend()
 print motif_correct
 print PSAM(psam_variant)
