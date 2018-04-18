@@ -132,10 +132,6 @@ def predict_R(psam, k=2, P=1.):
 
     return R, dR
 
-def grad_from_R(R0, R1, dR):
-    grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
-    return unity(grad)
-
 def unity(M):
     F = M.flatten()
     i = np.fabs(F).argmax()
@@ -144,22 +140,71 @@ def unity(M):
     else:
         return -M / F[i]
 
+def grad_from_R(R0, R1, dR):
+    grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
+    return unity(grad)
+
+def apply_delta(psam, delta):
+    p = np.clip(psam + delta, 1e-6, None)
+    p /= p.max(axis=1)[:,np.newaxis]
+    return p
+
+def line_search(R0, psam, grad):
+    # grid = 10**np.linspace(-6,-.001)
+    # errs = []
+    # for s in grid:
+    #     trial = np.clip(psam + s * grad, 1e-6, None)
+    #     R, dR = predict_R(trial)
+    #     errs.append( ((R-R0)**2).sum() )
+
+
+    from scipy.optimize import minimize_scalar
+    # print "line_search"
+    # print np.round(grad,2)
+    def err(x):
+        s = np.exp(x)
+        R, dR = predict_R(apply_delta(psam,s * grad))
+        e = ((R-R0)**2).sum()
+        # print s,"->",e
+        return e
+
+    res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([1e-6, .5])))
+    # print res
+    # pp.figure()
+    # pp.loglog(grid, errs)
+    # pp.axvline(np.exp(res.x),color='r')
+
+    return np.exp(res.x)
+
 def delta(M1, M2):
     return np.fabs(M1 - M2).sum()
 
+# pp.figure(0)
 R0, dR0 = predict_R(psam_correct)
-pp.plot(R0, 'x')
+# pp.plot(R0, 'x', label='correct')
+R1, dR = predict_R(psam_variant)
+# pp.plot(R1, '.k', label='initial')
 
+errs = [(R1-R0),]
 print "R0:", R0
-for t in range(200):
-    R1, dR = predict_R(psam_variant)
+for t in range(100):
+    
     print "R1:", R1
-    if not t % 10:
-        pp.plot(R1, '.')
-
+    # if not t % 10:
+        # pp.plot(R1, '.')
+    
     grad = grad_from_R(R0, R1, dR)
-    psam_variant += .02*unity(grad)
+    s = line_search(R0, psam_variant, grad)
+    psam_variant = apply_delta(psam_variant, s*grad)
+    print s
+    R1, dR = predict_R(psam_variant)
+    errs.append((R1-R0))
+    # pp.figure(0)
+    # pp.plot(R1, '.', label=str(t+1))
 
+pp.figure()
+pp.pcolor(np.array(errs), cmap='seismic', vmin=-2, vmax=2)
+# pp.legend()
 print motif_correct
 print PSAM(psam_variant)
 # print "R0:", R0
