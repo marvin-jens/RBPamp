@@ -972,14 +972,14 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     cdef UINT64_t l_im = index_matrix.shape[1]
     cdef UINT64_t zero_bytes = k*4*4
 
-    # result will be stored here (Z = 'Zustandssumme' sum of states)
-    cdef FLOAT32_t [:,:,:] grad = np.zeros((4**k_mer,k,4), dtype=np.float32)
-    cdef FLOAT32_t [:] kmer_bound = np.zeros(4**k_mer, dtype=np.float32)
+    # dpi 
+    cdef FLOAT32_t [:,:,:] dpi = np.zeros((4**k_mer,k,4), dtype=np.float32)
+    cdef FLOAT32_t [:] pi = np.zeros(4**k_mer, dtype=np.float32)
 
     cdef UINT64_t i=0, j=0, d=0, n=0
     cdef UINT32_t index=0
     cdef FLOAT32_t w=0, p=0
-    cdef FLOAT32_t [:,:] dZ_dM = np.zeros((k,4), dtype=np.float32)
+    cdef FLOAT32_t [:,:] dpsi_dM = np.zeros((k,4), dtype=np.float32)
     # cdef FLOAT64_t Z1=0 # Single protein partition function
     
     # mutliplication is faster than division
@@ -993,12 +993,10 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
 
     for j in range(N):
         p = psi[j]
-        w = p - p * p / Zj[j]
-        # w = w - w*w 
-        # w /= Zj[j]  # w = (psi - psi^2) * 1/Z_j
+        dpsi = (p - (p * p)) / Zj[j]
 
         # zero out dZj_dM
-        memset(&dZ_dM[0,0], 0, zero_bytes)
+        memset(&dpsi_dM[0,0], 0, zero_bytes)
         # for d in range(k):
         #     for n in range(4):
         #         dZ_dM[d,n] = 0
@@ -1007,18 +1005,19 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
         for i in range(l):
             for d in range(k):
                 n = seqm[j, i+d]
-                dZ_dM[d, n] += Z[j,i] * psam_inv[d,n] * w
+                dpsi_dM[d, n] += Z[j,i] * psam_inv[d,n] * dpsi
 
         # print j, "dZ_dM", dZ_dM.base
         # propagate effect to pulldown kmer frequencies
+
         for i in range(l_im):
             index = index_matrix[j,i]
-            kmer_bound[index] += p
+            pi[index] += p
             for d in range(k):
                 for n in range(4):
-                    grad[index, d, n] += dZ_dM[d,n]
+                    dpi[index, d, n] += dpsi_dM[d,n]
 
-    return kmer_bound.base, grad.base
+    return pi.base, dpi.base
                     
             
 
