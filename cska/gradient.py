@@ -437,6 +437,39 @@ class GradientDescent(object):
         print "step()", self.t, self.errors[-1], self.n_part_func, self.n_grad
         return self.errors[-1]
 
+    def converged(self, tol=1e-6, tau=10):
+        if len(self.errors) < tau:
+            return False
+        
+        last_errs = np.array(self.errors[-tau:])
+        if last_errs.max() - last_errs.min() < tol:
+            return True
+
+    def optimize(self, maxiter=100):
+        try:
+            for t in range(maxiter):
+                err = G.step()
+                if self.converged():
+                    break
+        except KeyboardInterrupt:
+            pass
+        
+        if self.t < maxiter:
+            self.status = "CONVERGED"
+        else:
+            self.status = "MAX_ITER"
+
+        print "optimization ended with status", self.status
+        print "final parametrization"
+        print self.params
+        print "last gradient"
+        print self.past_grad
+        print "squared"
+        print self.past_sqg
+        print "n_part_func={self.n_part_func} n_grad={self.n_grad}".format(self=self)
+        
+        return self
+
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
         pp.xlabel(title)
@@ -456,8 +489,8 @@ psam_correct = motif_correct.psam * motif_correct.A0 + 1e-6
 k = len(psam_correct)
 psam_variant = motif_variant.psam * motif_variant.A0 + 1e-6 
 
-correct_params = ModelParametrization(psam=psam_correct, A0=2.)
-initial_params = ModelParametrization(psam=psam_variant, A0=1.)
+correct_params = ModelParametrization(psam=psam_correct, A0=5., per_sample=[0.,.1,.1,0])
+initial_params = ModelParametrization(psam=psam_variant, A0=1., per_sample=[0.,.1,.1,0])
 
 # np.random.seed(4711)
 # psam_variant = psam_correct + np.array(np.random.rand(k,4) * .01, dtype=np.float32)
@@ -536,11 +569,15 @@ def test_grad():
 
 
 G = GradientDescent(reads, initial_params, None, dec=.7, k_monitor=6, subsample=1.)
+print "generating reference state"
 R0, dR0 = G.predict_R(correct_params)
+I = R0.argsort()[::-1]
+for i in I[:10]:
+    print "simulated R-value", cyska.index_to_seq(i, G.k_monitor), R0[i]
+
 G.set_reference(R0)
 # test_grad()
 # sys.exit(0)
-print "GCACG", R0[582]
 _R0 = np.array(R0)
 print "R0:", R0
 R, bla = G.predict_R(G.params, grad=False)
@@ -554,6 +591,10 @@ print grad0
 assert np.allclose(R_test, R0)
 assert np.allclose(grad0, 0)
 assert G.error(R_test) == 0
+
+G.optimize()    # for m in G.past_grad:
+    #     print np.round(m,3)
+
 
 from scipy.optimize import minimize
 
@@ -579,19 +620,6 @@ def scipy_minimize():
 
 # scipy_minimize()
 # sys.exit(0)
-try:
-    for t in range(200):
-        err = G.step()
-except KeyboardInterrupt:
-    pass
-    # for m in G.past_grad:
-    #     print np.round(m,3)
-print "final parametrization"
-print G.params
-print "last gradient"
-print G.past_grad
-print "squared"
-print G.past_sqg
 
 # sys.exit(0)
 

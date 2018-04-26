@@ -1,6 +1,6 @@
 #!python
-#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
-###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -977,10 +977,10 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     # dpi 
     cdef FLOAT32_t [:,:] dpi = np.zeros((4**k_mer, n_psam), dtype=np.float32)
     cdef FLOAT32_t [:] pi = np.zeros(4**k_mer, dtype=np.float32)
-
+    cdef int thread_num = 0
     cdef UINT64_t i=0, j=0, d=0, n=0
     cdef UINT32_t index=0
-    cdef FLOAT32_t w=0, p=0
+    cdef FLOAT32_t p=0, dpsi=0
     cdef FLOAT32_t [:] dpsi_dM = np.zeros(n_psam, dtype=np.float32)
     # cdef FLOAT64_t Z1=0 # Single protein partition function
     
@@ -990,9 +990,11 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     if n_max:
         N = min(N, n_max)
 
+    # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
     # with nogil, parallel():
     #     for j in prange(N, schedule='guided'):
-
+    #         thread_num = openmp.omp_get_thread_num()
+    
     for j in range(N):
         p = psi[j]
         # chain rule: how changes in per-sequence partition function
