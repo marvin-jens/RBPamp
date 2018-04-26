@@ -1,6 +1,6 @@
 #!python
-#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -938,7 +938,7 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
     cdef UINT64_t l = L - k + 1
-    
+    # print "part_func L-k+1", l, k
     # result will be stored here (Z = 'Zustandssumme' sum of states)
     cdef FLOAT32_t [:,:] Z = np.ones((N,l), dtype=np.float32)
     
@@ -964,26 +964,28 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
     return Z.base
 
 from libc.string cimport memset #faster than np.zeros
-def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, FLOAT32_t [:] psi, UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] psam, UINT64_t k_mer, int n_max=0):
+def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, FLOAT32_t [:] psi, UINT32_t [:,:] index_matrix, FLOAT32_t [:] psam, UINT64_t k_mer, int n_max=0):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
-    cdef UINT64_t k = psam.base.shape[0]
+    cdef UINT64_t n_psam = len(psam.base)
+    cdef UINT64_t k = (n_psam - 1) / 4
     cdef UINT64_t l = L - k + 1
+    # print "L-k+1", l, "Z.shape", Z.shape, 'k', k
     cdef UINT64_t l_im = index_matrix.shape[1]
-    cdef UINT64_t zero_bytes = k*4*4
+    cdef UINT64_t zero_bytes = n_psam*4
 
     # dpi 
-    cdef FLOAT32_t [:,:,:] dpi = np.zeros((4**k_mer,k,4), dtype=np.float32)
+    cdef FLOAT32_t [:,:] dpi = np.zeros((4**k_mer, n_psam), dtype=np.float32)
     cdef FLOAT32_t [:] pi = np.zeros(4**k_mer, dtype=np.float32)
 
     cdef UINT64_t i=0, j=0, d=0, n=0
     cdef UINT32_t index=0
     cdef FLOAT32_t w=0, p=0
-    cdef FLOAT32_t [:,:] dpsi_dM = np.zeros((k,4), dtype=np.float32)
+    cdef FLOAT32_t [:] dpsi_dM = np.zeros(n_psam, dtype=np.float32)
     # cdef FLOAT64_t Z1=0 # Single protein partition function
     
-    # mutliplication is faster than division
-    cdef FLOAT32_t [:,:] psam_inv = 1./psam.base
+    # mutliplication is faster than division. So divide outside of loop.
+    cdef FLOAT32_t [:] psam_inv = 1./psam.base
 
     if n_max:
         N = min(N, n_max)
@@ -993,29 +995,36 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
 
     for j in range(N):
         p = psi[j]
+        # chain rule: how changes in per-sequence partition function
+        # carry over to changes in binding probability
         dpsi = (p - (p * p)) / Zj[j]
 
-        # zero out dZj_dM
-        memset(&dpsi_dM[0,0], 0, zero_bytes)
-        # for d in range(k):
-        #     for n in range(4):
-        #         dZ_dM[d,n] = 0
-
+        # zero out dZj_dM bc we accumulate this for each sequence separately
+        memset(&dpsi_dM[0], 0, zero_bytes)
+        
         # compute dZj_dM gradient matrix
+        # dZj/dA0 first
+        dpsi_dM[0] = Zj[j] * psam_inv[0] * dpsi
+
+        # now dZj/dM with M being the matrix elements of the psam (here flattened)
         for i in range(l):
             for d in range(k):
                 n = seqm[j, i+d]
-                dpsi_dM[d, n] += Z[j,i] * psam_inv[d,n] * dpsi
+                dpsi_dM[(d << 2) + n + 1] += Z[j,i] * psam_inv[(d << 2) + n + 1] * dpsi
 
-        # print j, "dZ_dM", dZ_dM.base
         # propagate effect to pulldown kmer frequencies
-
         for i in range(l_im):
             index = index_matrix[j,i]
+            # build weighted kmer-frequencies on the fly
             pi[index] += p
+            
+            # dpi/dA0
+            dpi[index, 0] += dpsi_dM[0] 
+            
+            # dpi/dM
             for d in range(k):
                 for n in range(4):
-                    dpi[index, d, n] += dpsi_dM[d,n]
+                    dpi[index, (d << 2) + n + 1] += dpsi_dM[(d << 2) + n + 1]
 
     return pi.base, dpi.base
                     
