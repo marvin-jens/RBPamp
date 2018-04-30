@@ -62,54 +62,187 @@ def delta(m1,m2):
     return np.fabs(m1-m2).sum()
 
 
-class ModelParametrization(object):
-    def __init__(self, psam = [], A0=1., per_sample = []):
-        self.psam = psam
-        self.k = len(psam)
-        self.A0 = A0
-        self.per_sample = np.array(per_sample)
-        if len(psam):
-            self.update_len()
+class Proxy(object):
+    def __init__(self, data, start, end, shape=None, unpack=True):
+        self.data = data
+        self.start = start
+        self.end = end
+        self.shape = shape
+        self.unpack = unpack
     
-    def update_len(self):
-        self.n = 1 + self.psam.size + self.per_sample.size
+    def get_values(self):
+        # print "get_values", self.start, self.end
+        d = self.data[self.start:self.end]
+        if not self.shape is None:
+            d = np.reshape(d, self.shape)
+        
+        if len(d) == 1 and self.unpack:
+            return d[0]
+        else:
+            return d
+
+    def set_values(self, d):
+        # print "set_values", self.start, self.end, d
+        
+        if hasattr(d, '__len__'):
+            if not isinstance(d, np.ndarray):
+                d = np.array(d)
+            d = d.flatten()
+            assert len(d) == self.end - self.start
+            self.data[self.start:self.end] = d[:]
+        else:
+            assert self.end - self.start == 1
+            self.data[self.start] = d
+
+        return d
+
+class ModelParametrization(object):
+    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32):
+        self.k = k
+        self.n_samples = n_samples
+        self.n = 4*k + 1 + n_samples
+        self.psam_start = 0
+        self.psam_end = 4*k + 1
+        self.betas_start = self.psam_end
+        self.betas_end = self.n
+        self.dtype = dtype
+
+        self.data = np.zeros(self.n, dtype=np.float32)
+
+        # self.psam_vec = Proxy(self.data, self.psam_start, self.psam_end)
+        # self.psam_matrix = Proxy(self.data, self.psam_start+1, self.psam_end, shape=(k,4))
+        self.attrs = {
+            'psam_vec' : Proxy(self.data, self.psam_start, self.psam_end),
+            'psam_matrix' : Proxy(self.data, self.psam_start+1, self.psam_end, shape=(k,4)),
+            'A0' : Proxy(self.data, 0, 1),
+            'beta' : Proxy(self.data, self.betas_start, self.betas_start + 1),
+            'betas' : Proxy(self.data, self.betas_start, self.betas_end, unpack=False)
+        }
+
+        if len(psam):
+            self.psam_matrix = psam
+        if A0:
+            self.A0 = A0
+        if len(betas):
+            self.betas = betas
+
+        if len(data):
+            self.set_vector(data)
+
+    @classmethod
+    def from_vector(cls, vec, k, n_samples=1):
+        return cls(k, n_samples, data = vec)
 
     def as_vector(self, dtype=np.float32):
-        v = np.zeros(self.n, dtype=dtype)
-        v[0] = self.A0
-        v[1:1+self.psam.size] = self.psam.flatten()[:]
-        v[1+self.psam.size:] = self.per_sample.flatten()[:]
-
-        return v
+        return self.data
     
-    @classmethod
-    def from_vector(cls, vec, k):
-        n = len(vec)
-        psam = np.reshape(vec[1:1+k*4], (k,4))
-        return cls(psam=psam, A0= vec[0], per_sample=vec[1+k*4:])
+    def copy(self):
+        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data)
+        if not np.allclose(new.data, self.data):
+            d = np.fabs(new.data - self.data)
+            i = d.argmax()
+            print "OFFENDING PARAMETER:", i, new.data[i], self.data[i]
+            print self.data
+            1/0
+        return new
 
-    def set_vector(self, vec, dtype = np.float32):
-        self.A0 = vec[0]
-        self.psam = np.reshape(self.psam.shape, vec[1:1+self.psam.size])
-        self.per_sample = np.reshape(self.per_sample.shape, vec[1+self.psam.size:])
+    def set_vector(self, vec):
+        self.data[:len(vec)] = vec[:]
+        return self
 
-    @property
-    def psam_vec(self):
-        return self.as_vector()[:1+self.psam.size]
+    def unity_bounded(self):
+        p = self.copy()
+        
+        v = p.psam_vec
+        i = np.fabs(v).argmax()
+        x = v[i]
+        if x > 0:
+            p.psam_vec = v / x
+        elif x < 0:
+            p.psam_vec = - v / x
+        
+        # print 'unity_bounded', i, x
+        return p
 
-    def set_psam_vec(self, vec):
-        self.A0 = vec[0]
-        self.psam = np.reshape(self.psam.shape, vec[1:])
+    def unity(self):
+        p = self.copy()
+        p.data /= np.linalg.norm(self.data)
+        return p
+
+
+    def __getattr__(self, a):
+        if hasattr(self, 'attrs'):
+            attrs = object.__getattribute__(self, 'attrs') 
+        else:
+            attrs = {}
+        # print 'getattr', a
+        if a in attrs:
+            return attrs[a].get_values()
+        else:
+            return object.__getattribute__(self, a)
+        # return super(ModelParametrization, self).__getattr__(a)
+
+    def __setattr__(self, a, v):
+        # attrs = super(ModelParametrization, self).__getattr__('attrs') 
+        if hasattr(self, 'attrs'):
+            attrs = object.__getattribute__(self, 'attrs') 
+        else:
+            attrs = {}
+        # print "setattr", a, v
+        if a in attrs:
+            return attrs[a].set_values(v)
+        else:
+            return object.__setattr__(self, a, v)
+        # return super(ModelParametrization, self).__setattr__(a, v)
 
     def __str__(self):
         buf = []
         buf.append("PSAM")
         buf.append("A0={0:.4f}".format(self.A0))
         buf.append("\tA\t\tC\t\tG\t\tU")
-        for row in self.psam:
+        for row in self.psam_matrix:
             buf.append("\t".join(["{0:>10.3f}".format(x) for x in row]))
 
+        buf.append("BACKGROUND")
+        for i, beta in enumerate(self.betas):
+            buf.append('beta{0}\t{1:.3f}'.format(i, beta))
         return '\n'.join(buf)
+
+    def __add__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelParametrization):
+            c.data += x.data
+        else:
+            c.data += x
+        return c
+    
+    def __sub__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelParametrization):
+            c.data += x.data
+        else:
+            c.data -= x
+        return c
+
+    def __mul__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelParametrization):
+            c.data *= x.data
+        else:
+            c.data *= x
+        return c
+
+    def __div__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelParametrization):
+            c.data /= x.data
+        else:
+            c.data /= x
+        return c
+
+    def __neg__(self):
+        return ModelParametrization.from_vector(- self.data, self.k, self.n_samples)
+
 
 
 class GradientDescent(object):
@@ -170,91 +303,152 @@ class GradientDescent(object):
         # return (np.log2(R / self.R0)**2).mean()
         return ((self.R0 - R)**2).mean()
     
-    def predict_R(self, params, P=1., grad=True):
+    def predict_R(self, params, P=1., grad=True, debug=False):
         psam = params.psam_vec
         # print "psam params vector", psam
-        cyZ = cyska.PSAM_partition_function(self.sub_padded, self.sub_acc, params.psam, openen_ofs=self.acc_ofs)
+        cyZ = cyska.PSAM_partition_function(self.sub_padded, self.sub_acc, params.psam_matrix, openen_ofs=self.acc_ofs)
+        N = len(cyZ)
         cyZ *= params.A0
         Zj = cyZ.sum(axis=1)
         psi = P*Zj/ (P*Zj+1)
+
         # print "PSI", psi, psi.min(), psi.mean(), psi.max()
         self.n_part_func += 1
 
         if grad:
+            # assert np.isnan(cyZ).any() == False
+            # assert np.isnan(psi).any() == False
+            # if (Zj <= 0).any():
+            #     I = (Zj <= 0).nonzero()
+            #     print "detected non-positive partition functions", len(I[0])
+            #     print I
+            #     nts = np.array(list('ACGU'))
+            #     for i in I[0]:
+            #         print i, Zj[i], ''.join(nts[self.sub_padded[i]])
+            
+            # assert (Zj > 0).all()
+
+            # avoid zeros in Zj by all means!
+            np.clip(Zj, 1e-9, None, out=Zj)
+
             pi, d_pi = cyska.PSAM_kmer_gradient(self.sub_padded, cyZ, Zj, psi, self.sub_im, psam, self.k_monitor)
+            pi += N * self.f0 * params.beta 
             self.n_grad += 1
+            # assert np.isnan(pi).any() == False
+            # if np.isnan(d_pi).any():
+            #     NAN =  np.isnan(d_pi)
+            #     print "total NaN elements", NAN.sum()
+            #     print "corresponding kmers"
+            #     I = NAN.nonzero()
+            #     distinct = np.array(sorted(set(I[0])))
+            #     for i in distinct[:10]:
+            #         print cyska.index_to_seq(i, self.k_monitor)
+            #         print d_pi[i]
+
+
+                # print I
+                
+
             R = pi / pi.sum() / self.f0
             # print R.shape, d_pi.shape
-            dR = (R/pi)[:,np.newaxis] * (d_pi - (self.f0 * R)[:,np.newaxis] * d_pi.sum(axis=0)[np.newaxis,:])
+            dR_dM = (R/pi)[:,np.newaxis] * (d_pi - (self.f0 * R)[:,np.newaxis] * d_pi.sum(axis=0)[np.newaxis,:])
+            dR_dbeta =  self.f0 / pi * (R - R**2)
 
-            # if not self.R0 is None:
-                # worst = ((R - self.R0)**2).argmax()
-                # print "worst kmer:", worst, cyska.index_to_seq(worst, self.k_monitor), R[worst], R0[worst]
-                # print "corresponding gradient"
-                # print "R0 constant?", np.allclose(R0, _R0)
-                # print d_pi[worst]
-                # def dump(seq):
-                #     i = cyska.seq_to_index(seq)
-                #     print 'dR[{seq}]'.format(seq=seq), (R-self.R0)[i]
-                #     print np.round(unity_matrix(dR[i]),3)
-                # dump('gcacg')
-                # dump('gcagg')
-                # dump('gcaug')
-
-
-
-
-            return R, dR
+            return R, np.hstack( (dR_dM, dR_dbeta[:,np.newaxis]) )
         else:
-            pi = cyska.weighted_kmer_counts(self.sub_im, psi, self.k_monitor)
+            pi = cyska.weighted_kmer_counts(self.sub_im, psi + params.beta, self.k_monitor)
             R = pi / pi.sum() / self.f0
             return R, None
 
-    def grad_from_R(self, R1, dR):
+    def grad_from_R(self, R1, dR, debug=False):
         grad = 2 * ((1. * (R1 - self.R0))[:,np.newaxis] * dR).sum(axis=0)
-        return unity_matrix(grad)
+        param_grad = self.params.copy().set_vector(grad)
+        return param_grad #.unity_bounded()
 
-    def ana_grad(self, params):
-        R, dR = self.predict_R(params)
-        return self.grad_from_R(R,dR)
+
+    def ana_grad(self, params, debug=False):
+        R, dR = self.predict_R(params, debug=debug)
+        return self.grad_from_R(R,dR, debug=debug)
 
     def emp_grad(self, params, eps=1e-4):
         v0 = params.as_vector()
         k = params.k
-        v = np.array(v0, dtype=np.float32)
 
-        grad = np.zeros(k*4 + 1, dtype=np.float32)
+        var = params.copy()
+        grad = params.copy()
         R0, dR0 = self.predict_R(params, grad=False)
         err0 = self.error(R0)
 
-        for i in range(k*4+1):
-            v[i] = v0[i] + eps
-            R, dR = self.predict_R(ModelParametrization.from_vector(v,k), grad=False)
-            v[i] = v0[i]
+        for i in range(params.n):
+            var.data[i] = v0[i] + eps
+            R, dR = self.predict_R(var, grad=False)
+            var.data[i] = v0[i]
             derr = self.error(R) - err0
 
-            grad[i] = derr/eps
+            grad.data[i] = derr/eps
         
         return grad
 
 
     @staticmethod
-    def apply_delta(params, delta0):
-        psam = params.psam
-        delta = np.reshape(delta0[1:], psam.shape)
+    def apply_delta(params, delta):
+        #TODO: turn into generic delta across entire parameter vector
+        # print type(params), type(delta)
+        new = params.copy()
 
-        p = np.clip(psam + delta, 1e-9, None)
+        new.A0 = max(1e-9, params.A0 + delta.A0)
+        p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-9, None)
         p /= p.max(axis=1)[:,np.newaxis]
+        new.psam_matrix = p
+
+        new.betas = np.clip(params.betas + delta.betas, 0, None)
+        return new
+
+    def backtracking_LS(self, params, grad, local_grad, min_step = 1e-6, max_step = 5., max_iter=21, tau=.5, c=.5, debug=False):
+
+        grad.data /= np.linalg.norm(grad.data)
+        print grad
+        def err(s):
+            m = self.apply_delta(params, grad * s)
+            # d = delta(m.data, correct_params.data)
+            # print s, d, m.data, 
+            R, dR = self.predict_R(m, grad=False)
+            e = self.error(R)
+            # print s,"->", e - e0, d - d0
+            return e
+
+        e0 = err(0)
+
+        print local_grad
+        a = max_step
+        m = np.dot(grad.data, local_grad.data)
+        print m
+        t = - c * m
+        print t
+        for n in range(max_iter):
+            e = err(a)
+            print n, '->', a, e0 - e, a*t, 'crit', (e0-e) - (a*t)
+            # Armijo-Goldstein criterion
+            if e0 - e >= a*t:
+                break
+            # if e < e0:
+            #     break
+
+            a *= tau
+
+        return a, n
+
         
-        A0 = max(1e-9, params.A0 + delta0[0])
-        return ModelParametrization(psam=p, A0=A0)
+        
+        
 
     def line_search(self, params, grad, debug=False):
         from scipy.optimize import minimize_scalar
 
         r0, bla = self.predict_R(params, grad=False)
         e0 = self.error(r0)
-        psam0 = np.array(params.psam_vec)
+        # d0 = delta(params.data, correct_params.data)
+        # psam0 = np.array(params.psam_vec)
         res0 = r0 - self.R0
         if debug:
             scales = 10**(np.linspace(-3,0,20))
@@ -290,7 +484,7 @@ class GradientDescent(object):
             print "grad"
             print grad
             print "'best' matrix?"
-            m = self.apply_delta(psam,scales[i] * grad)
+            m = self.apply_delta(psam, scales[i] * grad)
             print m
             print "known optimum"
             print psam_correct
@@ -317,9 +511,12 @@ class GradientDescent(object):
 
         def err(x):
             s = np.exp(x)
-            m = self.apply_delta(params, s * grad)
+            m = self.apply_delta(params, grad * s)
+            # d = delta(m.data, correct_params.data)
+            # print s, d, m.data, 
             R, dR = self.predict_R(m, grad=False)
             e = self.error(R)
+            # print s,"->", e - e0, d - d0
             # print s,"->", e - e0
             return e
 
@@ -329,7 +526,7 @@ class GradientDescent(object):
         # if self.t < 10:
         #     min_step = 1e-3
 
-        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=50))
+        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=50, xatol=1e-1))
         return np.exp(res.x), res.nfev
 
     def momentum_grad(self, local_grad):
@@ -337,7 +534,7 @@ class GradientDescent(object):
         if self.past_grad is None:
             grad = local_grad
         else:
-            grad = self.dec * self.past_grad + (1- self.dec) * local_grad
+            grad = self.past_grad * self.dec + local_grad * (1- self.dec)
 
         self.past_grad = grad
 
@@ -351,27 +548,29 @@ class GradientDescent(object):
         # self.past_grad = list(past)
 
         # return unity_matrix(grad)
-        return .01 * grad
+        return grad.unity_bounded()
 
     def RMSprop(self, local_grad):
         # grad = local_grad + self.past_grad * self.dec
         # sqg = local_grad**2 + self.past_sqg * self.dec
         if self.past_grad is None:
-            self.past_grad = local_grad
+            self.past_grad = local_grad.data
 
         # if self.past_sqg is None:
             # self.past_sqg = local_grad**2
 
 
-        m = self.dec * self.past_grad + (1 - self.dec) * local_grad
-        s = self.dec * self.past_sqg + (1 - self.dec) * local_grad**2
-        v = self.dec * self.past_var + (1 - self.dec) * (local_grad - self.past_grad)**2
+        m = self.dec * self.past_grad + (1 - self.dec) * local_grad.data
+        s = self.dec * self.past_sqg + (1 - self.dec) * local_grad.data**2
+        # v = self.dec * self.past_var + (1 - self.dec) * (local_grad - self.past_grad)**2
 
         self.past_grad = m
         self.past_sqg = s
-        self.past_var = v
+        # self.past_var = v
 
-        upd = unity_matrix(local_grad * (np.sqrt(s) + .001))
+
+        upd = local_grad.copy()
+        upd.data = local_grad.data / (np.sqrt(s) + .001)
         
         # self.past_sqg = v
         # print "local gradient"
@@ -388,7 +587,7 @@ class GradientDescent(object):
         # print np.round(upd, 3)
         # print "="*50
 
-        return upd
+        return upd.unity_bounded()
         # return 0.1* upd
 
 
@@ -398,8 +597,11 @@ class GradientDescent(object):
         self.errors.append(self.error(R))
         self.residuals.append(np.log2(R/self.R0))
 
-        local_grad = - unity_matrix(self.grad_from_R(R, dR))
-        local_grad[0] *= 20
+        local_grad = self.grad_from_R(R, dR)
+        # local_grad.A0 *= self.params.psam_matrix.sum()
+        local_grad.A0 = 0
+        local_grad.beta = 0
+        # local_grad = local_grad.unity_bounded()
         # emp_grad = - unity_matrix(self.emp_grad(self.psam))
 
         # print "local grad"
@@ -408,7 +610,9 @@ class GradientDescent(object):
         # print emp_grad
 
         # grad = self.momentum_grad(local_grad)
-        grad = self.RMSprop(local_grad)
+        descent = self.RMSprop(- local_grad).unity()
+
+        # print descent
         # pp.figure()
         # pp.subplot(131)
         # self.plot_psam(unity_matrix(psam_correct - self.psam),'actual delta')
@@ -420,35 +624,47 @@ class GradientDescent(object):
         # pp.show()
         # pp.close()
 
-        s,n = self.line_search(self.params, grad)
+        s,n = self.line_search(self.params, descent)
+        # s,n = self.backtracking_LS(self.params, - grad, local_grad)
         #s, n = 1,1
         self.scales.append(s)
         self.nfevs.append(n)
 
-        self.params = self.apply_delta(self.params, s*grad)
+        # print ">>>>UPDATE", s
+        # print - grad
+        self.params = self.apply_delta(self.params, descent * s)
         self.t += 1
-        if not self.t % 5:
-            self.new_subsample()
-            R0, dR0 = G.predict_R(correct_params, grad=False)
-            self.set_reference(R0)
+        # if not self.t % 5:
+        #     self.new_subsample()
+        #     R0, dR0 = self.predict_R(correct_params, grad=False)
+        #     self.set_reference(R0)
 
-        print "current"
-        print self.params
+        # print "current error gradient"
+        # print grad
         print "step()", self.t, self.errors[-1], self.n_part_func, self.n_grad
+        # print "current model"
+        # print "=" * 50
+        # print self.params
         return self.errors[-1]
 
-    def converged(self, tol=1e-6, tau=10):
+    def converged(self, rtol=1e-6, atol=1e-7, tau=10):
         if len(self.errors) < tau:
             return False
         
-        last_errs = np.array(self.errors[-tau:])
-        if last_errs.max() - last_errs.min() < tol:
+        if self.errors[-1] < atol:
             return True
+           
+        last_errs = np.array(self.errors[-tau:])
+        if last_errs.max() - last_errs.min() < rtol:
+            return True
+
+        return False
+
 
     def optimize(self, maxiter=100):
         try:
             for t in range(maxiter):
-                err = G.step()
+                err = self.step()
                 if self.converged():
                     break
         except KeyboardInterrupt:
@@ -459,14 +675,12 @@ class GradientDescent(object):
         else:
             self.status = "MAX_ITER"
 
-        print "optimization ended with status", self.status
-        print "final parametrization"
-        print self.params
-        print "last gradient"
-        print self.past_grad
-        print "squared"
-        print self.past_sqg
         print "n_part_func={self.n_part_func} n_grad={self.n_grad}".format(self=self)
+        print "optimization ended with status", self.status
+        # print "last gradient"
+        # print self.past_grad
+        # print "squared"
+        # print self.past_sqg
         
         return self
 
@@ -478,28 +692,25 @@ class GradientDescent(object):
         pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
 
 from cska.pwm import PSAM
-# motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .12, .1])
-motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
-motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
-# motif_correct = PSAM.from_kmer_variants(['GCATG', ], [1., ])
-# motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [5., .06, .05])
-# sm = reads.seqm
+# # motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .12, .1])
+# motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
+# motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
+# # motif_correct = PSAM.from_kmer_variants(['GCATG', ], [1., ])
+# # motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [5., .06, .05])
+# # sm = reads.seqm
 
-psam_correct = motif_correct.psam * motif_correct.A0 + 1e-6 
-k = len(psam_correct)
-psam_variant = motif_variant.psam * motif_variant.A0 + 1e-6 
+# psam_correct = motif_correct.psam * motif_correct.A0 + 1e-6 
+# k = len(psam_correct)
+# psam_variant = motif_variant.psam * motif_variant.A0 + 1e-6 
 
-correct_params = ModelParametrization(psam=psam_correct, A0=5., per_sample=[0.,.1,.1,0])
-initial_params = ModelParametrization(psam=psam_variant, A0=1., per_sample=[0.,.1,.1,0])
+# correct_params = ModelParametrization(k, 1, psam=psam_correct, A0=1., betas=[.0])
+# initial_params = ModelParametrization(k, 1, psam=psam_variant, A0=1.)
 
-# np.random.seed(4711)
-# psam_variant = psam_correct + np.array(np.random.rand(k,4) * .01, dtype=np.float32)
-# psam_variant = GradientDescent.apply_delta(psam_variant,0)
-print "REFERENCE"
-print correct_params
-print "SEED"
-print initial_params
-
+# print "REFERENCE"
+# print correct_params
+# print "SEED"
+# print initial_params
+# sys.exit(0)
 def emp_grad_Z(seqm, psam0, eps=1e-4):
     Z0 = SPA_part_func(seqm, psam0)
     psam = np.array(psam0)
@@ -553,12 +764,18 @@ def test_grad():
     # Z = SPA_part_func(seqm, psam)
     # emp = emp_grad_Z(seqm, psam, eps=eps).sum(axis=0)
     # ana = grad_Z(seqm, psam).sum(axis=0)
+    print ">>>>> at optimum"
     print "empirical"
-    print unity_matrix(G.emp_grad(G.params, eps=1e-5))
+    print G.emp_grad(correct_params, eps=1e-4).unity_bounded()
     print "analytical"
-    print unity_matrix(G.ana_grad(G.params))
-    # print ana
-    # print np.allclose(emp, ana, 10*eps)
+    print G.ana_grad(correct_params).unity_bounded()
+
+    print ">>>>> at start point"
+    print "empirical"
+    print G.emp_grad(initial_params, eps=1e-4).unity_bounded()
+    print "analytical"
+    print G.ana_grad(initial_params).unity_bounded()
+
 
 
 
@@ -568,104 +785,108 @@ def test_grad():
 
 
 
-G = GradientDescent(reads, initial_params, None, dec=.7, k_monitor=6, subsample=1.)
-print "generating reference state"
-R0, dR0 = G.predict_R(correct_params)
-I = R0.argsort()[::-1]
-for i in I[:10]:
-    print "simulated R-value", cyska.index_to_seq(i, G.k_monitor), R0[i]
+# G = GradientDescent(reads, initial_params, None, dec=.7, k_monitor=5, subsample=1.)
+# print "generating reference state"
+# R0, dR0 = G.predict_R(correct_params)
+# I = R0.argsort()[::-1]
+# for i in I[:10]:
+#     print "simulated R-value", cyska.index_to_seq(i, G.k_monitor), R0[i]
 
-G.set_reference(R0)
+# G.set_reference(R0)
 # test_grad()
-# sys.exit(0)
-_R0 = np.array(R0)
-print "R0:", R0
-R, bla = G.predict_R(G.params, grad=False)
-print "initial error", G.error(R)
-
-
-# sanity checks
-R_test, dR_test = G.predict_R(correct_params)
-grad0 = G.grad_from_R(R_test, dR_test)
-print grad0
-assert np.allclose(R_test, R0)
-assert np.allclose(grad0, 0)
-assert G.error(R_test) == 0
-
-G.optimize()    # for m in G.past_grad:
-    #     print np.round(m,3)
-
-
-from scipy.optimize import minimize
-
-def loss(params):
-    psam = np.array(params.reshape(G.psam.shape), dtype=np.float32)
-    R, dR = G.predict_R(psam, grad=True)
-
-    err = G.error(R)
-    jac = np.array(G.grad_from_R(R, dR).flatten(), dtype=float)
-    return float(err), jac
-
-
-def scipy_minimize():
-    n = len(psam_variant)*4
-    bounds = [ (1e-9, 1), ]*n
-    print bounds
-    x0 = np.array(psam_variant.flatten(), dtype=float)
-    print x0
-    res = minimize(loss, x0, jac=True, bounds=bounds, options={ 'eps' : 1e-4 })
-
-    print res
-    sys.exit(1)
-
-# scipy_minimize()
-# sys.exit(0)
-
-# sys.exit(0)
-
-pp.figure(figsize=(6,12))
-pp.subplot(411)
-pp.pcolor(np.array(G.residuals).T, cmap='RdBu', vmin=-.1, vmax=.1)
-pp.xlabel('time step')
-pp.ylabel('kmer index')
-pp.colorbar(label='R-value difference', orientation='horizontal', shrink=.5)
-
-pp.subplot(412)
-pp.semilogy(np.array(G.scales), label='step size')
-pp.legend(loc='upper right')
-pp.subplot(413)
-pp.semilogy(np.array(G.errors), label='mean squared R-value error')
-pp.legend(loc='upper right')
-pp.subplot(414)
-pp.semilogy(G.nfevs, label='no. function evaluations')
-pp.legend(loc='upper right')
-pp.tight_layout()
-# pp.legend()
+# _R0 = np.array(R0)
 # print "R0:", R0
-# print "R1:", R1
+# R, dR = G.predict_R(G.params, grad=True)
+# grad = G.grad_from_R(R, dR)
+# print "initial error", G.error(R)
+# print "initial gradient"
+# print grad
 
-# print "d_R"
-# for nt, grad, f in zip('ACGT', dR, R1-R0):
-#     print ">>>", nt, f
-#     print np.round(grad, 3)
 
-# print "resulting gradient"
-# print np.round(grad, 3)
-# print np.round(unity(grad), 3)
+# # sanity checks
+# R_test, dR_test = G.predict_R(correct_params)
+# grad0 = G.grad_from_R(R_test, dR_test)
+# print "gradient at optimum"
+# print grad0
+# assert np.allclose(R_test, R0)
+# assert np.allclose(grad0.data, 0)
+# assert G.error(R_test) == 0
 
-# print delta(psam_correct, psam_variant)
-# print delta(psam_correct, psam_variant)
+# G.optimize()    # for m in G.past_grad:
+# # sys.exit(0)
+#     #     print np.round(m,3)
 
-# print "R0:", R0
-# print "R1:", R1
-# R1, dR = predict_R(psam_variant)
-# print "R1:", R1
-# pp.plot(R1, '.')
-# grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
-# psam_variant -= .1*unity(grad)
-# R1, dR = predict_R(psam_variant)
-# pp.plot(R1, '.')
-pp.show()
+
+# from scipy.optimize import minimize
+
+# def loss(params):
+#     psam = np.array(params.reshape(G.psam.shape), dtype=np.float32)
+#     R, dR = G.predict_R(psam, grad=True)
+
+#     err = G.error(R)
+#     jac = np.array(G.grad_from_R(R, dR).flatten(), dtype=float)
+#     return float(err), jac
+
+
+# def scipy_minimize():
+#     n = len(psam_variant)*4
+#     bounds = [ (1e-9, 1), ]*n
+#     print bounds
+#     x0 = np.array(psam_variant.flatten(), dtype=float)
+#     print x0
+#     res = minimize(loss, x0, jac=True, bounds=bounds, options={ 'eps' : 1e-4 })
+
+#     print res
+#     sys.exit(1)
+
+# # scipy_minimize()
+# # sys.exit(0)
+
+# # sys.exit(0)
+
+# pp.figure(figsize=(6,12))
+# pp.subplot(411)
+# pp.pcolor(np.array(G.residuals).T, cmap='RdBu', vmin=-.1, vmax=.1)
+# pp.xlabel('time step')
+# pp.ylabel('kmer index')
+# pp.colorbar(label='R-value difference', orientation='horizontal', shrink=.5)
+
+# pp.subplot(412)
+# pp.semilogy(np.array(G.scales), label='step size')
+# pp.legend(loc='upper right')
+# pp.subplot(413)
+# pp.semilogy(np.array(G.errors), label='mean squared R-value error')
+# pp.legend(loc='upper right')
+# pp.subplot(414)
+# pp.semilogy(G.nfevs, label='no. function evaluations')
+# pp.legend(loc='upper right')
+# pp.tight_layout()
+# # pp.legend()
+# # print "R0:", R0
+# # print "R1:", R1
+
+# # print "d_R"
+# # for nt, grad, f in zip('ACGT', dR, R1-R0):
+# #     print ">>>", nt, f
+# #     print np.round(grad, 3)
+
+# # print "resulting gradient"
+# # print np.round(grad, 3)
+# # print np.round(unity(grad), 3)
+
+# # print delta(psam_correct, psam_variant)
+# # print delta(psam_correct, psam_variant)
+
+# # print "R0:", R0
+# # print "R1:", R1
+# # R1, dR = predict_R(psam_variant)
+# # print "R1:", R1
+# # pp.plot(R1, '.')
+# # grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
+# # psam_variant -= .1*unity(grad)
+# # R1, dR = predict_R(psam_variant)
+# # pp.plot(R1, '.')
+# pp.show()
 
 # psam_variant += .01*unity(grad)
 # print delta(psam_correct, psam_variant)
@@ -678,4 +899,83 @@ pp.show()
 # pp.plot(grad.sum(axis=0), emp.sum(axis=0),'.')
 # pp.show()
 
+import os
+import unittest
+import copy
 
+class TestGradientMethods(unittest.TestCase):
+
+    def run_descent(self, motif_correct, motif_variant, k_monitor=6, dec=.75):
+        psam_correct = motif_correct.psam * motif_correct.A0 + 1e-6 
+        psam_variant = motif_variant.psam * motif_variant.A0 + 1e-6 
+        k = motif_correct.n
+        correct_params = ModelParametrization(k, 1, psam=psam_correct, A0=1., betas=[.0])
+        initial_params = ModelParametrization(k, 1, psam=psam_variant, A0=1.)
+
+        G = GradientDescent(reads, initial_params, None, dec=dec, k_monitor=k_monitor, subsample=1.)
+        # generating reference state
+        R0, dR0 = G.predict_R(correct_params)
+        G.set_reference(R0)
+
+        res = G.optimize()
+        print "final parametrization"
+        print G.params
+        d = np.fabs(G.params.data - correct_params.data)
+        print "maximal parameter deviation:", d.max(), d.argmax()
+        self.assertEqual(G.status, 'CONVERGED')
+        self.assertLess(G.t, 30)
+        self.assertTrue(np.allclose(G.params.data, correct_params.data, rtol=1e-3, atol=1e-3))
+
+    def noisy_variant(self, motif, noise=.01, seed=4711):
+        if seed:
+            np.random.seed(seed)
+        variant = copy.deepcopy(motif)
+        variant.psam += np.array(np.random.rand(*motif.psam.shape) * noise, dtype=np.float32)
+        variant.psam = variant.psam.clip(variant.psam, 1e-9, None)
+        variant.psam /= variant.psam.max(axis=1)[:,np.newaxis]
+
+        print "noisy variant"
+        print variant
+        return variant
+
+    # def test_5mer_noise(self):
+    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
+    #     self.run_descent(motif, self.noisy_variant(motif), k_monitor=5)
+
+    # def test_5mer_high_noise(self):
+    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
+    #     self.run_descent(motif, self.noisy_variant(motif, noise=.1), k_monitor=5)
+
+    # def test_7mer_noise(self):
+    #     motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
+    #     self.run_descent(motif, self.noisy_variant(motif))
+
+    def test_7mer_high_noise(self):
+        motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
+        self.run_descent(motif, self.noisy_variant(motif, noise=.2), k_monitor=5)
+
+    # def test_5mer_off_matrix(self):
+    #     motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
+    #     motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
+    #     self.run_descent(motif_correct, motif_variant)
+
+        # self.assert
+
+    # def test_isupper(self):
+    #     self.assertTrue('FOO'.isupper())
+    #     self.assertFalse('Foo'.isupper())
+
+    # def test_split(self):
+    #     s = 'hello world'
+    #     self.assertEqual(s.split(), ['hello', 'world'])
+    #     # check that s.split fails when the separator is not a string
+    #     with self.assertRaises(TypeError):
+    #         s.split(2)
+
+if __name__ == '__main__':
+    import gzip
+    path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
+    # TODO: include small amount of raw data in git repo for testing!
+
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=100000)
+    unittest.main(verbosity=2)
