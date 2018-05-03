@@ -189,9 +189,9 @@ class DependentKmerAnalysis(CachedBase):
         self.joints = np.array(joints)
         #self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
         self.best_sample = self.profs.max(axis=1)[1:].argmax() + 1
-        print "best_sample_candidates", self.best_sample, len(rbns.reads)
-        print self.joints.max(axis=3).max(axis=2).max(axis=1)
-        print self.profs.max(axis=1)
+        #print "best_sample_candidates", self.best_sample, len(rbns.reads)
+        #print self.joints.max(axis=3).max(axis=2).max(axis=1)
+        #print self.profs.max(axis=1)
         self.logger.debug("best_sample = {0}".format(rbns.reads[self.best_sample].name) )
 
     @property
@@ -224,7 +224,7 @@ class DependentKmerAnalysis(CachedBase):
                 if jR[i,j,d] <= jRm * thresh:
                     break
                 
-                print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
+                #print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
                 merge = kmers[i] + "-" * d + kmers[j]
                 score = jR[i,j,d]
                 

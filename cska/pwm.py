@@ -174,6 +174,10 @@ class PSAM(object):
     def Kd(self):
         return 1./self.A0
 
+    @property
+    def matrix(self):
+        return self.psam * self.A0
+
     @classmethod
     def from_kmer(cls, kmer, **kwargs):
         kmer = kmer.upper()

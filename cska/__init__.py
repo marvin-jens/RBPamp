@@ -92,6 +92,7 @@ def main():
     parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
 
     # affinity model optimization 
+    parser.add_option("","--mfa",dest="meanfield",default=False, action="store_true",help="SWITCH: run mean-field kmer soup model")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
@@ -297,7 +298,6 @@ def main():
                     n_parallel= options.parallel,
                 )
 
-
         # prime the optimization from dependent-kmer analysis
         from cska.pwm import PWMOptimizer, PSAM
         if options.seed_analysis:
@@ -313,6 +313,16 @@ def main():
             print pwm
         else:
             k = options.min_k
+
+        # TODO: cleanup initial PWM handling
+        if options.meanfield:
+            if options.seed_analysis:
+                seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
+                pwm = SR.psam_lin
+
+            from cska.meanfield import MeanFieldAnalysis
+            for k in range(options.min_k, options.max_k+1):
+                MFA = MeanFieldAnalysis(rbns, pwm, k)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:

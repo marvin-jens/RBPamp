@@ -142,7 +142,8 @@ class CrosstalkMatrix(CachedBase):
         r_inv = np.dot(M_inv, r_values)
         bg_vec = np.dot(M_inv,np.ones(4**k))
         
-        kappa = self.input_reads.kmer_frequencies(k) / 4**k
+        kappa = self.input_reads.kmer_frequencies(k)
+        kappa /= kappa.sum()
 
         def r2occ(sum_pi, beta):
             occ = r_inv * sum_pi - bg_vec * beta
@@ -175,6 +176,7 @@ class CrosstalkMatrix(CachedBase):
             print "r_value   top5", r_values[-5:]
             
             e = err(r_predict, r_values) # super close to zero
+            print "error r_predict - r_values", e
             e += (occ[occ < 0].sum())**2
             e += (occ[occ > 1].sum())**2 
             e += np.log(sum_pi/sum_pi_pred)**2
@@ -197,7 +199,7 @@ class CrosstalkMatrix(CachedBase):
         
         opt_occ = r2occ(sum_pi, beta)
         #r_pred = occ2r()
-        return opt_occ
+        return opt_occ, beta
 
 
     def linear_fit(self, rbp_conc, r_matrix, indices, temp=22):

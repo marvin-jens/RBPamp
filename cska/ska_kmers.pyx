@@ -1,6 +1,6 @@
 #!python
-###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 #cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -978,7 +978,7 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     cdef FLOAT32_t [:,:] dpi = np.zeros((4**k_mer, n_psam), dtype=np.float32)
     cdef FLOAT32_t [:] pi = np.zeros(4**k_mer, dtype=np.float32)
     cdef int thread_num = 0
-    cdef UINT64_t i=0, j=0, d=0, n=0
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0
     cdef UINT32_t index=0
     cdef FLOAT32_t p=0, dpsi=0
     cdef FLOAT32_t [:] dpsi_dM = np.zeros(n_psam, dtype=np.float32)
@@ -1012,7 +1012,8 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
         for i in range(l):
             for d in range(k):
                 n = seqm[j, i+d]
-                dpsi_dM[(d << 2) + n + 1] += Z[j,i] * psam_inv[(d << 2) + n + 1] * dpsi
+                x = (d << 2) + n + 1
+                dpsi_dM[x] += Z[j,i] * psam_inv[x] * dpsi
 
         # propagate effect to pulldown kmer frequencies
         for i in range(l_im):
@@ -1026,7 +1027,10 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
             # dpi/dM
             for d in range(k):
                 for n in range(4):
-                    dpi[index, (d << 2) + n + 1] += dpsi_dM[(d << 2) + n + 1]
+                    # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
+                    #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
+                    x = (d << 2) + n + 1
+                    dpi[index, x] += dpsi_dM[x]
 
     return pi.base, dpi.base
                     
