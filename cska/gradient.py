@@ -255,17 +255,11 @@ class GradientDescent(object):
         self.openen = self.reads.acc_storage.get_raw(self.params.k)
         self.acc_ofs = self.reads.l5 - params.k + 1
         print "acc_ofs", self.acc_ofs
-        self.acc = self.openen.acc
-        print self.acc.shape
         self.R0 = R0
         self.n = params.k
         self.subsample = subsample
-        adap5 = cyska.seq_to_bits(reads.adap5)
-        adap3 = cyska.seq_to_bits(reads.adap3)
-        self.padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, self.n)
 
         self.k_monitor = k_monitor
-        self.im = reads.get_index_matrix(k_monitor)
         f0 = reads.kmer_frequencies(k_monitor)
         self.f0 = f0 / f0.sum()
 
@@ -283,7 +277,14 @@ class GradientDescent(object):
         self.n_grad = 0
         self.scales = []
         self.t = 0
-        self.new_subsample()
+        if subsample:
+            self.acc = self.openen.acc
+            print self.acc.shape
+            adap5 = cyska.seq_to_bits(reads.adap5)
+            adap3 = cyska.seq_to_bits(reads.adap3)
+            self.padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, self.n)
+            self.im = reads.get_index_matrix(k_monitor)
+            self.new_subsample()
     
     def new_subsample(self):
         self.logger.info('new subsample')
