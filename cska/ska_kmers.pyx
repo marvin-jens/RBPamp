@@ -1036,8 +1036,53 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
                     
             
 
+@cython.boundscheck(True)
+@cython.wraparound(True)
+@cython.initializedcheck(True)
+@cython.overflowcheck(True)
+def PSAM_mean_field_gradient(state):
+    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t k = state.params.k
+    cdef UINT64_t Nk = 4**k
+    
+    cdef FLOAT32_t [:] psam_inv = 1./state.params.psam_vec # all PSAM matrix elements and A0 at index 0
+    # shape = (n_samples, Nk)
+    cdef FLOAT32_t [:,:] occ = state.occ 
+    cdef FLOAT32_t [:,:] pi = state.pi
+    cdef FLOAT32_t [:,:] R = state.R
+    cdef FLOAT32_t [:,:] R0 = state.mdl.opt.R0
+    
+    # shape = (n_samples)
+    cdef FLOAT32_t [:] sum_pi_inv = 1./pi.base.sum(axis=1)
+    # shape = (Nk, Nk)
+    cdef FLOAT32_t [:,:] M = state.mdl.xm.M
+    # shape = (Nk) [abundance weighted row mean]
+    cdef FLOAT32_t [:] wrm = state.mdl.xm.wrm
+    
+    cdef int thread_num = 0
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, l=0, nt=0
+    cdef FLOAT32_t pre, o
+    cdef FLOAT32_t [:] grad = np.zeros(state.params.n, dtype=np.float32)
+    
+    
+    # mutliplication is faster than division. So divide outside of loop.
+    cdef FLOAT32_t [:] params_inv = 1./state.params.data
 
+    for n in range(n_samples):
+        for i in range(Nk):
+            pre = 2 * (R[n,i] - R0[n,i]) * sum_pi_inv[n]
+            for l in range(Nk):
+                o = occ[n,l]
+                w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
+                for d in range(k):
+                    nt = l >> (2 * (k - d -1)) & 3
+                    x = (d << 2) + nt + 1
+                    grad[x] += w * psam_inv[x]
+                    
+    return grad.base
+        
 
+    
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
 # @cython.initializedcheck(False)

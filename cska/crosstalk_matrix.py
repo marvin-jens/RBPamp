@@ -57,6 +57,13 @@ class CrosstalkMatrix(CachedBase):
     @property
     @cached
     @pickled
+    def wrm(self):
+        """return abundance weighted row-mean"""
+        return (self.kappa * self.M).sum(axis=0) / self.kappa.sum()
+    
+    @property
+    @cached
+    @pickled
     def M_inv(self):
         M = self.M
         t1 = time.time()
