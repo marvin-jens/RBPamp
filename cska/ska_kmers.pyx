@@ -1036,10 +1036,10 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
                     
             
 
-@cython.boundscheck(True)
-@cython.wraparound(True)
-@cython.initializedcheck(True)
-@cython.overflowcheck(True)
+#@cython.boundscheck(True)
+#@cython.wraparound(True)
+#@cython.initializedcheck(True)
+#@cython.overflowcheck(True)
 def PSAM_mean_field_gradient(state):
     cdef UINT64_t n_samples = state.params.n_samples
     cdef UINT64_t k = state.params.k
@@ -1074,11 +1074,16 @@ def PSAM_mean_field_gradient(state):
             for l in range(Nk):
                 o = occ[n,l]
                 w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
-                for d in range(k):
+                grad[0] += w * psam_inv[0] # dE/dA0 (always contributes)
+                for d in range(k): 
+                    # deconstruct kmer into matrix element coordinates
                     nt = l >> (2 * (k - d -1)) & 3
                     x = (d << 2) + nt + 1
-                    grad[x] += w * psam_inv[x]
-                    
+                    grad[x] += w * psam_inv[x] #dE/dAm,n (only for the elements that contribute)
+                
+            grad[1+k*4+n] += (R[n,i] - R0[n,i]) * (1 - R[n,i]) #accumulate dE/dbeta terms
+
+        grad[1+k*4+n] *= 2 / sum_pi_inv[n] # dE/dbeta pre-factor
     return grad.base
         
 
