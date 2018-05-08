@@ -19,6 +19,7 @@ def debug_kmer_vector(vec, top=10, ref=None, header='values'):
 
 class MeanFieldModelState(object):
     def __init__(self, mdl, params):
+        t0 = time.time()
         self.mdl = mdl
         self.params = params
         self.rbp_conc = mdl.rbp_conc
@@ -36,12 +37,15 @@ class MeanFieldModelState(object):
         self.error = self.mdl.opt.error(self.R)
 
         self.mdl.n_fev += 1
+        self.mdl.t_fev += time.time() - t0
         
     @property
     def grad(self):
+        t0 = time.time()
         self.mdl.n_grad += 1
         _grad = self.params.copy()
         _grad.data[:] = cyska.PSAM_mean_field_gradient(self)
+        self.mdl.t_grad += time.time() - t0
         return _grad
     
 
@@ -60,7 +64,9 @@ class MeanFieldModel(object):
         self.f0 = f0 / f0.sum()
         
         self.n_fev = 0
+        self.t_fev = 0
         self.n_grad = 0
+        self.t_grad = 0
         #docc = np.zeros( (4**k, self.params.n), dtype=np.float32)
         #for i in range(4**k):
             #for d in range(k):
@@ -182,14 +188,15 @@ class MeanFieldAnalysis(object):
         debug_kmer_vector(self.R[2], ref=state.R[2])
         debug_kmer_vector(self.R[3], ref=state.R[3])
         debug_kmer_vector(self.R[4], ref=state.R[4])
-        print "error", state.error
-        print "PARAMS"
-        print params
-        print "ANALYTICAL"
-        print state.grad
-        print "EMPIRICAL"
-        print cska.gradient.emp_grad(state)
-        self.descent.optimize(maxiter=100)
+        # print "error", state.error
+        # print "PARAMS"
+        # print params
+        # print "ANALYTICAL"
+        # print state.grad
+        # print "EMPIRICAL"
+        # print cska.gradient.emp_grad(state)
+        # print "-"*50
+        self.descent.optimize(maxiter=1000, debug=True)
         print "OPTIMIZATION RESULTS"
         print self.descent.params
 
@@ -203,6 +210,10 @@ class MeanFieldAnalysis(object):
         pp.savefig('optimized.pdf')
         pp.close()
 
+        from cska.report import GradientDescentReport
+        rep = GradientDescentReport(self.descent)
+        rep.plot_report()
+        rep.plot_param_hist()
 
 if __name__ == "__main__":
     

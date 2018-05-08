@@ -1,66 +1,13 @@
+import os
+import unittest
+import copy
+import numpy as np
 import logging
 logging.basicConfig(level=logging.INFO)
-import numpy as np
 from cska import auto_detect
 from cska.reads import RBNSReads
 import cska.ska_kmers as cyska
-import matplotlib.pyplot as pp
-
-# CachedBase.debug_caching=True
-test_reads = [
-    "AAAAAAAAGCAGGAAAAAAAAAA",
-    "AAAAAAAAGCAGGAAAAAAAAAA",
-    "AAAAAAAAGCAGGAAAAAAAAAA",
-    "AAAAAAAAGCAGGAAAAAAAAAA",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    "CCCCCCCCGCATGCCCCCCCCCC",
-    # "CGCACGCGCCCCGCCCGCGCCGC",
-    # "AGAGGACGGAGAGAGTCGCGCGA",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTTTT",
-    "TTTTTTTTGCACGTTTTTTTCTT",
-    "TTTTTTTTGGACGTTTTTTTTTT",
-    "TTTTTTTTGGACGTTTTTTATTT",
-    "TTTTTTTTGGACGTTTTTTATTT",
-    "TTTTTTTTGGACGTTTAATTTTT",
-    "GGGGGGACGGGGGGGGGGGGGGG",
-    "GGGGGGATGGGGGGGGGGGGGGG",
-    "GGGGGTAGGGGGGGGGGGGGGGG",
-    "GGGGGGGGGGGGGGGGGGGGGGG",
-    "GGGGGGGTCGGGGGGGGGGGGGG",
-    "GGGGGGGGGGGGGGGGGGGGGGG",
-    "GGGGGGGGGGGGGGGGGGGGGGG",
-]
-# reads = RBNSReads.from_seqs(test_reads, pseudo_count=1)
-reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=100000)
-print "5'adapter len", reads.l5
-np.random.seed(4711)
-
-def unity_matrix(M):
-    F = M.flatten()
-    i = np.fabs(F).argmax()
-    x = F[i] 
-    if x > 0:
-        return M / F[i]
-    elif x < 0:
-        return -M / F[i]
-    else:
-        return M # it's all zeros, we're done
-
-def delta(m1,m2):
-    return np.fabs(m1-m2).sum()
-
+from cska.pwm import PSAM
 
 class Proxy(object):
     def __init__(self, data, start, end, shape=None, unpack=True):
@@ -295,10 +242,11 @@ def emp_grad(state, eps=1e-4):
     err0 = state.error
 
     for i in range(state.params.n):
-        var.data[i] = v0[i] + eps
+        d = v0[i] * eps
+        var.data[i] = v0[i] + d
         state = state.mdl.predict(var)
         derr = state.error - err0
-        grad.data[i] = derr/eps
+        grad.data[i] = derr/d
         var.data[i] = v0[i]
     
     return grad
@@ -365,9 +313,9 @@ class GradientDescent(object):
 
         # records
         self.errors = []
-        self.residuals = []
-        self.nfevs = []
-        self.scales = []
+        self.history = []
+        self.ls_nfev = []
+        self.ls_step = []
         self.t = 0
 
         # optimization result/status
@@ -377,7 +325,7 @@ class GradientDescent(object):
         self.R0 = R0
 
     def error(self, R):
-        return ((self.R0 - R)**2).sum()
+        return ((self.R0 - R)**2).mean()
 
     @staticmethod
     def apply_delta(params, delta):
@@ -481,42 +429,34 @@ class GradientDescent(object):
         return self.status
 
 
-    def optimize(self, maxiter=100):
+    def optimize(self, maxiter=100, debug=False):
         state = self.model.predict(self.params)
         self.errors.append(self.error(state.R))
-        self.residuals.append(np.log2(state.R/self.R0))
+        self.history.append(state)
 
-        # print self.params
-        
         try:
             while not self.converged() and self.t < maxiter:
                 local_grad = state.grad
-                local_grad.A0 *= self.params.k * 4 #psam_matrix.sum()
-                # local_grad.A0 = 0
-                # local_grad.beta = 0
-
                 descent = self.RMSprop(- local_grad).unity()
 
                 s,n = self.line_search(self.params, descent)
-                self.scales.append(s)
-                self.nfevs.append(n)
+                self.ls_step.append(s)
+                self.ls_nfev.append(n)
 
                 upd = descent * s
-                print upd
-                print ">>>>UPDATE", self.params.A0, upd.A0
                 self.params = self.apply_delta(self.params, upd)
-                print "after apply", self.params.A0
-                # if not self.t % 5:
-                #     self.new_subsample()
-                #     R0, dR0 = self.predict_R(correct_params, grad=False)
-                #     self.set_reference(R0)
 
-                print "=" * 50
                 state = self.model.predict(self.params)
                 self.errors.append(self.error(state.R))
-                self.residuals.append(np.log2(state.R/self.R0))
                 self.t += 1
-                print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s
+                self.history.append(state)
+                if debug:
+                    print ">>>>>>>>>UPDATE, scale=",s
+                    print descent
+                    print ">>>>>>>>>PARAMS"
+                    print self.params
+                    print "=" * 50
+                    print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s
 
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
@@ -526,7 +466,11 @@ class GradientDescent(object):
         else:
             self.status = "MAX_ITER"
 
-        print "n_fev={self.model.n_fev} n_grad={self.model.n_grad}".format(self=self)
+        print "n_fev={self.model.n_fev} t_avg={t_fev:.3f}ms n_grad={self.model.n_grad} t_avg={t_grad:.3f}ms".format(
+            self=self, 
+            t_fev = 1000. * self.model.t_fev/self.model.n_fev,
+            t_grad = 1000. * self.model.t_grad/self.model.n_grad,
+            )
         print "optimization ended with status", self.status
         # print "last gradient"
         # print self.past_grad
@@ -535,237 +479,7 @@ class GradientDescent(object):
         
         return self
 
-    def plot_gradients(self, psam_correct, local_grad, grad):
-        print descent
-        pp.figure()
-        pp.subplot(131)
-        self.plot_psam(unity_matrix(psam_correct - self.psam),'actual delta')
-        pp.subplot(132)
-        self.plot_psam(unity_matrix(local_grad),'local gradient')
-        pp.subplot(133)
-        self.plot_psam(unity_matrix(grad),'RMSprop')
-        pp.show()
-        pp.close()
 
-        
-    def plot_psam(self, psam, title):
-        pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
-        pp.xlabel(title)
-        pp.ylabel("base")
-        pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
-        pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
-
-from cska.pwm import PSAM
-# # motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [1., .12, .1])
-# motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
-# motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
-# # motif_correct = PSAM.from_kmer_variants(['GCATG', ], [1., ])
-# # motif = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG'], [5., .06, .05])
-# # sm = reads.seqm
-
-# psam_correct = motif_correct.psam * motif_correct.A0 + 1e-6 
-# k = len(psam_correct)
-# psam_variant = motif_variant.psam * motif_variant.A0 + 1e-6 
-
-# correct_params = ModelParametrization(k, 1, psam=psam_correct, A0=1., betas=[.0])
-# initial_params = ModelParametrization(k, 1, psam=psam_variant, A0=1.)
-
-# print "REFERENCE"
-# print correct_params
-# print "SEED"
-# print initial_params
-# sys.exit(0)
-def emp_grad_Z(seqm, psam0, eps=1e-4):
-    Z0 = SPA_part_func(seqm, psam0)
-    psam = np.array(psam0)
-    k = len(psam0)
-    l = len(Z0)
-    grad = np.zeros((l,k,4), dtype=np.float64)
-
-    for i in range(len(psam0)):
-        for j in range(4):
-            psam[i,j] = psam0[i,j] + eps
-            Z = SPA_part_func(seqm, psam)
-            psam[i,j] = psam0[i,j]
-            dZ = Z - Z0
-
-            grad[:,i,j] = dZ/eps
-    
-    return grad
-
-def grad_Z(seqm, psam0):
-    Z0 = SPA_part_func(seqm, psam0)
-    psam = np.array(psam0)
-    k = len(psam0)
-    l = len(Z0)
-    grad = np.zeros((l,k,4), dtype=np.float64)
-
-    for i in range(l):
-        for d in range(k):
-            n = seqm[i+d]
-            grad[i,d,n] = Z0[i] / psam[d,n]
-    
-    return grad
-    
-
-def SPA_part_func(seqm, psam):
-    L = len(seqm)
-    k = len(psam)
-    l = L - k + 1
-    Z = np.ones(l, dtype=float)
-    for i in range(l):
-        for d in range(k):
-            n = seqm[i+d]
-            Z[i] *= psam[d,n]
-
-    return Z
-
-def test_grad():
-    seqm = G.sub_padded[90]
-    # psam = G.psam
-
-    eps = 1e-4
-    # Z = SPA_part_func(seqm, psam)
-    # emp = emp_grad_Z(seqm, psam, eps=eps).sum(axis=0)
-    # ana = grad_Z(seqm, psam).sum(axis=0)
-    print ">>>>> at optimum"
-    print "empirical"
-    print G.emp_grad(correct_params, eps=1e-4).unity_bounded()
-    print "analytical"
-    print G.ana_grad(correct_params).unity_bounded()
-
-    print ">>>>> at start point"
-    print "empirical"
-    print G.emp_grad(initial_params, eps=1e-4).unity_bounded()
-    print "analytical"
-    print G.ana_grad(initial_params).unity_bounded()
-
-
-
-
-    
-
-
-
-
-
-# G = GradientDescent(reads, initial_params, None, dec=.7, k_monitor=5, subsample=1.)
-# print "generating reference state"
-# R0, dR0 = G.predict_R(correct_params)
-# I = R0.argsort()[::-1]
-# for i in I[:10]:
-#     print "simulated R-value", cyska.index_to_seq(i, G.k_monitor), R0[i]
-
-# G.set_reference(R0)
-# test_grad()
-# _R0 = np.array(R0)
-# print "R0:", R0
-# R, dR = G.predict_R(G.params, grad=True)
-# grad = G.grad_from_R(R, dR)
-# print "initial error", G.error(R)
-# print "initial gradient"
-# print grad
-
-
-# # sanity checks
-# R_test, dR_test = G.predict_R(correct_params)
-# grad0 = G.grad_from_R(R_test, dR_test)
-# print "gradient at optimum"
-# print grad0
-# assert np.allclose(R_test, R0)
-# assert np.allclose(grad0.data, 0)
-# assert G.error(R_test) == 0
-
-# G.optimize()    # for m in G.past_grad:
-# # sys.exit(0)
-#     #     print np.round(m,3)
-
-
-# from scipy.optimize import minimize
-
-# def loss(params):
-#     psam = np.array(params.reshape(G.psam.shape), dtype=np.float32)
-#     R, dR = G.predict_R(psam, grad=True)
-
-#     err = G.error(R)
-#     jac = np.array(G.grad_from_R(R, dR).flatten(), dtype=float)
-#     return float(err), jac
-
-
-# def scipy_minimize():
-#     n = len(psam_variant)*4
-#     bounds = [ (1e-9, 1), ]*n
-#     print bounds
-#     x0 = np.array(psam_variant.flatten(), dtype=float)
-#     print x0
-#     res = minimize(loss, x0, jac=True, bounds=bounds, options={ 'eps' : 1e-4 })
-
-#     print res
-#     sys.exit(1)
-
-# # scipy_minimize()
-# # sys.exit(0)
-
-# # sys.exit(0)
-
-# pp.figure(figsize=(6,12))
-# pp.subplot(411)
-# pp.pcolor(np.array(G.residuals).T, cmap='RdBu', vmin=-.1, vmax=.1)
-# pp.xlabel('time step')
-# pp.ylabel('kmer index')
-# pp.colorbar(label='R-value difference', orientation='horizontal', shrink=.5)
-
-# pp.subplot(412)
-# pp.semilogy(np.array(G.scales), label='step size')
-# pp.legend(loc='upper right')
-# pp.subplot(413)
-# pp.semilogy(np.array(G.errors), label='mean squared R-value error')
-# pp.legend(loc='upper right')
-# pp.subplot(414)
-# pp.semilogy(G.nfevs, label='no. function evaluations')
-# pp.legend(loc='upper right')
-# pp.tight_layout()
-# # pp.legend()
-# # print "R0:", R0
-# # print "R1:", R1
-
-# # print "d_R"
-# # for nt, grad, f in zip('ACGT', dR, R1-R0):
-# #     print ">>>", nt, f
-# #     print np.round(grad, 3)
-
-# # print "resulting gradient"
-# # print np.round(grad, 3)
-# # print np.round(unity(grad), 3)
-
-# # print delta(psam_correct, psam_variant)
-# # print delta(psam_correct, psam_variant)
-
-# # print "R0:", R0
-# # print "R1:", R1
-# # R1, dR = predict_R(psam_variant)
-# # print "R1:", R1
-# # pp.plot(R1, '.')
-# # grad = -2*((R1 - R0)[:,np.newaxis,np.newaxis] * dR).sum(axis=0)
-# # psam_variant -= .1*unity(grad)
-# # R1, dR = predict_R(psam_variant)
-# # pp.plot(R1, '.')
-# pp.show()
-
-# psam_variant += .01*unity(grad)
-# print delta(psam_correct, psam_variant)
-
-
-
-# grad = np.array(grad)
-# emp = np.array(emp)
-# pp.figure()
-# pp.plot(grad.sum(axis=0), emp.sum(axis=0),'.')
-# pp.show()
-
-import os
-import unittest
-import copy
 
 class TestGradientMethods(unittest.TestCase):
 
@@ -891,9 +605,30 @@ class TestGradientMethods(unittest.TestCase):
     #     with self.assertRaises(TypeError):
     #         s.split(2)
 
+
+def test_grad():
+    seqm = G.sub_padded[90]
+    # psam = G.psam
+
+    eps = 1e-4
+    # Z = SPA_part_func(seqm, psam)
+    # emp = emp_grad_Z(seqm, psam, eps=eps).sum(axis=0)
+    # ana = grad_Z(seqm, psam).sum(axis=0)
+    print ">>>>> at optimum"
+    print "empirical"
+    print G.emp_grad(correct_params, eps=1e-4).unity_bounded()
+    print "analytical"
+    print G.ana_grad(correct_params).unity_bounded()
+
+    print ">>>>> at start point"
+    print "empirical"
+    print G.emp_grad(initial_params, eps=1e-4).unity_bounded()
+    print "analytical"
+    print G.ana_grad(initial_params).unity_bounded()
+
 if __name__ == '__main__':
-    import gzip
-    path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
+    # import gzip
+    # path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
     # TODO: include small amount of raw data in git repo for testing!
 
     reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=100000)

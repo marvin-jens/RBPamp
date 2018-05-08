@@ -808,6 +808,127 @@ class EnrichmentBarPlot(object):
         path = os.path.join(dest, "{0}.{1}".format(fname, fmt) )
         pp.savefig(path)
 
+class GradientDescentReport(object):
+    def __init__(self, descent, path='.'):
+        self.descent = descent
+        self.path = path
+
+    def plot_report(self):
+        pp.figure(figsize=(6,12))
+        pp.subplot(411)
+        R_values = np.array([state.R for state in self.descent.history])
+        residuals = np.log2(R_values / self.descent.R0[np.newaxis,:,:])
+        print R_values.shape
+        print residuals.shape
+        data = np.median(residuals, axis=1) # median across samples
+        I = self.descent.R0.mean(axis=0).argsort() # ordered by sample-mean R-value
+        print data.shape
+        print I.shape
+        pp.imshow(data[:,I].T, cmap='RdBu', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
+        pp.ylabel('kmer index')
+        t = [-1,0,+1]
+        pp.colorbar(label=r'sample-median R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
+
+        pp.subplot(412)
+        errors = ((R_values - self.descent.R0[np.newaxis,:,:])**2).mean(axis=2)
+        m_err = errors.mean(axis=1)
+        
+        pp.semilogy(m_err, 'k-', label='total')
+        for i, err in enumerate(errors):
+            pp.semilogy(err, label='sample{0}'.format(i))
+        pp.legend(loc='upper right')
+        pp.ylabel("mean squared R-value error")
+
+        from scipy.stats import pearsonr
+        corr = []
+        for state in self.descent.history:
+            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(state.R, self.descent.R0)]
+            corr.append(Rs)
+        
+        corr = np.array(corr).T
+        pp.subplot(413)
+        for i, c in enumerate(corr):
+            pp.plot(c, label='sample{0}'.format(i))
+
+        pp.legend(loc='upper right')
+        pp.ylabel("Pearson R-value correlation")
+
+        pp.subplot(414)
+        pp.semilogy(self.descent.ls_nfev, label='no. function evaluations during line-search')
+        pp.legend(loc='upper right')
+        # pp.subplot(514)
+        pp.semilogy(np.array(self.descent.ls_step), label='step size')
+        pp.xlabel('time step')
+        pp.legend(loc='upper right')
+        pp.tight_layout()
+
+        pp.savefig(os.path.join(self.path,"descent_report.pdf"))
+        pp.close()
+
+    def plot_param_hist(self):
+        from matplotlib.colors import LogNorm
+        A0 = np.array([state.params.A0 for state in self.descent.history])
+        a = np.array([state.params.psam_vec[1:] for state in self.descent.history])
+        betas = np.array([state.params.betas for state in self.descent.history])
+
+        pp.figure(figsize=(6,10))
+        pp.subplot(311)
+        pp.semilogy(A0, label=r'$A_0$')
+        pp.legend(loc='upper right')
+        pp.ylabel("affinity [1/nM]")
+
+        pp.subplot(312)
+        pp.imshow(a.T, interpolation='nearest', cmap='viridis', norm=LogNorm(vmin=1e-6, vmax=1), aspect='auto')
+        
+        t = []
+        for i in range(self.descent.params.k):
+            for n in 'ACGU':
+                t.append('{0}{1}'.format(n,i+1))
+        l = len(t)
+        pp.yticks(np.arange(l), t)
+
+        t = [1e-5, 1e-3, 1e-1]
+        pp.colorbar(orientation='horizontal', shrink=.5, ticks=t, label="PSAM values")
+        pp.ylabel("matrix elements")
+
+        pp.subplot(313)
+        for i,b in enumerate(betas.T):
+            pp.semilogy(b, label='beta{0}'.format(i))
+
+        pp.legend(loc='upper right')
+        pp.ylabel("background estimate")
+        pp.xlabel("optimization step")
+        pp.tight_layout()
+
+        pp.savefig(os.path.join(self.path,"descent_params.pdf"))
+        pp.close()
+
+
+    def plot_psam(self, psam, title):
+        pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
+        pp.xlabel(title)
+        pp.ylabel("base")
+        pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
+        pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
+        
+    def plot_gradients(self, psam_correct, local_grad, grad):
+        print descent
+        pp.figure()
+        pp.subplot(131)
+        self.plot_psam(unity_matrix(psam_correct - self.psam),'actual delta')
+        pp.subplot(132)
+        self.plot_psam(unity_matrix(local_grad),'local gradient')
+        pp.subplot(133)
+        self.plot_psam(unity_matrix(grad),'RMSprop')
+
+        
+    def plot_psam(self, psam, title):
+        pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
+        pp.xlabel(title)
+        pp.ylabel("base")
+        pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
+        pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
+        
 
 if __name__ == "__main__":
     N = 4**6
