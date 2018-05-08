@@ -423,13 +423,14 @@ class GradientDescent(object):
             return self.status
            
         last_errs = np.array(self.errors[-tau:])
-        if last_errs.max() / last_errs.min() < rtol:
+        mean = last_errs.mean()
+        if (mean - self.errors[-1]) / mean < rtol:
             return 'CONVERGED_NO_MORE_DECREASE'
 
         return self.status
 
 
-    def optimize(self, maxiter=100, debug=False):
+    def optimize(self, maxiter=100, debug=False, callback=None):
         state = self.model.predict(self.params)
         self.errors.append(self.error(state.R))
         self.history.append(state)
@@ -458,6 +459,10 @@ class GradientDescent(object):
                     print "=" * 50
                     print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s
 
+                if callback:
+                    callback(self)
+
+        # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
         

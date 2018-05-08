@@ -1035,6 +1035,86 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
     return pi.base, dpi.base
                     
             
+#@cython.boundscheck(True)
+#@cython.wraparound(True)
+#@cython.initializedcheck(True)
+#@cython.overflowcheck(True)
+def PSAM_mean_field_eval(state):
+    cdef UINT64_t k = state.params.k
+    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t Nk = 4**k
+
+    cdef FLOAT32_t [:] rbp_conc = state.rbp_conc
+    cdef FLOAT32_t [:] params = state.params.data
+    cdef FLOAT32_t aff0 = state.mdl.aff0
+    cdef FLOAT32_t A0 = state.params.A0
+    cdef FLOAT32_t [:] betas = params[state.params.betas_start:]
+    cdef FLOAT32_t [:] f0 = state.mdl.f0
+    cdef FLOAT32_t [:,:] R0 = state.mdl.opt.R0
+    cdef FLOAT32_t [:,:] M = state.mdl.xm.M
+
+    cdef int thread_num = 0
+    cdef int n_threads = 8
+
+    cdef FLOAT32_t [:] Z1 = state.A #np.empty(Nk, dtype=np.float32)
+    cdef FLOAT32_t [:,:] occ = np.empty((n_samples,Nk), dtype=np.float32)
+    cdef FLOAT32_t [:,:] pi = np.empty((n_samples,Nk), dtype=np.float32)
+    cdef FLOAT32_t [:,:] sum_pi = np.zeros((n_threads, n_samples), dtype=np.float32)
+    cdef FLOAT32_t [:] _sum_pi = np.zeros(n_samples, dtype=np.float32)
+    cdef FLOAT32_t [:,:] R = np.empty((n_samples,Nk), dtype=np.float32)
+    cdef FLOAT32_t [:] error = np.zeros(n_threads, dtype=np.float32)
+
+    cdef UINT64_t i=0,j=0,l=0,ind=0,n=0,nt=0,x=0,rowbase=0
+    cdef FLOAT32_t A = 0,Z=0, z=0,o=0, Mil = 0, err=0
+
+    with nogil:
+        # with parallel():
+        #     for i in prange(Nk):
+        #         ind = i
+        #         rowbase = (k-1) << 2
+        #         A = A0
+        #         for j in range(k):
+        #             nt = ind & 3
+        #             x = rowbase + nt + 1
+        #             A = A * params[x]
+        #             ind = ind >> 2
+        #             rowbase = rowbase >> 2
+
+        #         Z1[i] = max(A, aff0)
+        
+        for n in range(n_samples):
+            with parallel():
+                for i in prange(Nk):
+                    z = rbp_conc[n]*Z1[i]
+                    occ[n,i] = z / (z + 1)
+
+            with parallel():
+                for i in prange(Nk):
+                    thread_num = openmp.omp_get_thread_num()
+                    Mil = 0
+                    for l in range(Nk): # speed up by keeping explicitly the relevant indices and weights!
+                        Mil = Mil + M[i,l] * occ[n,l]
+
+                    pi[n,i] = f0[i] * (Mil + betas[n])
+                    sum_pi[thread_num, n] += pi[n,i]
+                
+            for i in range(n_threads):
+                _sum_pi[n] += sum_pi[i, n]
+
+            with parallel():
+                for i in prange(Nk):
+                    thread_num = openmp.omp_get_thread_num()
+                    R[n,i] = pi[n,i]/_sum_pi[n] / f0[i]
+                    err = R[n,i] - R0[n,i]
+                    error[thread_num] += err * err
+
+    state.A = Z1.base
+    state.occ = occ.base
+    state.pi = pi.base
+    state.sum_pi = _sum_pi.base
+    state.R = R.base
+    state.error = error.base.sum() / (Nk * n_samples)
+
 
 #@cython.boundscheck(True)
 #@cython.wraparound(True)
@@ -1060,31 +1140,40 @@ def PSAM_mean_field_gradient(state):
     cdef FLOAT32_t [:] wrm = state.mdl.xm.wrm
     
     cdef int thread_num = 0
+    cdef int n_threads = 8
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, l=0, nt=0
-    cdef FLOAT32_t pre, o
-    cdef FLOAT32_t [:] grad = np.zeros(state.params.n, dtype=np.float32)
+
+    cdef FLOAT32_t pre, o, w
+    cdef FLOAT32_t [:,:] grad = np.zeros((n_threads, state.params.n), dtype=np.float32)
     
     
     # mutliplication is faster than division. So divide outside of loop.
     cdef FLOAT32_t [:] params_inv = 1./state.params.data
 
-    for n in range(n_samples):
-        for i in range(Nk):
-            pre = 2 * (R[n,i] - R0[n,i]) * sum_pi_inv[n]
-            for l in range(Nk):
-                o = occ[n,l]
-                w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
-                grad[0] += w * psam_inv[0] # dE/dA0 (always contributes)
-                for d in range(k): 
-                    # deconstruct kmer into matrix element coordinates
-                    nt = l >> (2 * (k - d -1)) & 3
-                    x = (d << 2) + nt + 1
-                    grad[x] += w * psam_inv[x] #dE/dAm,n (only for the elements that contribute)
-                
-            grad[1+k*4+n] += (R[n,i] - R0[n,i]) * (1 - R[n,i]) #accumulate dE/dbeta terms
+    with nogil, parallel():
+        for n in range(n_samples):
+            for i in prange(Nk, schedule='dynamic'):
+                thread_num = openmp.omp_get_thread_num()
+                # make variabls thread-private
+                o = 0
+                w = 0
+                pre = 0
+                pre = 2 * (R[n,i] - R0[n,i]) * sum_pi_inv[n]
+                for l in range(Nk):
+                    o = occ[n,l]
+                    w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
+                    grad[thread_num, 0] += w * psam_inv[0] # dE/dA0 (always contributes)
+                    for d in range(k): 
+                        # deconstruct kmer into matrix element coordinates
+                        nt = l >> (2 * (k - d -1)) & 3
+                        x = (d << 2) + nt + 1
+                        grad[thread_num, x] += w * psam_inv[x] #dE/dAm,n (only for the elements that contribute)
+                    
+                grad[thread_num, 1+k*4+n] += (R[n,i] - R0[n,i]) * (1 - R[n,i]) #accumulate dE/dbeta terms
 
-        grad[1+k*4+n] *= 2 / sum_pi_inv[n] # dE/dbeta pre-factor
-    return grad.base
+            grad[thread_num, 1+k*4+n] *= 2 / sum_pi_inv[n] # dE/dbeta pre-factor
+
+    return grad.base.sum(axis=0)
         
 
     

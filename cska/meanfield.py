@@ -25,16 +25,17 @@ class MeanFieldModelState(object):
         self.rbp_conc = mdl.rbp_conc
 
         self.A = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
-        # TODO: make protein concentration self-consistent
-        Z = self.rbp_conc[:,np.newaxis]*self.A[np.newaxis,:]
-        self.occ = Z / (Z + 1)
-        # debug_kmer_vector(occ[0], header="occ @5nM")
+        cyska.PSAM_mean_field_eval(self)
+        # # TODO: make protein concentration self-consistent
+        # Z = self.rbp_conc[:,np.newaxis]*self.A[np.newaxis,:]
+        # self.occ = Z / (Z + 1)
+        # # debug_kmer_vector(occ[0], header="occ @5nM")
 
-        # adding baseline
-        self.pi = np.array([self.mdl.f0 * (np.dot(self.mdl.xm.M, o ) + beta ) for o, beta in zip(self.occ, self.params.betas)])
-        self.sum_pi = self.pi.sum(axis=1)
-        self.R = self.pi / self.sum_pi[:,np.newaxis] / self.mdl.f0[np.newaxis,:]
-        self.error = self.mdl.opt.error(self.R)
+        # # adding baseline
+        # self.pi = np.array([self.mdl.f0 * (np.dot(self.mdl.xm.M, o ) + beta ) for o, beta in zip(self.occ, self.params.betas)])
+        # self.sum_pi = self.pi.sum(axis=1)
+        # self.R = self.pi / self.sum_pi[:,np.newaxis] / self.mdl.f0[np.newaxis,:]
+        # self.error = self.mdl.opt.error(self.R)
 
         self.mdl.n_fev += 1
         self.mdl.t_fev += time.time() - t0
@@ -44,6 +45,8 @@ class MeanFieldModelState(object):
         t0 = time.time()
         self.mdl.n_grad += 1
         _grad = self.params.copy()
+        t1 = time.time() - t0
+        print "dt params.copy=", t1
         _grad.data[:] = cyska.PSAM_mean_field_gradient(self)
         self.mdl.t_grad += time.time() - t0
         return _grad
@@ -81,7 +84,13 @@ class MeanFieldModel(object):
         state = MeanFieldModelState(self, params)
         return state
 
-        
+    def estimate_betas(self, state, q=5):
+        R_ns = np.percentile(self.opt.R0, q, axis=1)
+        # print "R_ns,j", R_ns
+        beta = R_ns / (1 - R_ns)
+        # print "beta?", beta
+        # print "sum_pi with current beta estimate", state.sum_pi
+        return state.sum_pi * beta
         
     #def predict_R(self, params, grad=False, aff0=1e-6, debug=False):
         #A = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=aff0)
@@ -165,14 +174,16 @@ class MeanFieldAnalysis(object):
         self.k = k
         self.R, self.R_err = rbns.R_value_matrix(k)
         
-        params = cska.gradient.ModelParametrization(k, len(rbns.reads) - 1, psam=pwm.psam, A0=.21)
-        params.betas[:] = [.013,.023,.062,.18,.19]
-        params.psam_matrix[3,1] = .1
+        params = cska.gradient.ModelParametrization(k, len(rbns.reads) - 1, psam=pwm.psam, A0=.1)
+        params.betas[:] = .01
+        # initial guess
+        # params.betas[:] = [.013,.023,.062,.18,.19]
+        # params.psam_matrix[3,1] = .1
         
         model = MeanFieldModel(rbns.reads[0], params, rbp_conc = rbns.rbp_conc)
         self.descent = cska.gradient.GradientDescent(model, params, self.R)
         state = model.predict(params)
-        
+        params.betas[:] = model.estimate_betas(state)
         import matplotlib.pyplot as pp
         pp.figure()
         pp.loglog(self.R[0],state.R[0],'x')
@@ -196,7 +207,17 @@ class MeanFieldAnalysis(object):
         # print "EMPIRICAL"
         # print cska.gradient.emp_grad(state)
         # print "-"*50
-        self.descent.optimize(maxiter=1000, debug=True)
+        from cska.report import GradientDescentReport
+        def make_plots(descent):
+            rep = GradientDescentReport(descent)
+            rep.plot_report()
+            rep.plot_param_hist()
+            
+        def callback(descent):
+            if not descent.t % 10:
+                make_plots(descent)
+
+        self.descent.optimize(maxiter=1000, debug=True, callback=callback)
         print "OPTIMIZATION RESULTS"
         print self.descent.params
 
@@ -210,10 +231,7 @@ class MeanFieldAnalysis(object):
         pp.savefig('optimized.pdf')
         pp.close()
 
-        from cska.report import GradientDescentReport
-        rep = GradientDescentReport(self.descent)
-        rep.plot_report()
-        rep.plot_param_hist()
+        make_plots(self.descent)
 
 if __name__ == "__main__":
     

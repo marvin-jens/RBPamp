@@ -834,7 +834,7 @@ class GradientDescentReport(object):
         m_err = errors.mean(axis=1)
         
         pp.semilogy(m_err, 'k-', label='total')
-        for i, err in enumerate(errors):
+        for i, err in enumerate(errors.T):
             pp.semilogy(err, label='sample{0}'.format(i))
         pp.legend(loc='upper right')
         pp.ylabel("mean squared R-value error")
@@ -842,7 +842,7 @@ class GradientDescentReport(object):
         from scipy.stats import pearsonr
         corr = []
         for state in self.descent.history:
-            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(state.R, self.descent.R0)]
+            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(np.log2(state.R), np.log2(self.descent.R0))]
             corr.append(Rs)
         
         corr = np.array(corr).T
@@ -851,12 +851,11 @@ class GradientDescentReport(object):
             pp.plot(c, label='sample{0}'.format(i))
 
         pp.legend(loc='upper right')
-        pp.ylabel("Pearson R-value correlation")
+        pp.ylabel("R-value correlation")
 
         pp.subplot(414)
         pp.semilogy(self.descent.ls_nfev, label='no. function evaluations during line-search')
         pp.legend(loc='upper right')
-        # pp.subplot(514)
         pp.semilogy(np.array(self.descent.ls_step), label='step size')
         pp.xlabel('time step')
         pp.legend(loc='upper right')
