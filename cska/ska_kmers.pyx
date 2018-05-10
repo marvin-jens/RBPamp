@@ -1418,6 +1418,49 @@ def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_thre
     return counts.base.sum(axis=0)
 
 
+#@cython.boundscheck(True)
+#@cython.wraparound(True)
+#@cython.initializedcheck(True)
+#@cython.cdivision(True)
+#@cython.overflowcheck(True)
+def extrapolate_kmer_freqs(UINT64_t k, FLOAT32_t [:] init, FLOAT32_t [:,:] p_transition, UINT64_t level=2):
+    
+    cdef UINT64_t i, j, c, n
+    cdef UINT64_t Nk = 4**k
+    cdef UINT64_t l = level-1
+    cdef UINT64_t shift_init = (k - l) * 2
+    cdef UINT64_t MAX_TRANS = 4**l - 1
+    
+    cdef FLOAT32_t [:] freqs = np.empty(Nk, dtype=np.float32) 
+    
+    cdef FLOAT32_t f, q
+    cdef int special = seq_to_index('aucc')
+    
+    for i in range(Nk):
+        if i == special:
+            print index_to_seq(i,k)
+        j = shift_init
+        c = i >> j # current l-1 mer
+        f = init[c]
+        if i == special:
+            print "  init", index_to_seq(c,l), f
+            
+        for m in range(k-l):
+            j = j - 2
+            n = i >> j # next nucleotide
+            
+            q = p_transition[c & MAX_TRANS, n & 3]
+            f *= q # += q
+            if i == special:
+                print "  transition", index_to_seq(c & MAX_TRANS, l), "to", "ACGU"[n & 3], q, f
+            c = n
+        
+        freqs[i] = f #exp(f)
+    
+    return freqs.base
+    
+    
+
 
 def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     cdef UINT64_t k = pwm.base.shape[0]

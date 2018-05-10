@@ -210,6 +210,24 @@ class RBNSReads(CachedBase):
 
         return freqs
 
+    def extrapolated_kmer_frequencies(self, k, level=2):
+        """
+        Uses mono-, di- ... up to <level>-nucleotide frequencies to extrapolate
+        frequencies for arbitrary k > level.
+        """
+        init = self.kmer_frequencies(level-1)
+        init /= init.sum()
+        
+        transition = self.kmer_frequencies(level).reshape( (4**(level-1), 4) )
+        transition /= transition.sum(axis=1)[:,np.newaxis]
+        
+        #print "transition matrix", transition.shape
+        #for row in transition:
+            #print row
+        
+        #return cyska.extrapolate_kmer_freqs(k, np.log(init), np.log(transition), level)
+        return cyska.extrapolate_kmer_freqs(k, init, transition, level), init, transition
+    
     @cached
     @pickled
     def joint_kmer_profiles(self, k_core, k_flank):
@@ -419,13 +437,55 @@ class RBNSReads(CachedBase):
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
     CachedBase.debug_caching=True
     test_reads = [
         "TAATTTTTGCATGAAAAATCGAT",
         "AGAGGAGAGAGAGAGTCGCGCGA",
         "CGCGCGCGTCGCGATAGCGTCGA",
     ]
+    
     reads = RBNSReads.from_seqs(test_reads)
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=1000000)
+    k = 4
+    l = 3
+    ext, init, transition = reads.extrapolated_kmer_frequencies(k,level=l)
+    mono = reads.kmer_frequencies(1)
+    base = cyska.seq_to_index('auca')
+    corr = (1 + 1./(20 + l -1))
+    print "corr ", corr
+    for n in range(4):
+        ext[base + n] *= corr / init[cyska.seq_to_index('uc')] * mono[0] # a
+
+    print "corr ", corr
+    for s in ['augg','cugg','gugg','uugg']:
+        n = cyska.seq_to_index(s)
+        c = corr / init[cyska.seq_to_index('ug')] * mono[2] # G
+        ext[n] *= c
+
+    ext /= ext.sum()
+    
+    obs = reads.kmer_frequencies(k)
+    obs /= obs.sum()
+    
+    from scipy.stats import pearsonr
+    import matplotlib.pyplot as pp
+    R, p_val = pearsonr(np.log(obs), np.log(ext))
+    print R, p_val
+    pp.figure()
+    pp.loglog(obs, ext, 'x')
+    pp.xlabel("observed")
+    pp.ylabel("extrapolated")
+    pp.tight_layout()
+    pp.savefig("kmer_extrapolation_test.pdf")
+    
+    lfc = np.log2(obs/ext)
+    I = np.fabs(lfc).argsort()[::-1]
+    for i in I[:20]:
+        print cyska.index_to_seq(i,k), obs[i], ext[i], lfc[i], 2**lfc[i], corr
+        
+    sys.exit(1)
+    
 
     import cska.ska_kmers as cyska
     adap5 = cyska.seq_to_bits(reads.adap5)
