@@ -321,8 +321,7 @@ def main():
                 pwm = SR.psam_lin
 
             from cska.meanfield import MeanFieldAnalysis
-            for k in range(options.min_k, options.max_k+1):
-                MFA = MeanFieldAnalysis(rbns, pwm, k)
+            MFA = MeanFieldAnalysis(rbns, pwm)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:

@@ -76,13 +76,13 @@ class MeanFieldModel(object):
 
         
 class MeanFieldAnalysis(object):
-    def __init__(self, rbns, pwm, k):
+    def __init__(self, rbns, pwm):
         self.rbns = rbns
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
-        self.k = k
-        self.R, self.R_err = rbns.R_value_matrix(k)
+        self.k = pwm.n
+        self.R, self.R_err = rbns.R_value_matrix(self.k)
         
-        params = cska.gradient.ModelParametrization(k, len(rbns.reads) - 1, psam=pwm.psam, A0=.1)
+        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=.1)
         params.betas[:] = .01
         # initial guess
         # params.betas[:] = [.013,.023,.062,.18,.19]
@@ -93,20 +93,20 @@ class MeanFieldAnalysis(object):
         state = model.predict(params)
         params.betas[:] = model.estimate_betas(state)
         import matplotlib.pyplot as pp
-        pp.figure()
-        pp.loglog(self.R[0],state.R[0],'x')
-        pp.loglog(self.R[1],state.R[1],'x')
-        pp.loglog(self.R[2],state.R[2],'x')
-        pp.loglog(self.R[3],state.R[3],'x')
-        pp.savefig(os.path.join(self.out_path, 'unoptimized.pdf'))
-        pp.close()
+        # pp.figure()
+        # pp.loglog(self.R[0],state.R[0],'x')
+        # pp.loglog(self.R[1],state.R[1],'x')
+        # pp.loglog(self.R[2],state.R[2],'x')
+        # pp.loglog(self.R[3],state.R[3],'x')
+        # pp.savefig(os.path.join(self.out_path, 'unoptimized.pdf'))
+        # pp.close()
         # pp.show()
 
-        debug_kmer_vector(self.R[0], ref=state.R[0])
-        debug_kmer_vector(self.R[1], ref=state.R[1])
-        debug_kmer_vector(self.R[2], ref=state.R[2])
-        debug_kmer_vector(self.R[3], ref=state.R[3])
-        debug_kmer_vector(self.R[4], ref=state.R[4])
+        # debug_kmer_vector(self.R[0], ref=state.R[0])
+        # debug_kmer_vector(self.R[1], ref=state.R[1])
+        # debug_kmer_vector(self.R[2], ref=state.R[2])
+        # debug_kmer_vector(self.R[3], ref=state.R[3])
+        # debug_kmer_vector(self.R[4], ref=state.R[4])
         # print "error", state.error
         # print "PARAMS"
         # print params
@@ -121,8 +121,9 @@ class MeanFieldAnalysis(object):
             rep.plot_report()
             rep.plot_param_hist()
             pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
+            logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
             name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
-            pwm.save_logo(os.path.join(self.out_path, name + '.eps' ))
+            pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
             pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
             
         def callback(descent):
@@ -136,14 +137,14 @@ class MeanFieldAnalysis(object):
         
         
         state = model.predict(self.descent.params)
-        import matplotlib.pyplot as pp
-        pp.figure()
-        pp.loglog(self.R[0],state.R[0],'x')
-        pp.loglog(self.R[1],state.R[1],'x')
-        pp.loglog(self.R[2],state.R[2],'x')
-        pp.loglog(self.R[3],state.R[3],'x')
-        pp.savefig(os.path.join(self.out_path, 'optimized.pdf'))
-        pp.close()
+        # import matplotlib.pyplot as pp
+        # pp.figure()
+        # pp.loglog(self.R[0],state.R[0],'x')
+        # pp.loglog(self.R[1],state.R[1],'x')
+        # pp.loglog(self.R[2],state.R[2],'x')
+        # pp.loglog(self.R[3],state.R[3],'x')
+        # pp.savefig(os.path.join(self.out_path, 'optimized.pdf'))
+        # pp.close()
 
         make_plots(self.descent)
 

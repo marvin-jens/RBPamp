@@ -127,6 +127,7 @@ class Alignment(object):
 
                 best[l] = (f, i, j)
 
+        # print best
         bylength = sorted(best)
         for l in bylength:
             f,i,j = best[l]
@@ -258,7 +259,7 @@ class DependentKmerAnalysis(CachedBase):
     # @pickled
     def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
         # find compact representation of linear motif
-        self.logger.debug("building linear PSAM")
+        self.logger.debug("building linear PSAM with max width={0}".format(n_max))
         psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
@@ -358,7 +359,7 @@ class DependentKmerAnalysis(CachedBase):
         # sys.exit(0)
 
 class SeedRefinement(object):
-    def __init__(self, rbns, km=4, keep_weight=.75, max_linear_k=11):
+    def __init__(self, rbns, km=4, keep_weight=.9, max_linear_k=11):
         self.rbns = rbns
         self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
         self.km = km

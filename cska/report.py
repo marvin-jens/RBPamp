@@ -861,7 +861,7 @@ class GradientDescentReport(object):
         pp.legend(loc='upper right')
         pp.tight_layout()
 
-        pp.savefig(os.path.join(self.path,"descent_report.pdf"))
+        pp.savefig(os.path.join(self.path,"descent_report_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
 
     def plot_param_hist(self):
@@ -899,7 +899,7 @@ class GradientDescentReport(object):
         pp.xlabel("optimization step")
         pp.tight_layout()
 
-        pp.savefig(os.path.join(self.path,"descent_params.pdf"))
+        pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
 
 
