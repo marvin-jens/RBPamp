@@ -1034,6 +1034,51 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
 
     return pi.base, dpi.base
                     
+
+def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
+    cdef UINT64_t k = pwm.base.shape[0]
+    cdef UINT64_t Na = 4**k
+
+    cdef int thread_num = 0
+    cdef int n_threads = 8
+
+    # store parameters here
+    cdef FLOAT32_t [:] params = np.zeros(Na, dtype = np.float32) + aff0
+    # indices of kmers with A_i > aff0
+    cdef UINT32_t [:,:] indices = np.empty((n_threads, Na), dtype = np.uint32)
+
+    cdef UINT32_t [:] n_indices = np.zeros(n_threads, dtype = np.uint32)
+    cdef int i,j,n,ind,l
+    cdef FLOAT32_t A=0
+
+    with nogil, parallel(num_threads=8):
+        for i in prange(Na, schedule='guided'):
+
+    # for i in range(Na):
+            A = A0
+            ind = i
+            l = k-1
+            for j in range(k):
+                n = ind & 3
+                A = A * pwm[l,n]
+                ind = ind >> 2
+                l = l - 1
+
+            A = max(A, aff0)
+            params[i] = A
+
+            thread_num = openmp.omp_get_thread_num()
+            if params[i] > aff0:
+                indices[thread_num, n_indices[thread_num]] = i
+                n_indices[thread_num] += 1
+            
+    cat = []
+    for i in range(n_threads):
+        cat.append(indices.base[i,:n_indices[i]])
+
+    return params.base, np.concatenate(cat)
+
+
             
 #@cython.boundscheck(True)
 #@cython.wraparound(True)
@@ -1043,7 +1088,8 @@ def PSAM_mean_field_eval(state):
     cdef UINT64_t k = state.params.k
     cdef UINT64_t n_samples = state.params.n_samples
     cdef UINT64_t Nk = 4**k
-
+    cdef UINT64_t Nr = len(state.I)
+    cdef UINT32_t [:] I = state.I # indices of kmers with A > aff0
     cdef FLOAT32_t [:] rbp_conc = state.rbp_conc
     cdef FLOAT32_t [:] params = state.params.data
     cdef FLOAT32_t aff0 = state.mdl.aff0
@@ -1092,7 +1138,10 @@ def PSAM_mean_field_eval(state):
                 for i in prange(Nk):
                     thread_num = openmp.omp_get_thread_num()
                     Mil = 0
-                    for l in range(Nk): # speed up by keeping explicitly the relevant indices and weights!
+                    # for l in range(Nk): # speed up by keeping explicitly the relevant indices and weights!
+                    #     Mil = Mil + M[i,l] * occ[n,l]
+                    for j in range(Nr):
+                        l = I[j] # only iterate over kmers with A > aff0
                         Mil = Mil + M[i,l] * occ[n,l]
 
                     pi[n,i] = f0[i] * (Mil + betas[n])
@@ -1132,6 +1181,9 @@ def PSAM_mean_field_gradient(state):
     cdef FLOAT32_t [:,:] R = state.R
     cdef FLOAT32_t [:,:] R0 = state.mdl.opt.R0
     
+    cdef UINT64_t Nr = len(state.I)
+    cdef UINT32_t [:] I = state.I # indices of kmers with A > aff0
+
     # shape = (n_samples)
     cdef FLOAT32_t [:] sum_pi_inv = 1./pi.base.sum(axis=1)
     # shape = (Nk, Nk)
@@ -1159,7 +1211,10 @@ def PSAM_mean_field_gradient(state):
                 w = 0
                 pre = 0
                 pre = 2 * (R[n,i] - R0[n,i]) * sum_pi_inv[n]
-                for l in range(Nk):
+                # for l in range(Nk):
+                for j in range(Nr):
+                    l = I[j] # only iterate over kmers with A > aff0
+
                     o = occ[n,l]
                     w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
                     grad[thread_num, 0] += w * psam_inv[0] # dE/dA0 (always contributes)
@@ -1462,29 +1517,6 @@ def extrapolate_kmer_freqs(UINT64_t k, FLOAT32_t [:] init, FLOAT32_t [:,:] p_tra
     
 
 
-def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
-    cdef UINT64_t k = pwm.base.shape[0]
-    cdef UINT64_t Na = 4**k
-
-    # store parameters here
-    cdef FLOAT32_t [:] params = np.zeros(Na, dtype = np.float32) + aff0
-    cdef int i,j,n,ind,l
-    cdef FLOAT32_t A=0
-
-    with nogil, parallel(num_threads=8):
-        for i in prange(Na, schedule='guided'):
-    # for i in range(Na):
-            A = A0
-            ind = i
-            l = k-1
-            for j in range(k):
-                n = ind & 3
-                A = A * pwm[l,n]
-                ind = ind >> 2
-                l = l - 1
-            params[i] = max(A, aff0)
-            
-    return params.base
 
 
 

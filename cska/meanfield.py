@@ -25,7 +25,9 @@ class MeanFieldModelState(object):
         self.params = params
         self.rbp_conc = mdl.rbp_conc
 
-        self.A = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
+        self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
+        # print "number of relevant kmers", len(self.I)
+        # assert (sorted(self.I) == (self.A > mdl.aff0).nonzero()[0] ).all()
         # TODO: make protein concentration self-consistent
         cyska.PSAM_mean_field_eval(self) # This call populates self.error, self.occ, self.pi etc...
 

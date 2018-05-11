@@ -274,7 +274,7 @@ class PSAM(object):
 
 
     def kmer_affinity_table(self, aff0=1e-6):
-        params = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
+        params, indices = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
         return params
 
     @property
