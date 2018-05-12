@@ -1096,7 +1096,7 @@ def PSAM_mean_field_eval(state):
     cdef FLOAT32_t A0 = state.params.A0
     cdef FLOAT32_t [:] betas = params[state.params.betas_start:]
     cdef FLOAT32_t [:] f0 = state.mdl.f0
-    cdef FLOAT32_t [:,:] R0 = state.mdl.opt.R0
+    cdef FLOAT32_t [:,:] R0 = state.mdl.R0
     cdef FLOAT32_t [:,:] M = state.mdl.xm.M
 
     cdef int thread_num = 0
@@ -1179,7 +1179,7 @@ def PSAM_mean_field_gradient(state):
     cdef FLOAT32_t [:,:] occ = state.occ 
     cdef FLOAT32_t [:,:] pi = state.pi
     cdef FLOAT32_t [:,:] R = state.R
-    cdef FLOAT32_t [:,:] R0 = state.mdl.opt.R0
+    cdef FLOAT32_t [:,:] R0 = state.mdl.R0
     
     cdef UINT64_t Nr = len(state.I)
     cdef UINT32_t [:] I = state.I # indices of kmers with A > aff0

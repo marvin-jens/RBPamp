@@ -817,11 +817,12 @@ class GradientDescentReport(object):
         pp.figure(figsize=(6,12))
         pp.subplot(411)
         R_values = np.array([state.R for state in self.descent.history])
-        residuals = np.log2(R_values / self.descent.R0[np.newaxis,:,:])
+        R0 = self.descent.model.R0
+        residuals = np.log2(R_values / R0[np.newaxis,:,:])
         print R_values.shape
         print residuals.shape
         data = np.median(residuals, axis=1) # median across samples
-        I = self.descent.R0.mean(axis=0).argsort() # ordered by sample-mean R-value
+        I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
         print data.shape
         print I.shape
         pp.imshow(data[:,I].T, cmap='RdBu', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
@@ -830,7 +831,7 @@ class GradientDescentReport(object):
         pp.colorbar(label=r'sample-median R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
 
         pp.subplot(412)
-        errors = ((R_values - self.descent.R0[np.newaxis,:,:])**2).mean(axis=2)
+        errors = ((R_values - R0[np.newaxis,:,:])**2).mean(axis=2)
         m_err = errors.mean(axis=1)
         
         pp.semilogy(m_err, 'k-', label='total')
@@ -842,7 +843,7 @@ class GradientDescentReport(object):
         from scipy.stats import pearsonr
         corr = []
         for state in self.descent.history:
-            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(np.log2(state.R), np.log2(self.descent.R0))]
+            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(np.log2(state.R), np.log2(R0))]
             corr.append(Rs)
         
         corr = np.array(corr).T

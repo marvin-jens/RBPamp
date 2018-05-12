@@ -213,7 +213,7 @@ class KmerModelState(object):
         self.pi = cyska.weighted_kmer_counts(mdl.sub_im, psi + params.beta, mdl.k_monitor)
 
         self.R = self.pi / self.pi.sum() / mdl.f0
-        self.error = self.mdl.opt.error(self.R) # let the optimizer decide on the error function
+        self.error = self.mdl.error(self.R) 
         self.mdl.n_fev += 1
 
     @property
@@ -252,11 +252,12 @@ def emp_grad(state, eps=1e-4):
     return grad
 
 class PartFuncModel(object):
-    def __init__(self, reads, params, k_monitor=5, subsample=1.):
+    def __init__(self, reads, params, R0, k_monitor=5, subsample=1.):
         self.logger = logging.getLogger('PartFuncModel')
         self.reads = reads
         self.opt = None
         self.params = params
+        self.R0 = R0
         self.openen = self.reads.acc_storage.get_raw(self.params.k)
         self.acc_ofs = self.reads.l5 - params.k + 1
         print "acc_ofs", self.acc_ofs
@@ -295,14 +296,16 @@ class PartFuncModel(object):
         self.n_fev += 1
         return KmerModelState(self, params)
 
+    def error(self, R):
+        return ((self.R0 - R)**2).mean()
+
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, R0, dec=.75):
+    def __init__(self, model, params0, dec=.75):
         self.logger = logging.getLogger('GradientDescent')
         self.model = model
         self.params = params0
-        self.R0 = R0
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
 
         # momentum smoothing of the gradient
@@ -321,12 +324,6 @@ class GradientDescent(object):
         # optimization result/status
         self.status = None
         
-    def set_reference(self,R0):
-        self.R0 = R0
-
-    def error(self, R):
-        return ((self.R0 - R)**2).mean()
-
     @staticmethod
     def apply_delta(params, delta):
         new = params.copy()
@@ -432,7 +429,7 @@ class GradientDescent(object):
 
     def optimize(self, maxiter=100, debug=False, callback=None):
         state = self.model.predict(self.params)
-        self.errors.append(self.error(state.R))
+        self.errors.append(state.error)
         self.history.append(state)
 
         try:
@@ -448,7 +445,7 @@ class GradientDescent(object):
                 self.params = self.apply_delta(self.params, upd)
 
                 state = self.model.predict(self.params)
-                self.errors.append(self.error(state.R))
+                self.errors.append(state.error)
                 self.t += 1
                 self.history.append(state)
                 if debug:
@@ -462,6 +459,13 @@ class GradientDescent(object):
                 if callback:
                     callback(self)
 
+                print "n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
+                    self=self,
+                    t_aff = 1000. * self.model.t_aff/self.model.n_fev,
+                    t_fev = 1000. * self.model.t_fev/self.model.n_fev,
+                    t_grad = 1000. * self.model.t_grad/self.model.n_grad,
+                )
+
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
@@ -471,11 +475,6 @@ class GradientDescent(object):
         else:
             self.status = "MAX_ITER"
 
-        print "n_fev={self.model.n_fev} t_avg={t_fev:.3f}ms n_grad={self.model.n_grad} t_avg={t_grad:.3f}ms".format(
-            self=self, 
-            t_fev = 1000. * self.model.t_fev/self.model.n_fev,
-            t_grad = 1000. * self.model.t_grad/self.model.n_grad,
-            )
         print "optimization ended with status", self.status
         # print "last gradient"
         # print self.past_grad

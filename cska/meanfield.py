@@ -24,15 +24,17 @@ class MeanFieldModelState(object):
         self.mdl = mdl
         self.params = params
         self.rbp_conc = mdl.rbp_conc
-
+    
         self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
-        # print "number of relevant kmers", len(self.I)
+        t1 = time.time()
+        print "number of relevant kmers", len(self.I)
         # assert (sorted(self.I) == (self.A > mdl.aff0).nonzero()[0] ).all()
         # TODO: make protein concentration self-consistent
         cyska.PSAM_mean_field_eval(self) # This call populates self.error, self.occ, self.pi etc...
 
         self.mdl.n_fev += 1
-        self.mdl.t_fev += time.time() - t0
+        self.mdl.t_fev += time.time() - t1
+        self.mdl.t_aff += t1 - t0
         
     @property
     def grad(self):
@@ -47,10 +49,11 @@ class MeanFieldModelState(object):
     
 
 class MeanFieldModel(object):
-    def __init__(self, reads, params0, rbp_conc=[], aff0=1e-6, **kwargs):
+    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, **kwargs):
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
         self.params = params0
+        self.R0 = R0
         self.aff0 = aff0
         self.opt = None
         k = self.params.k
@@ -63,13 +66,14 @@ class MeanFieldModel(object):
         self.t_fev = 0
         self.n_grad = 0
         self.t_grad = 0
+        self.t_aff = 0
 
     def predict(self, params, aff0=1e-6, debug=False):
         state = MeanFieldModelState(self, params)
         return state
 
     def estimate_betas(self, state, q=5):
-        R_ns = np.percentile(self.opt.R0, q, axis=1)
+        R_ns = np.percentile(self.R0, q, axis=1)
         # print "R_ns,j", R_ns
         beta = R_ns / (1 - R_ns)
         # print "beta?", beta
@@ -90,8 +94,8 @@ class MeanFieldAnalysis(object):
         # params.betas[:] = [.013,.023,.062,.18,.19]
         # params.psam_matrix[3,1] = .1
         
-        model = MeanFieldModel(rbns.reads[0], params, rbp_conc = rbns.rbp_conc)
-        self.descent = cska.gradient.GradientDescent(model, params, self.R)
+        model = MeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        self.descent = cska.gradient.GradientDescent(model, params)
         state = model.predict(params)
         params.betas[:] = model.estimate_betas(state)
         import matplotlib.pyplot as pp
