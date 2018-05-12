@@ -825,7 +825,7 @@ class GradientDescentReport(object):
         I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
         print data.shape
         print I.shape
-        pp.imshow(data[:,I].T, cmap='RdBu', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
+        pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
         pp.ylabel('kmer index')
         t = [-1,0,+1]
         pp.colorbar(label=r'sample-median R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
@@ -878,7 +878,7 @@ class GradientDescentReport(object):
         pp.ylabel("affinity [1/nM]")
 
         pp.subplot(312)
-        pp.imshow(a.T, interpolation='nearest', cmap='viridis', norm=LogNorm(vmin=1e-6, vmax=1), aspect='auto')
+        pp.imshow(a.T, interpolation='nearest', cmap='inferno', norm=LogNorm(vmin=1e-6, vmax=1), aspect='auto')
         
         t = []
         for i in range(self.descent.params.k):

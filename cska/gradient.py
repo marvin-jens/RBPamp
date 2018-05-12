@@ -371,7 +371,7 @@ class GradientDescent(object):
 
         return a, n
 
-    def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., e0=None):
+    def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., maxiter=50, xatol=1e-1, e0=None):
         from scipy.optimize import minimize_scalar
 
         if e0 is None:
@@ -385,7 +385,7 @@ class GradientDescent(object):
             # print s,"->", e - e0
             return state.error
 
-        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=50, xatol=1e-1))
+        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         return np.exp(res.x), res.nfev
 
     def momentum_grad(self, local_grad):
@@ -437,7 +437,7 @@ class GradientDescent(object):
                 local_grad = state.grad
                 descent = self.RMSprop(- local_grad).unity()
 
-                s,n = self.line_search(self.params, descent)
+                s,n = self.line_search(self.params, descent, e0=self.errors[-1])
                 self.ls_step.append(s)
                 self.ls_nfev.append(n)
 
