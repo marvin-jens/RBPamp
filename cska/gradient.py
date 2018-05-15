@@ -48,6 +48,7 @@ class ModelParametrization(object):
         self.k = k
         self.n_samples = n_samples
         self.n = 4*k + 1 + n_samples
+        self.Nk = 4**k
         self.psam_start = 0
         self.psam_end = 4*k + 1
         self.betas_start = self.psam_end
@@ -75,6 +76,12 @@ class ModelParametrization(object):
 
         if len(data):
             self.set_vector(data)
+
+        self.names =['A0']
+        for i in range(self.k):
+            self.names.extend(['{0}{1}'.format(nt,i+1) for nt in 'ACGU'])
+        for i in range(self.n_samples):
+            self.names.append('beta{0}'.format(i))
 
     @classmethod
     def from_vector(cls, vec, k, n_samples=1):
@@ -147,14 +154,14 @@ class ModelParametrization(object):
     def __str__(self):
         buf = []
         buf.append("PSAM")
-        buf.append("A0={0:.4f}".format(self.A0))
+        buf.append("A0={0:.4e}".format(self.A0))
         buf.append("\tA\t\tC\t\tG\t\tU")
         for row in self.psam_matrix:
             buf.append("\t".join(["{0:>10.3f}".format(x) for x in row]))
 
         buf.append("BACKGROUND")
         for i, beta in enumerate(self.betas):
-            buf.append('beta{0}\t{1:.3f}'.format(i, beta))
+            buf.append('beta{0}\t{1:.3e}'.format(i, beta))
         return '\n'.join(buf)
 
     def __add__(self, x):
@@ -242,12 +249,15 @@ def emp_grad(state, eps=1e-4):
     err0 = state.error
 
     for i in range(state.params.n):
-        d = v0[i] * eps
+        # print ">>> EMP GRAD", state.params.names[i]
+        d = max(v0[i] * eps,1e-6)
+        #d = eps
         var.data[i] = v0[i] + d
         state = state.mdl.predict(var)
         derr = state.error - err0
         grad.data[i] = derr/d
         var.data[i] = v0[i]
+        # print ">>>GRAD ELEMENT", grad.data[i]
     
     return grad
 
@@ -434,7 +444,12 @@ class GradientDescent(object):
 
         try:
             while not self.converged() and self.t < maxiter:
-                local_grad = state.grad
+                local_grad = state.grad.unity()
+                # print "LOCAL GRAD"
+                # print local_grad
+                # local_grad.A0 = 0
+                # local_grad.betas *= 0
+                # local_grad = local_grad.unity()
                 descent = self.RMSprop(- local_grad).unity()
 
                 s,n = self.line_search(self.params, descent, e0=self.errors[-1])

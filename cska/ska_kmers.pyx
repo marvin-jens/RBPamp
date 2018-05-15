@@ -1232,6 +1232,78 @@ def PSAM_mean_field_gradient(state):
         
 
     
+
+
+#@cython.boundscheck(True)
+#@cython.wraparound(True)
+#@cython.initializedcheck(True)
+#@cython.overflowcheck(True)
+def PSAM_inv_mean_field_gradient(state):
+    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t k = state.params.k
+    cdef UINT64_t Nk = 4**k
+    
+    cdef FLOAT32_t [:] psam_inv = 1./state.params.psam_vec # all PSAM matrix elements and A0 at index 0
+    # shape = (n_samples, Nk)
+    cdef FLOAT32_t [:,:] occ = state.occ 
+    cdef FLOAT32_t [:,:] pi = state.pi
+    cdef FLOAT32_t [:,:] R = state.R
+    cdef FLOAT32_t [:,:] R0 = state.mdl.R0
+    
+    cdef UINT64_t Nr = len(state.I)
+    cdef UINT32_t [:] I = state.I # indices of kmers with A > aff0
+
+    # shape = (n_samples)
+    cdef FLOAT32_t [:] sum_pi_inv = 1./pi.base.sum(axis=1)
+    # shape = (Nk, Nk)
+    cdef FLOAT32_t [:,:] M = state.mdl.xm.M
+    # shape = (Nk) [abundance weighted row mean]
+    cdef FLOAT32_t [:] wrm = state.mdl.xm.wrm
+    
+    cdef int thread_num = 0
+    cdef int n_threads = 8
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, l=0, nt=0
+
+    cdef FLOAT32_t pre, o, w
+    cdef FLOAT32_t [:,:] grad = np.zeros((n_threads, state.params.n), dtype=np.float32)
+    
+    
+    # mutliplication is faster than division. So divide outside of loop.
+    cdef FLOAT32_t [:] params_inv = 1./state.params.data
+
+    # for n in range(n_samples):
+    #     for i in range(Nk):
+
+
+    with nogil, parallel():
+        for n in range(n_samples):
+            for i in prange(Nk, schedule='dynamic'):
+                thread_num = openmp.omp_get_thread_num()
+                # make variabls thread-private
+                o = 0
+                w = 0
+                pre = 0
+                pre = 2 * (R[n,i] - R0[n,i]) * sum_pi_inv[n]
+                # for l in range(Nk):
+                for j in range(Nr):
+                    l = I[j] # only iterate over kmers with A > aff0
+
+                    o = occ[n,l]
+                    w = pre * (M[i,l] - R[n,i] * wrm[l]) * (o - o*o)
+                    grad[thread_num, 0] += w * psam_inv[0] # dE/dA0 (always contributes)
+                    for d in range(k): 
+                        # deconstruct kmer into matrix element coordinates
+                        nt = l >> (2 * (k - d -1)) & 3
+                        x = (d << 2) + nt + 1
+                        grad[thread_num, x] += w * psam_inv[x] #dE/dAm,n (only for the elements that contribute)
+                    
+                grad[thread_num, 1+k*4+n] += (R[n,i] - R0[n,i]) * (1 - R[n,i]) #accumulate dE/dbeta terms
+
+            grad[thread_num, 1+k*4+n] *= 2 / sum_pi_inv[n] # dE/dbeta pre-factor
+
+    return grad.base.sum(axis=0)
+
+
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
 # @cython.initializedcheck(False)
