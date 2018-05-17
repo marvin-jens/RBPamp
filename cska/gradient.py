@@ -199,47 +199,6 @@ class ModelParametrization(object):
     def __neg__(self):
         return ModelParametrization.from_vector(- self.data, self.k, self.n_samples)
 
-class KmerModelState(object):
-    def __init__(self, mdl, params):
-        self.mdl = mdl
-        self.params = params
-        
-        # print "psam params vector", psam
-        cyZ = cyska.PSAM_partition_function(mdl.sub_padded, mdl.sub_acc, params.psam_matrix, openen_ofs=mdl.acc_ofs)
-        
-        cyZ *= params.A0
-        Zj = cyZ.sum(axis=1)
-        psi = P*Zj/ (P*Zj+1)
-
-        # print "PSI", psi, psi.min(), psi.mean(), psi.max()
-        self.cyZ = cyZ
-        self.Zj = Zj
-        # avoid zeros in Zj by all means!
-        np.clip(self.Zj, 1e-9, None, out=self.Zj)
-        self.psi = psi
-        self.pi = cyska.weighted_kmer_counts(mdl.sub_im, psi + params.beta, mdl.k_monitor)
-
-        self.R = self.pi / self.pi.sum() / mdl.f0
-        self.error = self.mdl.error(self.R) 
-        self.mdl.n_fev += 1
-
-    @property
-    def grad(self):
-        N = len(cyZ)
-        pi, d_pi = cyska.PSAM_kmer_gradient(self.mdl.sub_padded, self.cyZ, self.Zj, self.psi, self.mdl.sub_im, self.params.psam_vec, self.mdl.k_monitor)
-        pi += N * self.f0 * params.beta 
-
-        # print R.shape, d_pi.shape
-        dR_dM = (self.R/self.pi)[:,np.newaxis] * (d_pi - (self.f0 * self.R)[:,np.newaxis] * d_pi.sum(axis=0)[np.newaxis,:])
-        dR_dbeta =  self.f0 / self.pi * (self.R - self.R**2)
-
-        dR = np.hstack( (dR_dM, dR_dbeta[:,np.newaxis]) )
-
-        # TODO: refactor the R^2 part of gradient into optimizer?
-        _grad = 2 * ((1. * (self.R - self.mdl.opt.R0))[:,np.newaxis] * dR).sum(axis=0)
-        param_grad = self.params.copy().set_vector(_grad)
-        self.mdl.n_grad += 1
-        return param_grad
 
 def emp_grad(state, eps=1e-4):
     v0 = state.params.as_vector()
@@ -260,54 +219,6 @@ def emp_grad(state, eps=1e-4):
         # print ">>>GRAD ELEMENT", grad.data[i]
     
     return grad
-
-class PartFuncModel(object):
-    def __init__(self, reads, params, R0, k_monitor=5, subsample=1.):
-        self.logger = logging.getLogger('PartFuncModel')
-        self.reads = reads
-        self.opt = None
-        self.params = params
-        self.R0 = R0
-        self.openen = self.reads.acc_storage.get_raw(self.params.k)
-        self.acc_ofs = self.reads.l5 - params.k + 1
-        print "acc_ofs", self.acc_ofs
-        self.acc = self.openen.acc
-        print self.acc.shape
-        self.n = params.k
-        adap5 = cyska.seq_to_bits(reads.adap5)
-        adap3 = cyska.seq_to_bits(reads.adap3)
-        self.padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, self.n)
-
-        self.k_monitor = k_monitor
-        self.im = reads.get_index_matrix(k_monitor)
-
-        f0 = reads.kmer_frequencies(k_monitor)
-        self.f0 = f0 / f0.sum()
-
-        self.subsample = subsample
-        self.new_subsample()
-    
-        self.n_fev = 0
-        self.n_grad = 0
-
-    def new_subsample(self):
-        self.logger.info('new subsample')
-        n = int(self.subsample * self.reads.N)
-        if n == self.reads.N:
-            self.sub_indices = np.arange(n)
-        else:
-            self.sub_indices = np.random.permutation(self.reads.N)[:n]
-
-        self.sub_padded = self.padded[self.sub_indices]
-        self.sub_im = self.im[self.sub_indices]
-        self.sub_acc = self.acc[self.sub_indices]
-        
-    def predict(self, params):
-        self.n_fev += 1
-        return KmerModelState(self, params)
-
-    def error(self, R):
-        return ((self.R0 - R)**2).mean()
 
 
 
@@ -458,6 +369,7 @@ class GradientDescent(object):
 
                 upd = descent * s
                 self.params = self.apply_delta(self.params, upd)
+                self.model.params = self.params
 
                 state = self.model.predict(self.params)
                 self.errors.append(state.error)

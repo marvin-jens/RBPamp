@@ -70,7 +70,10 @@ class RefComparison(object):
 
     def predict_affinities(self, mdl):
         a = []
-        aff = mdl.parameters.affinities
+        if hasattr(mdl, "parameters"):
+            aff = mdl.parameters.affinities
+        else:
+            aff = mdl.affinities
 
         for seq in self.seqs:
             I = np.array(self.split_kmers(seq, mdl.k))

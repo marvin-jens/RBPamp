@@ -129,6 +129,13 @@ class RBNSReads(CachedBase):
 
         return seqm
 
+    def get_padded_seqm(self, k):
+        adap5 = cyska.seq_to_bits(self.adap5)
+        adap3 = cyska.seq_to_bits(self.adap3)
+
+        padded = cyska.seqm_pad_adapters(self.seqm, adap5, adap3, k)
+        return padded
+
     @cached
     def get_index_matrix(self, k, indices=[]):
         """

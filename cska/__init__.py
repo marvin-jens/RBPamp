@@ -314,6 +314,13 @@ def main():
         else:
             k = options.min_k
 
+        from cska.comparison import RefComparison
+        if options.compare:
+            compare = options.compare
+        else:
+            compare = rbp_name
+        ref = RefComparison(compare, ref_file=options.ref_file)
+
         # TODO: cleanup initial PWM handling
         if options.meanfield:
             if options.seed_analysis:
@@ -321,7 +328,7 @@ def main():
                 pwm = SR.psam_lin
 
             from cska.meanfield import MeanFieldAnalysis
-            MFA = MeanFieldAnalysis(rbns, pwm)
+            MFA = MeanFieldAnalysis(rbns, pwm, ref=ref)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:
@@ -336,12 +343,6 @@ def main():
             )
             pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
             
-            from cska.comparison import RefComparison
-            if options.compare:
-                compare = options.compare
-            else:
-                compare = rbp_name
-            ref = RefComparison(compare, ref_file=options.ref_file)
 
             from cska.report import OptReporting
             opt.reporter = OptReporting(

@@ -929,6 +929,33 @@ class GradientDescentReport(object):
         pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
         pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
         
+class LiteratureComparisonReport(object):
+    def __init__(self, descent, comp, path='.'):
+        self.descent = descent
+        self.comp = comp
+        self.path = path
+
+    def plot_scatter(self):
+        pp.figure()
+        pp.title(self.comp.rbp_name)
+        x = 1/self.comp.observed_affinities
+        y = 1/self.comp.predict_affinities(self.descent.model)
+
+        print "seq\tknown\tpredict\tlog-ratio"
+        for _x, _y, seq in zip(x, y, self.comp.seqs):
+            print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
+
+        from scipy.stats import pearsonr, spearmanr
+        corr, p_value = spearmanr(np.log(x), np.log(y))
+        pp.loglog(x, y, '.', label=r"$\rho={0:.2f}$ ($P < {1:.2e}$)".format(corr, p_value))
+        pp.legend(loc='upper left')
+        pp.ylabel(r"predicted $K_d$ [nM]")
+        pp.xlabel(r"measured $K_d$ [nM]")
+        pp.tight_layout()
+
+        pp.savefig(os.path.join(self.path,"literature_comparison_{0}mer.pdf".format(self.descent.params.k)))
+        pp.close()
+
 
 if __name__ == "__main__":
     N = 4**6

@@ -57,6 +57,7 @@ class MeanFieldModel(object):
         self.aff0 = aff0
         self.opt = None
         k = self.params.k
+        self.k = self.params.k
         self.xm = CrosstalkMatrix(k, reads)
         
         f0 = reads.kmer_frequencies(k)
@@ -79,6 +80,11 @@ class MeanFieldModel(object):
         # print "beta?", beta
         # print "sum_pi with current beta estimate", state.sum_pi
         return state.sum_pi * beta
+
+    @property
+    def affinities(self):
+        state = self.predict(self.params)
+        return state.A
 
 
 
@@ -106,7 +112,7 @@ class InvMeanFieldModelState(object):
         self.sum_pi = (self.occ * self.mdl.f0).sum(axis=1)
         # print "sum_pi", self.sum_pi
 
-        self._pd = self.occ + params.betas[:,np.newaxis] * self.mdl.icsum
+        self._pd = self.occ + params.betas[:,np.newaxis] * self.mdl.icsum[np.newaxis,:]
         self.right = 1/self.Q[:,np.newaxis]*self._pd
         self.left = self.mdl.iR0
         # print "params", params
@@ -153,21 +159,30 @@ class InvMeanFieldModelState(object):
         #self.mdl.n_grad += 1
         #_grad = self.params.copy()
         
-        # docc = (self.occ - self.occ*self.occ)
-        # sml = (self.mdl.xm.wrm[np.newaxis,:] * docc / self.A[np.newaxis,:]).sum(axis=1)
-        # print 'docc', docc.shape
-        # print 'sml', sml.shape
+        docc = (self.occ - self.occ*self.occ)
+        sml = (self.mdl.xm.wrm[np.newaxis,:] * docc).sum(axis=1)
+        pre = self._pd / (self.Q**2)[:,np.newaxis]
+        dA = pre * sml[:,np.newaxis] - 1/self.Q[:,np.newaxis] * docc
+        dA *= 2 * self._E * self.mdl.w
+        
 
-        # dA0 = (1/(self.Q[:,np.newaxis])**2 * sml[:,np.newaxis]  * (self._pd - 1/self.Q[:,np.newaxis] * docc/self.A[np.newaxis,:]) * 2*self._E).sum() * self.mdl.w
-        # print dA0
-        # g.A0 = dA0
+        # print 'docc', docc.shape, docc.min(), docc.max()
+        # print 'sml', sml.shape, 'w', sml.min(), sml.max()
+        # Q = self.Q
+        # print 'Q', Q.min(), Q.max()
+        # print '1/Q^2', (1/Q**2).min(), (1/Q**2).max()
+        # # g.A0 = dA.sum() / self.params.A0
+        g.psam_vec = (self.mdl.docc_mask[np.newaxis,:,:] * dA[:,:,np.newaxis]).sum(axis=(1,0))
         # #print "dt params.copy=", t1
         # #_grad.data[:] = cyska.PSAM_mean_field_gradient(self)
         # #self.mdl.t_grad += time.time() - t0
         # #return _grad
         
         # db = -2 * (self.mdl.icsum[np.newaxis,:] / self.Q[:,np.newaxis] - 1/(self.Q**2)[:,np.newaxis] * self._pd).mean(axis=1)
-        # g.betas = db
+
+        db = pre - self.mdl.icsum[np.newaxis,:] / self.Q[:,np.newaxis]
+        db *= 2 * self._E * self.mdl.w
+        g.betas = db.sum(axis=1)
 
         return g
 
@@ -182,6 +197,7 @@ class InvMeanFieldModel(object):
         self.aff0 = aff0
         self.opt = None
         k = self.params.k
+        self.k = k
         self.xm = CrosstalkMatrix(k, reads)
         x = np.diag(self.xm.M_inv).argmax()
         print cyska.index_to_seq(x, k), 'diag max'
@@ -198,14 +214,14 @@ class InvMeanFieldModel(object):
         self.iI = np.array(np.dot(self.xm.M_inv.T, np.ones(R0.shape[1], dtype=np.float32)), dtype=np.float32)
         self.icsum = self.xm.M_inv.T.sum(axis=1)
         print "ICSUM", self.icsum.min(), self.icsum.max(), self.icsum.mean()
-        docc = np.zeros( (4**k, self.params.n), dtype=np.float32)
+        docc = np.zeros( (4**k, 4*k+1), dtype=np.float32)
         for i in range(4**k):
             for d in range(k):
                 n = (i >> 2*(k-1-d)) & 3
                 x = (d << 2) + n + 1
                 # print k, d, n, x
                 docc[i,x] = 1
-
+            docc[i,0] = 1
         self.docc_mask = docc
                 
         #gcaug = cyska.seq_to_index('gcaug')
@@ -243,28 +259,32 @@ class InvMeanFieldModel(object):
         print "sum_pi with current beta estimate", state.Q
         return state.Q * beta
 
-
-
-
+    @property
+    def affinities(self):
+        state = self.predict(self.params)
+        return state.A
 
 
 
         
 class MeanFieldAnalysis(object):
-    def __init__(self, rbns, pwm):
+    def __init__(self, rbns, pwm, ref=None):
         self.rbns = rbns
+        self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
         self.k = pwm.n
         self.R, self.R_err = rbns.R_value_matrix(self.k)
         
-        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=.1)
-        params.betas[:] = .01
+        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=1.)
+        params.betas[:] = .0001
         # initial guess
         # params.betas[:] = [.013,.023,.062,.18,.19]
         # params.psam_matrix[3,1] = .1
         
-        #model = MeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
-        model = InvMeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        from cska.partfunc import PartFuncModel
+        # model = MeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        # model = InvMeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        model = PartFuncModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         self.descent = cska.gradient.GradientDescent(model, params)
         state = model.predict(params)
         params.betas[:] = model.estimate_betas(state)
@@ -291,29 +311,38 @@ class MeanFieldAnalysis(object):
         # print "EMPIRICAL"
         # print cska.gradient.emp_grad(state)
         # print "-"*50
-        from cska.report import GradientDescentReport
+        from cska.comparison import RefComparison
+        from cska.report import GradientDescentReport, LiteratureComparisonReport
+
+        lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
         def make_plots(descent):
             rep = GradientDescentReport(descent, path=self.out_path)
             rep.plot_report()
             rep.plot_param_hist()
+            lrep.plot_scatter()
+
             pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
             name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
             pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
             pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
         
+            state = descent.model.predict(descent.params)
+            self.store_affinities(state)
+            self.store_residuals(state)
+        
         self.t0 = time.time()
         def callback(descent):
+            # ugcacgu = cyska.seq_to_index('ugcacgu')
+            # print "UGCACGU", descent.model.affinities[ugcacgu]
             dt = time.time() - self.t0
-            if dt > 60:
+            if dt > 5:
                 make_plots(descent)
                 self.t0 = time.time()
 
         self.descent.optimize(maxiter=1000, debug=True, callback=callback)
         print "OPTIMIZATION RESULTS"
         print self.descent.params
-
-        
         
         state = model.predict(self.descent.params)
         # import matplotlib.pyplot as pp
@@ -326,7 +355,25 @@ class MeanFieldAnalysis(object):
         # pp.close()
 
         make_plots(self.descent)
+        self.store_affinities(state)
+        self.store_residuals(state)
 
+    def store_affinities(self, state):
+        with file(os.path.join(self.out_path, '{0}mer_affinities.tsv'.format(state.params.k)),'w') as f:
+            f.write('#kmer\taffinity[1/nM]\n')
+            for i, aff in enumerate(state.mdl.affinities):
+                kmer = cyska.index_to_seq(i, state.params.k)
+                f.write('{0}\t{1}\n'.format(kmer, aff))
+
+    def store_residuals(self, state):
+        with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(state.params.k)),'w') as f:
+            f.write('#kmer\tlog2(R_pred/R_obs)\n')
+            res = np.log2(state.R/state.mdl.R0)
+            for i in range(state.params.Nk):
+                kmer = cyska.index_to_seq(i, state.params.k)
+                out = [kmer,] + ["{0:.3f}".format(r) for r in res[:,i]]
+                f.write('\t'.join(out) + '\n')
+        
 if __name__ == "__main__":
     
     from cska.reads import RBNSReads

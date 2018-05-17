@@ -1054,6 +1054,8 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     with nogil, parallel(num_threads=8):
         for i in prange(Na, schedule='guided'):
 
+    # ugcacgu = seq_to_index('ugcacgu')
+
     # for i in range(Na):
             A = A0
             ind = i
@@ -1062,6 +1064,8 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
                 n = ind & 3
                 A = A * pwm[l,n]
                 ind = ind >> 2
+                # if i == ugcacgu:
+                #     print "ugcacgu", j, "ACGU"[n], pwm[l,n], A
                 l = l - 1
 
             A = max(A, aff0)
@@ -1498,7 +1502,7 @@ def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_ma
             
     return weights.base
 
-def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
+def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, FLOAT32_t [:] betas, int n_threads = 8):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t n_conc = rbp_conc_vector.base.shape[0]
 
@@ -1514,7 +1518,7 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
             conc = rbp_conc_vector[i]
             for j in prange(N, schedule='guided'):
                 Z = Z1[j] * conc
-                p_bound[i,j] = Z / (Z + 1.)
+                p_bound[i,j] = Z / (Z + 1.) + betas[i]
             
     return p_bound.base
 
