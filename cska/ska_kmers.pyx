@@ -963,6 +963,125 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
 
     return Z.base
 
+
+
+from libc.string cimport memset #faster than np.zeros
+@cython.boundscheck(True)
+@cython.wraparound(True)
+@cython.initializedcheck(True)
+@cython.cdivision(True)
+@cython.overflowcheck(True)
+def PSAM_partition_function_gradient(state):
+
+    cdef UINT8_t [:,:] seqm = state.mdl.seqm
+    cdef FLOAT32_t [:,:] Z1 = state.Z1
+    cdef FLOAT32_t [:] Z1_read = state.Z1_read
+    cdef FLOAT32_t [:] f0 = state.mdl.f0 # 4^k kmer frequencies in input
+    cdef FLOAT32_t [:,:] psi = state.psi
+    cdef UINT32_t [:,:] im = state.mdl.im
+    cdef FLOAT32_t [:] psam = state.params.psam_vec
+    cdef FLOAT32_t [:] Q = state.Q # normalization factors for each sample
+    cdef FLOAT32_t [:] rbp_free = state.rbp_free # self consistent free protein
+    cdef FLOAT32_t [:,:] E = state.R_errors # R - R0
+    cdef FLOAT32_t [:,:] b = state.b # n_samples x 4^k
+    # cdef UINT64_t k_mer
+    cdef int n_max=0    
+    cdef UINT64_t N = seqm.base.shape[0]
+    cdef UINT64_t L = seqm.base.shape[1]
+    cdef UINT64_t n_psam = len(psam.base)
+    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t k = (n_psam - 1) / 4
+    cdef UINT64_t l = L - k + 1
+    # print "L-k+1", l, "Z.shape", Z.shape, 'k', k
+    cdef UINT64_t lam = im.shape[1]
+    cdef UINT64_t Nk = state.params.Nk
+    cdef UINT64_t zero_bytes = n_psam*4
+
+
+    cdef int thread_num = 0
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
+    cdef UINT32_t index=0
+    cdef FLOAT32_t p=0, dpsi=0, dp=0, dR_dA, pre1, pre2
+
+    # change in read-binding probability
+    cdef FLOAT32_t [:] dpsi_dA = np.zeros(n_psam, dtype=np.float32)
+
+    # change in weight assigned to each kmer in pulldown 
+    cdef FLOAT32_t [:,:] db = np.zeros((Nk, n_psam), dtype=np.float32)
+
+    # change in normalization factor
+    cdef FLOAT32_t [:,:] dQ = np.zeros((n_samples, n_psam), dtype=np.float32)
+
+    # mutliplication is faster than division. So divide outside of loop.
+    cdef FLOAT32_t [:] psam_inv = 1./psam.base
+
+    # where to store the final gradient
+    gradient = state.params.copy()
+    gradient.data[:] = 0
+    cdef FLOAT32_t [:] grad = gradient.data
+
+    if n_max:
+        N = min(N, n_max)
+
+    # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
+    # with nogil, parallel():
+    #     for j in prange(N, schedule='guided'):
+    #         thread_num = openmp.omp_get_thread_num()
+    # with nogil:
+    for j in range(n_samples):
+        for r in range(N):
+            p = psi[j,r]
+            # chain rule: how changes in per-sequence partition function
+            # carry over to changes in binding probability
+            dpsi = (p - (p * p)) / Z1_read[r]
+
+            # zero out dZj_dA. bc we accumulate this for each sequence separately
+            memset(&dpsi_dA[0], 0, zero_bytes)
+            
+            # compute dZj_dA. gradient matrix
+            # dZj/dA0 first
+            dp = Z1_read[r] * psam_inv[0] * dpsi
+            dpsi_dA[0] = dp
+            dQ[j, 0] += dp
+
+            # now dZj/dA. with . being the matrix elements of the psam (here flattened)
+            for x in range(l):
+                for d in range(k):
+                    n = seqm[r, x+d]
+                    y = (d << 2) + n + 1
+                    dp = Z1[r,x] * psam_inv[y] * dpsi
+                    dpsi_dA[y] += dp
+                    dQ[j,y] += dp
+
+            # propagate effect to pulldown kmer weights
+            for x in range(lam):
+                index = im[r,x]
+                
+                # db/dA0
+                # print index, db.base.shape
+                db[index, 0] += dpsi_dA[0]
+                
+                # db/dA.
+                for d in range(k):
+                    for n in range(4):
+                        # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
+                        #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
+                        y = (d << 2) + n + 1
+                        db[index, y] += dpsi_dA[y]
+
+        # compute gradient 
+        for i in range(Nk):
+            pre1 = 1./(f0[i] * Q[j])
+            pre2 = b[j,i] * lam / (Q[j]*Q[j]*f0[i])
+            for y in range(n_psam):
+                dR_dA = pre1 * db[i,y] - pre2 * dQ[j,y]
+                grad[y] += 2 * E[j,i] * dR_dA
+
+    return gradient
+
+
+
+
 from libc.string cimport memset #faster than np.zeros
 def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, FLOAT32_t [:] psi, UINT32_t [:,:] index_matrix, FLOAT32_t [:] psam, UINT64_t k_mer, int n_max=0):
     cdef UINT64_t N = seqm.base.shape[0]
@@ -1508,9 +1627,10 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, FLOAT32_t [:] betas
 
     # store weighted k-mer counts here (for each thread)
     cdef FLOAT32_t [:,:] p_bound = np.empty((n_conc, N), dtype = np.float32)
+    cdef FLOAT32_t [:,:] w_bound = np.empty((n_conc, N), dtype = np.float32)
 
     # helper variables to tell cython the types
-    cdef FLOAT32_t conc=0, Z=0
+    cdef FLOAT32_t conc=0, Z=0, w=0
     cdef UINT64_t i=-1,j=-1
 
     with nogil, parallel(num_threads=8):
@@ -1518,9 +1638,11 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, FLOAT32_t [:] betas
             conc = rbp_conc_vector[i]
             for j in prange(N, schedule='guided'):
                 Z = Z1[j] * conc
-                p_bound[i,j] = Z / (Z + 1.) + betas[i]
+                w = Z / (Z + 1.) 
+                p_bound[i,j] = w
+                w_bound[i,j] = w + betas[i]
             
-    return p_bound.base
+    return p_bound.base, w_bound.base
 
 
 def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_threads = 8):
@@ -1735,7 +1857,7 @@ def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix
     (into different position).
     """
     
-    print k_seq, k_openen
+    # print k_seq, k_openen
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX_SEQ = 4**k_seq - 1
     cdef UINT64_t MAX_INDEX_OE = 4**k_openen - 1

@@ -39,9 +39,13 @@ def auto_detect(path='.', exts=["reads","txt"]):
     rbp_conc = []
     
     for f in files:
-        name, conc = os.path.basename(f).split("_")
-        conc = conc.rsplit('.',1)[0]
-        conc = float(conc.replace('input','0'))
+        try:
+            name, conc = os.path.basename(f).split("_")
+            conc = conc.rsplit('.',1)[0]
+            conc = float(conc.replace('input','0'))
+        except ValueError:
+            continue
+
         rbp_names[name] += 1
         rbp_conc.append(conc)
     

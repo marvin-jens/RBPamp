@@ -397,7 +397,7 @@ class OpenenStorage(CachedBase):
         disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=self.disc_mode)
         self.k_disc[k] = disc
         fname_disc = self._make_filename(k, disc=disc)
-        print fname_disc
+        # print fname_disc
         if os.path.exists(fname_disc):
             return RBNSOpenen(fname_disc, self.reads, k, dummy=self.dummy)
         else:

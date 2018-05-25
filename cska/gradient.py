@@ -351,7 +351,7 @@ class GradientDescent(object):
     def optimize(self, maxiter=100, debug=False, callback=None):
         state = self.model.predict(self.params)
         self.errors.append(state.error)
-        self.history.append(state)
+        self.history.append(state.archive())
 
         try:
             while not self.converged() and self.t < maxiter:
@@ -429,12 +429,15 @@ class TestGradientMethods(unittest.TestCase):
         print "INITIAL"
         print initial_params
         
-        G = GradientDescent(reads, initial_params, None, dec=dec, k_monitor=k_monitor, subsample=1.)
         # generating reference state
-        R0, dR0 = G.predict_R(correct_params)
-        G.set_reference(R0)
-
-        res = G.optimize(maxiter=200)
+        R0 = np.ones((1,4**k_monitor), dtype=np.float32)
+        from cska.partfunc import PartFuncModel
+        model = PartFuncModel(reads, initial_params, R0, rbp_conc=[1.,])
+        state0 = model.predict(correct_params)
+        model.R0 = state0.R
+        
+        G = GradientDescent(model, initial_params, dec=dec)
+        res = G.optimize(maxiter=200, debug=True)
         print "final parametrization"
         print G.params
         d = np.fabs(G.params.data - correct_params.data)
@@ -491,37 +494,37 @@ class TestGradientMethods(unittest.TestCase):
         print emp.unity()
 
         
-    @unittest.skip("")
+    # @unittest.skip("")
     def test_5mer_noise(self):
         motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
         self.run_descent(motif, self.noisy_variant(motif), k_monitor=5)
 
-    @unittest.skip("")
+    # @unittest.skip("")
     def test_5mer_optimum(self):
         motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
         print motif
         self.run_descent(motif, motif, k_monitor=5)
 
-    def test_5mer_A0(self):
-        motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
-        self.run_descent(motif, self.noisy_variant(motif, noise=0, A0=6.), k_monitor=5)
+    # def test_5mer_A0(self):
+    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
+    #     self.run_descent(motif, self.noisy_variant(motif, noise=0, A0=6.), k_monitor=5)
 
-    def test_5mer_high_noise(self):
-        motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
-        self.run_descent(motif, self.noisy_variant(motif, noise=.1), k_monitor=5)
+    # def test_5mer_high_noise(self):
+    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
+    #     self.run_descent(motif, self.noisy_variant(motif, noise=.1), k_monitor=5)
 
-    def test_7mer_noise(self):
-        motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
-        self.run_descent(motif, self.noisy_variant(motif))
+    # def test_7mer_noise(self):
+    #     motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
+    #     self.run_descent(motif, self.noisy_variant(motif))
 
-    def test_7mer_high_noise(self):
-        motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
-        self.run_descent(motif, self.noisy_variant(motif, noise=.2), k_monitor=5)
+    # def test_7mer_high_noise(self):
+    #     motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
+    #     self.run_descent(motif, self.noisy_variant(motif, noise=.2), k_monitor=5)
 
-    def test_5mer_off_matrix(self):
-        motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
-        motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
-        self.run_descent(motif_correct, motif_variant)
+    # def test_5mer_off_matrix(self):
+    #     motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
+    #     motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
+    #     self.run_descent(motif_correct, motif_variant)
 
 if __name__ == '__main__':
     # import gzip

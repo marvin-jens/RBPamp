@@ -25,7 +25,7 @@ class MeanFieldModelState(object):
         self.params = params
         self.rbp_conc = mdl.rbp_conc
     
-        self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
+        self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=0.1*mdl.aff0)
         t1 = time.time()
         print "number of relevant kmers", len(self.I)
         # assert (sorted(self.I) == (self.A > mdl.aff0).nonzero()[0] ).all()
@@ -46,6 +46,11 @@ class MeanFieldModelState(object):
         _grad.data[:] = cyska.PSAM_mean_field_gradient(self)
         self.mdl.t_grad += time.time() - t0
         return _grad
+
+    def archive(self):
+        self.A = None
+        self.I = None
+        return self
     
 
 class MeanFieldModel(object):

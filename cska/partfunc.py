@@ -29,26 +29,27 @@ class PartFuncModelState(object):
         self.Z1_read = self.Z1.sum(axis=1)
         # self-consistent free RBP concentrations
         self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read)
-        print "rbp_free", self.rbp_free
+        # print "rbp_free", self.rbp_free
         # pull-down weights for each read, in each sample
-        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free, params.betas)
-        print "PSI min", self.psi.min(axis=1)
-        print "PSI max", self.psi.max(axis=1)
-        print "PSI mean", self.psi.mean(axis=1)
+        self.psi, w = cyska.p_bound(self.Z1_read, self.rbp_free, params.betas)
+        # print "PSI min", self.psi.min(axis=1)
+        # print "PSI max", self.psi.max(axis=1)
+        # print "PSI mean", self.psi.mean(axis=1)
 
-        self.b = self.mdl.PD_kmer_weights(self.psi)
-        print "b min", self.b.min(axis=1)
-        print "b max", self.b.max(axis=1)
-        print "b mean", self.b.mean(axis=1)
+        self.b = self.mdl.PD_kmer_weights(w)
+        # print "b min", self.b.min(axis=1)
+        # print "b max", self.b.max(axis=1)
+        # print "b mean", self.b.mean(axis=1)
 
         self.Q = self.b.sum(axis=1)
-        print "Q", self.Q
+        # print "Q", self.Q
         self.R = self.b / self.mdl.f0[np.newaxis,:] / self.Q[:,np.newaxis]
-        gcaug = cyska.seq_to_index('gcaug')
-        print "R(GCAUG)", self.R[:,gcaug]
-        print "R0(GCAUG)", self.mdl.R0[:,gcaug]
+        # gcaug = cyska.seq_to_index('ugcaugu')
+        # print "R(uGCAUGu)", self.R[:,gcaug]
+        # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
 
-        self.error = ((self.R - self.mdl.R0)**2).mean()
+        self.R_errors = np.array(self.R - self.mdl.R0, dtype=np.float32)
+        self.error = (self.R_errors**2).mean()
 
         self.mdl.n_fev += 1
         self.mdl.t_fev += time.time() - t1
@@ -58,9 +59,22 @@ class PartFuncModelState(object):
     def grad(self):
         t0 = time.time()
         self.mdl.n_grad += 1
-        _grad = cska.gradient.emp_grad(self, eps=1e-4)
+        # _grad = cska.gradient.emp_grad(self, eps=1e-4)
+        print self.psi.shape
+        _grad = cyska.PSAM_partition_function_gradient(self)
         self.mdl.t_grad += time.time() - t0
         return _grad
+
+    def archive(self):
+        from copy import copy
+        arc = copy(self)
+        arc.Z1 = None
+        arc.Z1_read = None
+        arc.psi  = None
+        arc.Q = None
+        arc.b = None
+        arc.R_errors = None
+        return arc
         
 
 class PartFuncModel(object):
