@@ -13,7 +13,7 @@ from cska.caching import cached, pickled, CachedBase
 import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -155,7 +155,27 @@ class RBNSReads(CachedBase):
         self.logger.debug("get_index_matrix k={0}".format(k))
         return im
             
-       
+    def get_acc_matrix(self, k, indices=[], disc_mode='linear'):
+        """
+        Returns N x (L+k-1) matrix with all k-mer accessibilities in each read, including
+        positions that overlap the adapter.
+        disc_mode is discretization mode: linear, gamma, raw
+        """
+        if disc_mode == 'raw':
+            openen = self.acc_storage.get_raw(k)
+        else:
+            openen = self.acc_storage.get_discretized(k,disc_mode=disc_mode)
+            
+        if indices:
+            return openen.oem[indices, openen.ofs - k + 1:], openen
+        else:
+            return openen.oem[:, openen.ofs - k + 1:], openen
+        
+    @pickled
+    def get_kmer_accessibility_binned(self, k):
+        counts, openen = cyska.kmer_acc_counts(self, k)
+        return counts, openen.acc_lookup
+        
     @property
     @cached
     @pickled

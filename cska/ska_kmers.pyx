@@ -1782,6 +1782,32 @@ def kmer_openen_counts(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, UI
 
 
 
+def kmer_acc_counts(reads, UINT64_t k):
+    cdef UINT32_t [:,:] im = reads.get_index_matrix(k) #seq_matrix, UINT8_t [:,:] openen_matrix, ):
+    cdef UINT64_t N = im.base.shape[0]
+    cdef UINT64_t L = im.base.shape[1]
+    binned, openen = reads.get_acc_matrix(k, disc_mode='linear')
+    cdef UINT8_t [:,:] acc = binned
+    # store joint frequencies here
+    cdef UINT32_t [:,:] counts = np.zeros((4**k, 256), dtype = np.uint32)
+    
+    # helper variables to tell cython the types
+    cdef UINT8_t s
+    cdef UINT64_t index, i, j
+    
+    with nogil:
+        for j in range(N):
+            # iterate over all k-mers i in read j
+            for i in range(L):
+                index = im[j,i]
+                counts[index, acc[j,i]] += 1
+            
+    return counts.base, openen
+
+
+
+
+
 def kmer_mean_openen_profiles(UINT8_t [:,:] seq_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] openen_lookup, int k_seq, int k_openen, int ofs):
     """
     Compute the mean open-energy levels relative to the 

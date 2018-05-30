@@ -273,7 +273,7 @@ class ParamInterface(object):
         return self.mdl.params[self.nA:]
 
     def load_rbpbind(self, path):
-        params = np.zeros(self.n_params, dtype=np.float32)
+        params = np.ones(self.n_params, dtype=np.float32) * 1e-6
 
         aff = []
         ind = []
@@ -288,6 +288,10 @@ class ParamInterface(object):
         aff = np.array(aff, dtype=np.float32)
         ind = np.array(ind)
         params[ind] = aff
+        m = params[:self.nA].min()
+        if m < 0:
+            self.mdl.logger.warning("negative affinities detected in '{path}'. Shifting entire affinity distribution!".format(path=path))
+            params[:self.nA] += (1e-6 - m)
 
         self.mdl.params = params
 
@@ -496,6 +500,9 @@ class SPAModel(object):
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
         self.subsample_acc = self.openen.acc[indices]
+        if self.seq_only:
+            self.subsample_acc[:,:] = 1.
+
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
     #def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
@@ -567,7 +574,7 @@ class SPAModel(object):
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
             rbp_free = self._spa_free_protein(Z1, rbp_conc)
                 
-            p_bound = self._spa_p_rna_bound(Z1, rbp_free, np.zeros(len(rbp_free)))
+            p_bound, pi = self._spa_p_rna_bound(Z1, rbp_free, np.zeros(len(rbp_free)))
             pi_kmer = self._spa_kmer_pi(p_bound, im)
 
             state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free)

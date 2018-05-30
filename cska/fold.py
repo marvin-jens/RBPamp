@@ -103,7 +103,7 @@ class RBNSOpenen(CachedBase):
         return L
    
     @property
-    #@cached
+    @cached
     def oem(self):
         """
         load and keep all open-energies in memory (optionally discretized)
@@ -392,9 +392,11 @@ class OpenenStorage(CachedBase):
         return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
         
     @cached
-    def get_discretized(self, k):
+    def get_discretized(self, k, disc_mode = ''):
+        if not disc_mode:
+            disc_mode = self.disc_mode
         
-        disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=self.disc_mode)
+        disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=disc_mode)
         self.k_disc[k] = disc
         fname_disc = self._make_filename(k, disc=disc)
         # print fname_disc

@@ -118,7 +118,7 @@ def density_scatter_plot(
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
 
             # pca().set_facecolor('w')
-            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0)
+            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True)
             m.set_rasterized(True)
             cb = pp.colorbar(label='density', shrink=.5, ticks = matplotlib.ticker.MaxNLocator(nbins=3, )) #orientation='horizontal', fraction=.05)
             cb.ax.tick_params(axis='y', direction='out')
@@ -145,7 +145,7 @@ def density_scatter_plot(
 
             out_x = x[out]
             out_y = y[out]
-            pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label)
+            pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label, rasterized=True)
 
         if N > dens_thresh and x_ref:
             # use experiment as reference
