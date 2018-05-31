@@ -60,8 +60,16 @@ class PartFuncModelState(object):
         t0 = time.time()
         self.mdl.n_grad += 1
         # _grad = cska.gradient.emp_grad(self, eps=1e-4)
-        print self.psi.shape
+        # print "state.psi", self.psi.shape
+        # print "state.Q", self.Q.shape
+        # print "state.rbp_free", self.rbp_free
+        # print "state.b", self.b.shape
         _grad = cyska.PSAM_partition_function_gradient(self)
+        # # _grad.A0 *= 4*_grad.k
+        # _grad.A0 *= 0
+        # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
+        # _grad.betas = np.where(self.params.betas > 0, self.params.n_samples * _grad.betas, 0)
+        # _grad.betas = np.where(self.params.betas > 0, _grad.betas, 0)
         self.mdl.t_grad += time.time() - t0
         return _grad
 
@@ -91,6 +99,7 @@ class PartFuncModel(object):
 
         self.R0 = R0
         self.n_samples, self.nA = R0.shape
+        assert self.n_samples == params0.n_samples
         self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
 
         f0 = reads.kmer_frequencies(self.k)

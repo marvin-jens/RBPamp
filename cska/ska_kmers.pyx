@@ -966,13 +966,14 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
 
 
 from libc.string cimport memset #faster than np.zeros
-@cython.boundscheck(True)
-@cython.wraparound(True)
-@cython.initializedcheck(True)
-@cython.cdivision(True)
-@cython.overflowcheck(True)
+# @cython.boundscheck(True)
+# @cython.wraparound(True)
+# @cython.initializedcheck(True)
+# @cython.cdivision(True)
+# @cython.overflowcheck(True)
 def PSAM_partition_function_gradient(state):
 
+    # get the relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
     cdef FLOAT32_t [:,:] Z1 = state.Z1
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
@@ -984,7 +985,6 @@ def PSAM_partition_function_gradient(state):
     cdef FLOAT32_t [:] rbp_free = state.rbp_free # self consistent free protein
     cdef FLOAT32_t [:,:] E = state.R_errors # R - R0
     cdef FLOAT32_t [:,:] b = state.b # n_samples x 4^k
-    # cdef UINT64_t k_mer
     cdef int n_max=0    
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
@@ -997,11 +997,11 @@ def PSAM_partition_function_gradient(state):
     cdef UINT64_t Nk = state.params.Nk
     cdef UINT64_t zero_bytes = n_psam*4
 
-
+    # type inner loop variables and terms used multiple times
     cdef int thread_num = 0
-    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
     cdef UINT32_t index=0
-    cdef FLOAT32_t p=0, dpsi=0, dp=0, dR_dA, pre1, pre2
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
+    cdef FLOAT32_t p=0, dpsi=0, dp=0, dR_dA, pre1, pre2, Q2, Q2f, Eji, dbeta, N_by_Q, Z1r=0, Z1rp=0
 
     # change in read-binding probability
     cdef FLOAT32_t [:] dpsi_dA = np.zeros(n_psam, dtype=np.float32)
@@ -1033,23 +1033,26 @@ def PSAM_partition_function_gradient(state):
             p = psi[j,r]
             # chain rule: how changes in per-sequence partition function
             # carry over to changes in binding probability
-            dpsi = (p - (p * p)) / Z1_read[r]
+            Z1r = Z1_read[r]
+            Z1rp = Z1r * rbp_free[j]
+            dpsi = (p - (p * p)) / Z1rp
 
             # zero out dZj_dA. bc we accumulate this for each sequence separately
             memset(&dpsi_dA[0], 0, zero_bytes)
             
             # compute dZj_dA. gradient matrix
             # dZj/dA0 first
-            dp = Z1_read[r] * psam_inv[0] * dpsi
+            dp = Z1rp * psam_inv[0] * dpsi
             dpsi_dA[0] = dp
             dQ[j, 0] += dp
 
             # now dZj/dA. with . being the matrix elements of the psam (here flattened)
+            
             for x in range(l):
                 for d in range(k):
                     n = seqm[r, x+d]
                     y = (d << 2) + n + 1
-                    dp = Z1[r,x] * psam_inv[y] * dpsi
+                    dp = rbp_free[j] * Z1[r,x] * psam_inv[y] * dpsi
                     dpsi_dA[y] += dp
                     dQ[j,y] += dp
 
@@ -1069,13 +1072,22 @@ def PSAM_partition_function_gradient(state):
                         y = (d << 2) + n + 1
                         db[index, y] += dpsi_dA[y]
 
-        # compute gradient 
+        # compute gradient of the squared R-value error over the PSAM parameters
+        dbeta = 0
+        Q2 = Q[j] * Q[j]
+        N_by_Q = N/Q[j]
+        
         for i in range(Nk):
+            Q2f = Q2*f0[i]
             pre1 = 1./(f0[i] * Q[j])
-            pre2 = b[j,i] * lam / (Q[j]*Q[j]*f0[i])
+            pre2 = b[j,i] * lam / Q2f
+            Eji = 2 * E[j,i]
             for y in range(n_psam):
                 dR_dA = pre1 * db[i,y] - pre2 * dQ[j,y]
-                grad[y] += 2 * E[j,i] * dR_dA
+                grad[y] += Eji * dR_dA
+
+            dbeta += Eji * (N_by_Q - (N / Q2f) * b[j,i])
+        grad[n_psam + j] = dbeta
 
     return gradient
 

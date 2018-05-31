@@ -48,6 +48,7 @@ class ModelParametrization(object):
         self.k = k
         self.n_samples = n_samples
         self.n = 4*k + 1 + n_samples
+        self.n_psam = 4*k+1
         self.Nk = 4**k
         self.psam_start = 0
         self.psam_end = 4*k + 1
@@ -248,14 +249,14 @@ class GradientDescent(object):
     @staticmethod
     def apply_delta(params, delta):
         new = params.copy()
-        p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-9, None)
+        p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
         M = p.max(axis=1)
         p /= M[:,np.newaxis]
         new.psam_matrix = p
-        new.A0 *= M.max() # keep matrix elements <= 1 and absorb excess into A0
-        new.A0 = max(1e-9, new.A0 + delta.A0) # prevent underflow
+        new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+        new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
 
-        new.betas = np.clip(params.betas + delta.betas, 0, None)
+        new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
         return new
 
     def backtracking_LS(self, params, grad, local_grad, min_step = 1e-6, max_step = 5., max_iter=21, tau=.5, c=.5, debug=False):
@@ -332,7 +333,7 @@ class GradientDescent(object):
 
         return upd
 
-    def converged(self, rtol=1e-6, atol=1e-8, tau=10):
+    def converged(self, rtol=1e-7, atol=1e-8, tau=10):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
@@ -352,7 +353,7 @@ class GradientDescent(object):
         state = self.model.predict(self.params)
         self.errors.append(state.error)
         self.history.append(state.archive())
-
+        self.last_state = state
         try:
             while not self.converged() and self.t < maxiter:
                 local_grad = state.grad.unity()
@@ -362,6 +363,7 @@ class GradientDescent(object):
                 # local_grad.betas *= 0
                 # local_grad = local_grad.unity()
                 descent = self.RMSprop(- local_grad).unity()
+                # descent = self.momentum_grad( - local_grad).unity()
 
                 s,n = self.line_search(self.params, descent, e0=self.errors[-1])
                 self.ls_step.append(s)
@@ -374,7 +376,8 @@ class GradientDescent(object):
                 state = self.model.predict(self.params)
                 self.errors.append(state.error)
                 self.t += 1
-                self.history.append(state)
+                # self.history.append(state)
+                self.last_state = state
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
                     print descent
@@ -402,7 +405,7 @@ class GradientDescent(object):
         else:
             self.status = "MAX_ITER"
 
-        print "optimization ended with status", self.status
+        print "optimization ended with status {self.status} after {self.t} iterations".format(self=self)
         # print "last gradient"
         # print self.past_grad
         # print "squared"
@@ -417,29 +420,38 @@ class TestGradientMethods(unittest.TestCase):
     @staticmethod
     def params_from_motif(motif, betas = [], a0=1e-6):
         psam = motif.psam + a0
-        params = ModelParametrization(motif.n, 1, psam=psam, A0=motif.A0, betas=betas)
+        params = ModelParametrization(motif.n, max(1, len(betas)), psam=psam, A0=motif.A0, betas=betas)
         return params
 
-    def run_descent(self, motif_correct, motif_variant, k_monitor=6, dec=.75):
-        correct_params = self.params_from_motif(motif_correct)
-        initial_params = self.params_from_motif(motif_variant)
-
-        print "ORACLE"
-        print correct_params
-        print "INITIAL"
-        print initial_params
-        
+    def run_descent(self, correct_params, initial_params, k_monitor=4, dec=.75, rbp_conc=None):
         # generating reference state
-        R0 = np.ones((1,4**k_monitor), dtype=np.float32)
+        R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
         from cska.partfunc import PartFuncModel
-        model = PartFuncModel(reads, initial_params, R0, rbp_conc=[1.,])
+        if rbp_conc is None:
+            rbp_conc = [1.,] * correct_params.n_samples
+        model = PartFuncModel(reads, initial_params.copy(), R0, rbp_conc=rbp_conc)
         state0 = model.predict(correct_params)
         model.R0 = state0.R
+
+        print ">>> ORACLE0"
+        print correct_params
+        print ">>> INITIAL"
+        print initial_params
         
+        print "R0.shape", R0.shape
         G = GradientDescent(model, initial_params, dec=dec)
-        res = G.optimize(maxiter=200, debug=True)
-        print "final parametrization"
+        res = G.optimize(maxiter=500, debug=True)
+        print ">>> ORACLE"
+        print correct_params
+        print ">>> INITIAL"
+        print initial_params
+        print ">>> FINAL"
         print G.params
+        print ">>> FINAL GRADIENT"
+        print G.last_state.grad
+        print ">>> FINAL EMP. GRADIENT"
+        print emp_grad(G.last_state)
+
         d = np.fabs(G.params.data - correct_params.data)
         print "maximal parameter deviation:", d.max(), d.argmax()
         self.assertTrue(G.status.startswith('CONVERGED'))
@@ -447,25 +459,28 @@ class TestGradientMethods(unittest.TestCase):
         self.assertTrue(np.allclose(G.params.data, correct_params.data, rtol=1e-3, atol=1e-2))
 
 
-    def noisy_variant(self, motif, noise=.01, A0=None, seed=4711):
+    def from_kmers(self, *argc, **kwargs):
+        return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
+
+    def noisy_variant(self, motif, noise=.01, A0=None, betas=None, seed=4711):
         if seed:
             np.random.seed(seed)
-        variant = copy.deepcopy(motif)
-        variant.psam += np.array(np.random.rand(*motif.psam.shape) * noise, dtype=np.float32)
-        variant.psam = variant.psam.clip(variant.psam, 1e-9, None)
-        variant.psam /= variant.psam.max(axis=1)[:,np.newaxis]
+
+        delta = motif.copy()
+        delta.data[:] = np.array(np.random.randn(motif.n) * noise, dtype=np.float32)[:]
+        variant = GradientDescent.apply_delta(motif, delta)
 
         if not A0 is None:
             variant.A0 = A0
 
-        print "noisy variant"
-        print variant
+        if not betas is None:
+            variant.betas[:] = betas[:]
+
         return variant
 
     @unittest.skip("")
     def test_grad_optimum(self, dec=.75):
-        motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
-        params = self.params_from_motif(motif)
+        params = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
         G = GradientDescent(reads, params, None, dec=dec, k_monitor=5, subsample=1.)
         # generating reference state
         R0, dR0 = G.predict_R(params)
@@ -496,14 +511,22 @@ class TestGradientMethods(unittest.TestCase):
         
     # @unittest.skip("")
     def test_5mer_noise(self):
-        motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
-        self.run_descent(motif, self.noisy_variant(motif), k_monitor=5)
+        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
+        self.run_descent(motif, self.noisy_variant(motif, noise=.05), k_monitor=5, rbp_conc=[.1,.5,2.])
 
-    # @unittest.skip("")
+    @unittest.skip("")
+    def test_5mer_betas(self):
+        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
+        variant = self.noisy_variant(motif, noise=.05)
+        variant.psam_vec[:] = motif.psam_vec[:]
+        self.run_descent(motif, variant, k_monitor=5, rbp_conc=[.5,50.,200.])
+
+    @unittest.skip("")
     def test_5mer_optimum(self):
-        motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
+        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [5., .6, .02,], betas = [.08, .11, .03])
         print motif
-        self.run_descent(motif, motif, k_monitor=5)
+        self.run_descent(motif, motif, k_monitor=5, rbp_conc=[.5,50.,200.])
+        # self.run_descent(motif, motif, k_monitor=5, rbp_conc=[15., 50.,200.])
 
     # def test_5mer_A0(self):
     #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
