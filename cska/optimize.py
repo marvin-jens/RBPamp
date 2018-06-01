@@ -180,7 +180,10 @@ class ModelOptimization(object):
             best, err, new_state = self.optimize_single_param(param_i, ground_state=ground_state, local=False)
             
             if update:
-                better = self.update(new_state, err, "beta{0}".format(param_i - self.mdl.parameters.nA), tick=False)
+                name = "beta{0}".format(param_i - self.mdl.parameters.nA)
+                print name, self.current.params[param_i], '->', new_state.params[param_i]
+                better = self.update(new_state, err, name, tick=False)
+                print "betas", self.current.params[self.mdl.parameters.nA:]
             else:
                 better = np.nan
 
@@ -200,6 +203,7 @@ class ModelOptimization(object):
         scales = []
         errors = []
         
+        # return 0, self.current
 
         def to_optimize(scale):
             # scale the partition function and only update pi (weighted kmer-counts)

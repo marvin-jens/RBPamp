@@ -333,7 +333,7 @@ class GradientDescent(object):
 
         return upd
 
-    def converged(self, rtol=1e-7, atol=1e-8, tau=10):
+    def converged(self, rtol=1e-6, atol=1e-8, tau=10):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
@@ -376,7 +376,7 @@ class GradientDescent(object):
                 state = self.model.predict(self.params)
                 self.errors.append(state.error)
                 self.t += 1
-                # self.history.append(state)
+                self.history.append(state.archive())
                 self.last_state = state
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s

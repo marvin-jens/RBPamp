@@ -88,7 +88,8 @@ class SPAState(object):
         t1 = time.time()
         rbp_free = self.sc.free_rbp_vector(self.mdl.rbp_conc, Z_scale=scale)
         t11 = time.time()
-        p_bound = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free, np.zeros(len(rbp_free)))
+        betas = self.params[self.mdl.nA:]
+        p_bound, w = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free, betas) # w includes beta contribution
         t12 = time.time()
         pi_kmer = self.mdl._spa_kmer_pi(p_bound, self.mdl.subsample_index_matrix)
 
@@ -187,8 +188,9 @@ class SPAPartition(object):
         self.p_bound = self.mdl.state.p_bound
         self.rbp_free = self.mdl.state.rbp_free
         
+        betas = self.mdl.params[self.mdl.nA:]
         kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.acc_kmer, self.mdl.params[:self.mdl.nA])
-        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, np.zeros(len(rbp_free)))
+        kmer_p_bound, w = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, betas)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
         self.other_pi = pi - kmer_pi
@@ -207,7 +209,8 @@ class SPAPartition(object):
         rbp_free = self.rbp_free
 
         # and re-compute expected pulldown kmer abundances
-        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, np.zeros(len(rbp_free)))
+        betas = self.mdl.params[self.mdl.nA:]
+        kmer_p_bound, w  = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, betas)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
         # pi is pi from the non kmer-containing + pi from the kmer-containing subset of sequences
@@ -525,8 +528,8 @@ class SPAModel(object):
         n_conc, n = p_bound.shape
         
         pi = np.zeros( (n_conc, self.nA), dtype=np.float32)
-        for i in range(n_conc):
-            pi[i] = cyska.weighted_kmer_counts(im, p_bound[i], self.k)
+        for j in range(n_conc):
+            pi[j] = cyska.weighted_kmer_counts(im, p_bound[j], self.k)
 
         return pi
 
@@ -573,8 +576,8 @@ class SPAModel(object):
             #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
             rbp_free = self._spa_free_protein(Z1, rbp_conc)
-                
-            p_bound, pi = self._spa_p_rna_bound(Z1, rbp_free, np.zeros(len(rbp_free)))
+            betas = params[self.nA:]
+            p_bound, pi = self._spa_p_rna_bound(Z1, rbp_free, betas)
             pi_kmer = self._spa_kmer_pi(p_bound, im)
 
             state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free)

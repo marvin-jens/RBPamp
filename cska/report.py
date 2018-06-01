@@ -821,14 +821,14 @@ class GradientDescentReport(object):
         residuals = np.log2(R_values / R0[np.newaxis,:,:])
         print R_values.shape
         print residuals.shape
-        data = np.median(residuals, axis=1) # median across samples
+        data = np.mean(residuals, axis=1) # mean across samples
         I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
         print data.shape
         print I.shape
         pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
         pp.ylabel('kmer index')
         t = [-1,0,+1]
-        pp.colorbar(label=r'sample-median R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
+        pp.colorbar(label=r'sample-mean R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
 
         pp.subplot(412)
         errors = ((R_values - R0[np.newaxis,:,:])**2).mean(axis=2)
@@ -873,7 +873,7 @@ class GradientDescentReport(object):
 
         pp.figure(figsize=(6,10))
         pp.subplot(311)
-        pp.semilogy(A0, label=r'$A_0$')
+        pp.plot(A0, label=r'$A_0$')
         pp.legend(loc='upper right')
         pp.ylabel("affinity [1/nM]")
 
@@ -936,10 +936,14 @@ class LiteratureComparisonReport(object):
         self.path = path
 
     def plot_scatter(self):
-        pp.figure()
+        pp.figure(figsize=(6,6))
         pp.title(self.comp.rbp_name)
         x = 1/self.comp.observed_affinities
         y = 1/self.comp.predict_affinities(self.descent.model)
+
+        m = min(x.min(), y.min())
+        M = max(x.max(), y.max())
+        pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
         print "seq\tknown\tpredict\tlog-ratio"
         for _x, _y, seq in zip(x, y, self.comp.seqs):

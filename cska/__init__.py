@@ -304,6 +304,7 @@ def main():
 
         # prime the optimization from dependent-kmer analysis
         from cska.pwm import PWMOptimizer, PSAM
+        print "pwm_init?", options.mdl_pwm_init
         if options.seed_analysis:
             logger.info("performing seed analysis")
             from cska.seed import SeedRefinement
@@ -333,6 +334,8 @@ def main():
 
             from cska.meanfield import MeanFieldAnalysis
             MFA = MeanFieldAnalysis(rbns, pwm, ref=ref)
+            params = MFA.descent.params
+            pwm = PSAM(params.psam_matrix, A0=params.A0)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:
@@ -366,6 +369,11 @@ def main():
                 seed_params = pwm.kmer_affinity_table(aff0=1e-5)
                 pwm_opt.pwm0 = pwm
 
+            if options.meanfield:
+                betas = MFA.descent.params.betas
+                seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
+                pwm_opt.pwm0 = pwm
+                
                 # from copy import copy
                 # from cska.report import p_bound_plot
                 # p_bound_plot(opt.current)

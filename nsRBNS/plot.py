@@ -195,7 +195,7 @@ def default_lm_data(lm):
 
 
 class nsRBNSModel(object):
-    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None):
+    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1):
         self.ns_exp = ns_exp
         self.ns = ns_exp.ns
         self.name = self.ns_exp.name + "_" + name
@@ -207,7 +207,7 @@ class nsRBNSModel(object):
         else:
             self.prepare_data = prepare_data
 
-        self.state = self.evaluate_SPA(param_file, self.ns_exp.rbp_conc, k=7, seq_only=seq_only)
+        self.state = self.evaluate_SPA(param_file, self.ns_exp.rbp_conc, k=7, seq_only=seq_only, scale=scale)
         # self.betas = self.optimal_betas()
 
         self.A, self.C, self.G, self.T = self.ns.nt_freqs[self.ns_exp.indices].T
@@ -246,7 +246,7 @@ class nsRBNSModel(object):
     #     # print opt
     #     return opt.x
 
-    def evaluate_SPA(self, fname, rbp_conc, k=7, seq_only=False):
+    def evaluate_SPA(self, fname, rbp_conc, k=7, seq_only=False, scale=1.):
         letters = 'ACGT'
         def convert(bits):
             return "".join([letters[i] for i in bits])
@@ -259,7 +259,7 @@ class nsRBNSModel(object):
         else:
             mdl.parameters.load(fname)
 
-        mdl.params[:mdl.nA]
+        mdl.params[:mdl.nA] *= scale
         if self.z_cut:
             z = np.array(mdl.params[:mdl.nA])
             z -= z.mean()
@@ -640,23 +640,31 @@ def rbfox2_analysis():
     exp = nsRBNSExperiment(nsrbns, 'rbfox2_matrix.csv', skip_xtalk=True, seq_only=False)
     # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
     # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
-    kw = dict(scatter_plots=True, res_plots=True)
     kw = dict(scatter_plots=False, res_plots=False)
+    # kw = dict(scatter_plots=False, res_plots=False)
 
-    lm = nsRBNSModel(exp, 'SPA', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=False, low_perc=10)
-    fits_spa = lm.regression_analysis(**kw)
-
-    lm = nsRBNSModel(exp, 'SPA_na', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=True, low_perc=10)
-    fits_spa_na = lm.regression_analysis(**kw)
-
-    lm = nsRBNSModel(exp, 'R_values', 'rbfox3_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
-    fits_r = lm.regression_analysis(**kw)
+    lm = nsRBNSModel(exp, 'RNAcompete', 'RBFOX1.rnacompete', seq_only=False, low_perc=10)
+    fits_rc = lm.regression_analysis(**kw)
 
     lm = nsRBNSModel(exp, 'R_values_na', 'rbfox3_R_value_7mers.tsv', seq_only=True, low_perc=10, z_cut=4)
     fits_r_na = lm.regression_analysis(**kw)
 
-    lm = nsRBNSModel(exp, 'RNAcompete', 'RBFOX1.rnacompete', seq_only=False, low_perc=10)
-    fits_rc = lm.regression_analysis(**kw)
+    lm = nsRBNSModel(exp, 'R_values', 'rbfox3_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
+    fits_r = lm.regression_analysis(**kw)
+
+    # lm = nsRBNSModel(exp, 'SPA_na', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=True, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    fits_psam_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    fits_psam = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
+    fits_kmer_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
+    fits_kmer = lm.regression_analysis(**kw)
+
 
     def pos_control_data(lm):
         data = np.array([
@@ -667,21 +675,23 @@ def rbfox2_analysis():
         df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','entropy','mean_enr'])
         return df
 
-    lm = nsRBNSModel(exp, 'mean_nsRBNS', 'RBFOX1.rnacompete', seq_only=False, low_perc=10, prepare_data=pos_control_data)
-    fits_m = lm.regression_analysis(**kw)
+    # lm = nsRBNSModel(exp, 'mean_nsRBNS', 'RBFOX1.rnacompete', seq_only=False, low_perc=10, prepare_data=pos_control_data)
+    # fits_m = lm.regression_analysis(**kw)
 
-    x = np.arange(len(exp.rbp_conc))*.7
+    x = np.arange(len(exp.rbp_conc))*.9
     pp.figure(figsize=(5,5))
     w = .09
-    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF886A','#D552FF']
+    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
     pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
-    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o accessibility)', facecolor=colors[0])
+    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o structure)', facecolor=colors[0])
     pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
-    pp.bar(x + .3, get_r2(fits_spa_na), w, label='our model (w/o accessibility)', facecolor=colors[3])
-    pp.bar(x + .4, get_r2(fits_spa), w, label='our model', facecolor=colors[4])
+    pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
+    pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
+    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
     # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
 
-    pp.xticks(x+.2, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
+    pp.xticks(x+.3, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
     pp.legend(loc='upper left')
     pp.xlabel('RBFOX2 concentration [nM]')
     pp.ylabel(r'$R^2$ (variance explained)')
@@ -702,32 +712,40 @@ def msi1_analysis():
     # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
     kw = dict(scatter_plots=True, res_plots=True)
     kw = dict(scatter_plots=False, res_plots=False)
-    lm = nsRBNSModel(exp, 'SPA', 'msi1_kmer_spa_7mer.tsv', seq_only=False, low_perc=10)
-    # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
-    fits_spa = lm.regression_analysis(**kw)
-
-    lm = nsRBNSModel(exp, 'SPA_na', 'msi1_kmer_spa_7mer.tsv', seq_only=True, low_perc=10)
-    fits_spa_na = lm.regression_analysis(**kw)
-
-    lm = nsRBNSModel(exp, 'R_values', 'msi1_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
-    fits_r = lm.regression_analysis(**kw)
+    lm = nsRBNSModel(exp, 'RNAcompete', 'msi1.rnacompete', seq_only=False, low_perc=10)
+    fits_rc = lm.regression_analysis(**kw)
 
     lm = nsRBNSModel(exp, 'R_values_na', 'msi1_R_value_7mers.tsv', seq_only=True, low_perc=10, z_cut=4)
     fits_r_na = lm.regression_analysis(**kw)
 
-    lm = nsRBNSModel(exp, 'RNAcompete', 'msi1.rnacompete', seq_only=False, low_perc=10)
-    fits_rc = lm.regression_analysis(**kw)
+    lm = nsRBNSModel(exp, 'R_values', 'msi1_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
+    fits_r = lm.regression_analysis(**kw)
 
-    x = np.arange(len(exp.rbp_conc))*.7
+    lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
+    fits_psam_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_psam', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
+    fits_psam = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=True, low_perc=10, scale=1e-5)
+    fits_kmer_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
+    fits_kmer = lm.regression_analysis(**kw)
+
+    x = np.arange(len(exp.rbp_conc))*.9
     pp.figure(figsize=(5,5))
-
     w = .09
-    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF886A','#D552FF']
+    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
     pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
-    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o accessibility)', facecolor=colors[0])
+    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o structure)', facecolor=colors[0])
     pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
-    pp.bar(x + .3, get_r2(fits_spa_na), w, label='our model (w/o accessibility)', facecolor=colors[3])
-    pp.bar(x + .4, get_r2(fits_spa), w, label='our model', facecolor=colors[4])
+    pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
+    pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
+    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
     # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
 
     pp.xticks(x+.2, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])

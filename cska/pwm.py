@@ -712,6 +712,10 @@ class PWMOptimizer(object):
         if len(seed_params):
             self.opt.mdl.params[:len(seed_params)] = seed_params
             self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
+            # do a beta sweep
+            for i in range(self.opt.mdl.n_conc):
+                self.opt.sweep_param(self.opt.mdl.nA + i)
+
             self.opt.step_betas()
 
         self.opt.reporter.tick(0)
