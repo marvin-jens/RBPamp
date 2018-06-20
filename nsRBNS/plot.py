@@ -60,7 +60,7 @@ class MutualInformationScore(object):
         pp.figure()
         pp.pcolor(self.joint, cmap='viridis')
         pp.colorbar(orientation='horizontal')
-        pp.savefig(fname)
+        pp.savefig(fname, dpi=150)
         pp.close()
 
     def dist_plot(self, fname):
@@ -150,6 +150,13 @@ class nsRBNSOligos(object):
         ind = rowsum > 800
         xtalk = xtalk[ind,:][:,ind]
         # xtalk = xtalk[:100,:100]
+
+        # outfile = file(fname+'.scoresums.tsv','w')
+        # for i, r in enumerate(rowsum):
+        #     if r < 1:
+        #         continue
+        #     outfile.write("{0}\t{1}\n".format(self._fa_ids_raw[i], r))
+
         return xtalk, rowsum
 
     def xtalk_plot(self, fname='xtalk.pdf'):
@@ -185,17 +192,30 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 def default_lm_data(lm):
     data = np.array([
-        lm.A, lm.C, lm.G, lm.T, #GC_score,
+        lm.A, lm.C, lm.G, lm.T, lm.GC_score, np.log(lm.ns_exp.f0),
         lm.entropy,
         lm.Z1,
+        # acc,
+            # data = np.array([
+            #     A, C, G, T, GC_score, GC_score**2,
+            #     np.log(self.f0),
+            #     entropy,
+            #     # np.log((P*self.state.Z1)**n/(1 + (P*self.state.Z1)**n)),
+            #     Z1,
+            #     Z1**2,
+            #     Z1**3,
+            #     acc,
+            # ])
+        
     ])
-    df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','entropy','Z1'])
+    # df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','entropy','Z1'])
+    df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','GC_score', 'f0', 'entropy','Z1'])
     return df
 
 
 
 class nsRBNSModel(object):
-    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1):
+    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1,k=7):
         self.ns_exp = ns_exp
         self.ns = ns_exp.ns
         self.name = self.ns_exp.name + "_" + name
@@ -207,7 +227,7 @@ class nsRBNSModel(object):
         else:
             self.prepare_data = prepare_data
 
-        self.state = self.evaluate_SPA(param_file, self.ns_exp.rbp_conc, k=7, seq_only=seq_only, scale=scale)
+        self.state = self.evaluate_SPA(param_file, self.ns_exp.rbp_conc, k=k, seq_only=seq_only, scale=scale)
         # self.betas = self.optimal_betas()
 
         self.A, self.C, self.G, self.T = self.ns.nt_freqs[self.ns_exp.indices].T
@@ -332,7 +352,7 @@ class nsRBNSModel(object):
         pp.xlabel('log2 nsRBNS enrichment')
         pp.ylabel('linear model prediction')
         pp.legend(loc='upper center', facecolor='white')
-        pp.savefig('{self.name}_{reg.conc}_scatter.pdf'.format(**locals()))
+        pp.savefig('{self.name}_{reg.conc}_scatter.pdf'.format(**locals()), dpi=150)
         pp.close()
             
     def coeff_matrix_plot(self, fits):
@@ -372,7 +392,7 @@ class nsRBNSModel(object):
             # res.append() # keep the residuals
 
 class nsRBNSExperiment(object):
-    def __init__(self, nsrbns, fcount_matrix, name='', rbp_conc = [25.,125.,625.], pseudo=10, skip_xtalk=True, skip_low=True, seq_only=False):
+    def __init__(self, nsrbns, fcount_matrix, name='', rbp_conc = [25.,125.,625.], pseudo=1, skip_xtalk=True, skip_low=True, seq_only=False):
         if not name:
             name = fcount_matrix.split('_')[0]
         self.name = name
@@ -640,8 +660,8 @@ def rbfox2_analysis():
     exp = nsRBNSExperiment(nsrbns, 'rbfox2_matrix.csv', skip_xtalk=True, seq_only=False)
     # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
     # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
+    # kw = dict(scatter_plots=True, res_plots=False)
     kw = dict(scatter_plots=False, res_plots=False)
-    # kw = dict(scatter_plots=False, res_plots=False)
 
     lm = nsRBNSModel(exp, 'RNAcompete', 'RBFOX1.rnacompete', seq_only=False, low_perc=10)
     fits_rc = lm.regression_analysis(**kw)
@@ -653,18 +673,24 @@ def rbfox2_analysis():
     fits_r = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_na', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=True, low_perc=10)
-    lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    psam_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv'
+    lm = nsRBNSModel(exp, 'SPA_psam_na', psam_model, seq_only=True, low_perc=10)
     fits_psam_na = lm.regression_analysis(**kw)
 
-    lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=10)
-    fits_psam = lm.regression_analysis(**kw)
+    lm = nsRBNSModel(exp, 'SPA_psam', psam_model, seq_only=False, low_perc=10)
+    fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
 
-    lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
+    kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities.tsv'
+    # kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv'
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10)
     fits_kmer_na = lm.regression_analysis(**kw)
 
-    lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
-    fits_kmer = lm.regression_analysis(**kw)
-
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10)
+    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
 
     def pos_control_data(lm):
         data = np.array([
@@ -679,7 +705,7 @@ def rbfox2_analysis():
     # fits_m = lm.regression_analysis(**kw)
 
     x = np.arange(len(exp.rbp_conc))*.9
-    pp.figure(figsize=(5,5))
+    pp.figure(figsize=(5,3))
     w = .09
     colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
     pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
@@ -710,7 +736,7 @@ def msi1_analysis():
     exp = nsRBNSExperiment(nsrbns, 'msi1_matrix.csv', skip_xtalk=True, seq_only=False)
     # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
     # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
-    kw = dict(scatter_plots=True, res_plots=True)
+    # kw = dict(scatter_plots=True, res_plots=False)
     kw = dict(scatter_plots=False, res_plots=False)
     lm = nsRBNSModel(exp, 'RNAcompete', 'msi1.rnacompete', seq_only=False, low_perc=10)
     fits_rc = lm.regression_analysis(**kw)
@@ -727,16 +753,24 @@ def msi1_analysis():
 
     lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=10)
     # lm = nsRBNSModel(exp, 'SPA_psam', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
-    fits_psam = lm.regression_analysis(**kw)
+    fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
 
-    lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=True, low_perc=10, scale=1e-5)
+    kmer_model = '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv'
+    # kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded3/affinity/8mer_affinities.tsv'
+    kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv'
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10, k=7)
     fits_kmer_na = lm.regression_analysis(**kw)
 
-    lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
-    fits_kmer = lm.regression_analysis(**kw)
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10, k=7)
+    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
 
     x = np.arange(len(exp.rbp_conc))*.9
-    pp.figure(figsize=(5,5))
+    pp.figure(figsize=(5,3))
     w = .09
     colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
     pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
@@ -759,19 +793,19 @@ def msi1_analysis():
     pp.savefig('performance_MSI1.pdf')
     pp.close()
 
-rbfox2_analysis()
-msi1_analysis()
-sys.exit(0)
+# rbfox2_analysis()
+# msi1_analysis()
+# sys.exit(0)
 
 nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
 # nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
+nsrbns.xtalk_plot()
 exp = nsRBNSExperiment(nsrbns, sys.argv[1], skip_xtalk=False, seq_only=False)
 # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
 # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
-lm = nsRBNSModel(exp, 'SPA', sys.argv[2], seq_only=False, low_perc=10)
-fits = lm.regression_analysis(scatter_plots=False, res_plots=False)
+# lm = nsRBNSModel(exp, 'SPA', sys.argv[2], seq_only=False, low_perc=10)
+# fits = lm.regression_analysis(scatter_plots=False, res_plots=False)
 
-nsrbns.xtalk_plot()
 exp.GC_bias_plot()
 exp.entropy_plot()
 

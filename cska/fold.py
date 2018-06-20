@@ -493,9 +493,14 @@ class OpenenDiscretization(object):
         (20,9) : 12.,
         (20,10) : 13.,
         (20,11) : 14.,
-        (40,6) : 26.,
-        (40,7) : 28.,
-        (40,8) : 30.,
+        (40,1) : 3.,
+        (40,2) : 4.,
+        (40,3) : 6.,
+        (40,4) : 8.,
+        (40,5) : 9.,
+        (40,6) : 10.,
+        (40,7) : 11.,
+        (40,8) : 12.,
     }
     def __init__(self, k, L, dtype=np.uint8, mode='gamma', N=0):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype

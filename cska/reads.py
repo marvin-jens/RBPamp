@@ -155,7 +155,7 @@ class RBNSReads(CachedBase):
         self.logger.debug("get_index_matrix k={0}".format(k))
         return im
             
-    def get_acc_matrix(self, k, indices=[], disc_mode='linear'):
+    def get_acc_matrix(self, k, indices=[], disc_mode='linear', ofs=None):
         """
         Returns N x (L+k-1) matrix with all k-mer accessibilities in each read, including
         positions that overlap the adapter.
@@ -166,10 +166,24 @@ class RBNSReads(CachedBase):
         else:
             openen = self.acc_storage.get_discretized(k,disc_mode=disc_mode)
             
-        if indices:
-            return openen.oem[indices, openen.ofs - k + 1:], openen
+        if ofs is None:
+            ofs = openen.ofs - k + 1
         else:
-            return openen.oem[:, openen.ofs - k + 1:], openen
+            ofs = openen.ofs - ofs
+
+        if indices:
+            return openen.oem[indices, ofs:], openen
+        else:
+            return openen.oem[:, ofs:], openen
+
+    @pickled        
+    def get_acc_profiles(self, k_seq, k_acc):
+        acc, openen = self.get_acc_matrix(k_acc, ofs=k_seq-1)
+        im = self.get_index_matrix(k_seq)
+        self.logger.debug("kmer_openen_profiles k_seq={0} k_acc={1}".format(k_seq, k_acc))
+        prof = cyska.kmer_openen_profiles(im, acc, k_seq, k_acc, 0)
+
+        return prof
         
     @pickled
     def get_kmer_accessibility_binned(self, k):

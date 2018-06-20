@@ -1944,6 +1944,64 @@ def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix
 
 
 
+
+def kmer_openen_profiles(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, int k_seq, int k_openen, int ofs):
+    """
+    Compute the mean open-energy levels relative to the 
+    position of the kmer, for all kmers.
+    
+    returns a (4^k_seq, 2*(L-k_openen)+1) shaped array with mean 
+    open-energies. If a kmer occurs multiple times in a read
+    the open-energies will be counted multiple times 
+    (into different position).
+    """
+    
+    # print k_seq, k_openen
+    # largest index in array of DNA/RNA k-mer counts
+    cdef UINT64_t MAX_INDEX_SEQ = 4**k_seq - 1
+    cdef UINT64_t MAX_INDEX_OE = 4**k_openen - 1
+    cdef UINT64_t N = len(index_matrix)
+    cdef UINT64_t l_seq = len(index_matrix[0])
+    cdef int l_openen = l_seq + k_seq - k_openen
+
+    # store observations here to compute means upon exit
+    cdef UINT32_t [:,:,:] counts = np.zeros((4**k_seq, 2*l_openen+1, 256), dtype = np.uint32)
+    #cdef FLOAT32_t [:,:] sums = np.zeros((4**k_seq, 2*l_openen+1), dtype = np.float32)
+    #cdef FLOAT32_t [:] openens = np.zeros(l_openen, dtype=np.float32)
+    cdef UINT8_t [:] openens = np.zeros(l_openen, dtype=np.uint8)
+    cdef UINT64_t [:] indices = np.zeros(l_seq, dtype=np.uint64)
+    
+    # helper variables to tell cython the tqypes
+    cdef UINT8_t s
+    cdef int index_seq, index_oe, index, i, j, pos, x, m
+    
+    with nogil:
+        for j in range(N):
+            # iterate over all k-mers, always adding next base to index
+            #index = 0
+            for i in range(l_seq):
+                index = index_matrix[j, i]
+                for m in range(l_openen):
+                    pos = l_openen + m - i
+                    counts[index, pos, openen_matrix[j, m + ofs]] += 1
+
+        #for i in range(0,l_seq):
+            #index = indices[i]
+            ##print i, index, range(-i, l-i)
+            #for m in range(0, l_openen):
+                #x = m - i
+                #pos = l_openen + x
+                ##print x, pos
+                ##if index == 0b1001001110:
+                    ##print "i={0}, x={1}, pos={2}, openens[x+i] = {3}, sums[index, pos] = {4}, counts[index,pos]={5}".format(i, x, pos, openens[x+i], sums[index, pos], counts[index, pos])
+
+                ##sums[index, pos] += openens[m]
+                #counts[index, pos, openens[m]] += 1
+            
+    return counts.base
+
+
+
 def joint_kmer_profiles(UINT8_t [:,:] seq_matrix, int k_core, int k_flank, int pseudo=1):
     """
     Compute the co-occurrence frequency of k_flank mers relative to the 

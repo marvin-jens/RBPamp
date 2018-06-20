@@ -62,7 +62,6 @@ class RBNSSample(CachedBase):
         print MI
 
 
-
 class RBNSComparison(CachedBase):
     def __init__(self, in_reads, pd_reads, ska_runner = None):
         

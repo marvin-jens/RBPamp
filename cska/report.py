@@ -6,7 +6,9 @@ from collections import defaultdict
 import matplotlib
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
+from scipy.stats import spearmanr, pearsonr
 import cska
+
 
 #np.random.seed(2016)
 
@@ -78,8 +80,8 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
 def density_scatter_plot(
     x,y, 
     outlier_percentile=10, 
-    density_kw = dict(cmap=pp.cm.gist_heat_r, nbins=100), 
-    plot_kw = dict(style=".k"), 
+    density_kw = dict(cmap=pp.cm.YlGn, nbins=100), 
+    plot_kw = dict(style='.', color='#4495c3'), 
     contour=False, 
     plot_outliers=True,
     label="none", data_labels=[],
@@ -116,6 +118,9 @@ def density_scatter_plot(
             k = kde.gaussian_kde([x,y])
             xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
+            zi[zi < 1e-3] = np.nan
+            print "nans", np.isnan(zi).sum()
+            print zi.min()
 
             # pca().set_facecolor('w')
             m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True)
@@ -145,7 +150,7 @@ def density_scatter_plot(
 
             out_x = x[out]
             out_y = y[out]
-            pp.plot(out_x, out_y, plot_kw['style'], markersize=3, label=label, rasterized=True)
+            pp.plot(out_x, out_y, plot_kw['style'], color=plot_kw['color'], markersize=3, label=label, rasterized=True)
 
         if N > dens_thresh and x_ref:
             # use experiment as reference
@@ -399,8 +404,8 @@ class Sensor(object):
             else:
                 title = "{0}mer R-value scatter plot".format(self.opt.k)
                 x, y = self.get_func(self)
-                corr = np.corrcoef(x,y)[0][1]
-                label = "{0} R={1:.3f}".format(self.labels[0], corr)
+                corr, pval = pearsonr(x,y)
+                label = "{0} R={1:.3f} (P < {2:.3e})".format(self.labels[0], corr, pval)
                 data_labels = self.opt.mdl.parameters.param_name
 
             pp.title(title)
@@ -529,7 +534,6 @@ class OptReporting(object):
             x = np.log10(this.rep.ref.observed_affinities)
             y = np.log10(this.rep.ref.predict_affinities(this.opt.mdl))
 
-            from scipy.stats import spearmanr, pearsonr
             R, ppval = pearsonr(x,y)
             rho, pval = spearmanr(x,y)
 
