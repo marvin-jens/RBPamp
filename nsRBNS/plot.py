@@ -4,7 +4,7 @@ import matplotlib.pyplot as pp
 from scipy.stats import spearmanr, pearsonr
 import scipy.stats
 from cska.report import density_scatter_plot
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from byo.io import fasta_chunks
 import os, sys, logging
 logging.basicConfig(level=logging.DEBUG)

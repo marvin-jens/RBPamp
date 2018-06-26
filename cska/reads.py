@@ -7,7 +7,7 @@ import numpy as np
 import time
 import os
 import logging
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 from cska.caching import cached, pickled, CachedBase
 import cska.fold
@@ -528,7 +528,7 @@ if __name__ == "__main__":
     sys.exit(1)
     
 
-    import cska.ska_kmers as cyska
+    import cska.cyska as cyska
     adap5 = cyska.seq_to_bits(reads.adap5)
     adap3 = cyska.seq_to_bits(reads.adap3)
     print adap5

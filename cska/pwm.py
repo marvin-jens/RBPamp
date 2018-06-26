@@ -3,7 +3,7 @@ import sys
 import os
 import numpy as np
 import cska
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 bases = np.array(list('ACGU'))
 base_idx = { 
@@ -1097,7 +1097,7 @@ if __name__ == "__main__":
     # for mer, a in zip(kmers[I], aff[I]):
     #     print mer, a
 
-    import cska.ska_kmers as cyska
+    import cska.cyska as cyska
     params_new = cyska.params_from_pwm(psam.psam, A0=psam.A0, aff0=1e-6)
 
     import matplotlib.pyplot as pp

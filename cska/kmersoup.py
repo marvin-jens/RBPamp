@@ -6,7 +6,7 @@ import sys
 import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.rbns_reads import RBNSReads
 from cska.caching import CachedBase, cached, pickled
 

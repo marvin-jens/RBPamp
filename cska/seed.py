@@ -6,8 +6,8 @@ import logging
 import os
 
 from itertools import izip_longest
-import cska.ska_kmers as cyska
-from cska.ska_kmers import yield_kmers
+import cska.cyska as cyska
+from cyska import yield_kmers
 import cska
 from cska.caching import CachedBase, cached, pickled
 
@@ -524,7 +524,7 @@ if __name__ == "__main__":
 
     # # TESTING mutual information
     # import matplotlib.pyplot as pp
-    # from cska.ska_kmers import yield_kmers
+    # from cyska import yield_kmers
     # km = 4
     # kmers = list(yield_kmers(km))
     # profs = []

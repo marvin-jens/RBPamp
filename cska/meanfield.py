@@ -1,7 +1,7 @@
 import cska.gradient
 from cska.crosstalk_matrix import CrosstalkMatrix
 import logging, os, sys
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.pwm import PSAM
 import numpy as np
 import time

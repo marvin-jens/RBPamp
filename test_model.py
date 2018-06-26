@@ -54,12 +54,12 @@ ref = mdl.evaluate(params, keep=True, do_jacobi=True)
     #print conc, "highest R-values"
     #for i in R.argsort()[::-1][:10]:
         #m = 1./mdl.f0[i]
-        #print cska.ska_kmers.index_to_seq(i, k), R[i], "max=", m, "scaled=", R[i]/m * 100
+        #print cyska.index_to_seq(i, k), R[i], "max=", m, "scaled=", R[i]/m * 100
 
     #print conc, "lowest R-values"
     #for i in R.argsort()[::][:10]:
         #m = 1./mdl.f0[i]
-        #print cska.ska_kmers.index_to_seq(i, k), R[i], "max=", m, "scaled=", R[i]/m * 100
+        #print cyska.index_to_seq(i, k), R[i], "max=", m, "scaled=", R[i]/m * 100
 
 import matplotlib.pyplot as pp    
 opt = ModelOptimization(reads, openen, k, ref.R, R_err=[], known_params = params, rbp_conc=rbp_conc)

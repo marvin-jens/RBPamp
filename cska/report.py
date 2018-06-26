@@ -562,8 +562,8 @@ class OptReporting(object):
             #track = sorted(comp.uniq_kmers)
 
         #self.tracked_kmers = [t for t in track if len(t)== self.opt.k]
-        #import cska.ska_kmers
-        #self.tracked_indices = [cska.ska_kmers.seq_to_index(t) for t in self.tracked_kmers]
+        #import cska.cyska
+        #self.tracked_indices = [cyska.seq_to_index(t) for t in self.tracked_kmers]
         #self.tracked = set(self.tracked_indices)
         #self.tracked_history = defaultdict(list)
         #self.tracked_updated = defaultdict(list)
@@ -683,7 +683,7 @@ class OptReporting(object):
         pp.close()
         
     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        #to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
         
         self.logger.info('rendering R-value agreement plot')
         kmer_i = self.opt.sched.last_param_update
@@ -720,7 +720,7 @@ class OptReporting(object):
         pp.close()
         
     #def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        ##to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
         
         #kmer_i = self.opt.sched.last_param_update
         #kmer = self.opt.mdl.param_name[kmer_i]
@@ -769,7 +769,7 @@ class EnrichmentBarPlot(object):
             fname = "r_values.{self.rbns_comparison.pd_reads.name}.{k}mers".format(self=self, k=k)
         
         R, R_err = self.rbns_comparison.R_values(k)
-        kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
+        kmers = np.array(list(cyska.yield_kmers(k)))
 
         I = R.argsort()
         R = R[I]

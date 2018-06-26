@@ -14,13 +14,16 @@ ext_modules = [ ]
 
 if use_cython:
     ext_modules += [
-        #Extension("ska_kmers", [ "ska_kmers.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'],),
-        Extension("cska.ska_kmers", [ "cska/ska_kmers.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
+        Extension("cska.cy_kmers", [ "cska/cython/kmers.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
+        Extension("cska.cy_model", [ "cska/cython/model.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
+        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
 else:
     ext_modules += [
-        Extension("cska.ska_kmers", [ "cska/ska_kmers.c" ]),
+        Extension("cska.cy_kmers", [ "cska/cython/kmers.c" ]),
+        Extension("cska.cy_model", [ "cska/cython/model.c" ]),
+        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.c" ]),
     ]
 
 

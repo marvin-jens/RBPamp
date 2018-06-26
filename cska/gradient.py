@@ -6,7 +6,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 from cska import auto_detect
 from cska.reads import RBNSReads
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.pwm import PSAM
 
 class Proxy(object):

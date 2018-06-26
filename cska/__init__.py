@@ -12,7 +12,7 @@ import os
 import logging
 import collections
 import traceback
-#import cska.ska_kmers
+#import cska.cyska
 import matplotlib
 
 

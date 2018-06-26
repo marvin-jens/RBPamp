@@ -7,7 +7,7 @@ import sys
 import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.caching import CachedBase, cached, pickled
 from cska.crosstalk_matrix import CrosstalkMatrix
 from cska.reads import RBNSReads
@@ -502,7 +502,7 @@ if __name__ == "__main__":
             x, y = disc.get_hist_xy(bc)
             
             lratio = np.log(y, ref_y)
-            seq = cska.ska_kmers.index_to_seq(I, 5)
+            seq = cyska.index_to_seq(I, 5)
             pp.plot(disc.x, lratio, color+style, label="{1} P={0}".format(rbp_conc[i], seq))
 
         
@@ -712,7 +712,7 @@ if __name__ == "__main__":
         #for i in np.arange(N):
             #M[i,i] = 1
             #for x in range(1,k):
-                #weights, shifts = cska.ska_kmers.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
+                #weights, shifts = cyska.weighted_kmer_shifts(i, k, self.l, x, kfreqs[x]) 
                 #for s,f in zip(shifts, weights):
                     #M[i,s] += f
 

@@ -12,7 +12,7 @@ import multiprocessing
 from Queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 logger = logging.getLogger("fold")
 
 # This global variable is used by the keyboard interrupt 

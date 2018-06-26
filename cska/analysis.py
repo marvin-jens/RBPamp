@@ -7,8 +7,8 @@ import os
 import numpy as np
 import time
 import logging
-import cska.ska_kmers
-import cska.ska_kmers as cyska
+import cska.cyska
+import cska.cyska as cyska
 from cska import ensure_path
 from cska.caching import cached, pickled, CachedBase
 
@@ -356,7 +356,7 @@ class RBNSAnalysis(CachedBase):
             rank_cut = min(n_max, rank_cut)
         
         best_sample_i = ska[:,order[0]].argmax()
-        kmers = [cska.ska_kmers.index_to_seq(i, k) for i in order[:rank_cut]]
+        kmers = [cyska.index_to_seq(i, k) for i in order[:rank_cut]]
         return kmers, order[:rank_cut], best_sample_i+1
         
     def compute_results(self, k, options, results=["R_value", "affinities", "pure_F_ratio", "recall_ratio", "SKA_weight", "F_ratio"]):
@@ -365,7 +365,7 @@ class RBNSAnalysis(CachedBase):
             return
 
         order = self.get_optimal_kmer_ranking(k)
-        all_kmers = np.array(list(cska.ska_kmers.yield_kmers(k)))
+        all_kmers = np.array(list(cyska.yield_kmers(k)))
         
         for name in results:
             if not name:

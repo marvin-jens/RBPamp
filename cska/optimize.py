@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 from cska.caching import CachedBase, cached, pickled
 from cska.affinity import Kd_to_kcal, kcal_to_Kd, AffinityDistribution
@@ -194,7 +194,7 @@ class ModelOptimization(object):
         return better, new_state, err
     
     def step_scale(self, min_scale=.01, max_scale=1.):
-        from cska.ska_kmers import SPA_partition_function, weighted_kmer_counts
+        from cyska import SPA_partition_function, weighted_kmer_counts
         t0 = time.time()
         params = np.array(self.current.params)
 

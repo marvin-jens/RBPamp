@@ -8,7 +8,7 @@ import copy
 import time
 import logging
 import collections
-import cska.ska_kmers
+import cska.cyska
 
 class SKARunner(object):
     def __init__(self, max_iterations=10, convergence=0.5, subsamples=10):
@@ -20,7 +20,7 @@ class SKARunner(object):
     def stream_counts(self, k, pd_reads, in_reads):
         self.logger.info("streaming {k} mers in {pd_reads.name}".format(**locals()))
         t0 = time.time()
-        kmers = list(cska.ska_kmers.yield_kmers(k))
+        kmers = list(cyska.yield_kmers(k))
         #background, bg_source = self.try_load_background_freqs(k)
 
         pd_freqs = pd_reads.kmer_frequencies(k)
@@ -31,7 +31,7 @@ class SKARunner(object):
         
         weight_history = []
         for iteration_i in range(self.max_iterations):
-            new_weights = cska.ska_kmers.seq_set_SKA(pd_reads.seqm, current_weights, in_freqs, k)
+            new_weights = cyska.seq_set_SKA(pd_reads.seqm, current_weights, in_freqs, k)
                 
             weight_history.append(new_weights)
             current_weights = copy.copy(new_weights)

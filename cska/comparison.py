@@ -2,7 +2,7 @@
 import sys
 import os
 import numpy as np
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 import logging
 
 class RefComparison(object):
@@ -16,7 +16,7 @@ class RefComparison(object):
         self.affinity_errs = []
         
         self.logger = logging.getLogger("report.ReferenceComparison")
-        import cska.ska_kmers
+        import cska.cyska
         if not ref_file:
             ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
 

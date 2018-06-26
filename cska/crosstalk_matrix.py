@@ -7,7 +7,7 @@ import sys
 import os
 from collections import defaultdict
 #from scipy.optimize import minimize, brentq, minimize_scalar
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.caching import CachedBase, cached, pickled
 #from cska.rbns_reads import RBNSReads
 
@@ -291,7 +291,7 @@ class CrosstalkMatrix(CachedBase):
 
 if __name__ == "__main__":
     from cska.reads import RBNSReads
-    import cska.ska_kmers as cyska
+    import cska.cyska as cyska
     import logging
     logging.basicConfig(level=logging.DEBUG)
     reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', rbp_name='RBFOX3', storage_kw=dict(T=4))
@@ -303,7 +303,7 @@ if __name__ == "__main__":
         im2 = reads.get_index_matrix(k+1)
         #print im1
         #print im2
-        #import cska.ska_kmers as cyska
+        #import cska.cyska as cyska
         M = cyska.kmer_crosstalk_matrix(im1, im2, k, k+1)
         return M
     k = 5

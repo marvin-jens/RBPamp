@@ -8,7 +8,7 @@ import sys
 import logging
 import numpy as np
 from scipy.optimize import minimize_scalar
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
 from cska.sc import SelfConsistency

@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
 
-import cska.ska_kmers 
+import cska.cyska 
 
 class ParamUpdateScheduler(object):
     #def __init__(self, opt, n_blocked=5, ttl=10, n_max=100, n_avg=5, beta_burn_in=True):
@@ -83,7 +83,7 @@ class ParamUpdateScheduler(object):
         a = affinities / affinities.max()
         suscept = (error > 0).all(axis=0) * a + (error < 0).sum(axis=0)
         suscept = np.concatenate( (suscept, np.ones(self.opt.n_conc)) )
-        #caccc = cska.ska_kmers.seq_to_index('CACCC')
+        #caccc = cyska.seq_to_index('CACCC')
         #print "suscept of GCATG", suscept[590]
         #print "suscept of CACCC", suscept[caccc], a[caccc]
 

@@ -2,7 +2,7 @@ import logging, os, sys
 import numpy as np
 import time
 import cska.gradient
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.pwm import PSAM
 from cska.sc import SelfConsistency
 
