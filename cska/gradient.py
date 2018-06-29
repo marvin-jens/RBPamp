@@ -348,6 +348,12 @@ class GradientDescent(object):
 
         return self.status
 
+    @property
+    def error_reduction(self):
+        if len(self.errors) < 2:
+            return 0.
+        
+        return self.errors[-1] / self.errors[0]
 
     def optimize(self, maxiter=100, debug=False, callback=None):
         state = self.model.predict(self.params)

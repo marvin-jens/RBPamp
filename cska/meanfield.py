@@ -279,6 +279,7 @@ class MeanFieldAnalysis(object):
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
         self.k = pwm.n
         self.R, self.R_err = rbns.R_value_matrix(self.k)
+        self.logger = logging.getLogger('opt.GradientDescent')
         
         params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=1.)
         params.betas[:] = .0001
@@ -346,8 +347,8 @@ class MeanFieldAnalysis(object):
                 self.t0 = time.time()
 
         self.descent.optimize(maxiter=1000, debug=True, callback=callback)
-        print "OPTIMIZATION RESULTS"
-        print self.descent.params
+        self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
+        self.logger.info("optimized parameters {0}".format(self.descent.params))        
         
         state = model.predict(self.descent.params)
         # import matplotlib.pyplot as pp

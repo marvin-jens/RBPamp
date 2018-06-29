@@ -179,7 +179,7 @@ def main():
 
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
-    logging.basicConfig(level=logging.WARNING, format=FORMAT)    
+    logging.basicConfig(level=logging.INFO, format=FORMAT)    
     root = logging.getLogger('')
     fh = logging.FileHandler(filename=log_path, mode='a')
     fh.setFormatter(logging.Formatter(FORMAT))

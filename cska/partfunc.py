@@ -65,6 +65,8 @@ class PartFuncModelState(object):
         # print "state.rbp_free", self.rbp_free
         # print "state.b", self.b.shape
         _grad = cyska.PSAM_partition_function_gradient(self)
+        # print "parallel"
+        # _grad = cyska.PSAM_partition_function_gradient_parallel(self)
         # # _grad.A0 *= 4*_grad.k
         # _grad.A0 *= 0
         # _grad.psam_vec[:] = 0 # HACK to test beta value convergence

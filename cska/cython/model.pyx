@@ -22,6 +22,21 @@ cimport openmp
 
 from libc.math cimport exp, log
 from libc.stdlib cimport abort, malloc, free
+from libc.string cimport memset #faster than np.zeros
+
+cdef extern from "cmpxchg.h":
+    # cdef extern int sync_bool_compare_and_swap_vp (void **ptr, void *oldval, void *newval) nogil
+    cdef extern int cmpxchg_uint32 (UINT32_t *ptr, UINT32_t oldval, UINT32_t newval) nogil
+    cdef extern int cmpxchg_uint64 (UINT64_t *ptr, UINT64_t oldval, UINT64_t newval) nogil
+    # cdef extern int _cmpxchg_float32 (UINT32_t *ptr, UINT32_t oldval, UINT32_t newval) nogil
+
+cdef inline int cmpxchg_float32 (FLOAT32_t *ptr, FLOAT32_t oldval, FLOAT32_t newval) nogil:
+    # pointer cast shenanigans to trick __bool_sync_compare_and_exchange 
+    # into swapping a float by treating the 4 bytes as uint32
+    cdef UINT32_t ov = (<UINT32_t *>(<void*> &oldval))[0] 
+    cdef UINT32_t nv = (<UINT32_t *>(<void*> &newval))[0]
+    return cmpxchg_uint32(<UINT32_t*>ptr, ov, nv)
+
 
 def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix, FLOAT32_t [:] acc_lookup, FLOAT32_t [:] kmer_invkd, UINT64_t k, int n_max=0, int openen_ofs=0):
     #assert k <= 8 # must fit into UINT16 kmer-indices!
@@ -145,8 +160,6 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
     return Z.base
 
 
-
-from libc.string cimport memset #faster than np.zeros
 # @cython.boundscheck(True)
 # @cython.wraparound(True)
 # @cython.initializedcheck(True)
@@ -270,6 +283,171 @@ def PSAM_partition_function_gradient(state):
             dbeta += Eji * (N_by_Q - (N / Q2f) * b[j,i])
         grad[n_psam + j] = dbeta
 
+    return gradient
+
+
+
+
+
+from time import time
+
+def PSAM_partition_function_gradient_parallel(state):
+    t0 = time()
+    # get the relevant data from the state object
+    cdef UINT8_t [:,:] seqm = state.mdl.seqm
+    cdef FLOAT32_t [:,:] Z1 = state.Z1
+    cdef FLOAT32_t [:] Z1_read = state.Z1_read
+    cdef FLOAT32_t [:] f0 = state.mdl.f0 # 4^k kmer frequencies in input
+    cdef FLOAT32_t [:,:] psi = state.psi
+    cdef UINT32_t [:,:] im = state.mdl.im
+    cdef FLOAT32_t [:] psam = state.params.psam_vec
+    cdef FLOAT32_t [:] Q = state.Q # normalization factors for each sample
+    cdef FLOAT32_t [:] rbp_free = state.rbp_free # self consistent free protein
+    cdef FLOAT32_t [:,:] E = state.R_errors # R - R0
+    cdef FLOAT32_t [:,:] b = state.b # n_samples x 4^k
+    cdef int n_max=0    
+    cdef UINT64_t N = seqm.base.shape[0]
+    cdef UINT64_t L = seqm.base.shape[1]
+    cdef UINT64_t n_psam = len(psam.base)
+    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t k = (n_psam - 1) / 4
+    cdef UINT64_t l = L - k + 1
+    # print "L-k+1", l, "Z.shape", Z.shape, 'k', k
+    cdef UINT64_t lam = im.shape[1]
+    cdef UINT64_t Nk = state.params.Nk
+    cdef UINT64_t zero_bytes = n_psam*4
+
+    # type inner loop variables and terms used multiple times
+    cdef int n_threads = 8
+    cdef int thread_num = 0
+    cdef UINT32_t index=0
+    cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
+    cdef FLOAT32_t p=0, dpsi=0, dp=0, dR_dA, pre1, pre2, Q2, Q2f, Eji, dbeta, N_by_Q, Z1r=0, Z1rp=0, old=0
+
+    # change in read-binding probability
+    cdef FLOAT32_t [:,:] _dpsi_dA = np.zeros( (n_threads, n_psam), dtype=np.float32)
+    cdef FLOAT32_t [:] dpsi_dA = np.zeros(n_psam, dtype=np.float32)
+
+    # change in weight assigned to each kmer in pulldown 
+    cdef FLOAT32_t [:,:] db = np.zeros((Nk, n_psam), dtype=np.float32)
+    cdef FLOAT32_t *ptr # used in cmpxchg call
+
+    # change in normalization factor
+    cdef FLOAT32_t [:,:,:] _dQ = np.zeros( (n_threads, n_samples, n_psam), dtype=np.float32)
+    cdef FLOAT32_t [:,:] dQ = np.zeros( (n_samples, n_psam), dtype=np.float32)
+
+    # mutliplication is faster than division. So divide outside of loop.
+    cdef FLOAT32_t [:] psam_inv = 1./psam.base
+
+    # where to store the final gradient
+    gradient = state.params.copy()
+    gradient.data[:] = 0
+    cdef FLOAT32_t [:] grad = gradient.data
+    cdef FLOAT32_t [:,:] _grad = np.zeros( (n_threads, len(grad)), dtype=np.float32)
+
+    if n_max:
+        N = min(N, n_max)
+
+    # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
+    # with nogil, parallel():
+    #     for j in prange(N, schedule='guided'):
+    #         thread_num = openmp.omp_get_thread_num()
+
+    t1 = time()
+    t_setup = t1 - t0
+    t_reads = 0
+    t_prep = 0
+    t_grad = 0
+
+    for j in range(n_samples):
+        t0 = time()
+        with nogil, parallel():
+            for r in prange(N, schedule='guided'):
+                thread_num = openmp.omp_get_thread_num()
+                p = psi[j,r]
+                # chain rule: how changes in per-sequence partition function
+                # carry over to changes in binding probability
+                Z1r = Z1_read[r]
+                Z1rp = Z1r * rbp_free[j]
+                dpsi = (p - (p * p)) / Z1rp
+
+                # zero out dZj_dA. bc we accumulate this for each sequence separately
+                memset(&_dpsi_dA[thread_num,0], 0, zero_bytes)
+                
+                # compute dZj_dA. gradient matrix
+                # dZj/dA0 first
+                dp = Z1rp * psam_inv[0] * dpsi
+                _dpsi_dA[thread_num, 0] = dp
+
+                # thread-safe version of dQ[j,0] += dp
+                _dQ[thread_num, j, 0] += dp
+
+                # now dZj/dA. with . being the matrix elements of the psam (here flattened)
+                for x in range(l):
+                    for d in range(k):
+                        n = seqm[r, x+d]
+                        y = (d << 2) + n + 1
+                        dp = rbp_free[j] * Z1[r,x] * psam_inv[y] * dpsi
+                        _dpsi_dA[thread_num, y] += dp
+                        
+                        # thread-safe version of dQ[j,y] += dp
+                        _dQ[thread_num, j, y] += dp
+
+                # propagate effect to pulldown kmer weights
+                for x in range(lam):
+                    index = im[r,x]
+                    
+                    # db/dA.
+                    # print index, db.base.shape
+                    for y in range(n_psam):
+                        old = db[index, y]
+                        ptr = &db[index,y]
+                        while not cmpxchg_float32(ptr, old, old + _dpsi_dA[thread_num, y]):
+                            old = db[index, y]
+                    
+                    # # db/dA.
+                    # for d in range(k):
+                    #     for n in range(4):
+                    #         # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
+                    #         #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
+                    #         y = (d << 2) + n + 1
+                    #         old = db[index, y]
+                    #         while not cmpxchg_float32(&db[index,y], old, old + _dpsi_dA[thread_num, y]):
+                    #             old = db[index, y]
+
+        ## end of with nogil, parallel
+        t_reads += time() - t0
+        
+        t0 = time()
+        # combine data from different threads
+        dQ = _dQ.base.sum(axis=0)
+        dpsi_dA = _dpsi_dA.base.sum(axis=0)
+
+        # compute gradient of the squared R-value error over the PSAM parameters
+        dbeta = 0
+        Q2 = Q[j] * Q[j]
+        N_by_Q = N/Q[j]
+        
+        t_prep += time() - t0
+        t0 = time()
+        with nogil, parallel():
+            for i in prange(Nk):
+                thread_num = openmp.omp_get_thread_num()
+                Q2f = Q2*f0[i]
+                pre1 = 1./(f0[i] * Q[j])
+                pre2 = b[j,i] * lam / Q2f
+                Eji = 2 * E[j,i]
+                for y in range(n_psam):
+                    dR_dA = pre1 * db[i,y] - pre2 * dQ[j,y]
+                    _grad[thread_num, y] += Eji * dR_dA
+
+                dbeta += Eji * (N_by_Q - (N / Q2f) * b[j,i])
+            _grad[thread_num, n_psam + j] = dbeta
+
+        gradient.data += _grad.base.sum(axis=0)
+        t_grad += time() - t0
+    
+    print "setup {0:.2f}ms reads {1:.2f}ms prep {2:.2f}ms grad {3:.2f}ms".format(1000 * t_setup, 1000* t_reads, 1000 * t_prep, 1000 * t_grad)
     return gradient
 
 
