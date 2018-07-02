@@ -68,6 +68,9 @@ class RefComparison(object):
             
         return kmers
 
+    def __len__(self):
+        return len(self.seqs)
+    
     def predict_affinities(self, mdl):
         a = []
         if hasattr(mdl, "parameters"):

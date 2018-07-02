@@ -940,6 +940,9 @@ class LiteratureComparisonReport(object):
         self.path = path
 
     def plot_scatter(self):
+        if not self.comp:
+            return
+
         pp.figure(figsize=(6,6))
         pp.title(self.comp.rbp_name)
         x = 1/self.comp.observed_affinities
