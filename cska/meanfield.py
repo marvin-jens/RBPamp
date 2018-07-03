@@ -277,9 +277,11 @@ class MeanFieldAnalysis(object):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
+        self.track_file = file(os.path.join(self.out_path, "descent.tsv"),'w',0)
         self.k = pwm.n
         self.k_fit = k_fit
         self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
+        self.logR = np.log2(self.R)
         self.logger = logging.getLogger('opt.GradientDescent')
         print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=1.)
@@ -300,61 +302,51 @@ class MeanFieldAnalysis(object):
         self.descent = cska.gradient.GradientDescent(model, params)
         state = model.predict(params)
         params.betas[:] = model.estimate_betas(state)
-        import matplotlib.pyplot as pp
-        # pp.figure()
-        # pp.loglog(self.R[0],state.R[0],'x')
-        # pp.loglog(self.R[1],state.R[1],'x')
-        # pp.loglog(self.R[2],state.R[2],'x')
-        # pp.loglog(self.R[3],state.R[3],'x')
-        # pp.savefig(os.path.join(self.out_path, 'unoptimized.pdf'))
-        # pp.close()
-        # pp.show()
 
-        # debug_kmer_vector(self.R[0], ref=state.R[0])
-        # debug_kmer_vector(self.R[1], ref=state.R[1])
-        # debug_kmer_vector(self.R[2], ref=state.R[2])
-        # debug_kmer_vector(self.R[3], ref=state.R[3])
-        # debug_kmer_vector(self.R[4], ref=state.R[4])
-        # print "error", state.error
-        # print "PARAMS"
-        # print params
-        # print "ANALYTICAL"
-        # print state.grad
-        # print "EMPIRICAL"
-        # print cska.gradient.emp_grad(state)
-        # print "-"*50
         from cska.comparison import RefComparison
         from cska.report import GradientDescentReport, LiteratureComparisonReport
 
         lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
-        def make_plots(descent):
+        def make_plots(descent, dt=None):
             rep = GradientDescentReport(descent, path=self.out_path)
-            rep.plot_report()
-            rep.plot_param_hist()
-            lrep.plot_scatter()
+            if (descent.t % 10) == 0 or dt is None:
+                rep.plot_scatter()
 
-            pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
-            logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
-            name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
-            pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
-            pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
-        
-            state = descent.model.predict(descent.params)
-            self.store_affinities(state)
-            self.store_residuals(state)
+            if dt > 5 or dt is None:
+                rep.plot_report()
+                rep.plot_param_hist()
+                lrep.plot_scatter()
+
+                pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
+                logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
+                name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
+                pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
+                pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
+            
+                state = descent.model.predict(descent.params)
+                self.store_affinities(state)
+                self.store_residuals(state)
         
         self.t0 = time.time()
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
             dt = time.time() - self.t0
-            if dt > 5:
-                make_plots(descent)
-                self.t0 = time.time()
+            make_plots(descent, dt)
+            self.t0 = time.time()
+            
+            # collect and write data on the gradient descent progress
+            from scipy.stats import pearsonr
+            pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
+            out = [descent.t, descent.last_state.params.A0, descent.errors[-1],] + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR)
+
+            self.track_file.write("\t".join([str(o) for o in out]))
+            self.track_file.write('\n')
 
         self.descent.optimize(maxiter=1000, debug=True, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
+        self.track_file.close()
         
         state = model.predict(self.descent.params)
         # import matplotlib.pyplot as pp
@@ -378,11 +370,11 @@ class MeanFieldAnalysis(object):
                 f.write('{0}\t{1}\n'.format(kmer, aff))
 
     def store_residuals(self, state):
-        with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(state.params.k)),'w') as f:
+        with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(self.descent.model.k)),'w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
             for i in range(state.mdl.nA):
-                kmer = cyska.index_to_seq(i, state.params.k)
+                kmer = cyska.index_to_seq(i, self.descent.model.k)
                 out = [kmer,] + ["{0:.3f}".format(r) for r in res[:,i]]
                 f.write('\t'.join(out) + '\n')
         

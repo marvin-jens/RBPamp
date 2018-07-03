@@ -100,6 +100,7 @@ class PartFuncModel(object):
         self.k_mdl = self.params.k
 
         self.R0 = R0
+        self.lR0 = np.log2(R0)
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
         self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k

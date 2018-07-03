@@ -907,6 +907,21 @@ class GradientDescentReport(object):
         pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
 
+    def plot_scatter(self):
+        for i in range(self.descent.last_state.params.n_samples):
+            pp.figure()
+            title = "{0}mer R-value scatter plot".format(self.descent.model.k)
+            pp.title(title)
+
+            x = self.descent.model.lR0[i]
+            y = np.log2(self.descent.last_state.R[i])
+            corr, pval = pearsonr(x,y)
+            label = "sample_{0} R={1:.3f} (P < {2:.3e})".format(i, corr, pval)
+            # data_labels = self.opt.mdl.parameters.param_name
+            density_scatter_plot(x, y, label=label)
+            pp.legend(loc='upper left')
+            pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, self.descent.t)))
+            pp.close()
 
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)

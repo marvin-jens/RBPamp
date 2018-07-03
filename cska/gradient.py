@@ -360,6 +360,9 @@ class GradientDescent(object):
         self.errors.append(state.error)
         self.history.append(state.archive())
         self.last_state = state
+        if callback:
+            callback(self)
+
         try:
             while not self.converged() and self.t < maxiter:
                 local_grad = state.grad.unity()
