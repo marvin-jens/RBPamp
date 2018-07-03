@@ -273,14 +273,15 @@ class InvMeanFieldModel(object):
 
         
 class MeanFieldAnalysis(object):
-    def __init__(self, rbns, pwm, ref=None):
+    def __init__(self, rbns, pwm, ref=None, k_fit=6, mdl_name='partfunc'):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
         self.k = pwm.n
-        self.R, self.R_err = rbns.R_value_matrix(self.k)
+        self.k_fit = k_fit
+        self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
         self.logger = logging.getLogger('opt.GradientDescent')
-        
+        print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=1.)
         params.betas[:] = .0001
         # initial guess
@@ -290,7 +291,12 @@ class MeanFieldAnalysis(object):
         from cska.partfunc import PartFuncModel
         # model = MeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         # model = InvMeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
-        model = PartFuncModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        mdl = {
+            'partfunc' : PartFuncModel,
+            'meanfield' : MeanFieldModel,
+            'invmeanfield' : InvMeanFieldModel,
+        } [mdl_name]
+        model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         self.descent = cska.gradient.GradientDescent(model, params)
         state = model.predict(params)
         params.betas[:] = model.estimate_betas(state)
@@ -375,7 +381,7 @@ class MeanFieldAnalysis(object):
         with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(state.params.k)),'w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
-            for i in range(state.params.Nk):
+            for i in range(state.mdl.nA):
                 kmer = cyska.index_to_seq(i, state.params.k)
                 out = [kmer,] + ["{0:.3f}".format(r) for r in res[:,i]]
                 f.write('\t'.join(out) + '\n')

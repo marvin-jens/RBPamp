@@ -103,7 +103,7 @@ class PartFuncModel(object):
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
         self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
-
+        print "partfuncmodel: k_mdl, k_fit", self.k_mdl, self.k
         f0 = reads.kmer_frequencies(self.k)
         self.f0 = f0 / f0.sum()
 

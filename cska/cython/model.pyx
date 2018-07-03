@@ -188,7 +188,7 @@ def PSAM_partition_function_gradient(state):
     cdef UINT64_t l = L - k + 1
     # print "L-k+1", l, "Z.shape", Z.shape, 'k', k
     cdef UINT64_t lam = im.shape[1]
-    cdef UINT64_t Nk = state.params.Nk
+    cdef UINT64_t Nk = state.mdl.nA
     cdef UINT64_t zero_bytes = n_psam*4
 
     # type inner loop variables and terms used multiple times

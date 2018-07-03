@@ -341,6 +341,25 @@ class RBNSAnalysis(CachedBase):
         #return gmean(all_ska_weights, axis=0).argsort()[::-1]
         return np.median(all_R, axis=0).argsort()[::-1]
     
+    def keep_best_samples(self, n=3, k=7, top=5):
+        if n == 0:
+            return
+        
+        n = min(n, len(self.reads) - 1)
+        I = self.get_optimal_kmer_ranking(k)
+        R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
+        sample_ranks = R.argsort()[::-1]
+        cut_off = R[sample_ranks][n-1]
+        print R, sample_ranks
+        reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
+        self.reads = []
+        
+        rbns = RBNSAnalysis(rbp_name = self.rbp_name, out_path=self.out_path, ska_runner=self.ska_runner, known_kd=self.known_kd, n_pure_samples = self.n_pure_samples)
+        for r in reads:
+            rbns.add_reads(r)
+            
+        return rbns
+        
     def select_significant_kmers(self,k, z_cut=2, n_min=1, n_max=None):
         ska, ska_err = self.SKA_weight_matrix(k)
         
@@ -384,7 +403,7 @@ class RBNSAnalysis(CachedBase):
                 #     from cska.rbns_reports import EnrichmentBarPlot
                 #     for comp in self.comparisons:
                 #         path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
-                #         if not os.path.exists(path):
+                #         if not os.path.xists(path):
                 #             os.makedirs(path)
                 #         plot = EnrichmentBarPlot(comp)
                 #         plot.make_plot(k, dest=path)
