@@ -120,10 +120,10 @@ def density_scatter_plot(
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
             zi[zi < 1e-3] = np.nan
             print "nans", np.isnan(zi).sum()
-            print zi.min()
+            print zi.min(), zi.max()
 
             # pca().set_facecolor('w')
-            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True)
+            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0)
             m.set_rasterized(True)
             cb = pp.colorbar(label='density', shrink=.5, ticks = matplotlib.ticker.MaxNLocator(nbins=3, )) #orientation='horizontal', fraction=.05)
             cb.ax.tick_params(axis='y', direction='out')
