@@ -7,13 +7,13 @@ import numpy as np
 import time
 import os
 import logging
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 from cska.caching import cached, pickled, CachedBase
 import cska.fold
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear')):
         
         CachedBase.__init__(self)
         
@@ -129,6 +129,13 @@ class RBNSReads(CachedBase):
 
         return seqm
 
+    def get_padded_seqm(self, k):
+        adap5 = cyska.seq_to_bits(self.adap5)
+        adap3 = cyska.seq_to_bits(self.adap3)
+
+        padded = cyska.seqm_pad_adapters(self.seqm, adap5, adap3, k)
+        return padded
+
     @cached
     def get_index_matrix(self, k, indices=[]):
         """
@@ -148,7 +155,41 @@ class RBNSReads(CachedBase):
         self.logger.debug("get_index_matrix k={0}".format(k))
         return im
             
-       
+    def get_acc_matrix(self, k, indices=[], disc_mode='linear', ofs=None):
+        """
+        Returns N x (L+k-1) matrix with all k-mer accessibilities in each read, including
+        positions that overlap the adapter.
+        disc_mode is discretization mode: linear, gamma, raw
+        """
+        if disc_mode == 'raw':
+            openen = self.acc_storage.get_raw(k)
+        else:
+            openen = self.acc_storage.get_discretized(k,disc_mode=disc_mode)
+            
+        if ofs is None:
+            ofs = openen.ofs - k + 1
+        else:
+            ofs = openen.ofs - ofs
+
+        if indices:
+            return openen.oem[indices, ofs:], openen
+        else:
+            return openen.oem[:, ofs:], openen
+
+    @pickled        
+    def get_acc_profiles(self, k_seq, k_acc):
+        acc, openen = self.get_acc_matrix(k_acc, ofs=k_seq-1)
+        im = self.get_index_matrix(k_seq)
+        self.logger.debug("kmer_openen_profiles k_seq={0} k_acc={1}".format(k_seq, k_acc))
+        prof = cyska.kmer_openen_profiles(im, acc, k_seq, k_acc, 0)
+
+        return prof
+        
+    @pickled
+    def get_kmer_accessibility_binned(self, k):
+        counts, openen = cyska.kmer_acc_counts(self, k)
+        return counts, openen.acc_lookup
+        
     @property
     @cached
     @pickled
@@ -210,6 +251,24 @@ class RBNSReads(CachedBase):
 
         return freqs
 
+    def extrapolated_kmer_frequencies(self, k, level=2):
+        """
+        Uses mono-, di- ... up to <level>-nucleotide frequencies to extrapolate
+        frequencies for arbitrary k > level.
+        """
+        init = self.kmer_frequencies(level-1)
+        init /= init.sum()
+        
+        transition = self.kmer_frequencies(level).reshape( (4**(level-1), 4) )
+        transition /= transition.sum(axis=1)[:,np.newaxis]
+        
+        #print "transition matrix", transition.shape
+        #for row in transition:
+            #print row
+        
+        #return cyska.extrapolate_kmer_freqs(k, np.log(init), np.log(transition), level)
+        return cyska.extrapolate_kmer_freqs(k, init, transition, level), init, transition
+    
     @cached
     @pickled
     def joint_kmer_profiles(self, k_core, k_flank):
@@ -419,10 +478,62 @@ class RBNSReads(CachedBase):
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
     CachedBase.debug_caching=True
     test_reads = [
         "TAATTTTTGCATGAAAAATCGAT",
         "AGAGGAGAGAGAGAGTCGCGCGA",
         "CGCGCGCGTCGCGATAGCGTCGA",
     ]
+    
     reads = RBNSReads.from_seqs(test_reads)
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=1000000)
+    k = 4
+    l = 3
+    ext, init, transition = reads.extrapolated_kmer_frequencies(k,level=l)
+    mono = reads.kmer_frequencies(1)
+    base = cyska.seq_to_index('auca')
+    corr = (1 + 1./(20 + l -1))
+    print "corr ", corr
+    for n in range(4):
+        ext[base + n] *= corr / init[cyska.seq_to_index('uc')] * mono[0] # a
+
+    print "corr ", corr
+    for s in ['augg','cugg','gugg','uugg']:
+        n = cyska.seq_to_index(s)
+        c = corr / init[cyska.seq_to_index('ug')] * mono[2] # G
+        ext[n] *= c
+
+    ext /= ext.sum()
+    
+    obs = reads.kmer_frequencies(k)
+    obs /= obs.sum()
+    
+    from scipy.stats import pearsonr
+    import matplotlib.pyplot as pp
+    R, p_val = pearsonr(np.log(obs), np.log(ext))
+    print R, p_val
+    pp.figure()
+    pp.loglog(obs, ext, 'x')
+    pp.xlabel("observed")
+    pp.ylabel("extrapolated")
+    pp.tight_layout()
+    pp.savefig("kmer_extrapolation_test.pdf")
+    
+    lfc = np.log2(obs/ext)
+    I = np.fabs(lfc).argsort()[::-1]
+    for i in I[:20]:
+        print cyska.index_to_seq(i,k), obs[i], ext[i], lfc[i], 2**lfc[i], corr
+        
+    sys.exit(1)
+    
+
+    import cska.cyska as cyska
+    adap5 = cyska.seq_to_bits(reads.adap5)
+    adap3 = cyska.seq_to_bits(reads.adap3)
+    print adap5
+    print adap3
+    
+    padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, 5)
+    for r in padded:
+        print r

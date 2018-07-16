@@ -11,7 +11,7 @@ import matplotlib.pyplot as pp
 import logging
 import os, sys, time
 import numpy as np
-import cska.ska_kmers
+import cska.cyska
 import scipy.stats
 from collections import defaultdict
 
@@ -23,7 +23,7 @@ class Optimizer(object):
         self.logger = logging.getLogger("Optimizer")
 
         self.k = k
-        self.kmers = np.array([mer.upper().replace('T','U') for mer in cska.ska_kmers.yield_kmers(k)])
+        self.kmers = np.array([mer.upper().replace('T','U') for mer in cyska.yield_kmers(k)])
         self.reads = reads
         self.openen_storage = openen_storage
         self.openen = self.openen_storage.get_discretized(self.k)
@@ -118,7 +118,7 @@ class Optimizer(object):
         return np.array(grad)
         
     def eval_thermodynamic_model(self, kmer_invkd = [], indices = [], protein_conc = [], seq_only=False, do_jacobi=False):
-        from cska.ska_kmers import eval_energy_model_on_seqs
+        from cyska import eval_energy_model_on_seqs
         import time
         
         # prepare all variables
@@ -218,9 +218,9 @@ class Optimizer(object):
             print "!!!!! kmers with max residual error"
             for i in score.argsort()[::-1][:10]:
                 #grad = self.gradient(I=[i,])
-                print cska.ska_kmers.index_to_seq(i, self.k), "score=",score[i], "bad=",badness[i], "heat=",self.heat[i], self.known_invkd[i], self.trial_invkd[i], "residual", self.kmer_error_new[:,i]#, "grad", grad
+                print cyska.index_to_seq(i, self.k), "score=",score[i], "bad=",badness[i], "heat=",self.heat[i], self.known_invkd[i], self.trial_invkd[i], "residual", self.kmer_error_new[:,i]#, "grad", grad
                 #for j, w in self.cm.get_shadow(i):
-                    #s_mer = cska.ska_kmers.index_to_seq(j, self.k)
+                    #s_mer = cyska.index_to_seq(j, self.k)
                     #s_err = self.kmer_error_new[:,j]
                     #s_msd = (self.kmer_error_new[:,i] - s_err/w)**2
                     #print "shadow: {s_mer}: {w} error: {s_err} sq.dev: {s_msd}".format(**locals())
@@ -240,7 +240,7 @@ class Optimizer(object):
             if self.kmer_update_count[i] > 0:
                 continue
                 
-            print cska.ska_kmers.index_to_seq(i, self.k), self.known_invkd[i], self.trial_invkd[i], "abs. error", self.kmer_error_new[:,i]
+            print cyska.index_to_seq(i, self.k), self.known_invkd[i], self.trial_invkd[i], "abs. error", self.kmer_error_new[:,i]
             n -= 1
             if not n:
                 break
@@ -471,7 +471,7 @@ class Optimizer(object):
     def annotate_update_vector(self, vec, n=10):
         print "-----------update vector------------"
         for i in np.fabs(vec).argsort()[::-1][:n]:
-            print "    ", cska.ska_kmers.index_to_seq(i, self.k), self.trial_invkd[i], "->", self.trial_invkd[i] + vec[i], "known=", self.known_invkd[i]
+            print "    ", cyska.index_to_seq(i, self.k), self.trial_invkd[i], "->", self.trial_invkd[i] + vec[i], "known=", self.known_invkd[i]
         
 
     def step_gradient(self):
@@ -517,7 +517,7 @@ class Optimizer(object):
             #else:
                 #status = 'BAD'
                 
-            #print cska.ska_kmers.index_to_seq(i, 5), status, update[i], self.trial_invkd[i], self.known_invkd[i], self.R_obs[:,i], self.R_new[:,i], R_opt[:,i]
+            #print cyska.index_to_seq(i, 5), status, update[i], self.trial_invkd[i], self.known_invkd[i], self.R_obs[:,i], self.R_new[:,i], R_opt[:,i]
 
         print "finding optimal scaling of all affinities"
         # find optimal global scale
@@ -533,7 +533,7 @@ class Optimizer(object):
 
         #print "update vector elements that should actually matter"
         #for i in np.fabs(self.known_invkd - self.trial_invkd).argsort()[::-1][:20]:
-            #print cska.ska_kmers.index_to_seq(i, 5), update[i], self.R_obs[:,i], self.R_old[:,i], self.known_invkd[i], self.trial_invkd[i]
+            #print cyska.index_to_seq(i, 5), update[i], self.R_obs[:,i], self.R_old[:,i], self.known_invkd[i], self.trial_invkd[i]
         
         
         self.trial_invkd = new_invkd
@@ -652,7 +652,7 @@ class Optimizer(object):
         #pp.close()
 
     #def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        ##to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
         
         #kmer_i = self.opt.last_kmer_update
         #kmer = self.opt.kmers[kmer_i]
@@ -680,7 +680,7 @@ class Optimizer(object):
         #pp.close()
         
     #def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        ##to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        ##to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
         
         #kmer_i = self.opt.last_kmer_update
         #kmer = self.opt.kmers[kmer_i]
@@ -717,7 +717,7 @@ class Optimizer(object):
         #pp.close()
         
     #def plot_errors(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-        #to_mark_i = [cska.ska_kmers.seq_to_index(x) for x in to_mark]
+        #to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
 
         #kmer_i = self.opt.last_kmer_update
         #kmer = self.opt.kmers[kmer_i]
@@ -838,7 +838,7 @@ def load_table(src):
         values.append(parts[val_i])
         errors.append(parts[err_i])
         
-    indices = np.array([cska.ska_kmers.seq_to_index(mer) for mer in kmers])
+    indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
     k = len(kmers[0])
     
     l = len(values[0])

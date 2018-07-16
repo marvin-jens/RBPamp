@@ -2,7 +2,7 @@
 import sys
 import os
 import numpy as np
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 import logging
 
 class RefComparison(object):
@@ -16,7 +16,7 @@ class RefComparison(object):
         self.affinity_errs = []
         
         self.logger = logging.getLogger("report.ReferenceComparison")
-        import cska.ska_kmers
+        import cska.cyska
         if not ref_file:
             ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
 
@@ -68,9 +68,15 @@ class RefComparison(object):
             
         return kmers
 
+    def __len__(self):
+        return len(self.seqs)
+    
     def predict_affinities(self, mdl):
         a = []
-        aff = mdl.parameters.affinities
+        if hasattr(mdl, "parameters"):
+            aff = mdl.parameters.affinities
+        else:
+            aff = mdl.affinities
 
         for seq in self.seqs:
             I = np.array(self.split_kmers(seq, mdl.k))

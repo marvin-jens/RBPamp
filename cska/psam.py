@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import sys
 import numpy as np
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 bases = 'ACGU'
 base_idx = { 
@@ -511,7 +511,7 @@ if __name__ == "__main__":
         #c = a + b
         psam = c
         print c
-        from cska.ska_kmers import seq_to_index
+        from cyska import seq_to_index
         #print "making tabke"
         tbl = c.nmer_affinities()
         for m in monitor:

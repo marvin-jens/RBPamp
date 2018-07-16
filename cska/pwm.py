@@ -3,7 +3,7 @@ import sys
 import os
 import numpy as np
 import cska
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 
 bases = np.array(list('ACGU'))
 base_idx = { 
@@ -174,6 +174,10 @@ class PSAM(object):
     def Kd(self):
         return 1./self.A0
 
+    @property
+    def matrix(self):
+        return self.psam * self.A0
+
     @classmethod
     def from_kmer(cls, kmer, **kwargs):
         kmer = kmer.upper()
@@ -270,7 +274,7 @@ class PSAM(object):
 
 
     def kmer_affinity_table(self, aff0=1e-6):
-        params = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
+        params, indices = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
         return params
 
     @property
@@ -704,11 +708,16 @@ class PWMOptimizer(object):
         else:
             return self.eps
 
-    def optimize(self, seed_params=[]):
-        if len(seed_params):
+    def optimize(self, seed_params=None):
+        if not seed_params is None:
             self.opt.mdl.params[:len(seed_params)] = seed_params
-            self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
-            self.opt.step_betas()
+
+        self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
+        # do a beta sweep
+        for i in range(self.opt.mdl.n_conc):
+            self.opt.sweep_param(self.opt.mdl.nA + i)
+
+        self.opt.step_betas()
 
         self.opt.reporter.tick(0)
         self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
@@ -1088,7 +1097,7 @@ if __name__ == "__main__":
     # for mer, a in zip(kmers[I], aff[I]):
     #     print mer, a
 
-    import cska.ska_kmers as cyska
+    import cska.cyska as cyska
     params_new = cyska.params_from_pwm(psam.psam, A0=psam.A0, aff0=1e-6)
 
     import matplotlib.pyplot as pp

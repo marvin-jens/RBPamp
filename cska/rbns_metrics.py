@@ -11,7 +11,7 @@ import time
 import os
 import logging
 import collections
-import cska.ska_kmers
+import cska.cyska
 import matplotlib
 matplotlib.use('pdf')
 import matplotlib.pyplot as pp
@@ -108,7 +108,7 @@ class RBNSMetrics(object):
             top_i = (res.z_scores_ska > z_cut).nonzero()[0]
             n = len(top_i)
             
-            kmers = [cska.ska_kmers.index_to_seq(i,k) for i in top_i]
+            kmers = [cyska.index_to_seq(i,k) for i in top_i]
             scores = res.ska_weights[top_i]
             errors = res.ska_weights_err[top_i]
             
@@ -305,7 +305,7 @@ class PairInteractionScreen(object):
         top_i = self._KL.max(axis=1).argsort()[::-1][:n_top]
         # and sort alphabetically to ensure reproducibility across successive runs
         top_i = sorted(top_i)
-        top_kmers = [cska.ska_kmers.index_to_seq(i, self.k_int) for i in top_i]
+        top_kmers = [cyska.index_to_seq(i, self.k_int) for i in top_i]
         #print "top interacting kmer candidate list", top_kmers
         return top_i, top_kmers
     

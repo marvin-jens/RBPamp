@@ -12,7 +12,7 @@ import os
 import logging
 import collections
 import traceback
-#import cska.ska_kmers
+#import cska.cyska
 import matplotlib
 
 
@@ -39,9 +39,13 @@ def auto_detect(path='.', exts=["reads","txt"]):
     rbp_conc = []
     
     for f in files:
-        name, conc = os.path.basename(f).split("_")
-        conc = conc.rsplit('.',1)[0]
-        conc = float(conc.replace('input','0'))
+        try:
+            name, conc = os.path.basename(f).split("_")
+            conc = conc.rsplit('.',1)[0]
+            conc = float(conc.replace('input','0'))
+        except ValueError:
+            continue
+
         rbp_names[name] += 1
         rbp_conc.append(conc)
     
@@ -64,6 +68,9 @@ def main():
     parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
     parser.add_option("","--run-path",dest="run",default="run_{datestr}",help="pattern for run-folder name (default='run_{datestr}')")
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
+    parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
+    
+    
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature",dest="temp",default=22.,type=float,help="temperature of the experiment in degrees Celsius (default=22.0)")
@@ -92,6 +99,8 @@ def main():
     parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
 
     # affinity model optimization 
+    parser.add_option("","--gradient-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
+    parser.add_option("","--gradient-mdl",dest="grad_mdl",default="partfunc", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
@@ -174,7 +183,7 @@ def main():
 
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
-    logging.basicConfig(level=logging.WARNING, format=FORMAT)    
+    logging.basicConfig(level=logging.INFO, format=FORMAT)    
     root = logging.getLogger('')
     fh = logging.FileHandler(filename=log_path, mode='a')
     fh.setFormatter(logging.Formatter(FORMAT))
@@ -271,6 +280,9 @@ def main():
                 rbns.compute_results(k, options, results=metrics)
                 rbns.flush()
 
+        if options.best:
+            rbns = rbns.keep_best_samples(n=options.best)
+            
         ### special run modes: 
         # secondary structure prediction and accessibility recording
         if options.folding:
@@ -297,9 +309,9 @@ def main():
                     n_parallel= options.parallel,
                 )
 
-
         # prime the optimization from dependent-kmer analysis
         from cska.pwm import PWMOptimizer, PSAM
+        print "pwm_init?", options.mdl_pwm_init
         if options.seed_analysis:
             logger.info("performing seed analysis")
             from cska.seed import SeedRefinement
@@ -314,6 +326,24 @@ def main():
         else:
             k = options.min_k
 
+        from cska.comparison import RefComparison
+        if options.compare:
+            compare = options.compare
+        else:
+            compare = rbp_name
+        ref = RefComparison(compare, ref_file=options.ref_file)
+
+        # TODO: cleanup initial PWM handling
+        if options.grad_mdl:
+            if options.seed_analysis:
+                seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
+                pwm = SR.psam_lin
+
+            from cska.meanfield import MeanFieldAnalysis
+            MFA = MeanFieldAnalysis(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl)
+            params = MFA.descent.params
+            pwm = PSAM(params.psam_matrix, A0=params.A0)
+
         # fit of thermodynamic model parameters (affinities)
         if options.model:
             from cska.optimize import ModelOptimization
@@ -327,12 +357,6 @@ def main():
             )
             pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
             
-            from cska.comparison import RefComparison
-            if options.compare:
-                compare = options.compare
-            else:
-                compare = rbp_name
-            ref = RefComparison(compare, ref_file=options.ref_file)
 
             from cska.report import OptReporting
             opt.reporter = OptReporting(
@@ -352,6 +376,11 @@ def main():
                 seed_params = pwm.kmer_affinity_table(aff0=1e-5)
                 pwm_opt.pwm0 = pwm
 
+            if options.meanfield:
+                betas = MFA.descent.params.betas
+                seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
+                pwm_opt.pwm0 = pwm
+                
                 # from copy import copy
                 # from cska.report import p_bound_plot
                 # p_bound_plot(opt.current)

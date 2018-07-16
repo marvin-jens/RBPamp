@@ -4,7 +4,7 @@ import matplotlib.pyplot as pp
 from scipy.stats import spearmanr, pearsonr
 import scipy.stats
 from cska.report import density_scatter_plot
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from byo.io import fasta_chunks
 import os, sys, logging
 logging.basicConfig(level=logging.DEBUG)
@@ -60,7 +60,7 @@ class MutualInformationScore(object):
         pp.figure()
         pp.pcolor(self.joint, cmap='viridis')
         pp.colorbar(orientation='horizontal')
-        pp.savefig(fname)
+        pp.savefig(fname, dpi=150)
         pp.close()
 
     def dist_plot(self, fname):
@@ -150,6 +150,13 @@ class nsRBNSOligos(object):
         ind = rowsum > 800
         xtalk = xtalk[ind,:][:,ind]
         # xtalk = xtalk[:100,:100]
+
+        # outfile = file(fname+'.scoresums.tsv','w')
+        # for i, r in enumerate(rowsum):
+        #     if r < 1:
+        #         continue
+        #     outfile.write("{0}\t{1}\n".format(self._fa_ids_raw[i], r))
+
         return xtalk, rowsum
 
     def xtalk_plot(self, fname='xtalk.pdf'):
@@ -163,14 +170,14 @@ class nsRBNSOligos(object):
         pp.savefig(fname)
         pp.close()
 
-    def get_SPA_model(self, k=7, rna_conc=1000., rbp_conc=[25.,125.,625.]):
+    def get_SPA_model(self, k=7, rna_conc=100., rbp_conc=[25.,125.,625.], seq_only=False):
         from cska.reads import RBNSReads
         import cska.spa
 
         path = os.path.dirname(self.fa_name)
         reads = RBNSReads.from_seqs(self.SEQ, fname=self.fa_name, rbp_name='nsRBNS', rna_conc=rna_conc, acc_storage_path='cska/acc', adap5=self.adap5, adap3=self.adap3)
         # reads.seqm
-        mdl = cska.spa.SPAModel(reads, k, rbp_conc, n_subsample=0)
+        mdl = cska.spa.SPAModel(reads, k, rbp_conc, n_subsample=0, seq_only=seq_only)
         return mdl
 
 
@@ -178,9 +185,216 @@ class nsRBNSOligos(object):
 def phist(*argc, **kwargs):
     pp.hist(*argc, lw=2, bins=100, histtype='step', normed=True, cumulative=True, **kwargs)
 
+from sklearn import linear_model
+from sklearn import preprocessing
+import pandas as pd
+from sklearn.metrics import mean_squared_error, r2_score
+
+def default_lm_data(lm):
+    data = np.array([
+        lm.A, lm.C, lm.G, lm.T, lm.GC_score, np.log(lm.ns_exp.f0),
+        lm.entropy,
+        lm.Z1,
+        # acc,
+            # data = np.array([
+            #     A, C, G, T, GC_score, GC_score**2,
+            #     np.log(self.f0),
+            #     entropy,
+            #     # np.log((P*self.state.Z1)**n/(1 + (P*self.state.Z1)**n)),
+            #     Z1,
+            #     Z1**2,
+            #     Z1**3,
+            #     acc,
+            # ])
+        
+    ])
+    # df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','entropy','Z1'])
+    df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','GC_score', 'f0', 'entropy','Z1'])
+    return df
+
+
+
+class nsRBNSModel(object):
+    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1,k=7):
+        self.ns_exp = ns_exp
+        self.ns = ns_exp.ns
+        self.name = self.ns_exp.name + "_" + name
+        self.param_file = param_file
+        self.rbp_conc = ns_exp.rbp_conc
+        self.z_cut = z_cut
+        if not prepare_data:
+            self.prepare_data = default_lm_data
+        else:
+            self.prepare_data = prepare_data
+
+        self.state = self.evaluate_SPA(param_file, self.ns_exp.rbp_conc, k=k, seq_only=seq_only, scale=scale)
+        # self.betas = self.optimal_betas()
+
+        self.A, self.C, self.G, self.T = self.ns.nt_freqs[self.ns_exp.indices].T
+        self.GC = self.C+self.G
+        self.AT = self.A+self.T
+        self.res = []
+        self.GC_score = self.GC/(1-self.GC)
+        
+        self.Z1 = np.log(self.state.Z1)
+        self.mean_enr = self.ns_exp.enr.mean(axis=0)
+        self.entropy = 2 - self.ns.entropy[self.ns_exp.indices]
+        self.coeff_matrix = []
+
+        self.thresh = np.percentile(self.state.Z1, low_perc)
+        self.I_low = self.state.Z1 <= self.thresh
+
+    # def optimal_betas(self):
+    #     betas = []
+    #     for p, obs in zip(self.state.p_bound, self.ns_exp.enr):
+    #         betas.append(self.optimize_beta(p, obs))
+        
+    #     return np.array(betas)
+
+    # def optimize_beta(self, p, obs):
+
+    #     def to_opt(beta):
+    #         expect = self.predict_R(p, beta)
+    #         # R = np.corrcoef(np.log2(obs), np.log2(expect))[0][1]
+    #         R, p_value = pearsonr(np.log2(obs), np.log2(expect))
+
+    #         return (R - 1)**2
+        
+    #     from scipy.optimize import minimize_scalar
+
+    #     opt = minimize_scalar(to_opt, bounds=[0,1.], method='bounded')
+    #     # print opt
+    #     return opt.x
+
+    def evaluate_SPA(self, fname, rbp_conc, k=7, seq_only=False, scale=1.):
+        letters = 'ACGT'
+        def convert(bits):
+            return "".join([letters[i] for i in bits])
+        mdl = self.ns_exp.ns.get_SPA_model(k=k, rbp_conc = rbp_conc, seq_only=seq_only)  
+
+        # this selects directly form the index_matrix, NOT seqm. So seqm is invalid after subsample!?
+        mdl.new_subsample(indices=self.ns_exp.indices)
+        if fname.endswith('rnacompete'):
+            mdl.parameters.load_rbpbind(fname)
+        else:
+            mdl.parameters.load(fname)
+
+        mdl.params[:mdl.nA] *= scale
+        if self.z_cut:
+            z = np.array(mdl.params[:mdl.nA])
+            z -= z.mean()
+            z /= z.std()
+            print "z-scores", z.min(), z.mean(), z.max()
+            print "best kmer", cyska.index_to_seq(z.argmax(), 7)
+
+            mask = z < self.z_cut
+            mdl.params[:mdl.nA][mask] = 1e-6
+            print "pulled", mask.sum(), 'kmer affinities to 0 because their z-score was <', self.z_cut
+            print (mask ==0).sum(), "left"
+
+        state = mdl.evaluate(mdl.params)
+
+        return state        
+
+    def lm_fit(self):
+        df = self.prepare_data(self)
+        fits = []
+        for conc, enr in zip(self.ns_exp.rbp_conc, self.ns_exp.enr):
+            reg = linear_model.LinearRegression()
+            #reg = linear_model.RidgeCV(alphas=[.1,.3,.5,.75,1.])
+
+            y = np.log2(enr)
+            reg.fit(df, y)
+            # predict on full data
+            y_pred = reg.predict(df)
+            
+            # attach data to regression object
+            reg.df = df
+            reg.conc = conc
+            reg.y_obs = y
+            reg.y_pred = y_pred
+            reg.residuals = y-y_pred
+
+            # and various metrics
+            reg.spearman_R, reg.spearman_pval = spearmanr(y, y_pred)
+            reg.pearson_R, reg.pearson_pval = pearsonr(y, y_pred)
+            reg.r2_full = r2_score(y, y_pred) * 100.
+            reg.r2_bg = r2_score(y[self.I_low], y_pred[self.I_low])* 100
+
+            fits.append(reg)
+
+            print ">>>>>", conc
+            print "coeff", reg.coef_
+            print "intercept", reg.intercept_
+            print "r2 on bg", reg.r2_bg, '%'
+            print "r2 on full ", reg.r2_full, '%'
+            # print "alpha", reg.alpha_
+
+        return fits
+
+    def regression_analysis(self, scatter_plots=True, res_plots=True):
+        fits = self.lm_fit()
+        if scatter_plots:
+            for reg in fits:
+                self.prediction_scatter_plot(reg)
+
+        if res_plots:
+            for reg in fits:
+                self.residuals_plot(reg)
+        
+        self.coeff_matrix_plot(fits)
+        return fits
+
+    def prediction_scatter_plot(self,reg):
+        pp.figure()
+        # pp.plot(y, y_pred, '.', label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
+        density_scatter_plot(reg.y_obs, reg.y_pred,x_ref=False, label=r'{reg.conc:.1f}nM: $\rho$={reg.spearman_R:.3f} (P<{reg.spearman_pval:.2e}) $R^2$={reg.r2_full:.0f}%'.format(**locals()))
+        pp.xlabel('log2 nsRBNS enrichment')
+        pp.ylabel('linear model prediction')
+        pp.legend(loc='upper center', facecolor='white')
+        pp.savefig('{self.name}_{reg.conc}_scatter.pdf'.format(**locals()), dpi=150)
+        pp.close()
+            
+    def coeff_matrix_plot(self, fits):
+        coeff_matrix = np.array([reg.coef_ for reg in fits])
+        pp.figure()
+        pp.pcolor(coeff_matrix)
+        pp.colorbar(orientation='horizontal', fraction=.05, label='weight')
+        pp.xlabel("regression coefficient")
+        pp.ylabel("experiment")
+        df = fits[0].df
+        
+        # pp.xticks(np.arange(len(df.columns)+1)+.5, list(df.columns) + ['intercept'], rotation=45)
+        pp.xticks(np.arange(len(df.columns))+.5, df.columns, rotation=45)
+        pp.yticks(np.arange(len(self.ns_exp.rbp_conc))+.5, ["{0:.1f}nM".format(c) for c in self.ns_exp.rbp_conc])
+        pp.tight_layout()
+        pp.savefig('{self.name}_coeff_matrix.pdf'.format(**locals()))
+        pp.close()
+
+    def residuals_plot(self, reg):
+            # pp.plot(df['A'], res, '.', label='A')
+            # pp.plot(df['C'], res, '.', label='C')
+            # pp.plot(df['G'], res, '.', label='G')
+            # pp.plot(df['T'], res, '.', label='T')
+            # pp.plot(df['GC'], res, '.', label='log(GC)')
+            # pp.plot(df['f0'], res, '.', label='log(f0)')
+            # pp.plot(df['entropy'], res, '.', label='entropy')
+            # pp.plot(df['binding'], res, '.', label='log(Z1)')
+
+        for col in reg.df.columns:
+            pp.figure()
+            pp.title('{0} residuals'.format(col))
+            density_scatter_plot(reg.df[col], reg.residuals, x_ref=False, label=col)
+            pp.legend(loc='upper center', facecolor='white')
+            pp.savefig('{self.name}_{col}_{reg.conc}_residual.pdf'.format(**locals()))
+            pp.close()
+
+            # res.append() # keep the residuals
 
 class nsRBNSExperiment(object):
-    def __init__(self, nsrbns, fcount_matrix, faffinities, name='nsRBNS', rbp_conc = [25.,125.,625.], pseudo=10, skip_xtalk=True, skip_low=True):
+    def __init__(self, nsrbns, fcount_matrix, name='', rbp_conc = [25.,125.,625.], pseudo=1, skip_xtalk=True, skip_low=True, seq_only=False):
+        if not name:
+            name = fcount_matrix.split('_')[0]
         self.name = name
         self.ns = nsrbns
         
@@ -194,11 +408,8 @@ class nsRBNSExperiment(object):
         self.f0 = self.frac[0]
         self.rbp_conc = rbp_conc
 
-        self.faffinities = faffinities
-        self.state = self.evaluate_SPA(faffinities, rbp_conc)
-        self.betas = self.optimal_betas()
         
-        self.enr_expect, self.pearson, self.ppval, self.spearman, self.spval = self.prediction()
+        # self.enr_expect, self.pearson, self.ppval, self.spearman, self.spval = self.prediction()
 
     def load_counts(self, fname, skip_xtalk=True, skip_low=True):
         counts = []
@@ -238,121 +449,37 @@ class nsRBNSExperiment(object):
 
         return indices, counts
 
+        # acc = np.log(self.state.mdl.reads.acc_storage.get_raw(11).acc[self.indices].mean(axis=1))
+        # print acc.shape
+            # P = conc
+            # n = 1.
+            # data = np.array([
+            #     A, C, G, T, GC_score, GC_score**2,
+            #     np.log(self.f0),
+            #     entropy,
+            #     # np.log((P*self.state.Z1)**n/(1 + (P*self.state.Z1)**n)),
+            #     Z1,
+            #     Z1**2,
+            #     Z1**3,
+            #     acc,
+            # ])
+            # data = preprocessing.scale(data.T)
+            # df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'GC2', 'log_f0', 'entropy','binding','bind2', 'bind3', 'mean_acc'])
 
-    def evaluate_SPA(self, fname, rbp_conc, k=7):
-        letters = 'ACGT'
-        def convert(bits):
-            return "".join([letters[i] for i in bits])
-        mdl = self.ns.get_SPA_model(k=k, rbp_conc = rbp_conc)        
 
-        # this selects directly form the index_matrix, NOT seqm. So seqm is invalid after subsample!?
-        mdl.new_subsample(indices=self.indices)
-        if fname.endswith('rnacompete'):
-            mdl.parameters.load_rbpbind(fname)
-        else:
-            mdl.parameters.load(fname)
 
-        mdl.params[:mdl.nA]
-        state = mdl.evaluate(mdl.params)
 
-        return state
 
-    def noaffinity_analysis(self, perc=10.):
-        thresh = np.percentile(self.state.Z1, perc)
-        I = self.state.Z1 < thresh
-
-        from sklearn import linear_model
-        from sklearn import preprocessing
-        import pandas as pd
-        from sklearn.metrics import mean_squared_error, r2_score
-
-        acc = np.log(self.state.mdl.reads.acc_storage.get_raw(11).acc[self.indices].mean(axis=1))
-        print acc.shape
-        A,C,G,T = self.ns.nt_freqs[self.indices].T
-        GC = C+G
-        AT = A+T
-        res = []
-        GC_score = preprocessing.scale(GC/(1-GC))
-        Z1 = preprocessing.scale(np.log(self.state.Z1))
-        entropy = 2 - self.ns.entropy[self.indices]
-        for conc, enr in zip(self.rbp_conc, self.enr):
-            P = conc * .001
-            n = 1.
-            data = np.array([
-                A, C, G, T, GC_score, GC_score**2,
-                np.log(self.f0),
-                entropy,
-                # np.log((P*self.state.Z1)**n/(1 + (P*self.state.Z1)**n)),
-                Z1,
-                Z1**2,
-                Z1**3,
-                acc,
-            ])
-            data = preprocessing.scale(data.T)
-            df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'GC2', 'f0', 'entropy','binding','bind2', 'bind3', 'mean_acc'])
             # df = pd.DataFrame(data=data, columns = ['A','C','G','T','GC', 'f0', 'entropy','binding',])
-
-            # reg = linear_model.LinearRegression()
-            reg = linear_model.RidgeCV(alphas=[.1,.3,.5,.75,1.])
-            # reg.fit(df.iloc[I], y[I])
-            y = np.log2(enr)
-            reg.fit(df, y)
-            # predict on full data
-            y_pred = reg.predict(df)
-            R, p_val = spearmanr(y,y_pred)
-
-            pp.figure()
-            # pp.plot(y, y_pred, '.', label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
-            density_scatter_plot(y, y_pred,x_ref=False, label='{conc:.1f}nM: rho={R:.3f} (P < {p_val:.2e})'.format(**locals()))
-            pp.xlabel('log2 nsRBNS enrichment')
-            pp.ylabel('linear model prediction')
-            pp.legend(loc='upper center', facecolor='white')
-            pp.savefig('{conc}_scatter.pdf'.format(**locals()))
-            pp.close()
             
-            res = y-y_pred
-            # pp.plot(df['A'], res, '.', label='A')
-            # pp.plot(df['C'], res, '.', label='C')
-            # pp.plot(df['G'], res, '.', label='G')
-            # pp.plot(df['T'], res, '.', label='T')
-            # pp.plot(df['GC'], res, '.', label='log(GC)')
-            # pp.plot(df['f0'], res, '.', label='log(f0)')
-            # pp.plot(df['entropy'], res, '.', label='entropy')
-            
-            # pp.plot(df['binding'], res, '.', label='log(Z1)')
-            print "coeff", reg.coef_
-            print "intercept", reg.intercept_
-            print "r2 on bg", r2_score(y[I], y_pred[I])
-            print ">>>>>", conc, "r2 full ", r2_score(y, y_pred)
-            print "alpha", reg.alpha_
-
-            for col in df.columns:
-                pp.figure()
-                pp.title('{0} residuals'.format(col))
-                density_scatter_plot(df[col], res, x_ref=False, label=col)
-                pp.legend(loc='upper center', facecolor='white')
-                pp.savefig('{col}_{conc}_residual.pdf'.format(**locals()))
-                pp.close()
-
-            # res.append() # keep the residuals
-
 
         # pp.show()
 
 
-
-
-    def optimal_betas(self):
-        betas = []
-        for p, obs in zip(self.state.p_bound, self.enr):
-            betas.append(self.optimize_beta(p, obs))
-        
-        return np.array(betas)
-
-    def affinity_selection_plot(self, fname = 'affinity_selection.pdf'):
+    def affinity_selection_plot(self, lm, fname = '{lm.name}_affinity_selection.pdf'):
         ### Affinity selection plot
         pp.figure()
-        Z = np.log10(self.state.Z1)
+        Z = np.log10(lm.state.Z1)
         # Z -= Z.mean()
         # Z /= Z.std()
         phist(Z, color='gray', label='input')
@@ -362,7 +489,7 @@ class nsRBNSExperiment(object):
         pp.xlabel("natural sequence affinity [1/nM] (log10)")
         pp.ylabel("rel. cumulative frequency of pull-down")
         pp.legend(loc='upper left')
-        pp.savefig(fname)
+        pp.savefig(fname.format(**locals()))
         pp.close()
 
     def GC_bias_plot(self, fname='GC.pdf'):
@@ -393,59 +520,42 @@ class nsRBNSExperiment(object):
         pp.savefig(fname)
         pp.close()
 
-    def predict_R(self, p, beta):
-        expect = (p + beta) * self.f0 
-        expect /= expect.sum()
-        expect /= self.f0
-        return expect
+    # def predict_R(self, p, beta):
+    #     expect = (p + beta) * self.f0 
+    #     expect /= expect.sum()
+    #     expect /= self.f0
+    #     return expect
 
-    
-    def optimize_beta(self, p, obs):
+    # def prediction(self):
+    #     pearson = []
+    #     ppval = []
+    #     spearman = []
+    #     spval = []
+    #     enr_expect = []
 
-        def to_opt(beta):
-            expect = self.predict_R(p, beta)
-            # R = np.corrcoef(np.log2(obs), np.log2(expect))[0][1]
-            R, p_value = pearsonr(np.log2(obs), np.log2(expect))
-
-            return (R - 1)**2
-        
-        from scipy.optimize import minimize_scalar
-
-        opt = minimize_scalar(to_opt, bounds=[0,1.], method='bounded')
-        # print opt
-        return opt.x
-
-
-    def prediction(self):
-        pearson = []
-        ppval = []
-        spearman = []
-        spval = []
-        enr_expect = []
-
-        for conc, p, obs, beta in zip(self.rbp_conc, self.state.p_bound, self.enr, self.betas):
-            expect = self.predict_R(p, beta)
-            enr_expect.append(expect)
+    #     for conc, p, obs, beta in zip(self.rbp_conc, self.state.p_bound, self.enr, self.betas):
+    #         expect = self.predict_R(p, beta)
+    #         enr_expect.append(expect)
             
-            R, pp_value = pearsonr(np.log2(obs), np.log2(expect))
-            rho, p_value = spearmanr(np.log2(obs), np.log2(expect))
-            pearson.append(R)
-            ppval.append(pp_value)
-            spearman.append(rho)
-            spval.append(p_value)
+    #         R, pp_value = pearsonr(np.log2(obs), np.log2(expect))
+    #         rho, p_value = spearmanr(np.log2(obs), np.log2(expect))
+    #         pearson.append(R)
+    #         ppval.append(pp_value)
+    #         spearman.append(rho)
+    #         spval.append(p_value)
 
-        return np.array(enr_expect), np.array(pearson), np.array(ppval), np.array(spearman), np.array(spval)
+    #     return np.array(enr_expect), np.array(pearson), np.array(ppval), np.array(spearman), np.array(spval)
 
-    def scatter_plot(self, fname='{self.fcount_matrix}_{conc:.2f}.pdf'):
-        for conc, expect, obs, R, pp_value, rho, p_value in zip(self.rbp_conc, self.enr_expect, self.enr, self.pearson, self.ppval, self.spearman, self.spval):
-            pp.figure()
-            pp.loglog(obs, expect, '.', label=r"conc={conc:.1f} R={R:.2f} (P={pp_value:.2e}) $\rho=${rho:.2f} (P={p_value:.2e})".format(**locals()))
-            pp.legend()
-            pp.savefig(fname.format(**locals()))
-            pp.close()
+    # def scatter_plot(self, fname='{self.fcount_matrix}_{conc:.2f}.pdf'):
+    #     for conc, expect, obs, R, pp_value, rho, p_value in zip(self.rbp_conc, self.enr_expect, self.enr, self.pearson, self.ppval, self.spearman, self.spval):
+    #         pp.figure()
+    #         pp.loglog(obs, expect, '.', label=r"conc={conc:.1f} R={R:.2f} (P={pp_value:.2e}) $\rho=${rho:.2f} (P={p_value:.2e})".format(**locals()), rasterized=True)
+    #         pp.legend()
+    #         pp.savefig(fname.format(**locals()))
+    #         pp.close()
 
-    def heatmap_plot(self, fname='heatmap.pdf'):
-        Z = self.state.Z1
+    def heatmap_plot(self, lm, fname='{lm.name}_heatmap.pdf'):
+        Z = lm.state.Z1
         I = (-Z).argsort()
         N = len(Z)
 
@@ -461,7 +571,7 @@ class nsRBNSExperiment(object):
         pp.subplot(312)
         data = self.enr[:,I]
         vmin, vmax = np.percentile(data, [5.,95.])
-        pp.pcolor(data, cmap='viridis', norm=colors.LogNorm(vmin=vmin, vmax=vmax) )
+        pp.pcolor(data, cmap='viridis', norm=colors.LogNorm(vmin=vmin, vmax=vmax), rasterized=True )
         pp.yticks(np.arange(len(self.rbp_conc))+.5, ["{0:.1f} nM".format(c) for c in self.rbp_conc])
         pp.xticks([],[])
         pp.xlim(0,N)
@@ -482,13 +592,13 @@ class nsRBNSExperiment(object):
         pp.xlim(0,N)
         pp.legend(loc='upper right')
         pp.tight_layout()
-        pp.savefig(fname)
+        pp.savefig(fname.format(**locals()))
         pp.close()
 
-    def error_analysis(self, track, name='source', fname='error_{name}.pdf'):
+    def error_analysis(self, fits, track, name='source', fname='error_{name}.pdf'):
         # sort oligos by prediction error
         N = len(self.indices)
-        all_lfc = np.log2(self.enr_expect/self.enr)
+        all_lfc = np.array([ reg.residuals for reg in fits])
         II = []
 
         pp.figure(figsize=(5,7))
@@ -536,56 +646,207 @@ class nsRBNSExperiment(object):
         pp.savefig(fname.format(**locals()))
         pp.close()
 
-        
 
+def get_r2(fits):
+    r2s = [f.r2_full for f in fits]
+    # r2s = [f.spearman_R for f in fits]
+    return np.array(r2s)
+    
+
+def rbfox2_analysis():
+    import seaborn as sns
+    nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
+    # nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
+    exp = nsRBNSExperiment(nsrbns, 'rbfox2_matrix.csv', skip_xtalk=True, seq_only=False)
+    # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
+    # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
+    # kw = dict(scatter_plots=True, res_plots=False)
+    kw = dict(scatter_plots=False, res_plots=False)
+
+    lm = nsRBNSModel(exp, 'RNAcompete', 'RBFOX1.rnacompete', seq_only=False, low_perc=10)
+    fits_rc = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'R_values_na', 'rbfox3_R_value_7mers.tsv', seq_only=True, low_perc=10, z_cut=4)
+    fits_r_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'R_values', 'rbfox3_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
+    fits_r = lm.regression_analysis(**kw)
+
+    # lm = nsRBNSModel(exp, 'SPA_na', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=True, low_perc=10)
+    psam_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv'
+    lm = nsRBNSModel(exp, 'SPA_psam_na', psam_model, seq_only=True, low_perc=10)
+    fits_psam_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_psam', psam_model, seq_only=False, low_perc=10)
+    fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
+
+    kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities.tsv'
+    # kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv'
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10)
+    fits_kmer_na = lm.regression_analysis(**kw)
+
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10)
+    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
+
+    def pos_control_data(lm):
+        data = np.array([
+            lm.A, lm.C, lm.G, lm.T, #GC_score,
+            lm.entropy,
+            np.log2(lm.mean_enr),
+        ])
+        df = pd.DataFrame(data=preprocessing.scale(data.T), columns = ['A','C','G','T','entropy','mean_enr'])
+        return df
+
+    # lm = nsRBNSModel(exp, 'mean_nsRBNS', 'RBFOX1.rnacompete', seq_only=False, low_perc=10, prepare_data=pos_control_data)
+    # fits_m = lm.regression_analysis(**kw)
+
+    x = np.arange(len(exp.rbp_conc))*.9
+    pp.figure(figsize=(5,3))
+    w = .09
+    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
+    pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
+    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o structure)', facecolor=colors[0])
+    pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
+    pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
+    pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
+    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
+    # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
+
+    pp.xticks(x+.3, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
+    pp.legend(loc='upper left')
+    pp.xlabel('RBFOX2 concentration [nM]')
+    pp.ylabel(r'$R^2$ (variance explained)')
+    pp.ylim(0,50)
+    pp.tight_layout()
+    sns.despine(trim=False)
+
+    pp.savefig('performance_RBFOX2.pdf')
+    pp.close()
+
+
+def msi1_analysis():
+    import seaborn as sns
+    nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
+    # nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
+    exp = nsRBNSExperiment(nsrbns, 'msi1_matrix.csv', skip_xtalk=True, seq_only=False)
+    # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
+    # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
+    # kw = dict(scatter_plots=True, res_plots=False)
+    kw = dict(scatter_plots=False, res_plots=False)
+    lm = nsRBNSModel(exp, 'RNAcompete', 'msi1.rnacompete', seq_only=False, low_perc=10)
+    fits_rc = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'R_values_na', 'msi1_R_value_7mers.tsv', seq_only=True, low_perc=10, z_cut=4)
+    fits_r_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'R_values', 'msi1_R_value_7mers.tsv', seq_only=False, low_perc=10, z_cut=4)
+    fits_r = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
+    fits_psam_na = lm.regression_analysis(**kw)
+
+    lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_psam', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
+    fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
+
+    kmer_model = '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv'
+    # kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded3/affinity/8mer_affinities.tsv'
+    kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv'
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10, k=7)
+    fits_kmer_na = lm.regression_analysis(**kw)
+
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
+    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10, k=7)
+    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    exp.heatmap_plot(lm)
+
+    x = np.arange(len(exp.rbp_conc))*.9
+    pp.figure(figsize=(5,3))
+    w = .09
+    colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
+    pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
+    pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o structure)', facecolor=colors[0])
+    pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
+    pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
+    pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
+    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
+    # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
+
+    pp.xticks(x+.2, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
+    pp.legend(loc='upper left')
+    pp.xlabel('RBFOX2 concentration [nM]')
+    pp.ylabel(r'$R^2$ (variance explained)')
+    pp.ylim(0,80)
+    pp.tight_layout()
+    sns.despine(trim=False)
+
+    pp.savefig('performance_MSI1.pdf')
+    pp.close()
+
+# rbfox2_analysis()
+# msi1_analysis()
+# sys.exit(0)
 
 nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
 # nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
-exp = nsRBNSExperiment(nsrbns, sys.argv[1], sys.argv[2], skip_xtalk=True)
+nsrbns.xtalk_plot()
+exp = nsRBNSExperiment(nsrbns, sys.argv[1], skip_xtalk=False, seq_only=False)
 # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
 # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
-exp.noaffinity_analysis()
+# lm = nsRBNSModel(exp, 'SPA', sys.argv[2], seq_only=False, low_perc=10)
+# fits = lm.regression_analysis(scatter_plots=False, res_plots=False)
 
-for conc, obs, expect in zip(exp.rbp_conc, exp.enr, exp.enr_expect):
-    mis = MutualInformationScore(obs, expect)
-    # mis.heatmap_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
-    print conc, "observed vs expected", mis.MI, 'bits'
-    print "null", np.mean(mis.MI_permut), np.std(mis.MI_permut)
-    mis.dist_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
-    print mis.z, mis.p_value
-
-nsrbns.xtalk_plot()
-exp.affinity_selection_plot()
 exp.GC_bias_plot()
 exp.entropy_plot()
-exp.scatter_plot()
-exp.heatmap_plot()
+
+exp.affinity_selection_plot(lm)
+exp.heatmap_plot(lm)
+
+# for reg in fits:
+#     mis = MutualInformationScore(reg.y_obs, reg.y_pred)
+#     # mis.heatmap_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(conc))
+#     print reg.conc, "observed vs expected", mis.MI, 'bits'
+#     print "null", np.mean(mis.MI_permut), np.std(mis.MI_permut)
+#     mis.dist_plot('MI_obs_predicted_{0:0f}nM.pdf'.format(reg.conc))
+#     print mis.z, mis.p_value
+
+
 print "analysis"
-exp.error_analysis(nsrbns.entropy, name='entropy')
-print "residual log error vs. entropy"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.entropy[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
+exp.error_analysis(fits, nsrbns.entropy, name='entropy')
+# print "residual log error vs. entropy"
+# all_lfc = np.log2(exp.enr_expect/exp.enr)
+# for conc, lfc in zip(exp.rbp_conc, all_lfc):
+#     mis = MutualInformationScore(lfc, nsrbns.entropy[exp.indices])
+#     # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+#     print conc,"nM", mis.MI, mis.z, mis.p_value
 
-exp.error_analysis(nsrbns.GC, name='GC_content')
-print "residual log error vs. GC content"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.GC[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
+exp.error_analysis(fits, nsrbns.GC, name='GC_content')
+# print "residual log error vs. GC content"
+# all_lfc = np.log2(exp.enr_expect/exp.enr)
+# for conc, lfc in zip(exp.rbp_conc, all_lfc):
+#     mis = MutualInformationScore(lfc, nsrbns.GC[exp.indices])
+#     # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+#     print conc,"nM", mis.MI, mis.z, mis.p_value
 
-exp.error_analysis(nsrbns.xtalk_score, name='xtalk')
-print "residual log error vs. xtalk"
-all_lfc = np.log2(exp.enr_expect/exp.enr)
-for conc, lfc in zip(exp.rbp_conc, all_lfc):
-    mis = MutualInformationScore(lfc, nsrbns.xtalk_score[exp.indices])
-    # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
-    print conc,"nM", mis.MI, mis.z, mis.p_value
+exp.error_analysis(fits, nsrbns.xtalk_score, name='xtalk')
+# print "residual log error vs. xtalk"
+# all_lfc = np.log2(exp.enr_expect/exp.enr)
+# for conc, lfc in zip(exp.rbp_conc, all_lfc):
+#     mis = MutualInformationScore(lfc, nsrbns.xtalk_score[exp.indices])
+#     # mis.dist_plot('MI_entropy_lfc_{0:0f}nM.pdf'.format(conc))
+#     print conc,"nM", mis.MI, mis.z, mis.p_value
 
-pp.show()
+# pp.show()
 
 
 

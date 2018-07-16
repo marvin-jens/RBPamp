@@ -8,7 +8,7 @@ import sys
 import logging
 import numpy as np
 from scipy.optimize import minimize_scalar
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 import time
 from cska.caching import cached, pickled, CachedBase
 from cska.sc import SelfConsistency
@@ -88,7 +88,8 @@ class SPAState(object):
         t1 = time.time()
         rbp_free = self.sc.free_rbp_vector(self.mdl.rbp_conc, Z_scale=scale)
         t11 = time.time()
-        p_bound = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free)
+        betas = self.params[self.mdl.nA:]
+        p_bound, w = self.mdl._spa_p_rna_bound(Z_scaled, rbp_free, betas) # w includes beta contribution
         t12 = time.time()
         pi_kmer = self.mdl._spa_kmer_pi(p_bound, self.mdl.subsample_index_matrix)
 
@@ -187,8 +188,9 @@ class SPAPartition(object):
         self.p_bound = self.mdl.state.p_bound
         self.rbp_free = self.mdl.state.rbp_free
         
+        betas = self.mdl.params[self.mdl.nA:]
         kmer_Z1 = self.mdl._spa_partition_function(self.im_kmer, self.acc_kmer, self.mdl.params[:self.mdl.nA])
-        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
+        kmer_p_bound, w = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, betas)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
         self.other_pi = pi - kmer_pi
@@ -207,7 +209,8 @@ class SPAPartition(object):
         rbp_free = self.rbp_free
 
         # and re-compute expected pulldown kmer abundances
-        kmer_p_bound = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free)
+        betas = self.mdl.params[self.mdl.nA:]
+        kmer_p_bound, w  = self.mdl._spa_p_rna_bound(kmer_Z1, rbp_free, betas)
         kmer_pi = self.mdl._spa_kmer_pi(kmer_p_bound, self.im_kmer)
 
         # pi is pi from the non kmer-containing + pi from the kmer-containing subset of sequences
@@ -273,7 +276,7 @@ class ParamInterface(object):
         return self.mdl.params[self.nA:]
 
     def load_rbpbind(self, path):
-        params = np.zeros(self.n_params, dtype=np.float32)
+        params = np.ones(self.n_params, dtype=np.float32) * 1e-6
 
         aff = []
         ind = []
@@ -288,6 +291,10 @@ class ParamInterface(object):
         aff = np.array(aff, dtype=np.float32)
         ind = np.array(ind)
         params[ind] = aff
+        m = params[:self.nA].min()
+        if m < 0:
+            self.mdl.logger.warning("negative affinities detected in '{path}'. Shifting entire affinity distribution!".format(path=path))
+            params[:self.nA] += (1e-6 - m)
 
         self.mdl.params = params
 
@@ -496,6 +503,9 @@ class SPAModel(object):
         self.subsample_indices = indices
         self.subsample_index_matrix = self.reads.get_index_matrix(self.k, indices=indices)
         self.subsample_acc = self.openen.acc[indices]
+        if self.seq_only:
+            self.subsample_acc[:,:] = 1.
+
         self.logger.debug("entire new_subsample() run took {0:.2f} ms".format(1000*(time.time() - t0)) )
         
     #def _spa_partition_function(self, im, oem, acc_lookup, kmer_invkd):
@@ -511,15 +521,15 @@ class SPAModel(object):
         rbp_free = [sc.free_rbp(total) for total in rbp_conc]
         return np.array(rbp_free, dtype= np.float32)
 
-    def _spa_p_rna_bound(self, Z1, rbp_free):
-        return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32))
+    def _spa_p_rna_bound(self, Z1, rbp_free, betas):
+        return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32), np.array(betas, dtype=np.float32))
     
     def _spa_kmer_pi(self, p_bound, im):
         n_conc, n = p_bound.shape
         
         pi = np.zeros( (n_conc, self.nA), dtype=np.float32)
-        for i in range(n_conc):
-            pi[i] = cyska.weighted_kmer_counts(im, p_bound[i], self.k)
+        for j in range(n_conc):
+            pi[j] = cyska.weighted_kmer_counts(im, p_bound[j], self.k)
 
         return pi
 
@@ -566,8 +576,8 @@ class SPAModel(object):
             #Z1 = self._spa_partition_function(im, oem, acc_lookup, kmer_invkd)
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
             rbp_free = self._spa_free_protein(Z1, rbp_conc)
-                
-            p_bound = self._spa_p_rna_bound(Z1, rbp_free)
+            betas = params[self.nA:]
+            p_bound, pi = self._spa_p_rna_bound(Z1, rbp_free, betas)
             pi_kmer = self._spa_kmer_pi(p_bound, im)
 
             state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free)
@@ -584,34 +594,3 @@ class SPAModel(object):
 
         return state
     
-
-    # def extrapolation(self, k, fname=""):
-    #     """
-    #     Using current affinities, extrapolate expected affinties for k > self.k
-    #     """
-    #     assert k > self.k
-    #     kmers = list(cyska.yield_kmers(k))
-    #     seqm = cyska.read_raw_seqs_chunked(kmers, chunklines=len(kmers))
-    #     index_matrix = cyska.seq_matrix_to_index_matrix(seqm, self.k)
-    #     affinities = self.params[index_matrix].sum(axis=1)
-        
-    #     params = np.concatenate((affinities, self.params[self.nA:]))
-    #     mdl = SPAModel(self.reads, k, self.rbp_conc, T= self.T, out_path =self.out_path, params = params)
-    #     if fname:
-    #         mdl.store_params(fname)
-        
-    #     return mdl
-        
-    # # DEPRECATING!
-    # def load_params(self, fname):
-    #     params = []
-    #     self.logger.info("reading parameters from '{0}'".format(fname))
-    #     with file(fname, 'r') as f:
-    #         for line in f:
-    #             if line.startswith('#'): 
-    #                 continue
-    #             params.append(float(line.split('\t')[1]))
-
-    #     #self.evaluate(np.array(params, dtype=np.float32), keep=True)
-    #     return np.array(params, dtype=np.float32)
-

@@ -6,8 +6,8 @@ import logging
 import os
 
 from itertools import izip_longest
-import cska.ska_kmers as cyska
-from cska.ska_kmers import yield_kmers
+import cska.cyska as cyska
+from cyska import yield_kmers
 import cska
 from cska.caching import CachedBase, cached, pickled
 
@@ -127,6 +127,7 @@ class Alignment(object):
 
                 best[l] = (f, i, j)
 
+        # print best
         bylength = sorted(best)
         for l in bylength:
             f,i,j = best[l]
@@ -189,9 +190,9 @@ class DependentKmerAnalysis(CachedBase):
         self.joints = np.array(joints)
         #self.best_sample = np.unravel_index(self.joints.argmax(), self.joints.shape)[0]
         self.best_sample = self.profs.max(axis=1)[1:].argmax() + 1
-        print "best_sample_candidates", self.best_sample, len(rbns.reads)
-        print self.joints.max(axis=3).max(axis=2).max(axis=1)
-        print self.profs.max(axis=1)
+        #print "best_sample_candidates", self.best_sample, len(rbns.reads)
+        #print self.joints.max(axis=3).max(axis=2).max(axis=1)
+        #print self.profs.max(axis=1)
         self.logger.debug("best_sample = {0}".format(rbns.reads[self.best_sample].name) )
 
     @property
@@ -224,7 +225,7 @@ class DependentKmerAnalysis(CachedBase):
                 if jR[i,j,d] <= jRm * thresh:
                     break
                 
-                print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
+                #print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
                 merge = kmers[i] + "-" * d + kmers[j]
                 score = jR[i,j,d]
                 
@@ -258,7 +259,7 @@ class DependentKmerAnalysis(CachedBase):
     # @pickled
     def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
         # find compact representation of linear motif
-        self.logger.debug("building linear PSAM")
+        self.logger.debug("building linear PSAM with max width={0}".format(n_max))
         psam_lin = self.linear.to_PSAM(keep_weight=keep_weight, n_max=n_max)
         return psam_lin
 
@@ -358,7 +359,7 @@ class DependentKmerAnalysis(CachedBase):
         # sys.exit(0)
 
 class SeedRefinement(object):
-    def __init__(self, rbns, km=4, keep_weight=.75, max_linear_k=11):
+    def __init__(self, rbns, km=4, keep_weight=.9, max_linear_k=11):
         self.rbns = rbns
         self.logger = logging.getLogger("opt.SeedRefinement({0})".format(km))
         self.km = km
@@ -523,7 +524,7 @@ if __name__ == "__main__":
 
     # # TESTING mutual information
     # import matplotlib.pyplot as pp
-    # from cska.ska_kmers import yield_kmers
+    # from cyska import yield_kmers
     # km = 4
     # kmers = list(yield_kmers(km))
     # profs = []

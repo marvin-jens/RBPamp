@@ -12,7 +12,7 @@ import multiprocessing
 from Queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 logger = logging.getLogger("fold")
 
 # This global variable is used by the keyboard interrupt 
@@ -103,7 +103,7 @@ class RBNSOpenen(CachedBase):
         return L
    
     @property
-    #@cached
+    @cached
     def oem(self):
         """
         load and keep all open-energies in memory (optionally discretized)
@@ -392,12 +392,14 @@ class OpenenStorage(CachedBase):
         return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
         
     @cached
-    def get_discretized(self, k):
+    def get_discretized(self, k, disc_mode = ''):
+        if not disc_mode:
+            disc_mode = self.disc_mode
         
-        disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=self.disc_mode)
+        disc = OpenenDiscretization(k, self.reads.L, self.disc_dtype, mode=disc_mode)
         self.k_disc[k] = disc
         fname_disc = self._make_filename(k, disc=disc)
-        print fname_disc
+        # print fname_disc
         if os.path.exists(fname_disc):
             return RBNSOpenen(fname_disc, self.reads, k, dummy=self.dummy)
         else:
@@ -491,9 +493,14 @@ class OpenenDiscretization(object):
         (20,9) : 12.,
         (20,10) : 13.,
         (20,11) : 14.,
-        (40,6) : 26.,
-        (40,7) : 28.,
-        (40,8) : 30.,
+        (40,1) : 3.,
+        (40,2) : 4.,
+        (40,3) : 6.,
+        (40,4) : 8.,
+        (40,5) : 9.,
+        (40,6) : 10.,
+        (40,7) : 11.,
+        (40,8) : 12.,
     }
     def __init__(self, k, L, dtype=np.uint8, mode='gamma', N=0):
         self.n = 2**(dtype().nbytes*8) # highest number of bins encodable by dtype

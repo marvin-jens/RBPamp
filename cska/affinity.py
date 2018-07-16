@@ -4,7 +4,7 @@ import logging
 import time
 import sys
 import os
-import cska.ska_kmers as cyska
+import cska.cyska as cyska
 from cska.caching import CachedBase, cached, pickled
 
 def Kd_to_kcal(K,temp=22):

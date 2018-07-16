@@ -47,7 +47,7 @@ if __name__ == "__main__":
     print res2
     
     t0 = time()
-    from cska.ska_kmers import digitize_32fp_8bit
+    from cyska import digitize_32fp_8bit
     res3 = digitize_32fp_8bit(data, bins) - 1
     print (time() - t0)* 1000.
     print res3
