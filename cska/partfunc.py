@@ -12,6 +12,8 @@ class PartFuncModelState(object):
         self.mdl = mdl
         self.params = params
         self.rbp_conc = mdl.rbp_conc
+        self.threshold = 0 # TODO: cleanup! experimental
+        self.threshold = 1e-6 # TODO: cleanup! experimental
     
         # self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
         t1 = time.time()
@@ -27,6 +29,7 @@ class PartFuncModelState(object):
             openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1
         )
         self.Z1_read = self.Z1.sum(axis=1)
+        self.Z1_read_max = self.Z1_read.max() # used for thresholding
         # self-consistent free RBP concentrations
         self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read)
         # print "rbp_free", self.rbp_free
@@ -65,6 +68,7 @@ class PartFuncModelState(object):
         # print "state.rbp_free", self.rbp_free
         # print "state.b", self.b.shape
         _grad = cyska.PSAM_partition_function_gradient(self)
+        print "skipped reads below Z1_threshold", self.skipped
         # print "parallel"
         # _grad = cyska.PSAM_partition_function_gradient_parallel(self)
         # # _grad.A0 *= 4*_grad.k

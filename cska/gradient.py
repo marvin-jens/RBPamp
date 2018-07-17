@@ -225,7 +225,7 @@ def emp_grad(state, eps=1e-4):
 
 class GradientDescent(object):
     def __init__(self, model, params0, dec=.75):
-        self.logger = logging.getLogger('GradientDescent')
+        self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
@@ -252,7 +252,7 @@ class GradientDescent(object):
         p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
         M = p.max(axis=1)
         p /= M[:,np.newaxis]
-        new.psam_matrix = p
+        new.psam_matrix = np.clip(p, 1e-6, None)
         new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
         new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
 
@@ -293,22 +293,99 @@ class GradientDescent(object):
 
         return a, n
 
-    def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., maxiter=50, xatol=1e-1, e0=None):
+    def minimize_logspaced(self, func, bounds = [], n_samples = 7, debug=False, nested=3, **kwargs):
+        """
+        first evaluate at log-spaced sampling points along parameter range
+        then select at most 3 orders of magnitude around the lowest observed value
+        for Brent optimization. Requires pos. valued bounds!
+        """
+        from scipy.optimize import minimize_scalar
+        import time
+        t0 = time.time()
+        bmin = bounds.min()
+        bmax = bounds.max()
+
+        known = {}
+
+        def func_or_lookup(x):
+            if not x in known:
+                known[x] = func(x)
+            return known[x]
+
+        def logsearch(bmin, bmax):
+            
+            lmin = np.log10(bmin)
+            lmax = np.log10(bmax)
+            
+            sample_x = 10**np.linspace(lmin, lmax, n_samples)
+            samples = np.array([func_or_lookup(x) for x in sample_x])
+                
+            if debug:
+                print "logspaced sample", zip(sample_x, samples)
+
+            i = samples.argmin()
+            li = max(0, i -1)
+            ri = min(n_samples-1, i+1)
+            
+            brent_min = sample_x[li]
+            brent_max = sample_x[ri]
+            if debug:
+                print "search optimum between", brent_min, brent_max
+        
+            return brent_min, brent_max
+
+        for i in range(nested):
+            bmin, bmax = logsearch(bmin, bmax)
+
+        if debug:
+            print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
+        res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded') #, **kwargs)
+        t1 = time.time()
+        
+        self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
+
+        return res
+        
+
+    def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None):
         from scipy.optimize import minimize_scalar
 
         if e0 is None:
             state = self.model.predict(params)
             e0 = state.error
 
-        def err(x):
-            s = np.exp(x)
+        def err(s):
+            # s = np.exp(x)
             m = self.apply_delta(params, grad * s)
             state = self.model.predict(m)
-            # print s,"->", e - e0
+            # print s,"->", state.error - e0
             return state.error
 
-        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
-        return np.exp(res.x), res.nfev
+        # def exponential_backtrack(func, e0, a,b, dec=.5):
+        #     x = b
+        #     nfev = 0
+        #     while x > a:
+        #         e = func(x)
+        #         nfev += 1
+        #         # print x, e
+        #         if e < e0:
+        #             return x,e,nfev
+
+        #         x *= dec
+
+        #     return 0,e0,nfev
+
+        res = self.minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
+
+        # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
+        if not res.success or res.fun > e0:
+            self.logger.warning("line_search could not decrease error!")
+            x = 0
+        else:
+            x = res.x
+            # x = np.exp(res.x)
+        # x, e, nfev = exponential_backtrack(err, e0, min_step, max_step)
+        return x, res.nfev
 
     def momentum_grad(self, local_grad):
         if self.past_grad is None:
@@ -318,7 +395,7 @@ class GradientDescent(object):
         self.past_grad = grad
         return grad
 
-    def RMSprop(self, local_grad):
+    def RMSprop(self, local_grad, delta=.00001):
         if self.past_grad is None:
             self.past_grad = local_grad.data
 
@@ -329,7 +406,7 @@ class GradientDescent(object):
         self.past_sqg = s
 
         upd = local_grad.copy()
-        upd.data = m / (np.sqrt(s) + .001)
+        upd.data = m / (np.sqrt(s) + delta)
 
         return upd
 
@@ -373,8 +450,18 @@ class GradientDescent(object):
                 # local_grad = local_grad.unity()
                 descent = self.RMSprop(- local_grad).unity()
                 # descent = self.momentum_grad( - local_grad).unity()
+                # descent = - local_grad.unity()
+
 
                 s,n = self.line_search(self.params, descent, e0=self.errors[-1])
+                if s == 0:
+                    # take local gradient instead
+                    descent = - local_grad.unity()
+                    s,n = self.line_search(self.params, descent, e0=self.errors[-1])
+                    # and reset RMSProp
+                    self.past_grad = None
+                    self.past_sqg = 1
+
                 self.ls_step.append(s)
                 self.ls_nfev.append(n)
 

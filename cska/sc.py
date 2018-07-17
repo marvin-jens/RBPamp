@@ -6,15 +6,15 @@ from scipy.optimize import minimize_scalar
 class SelfConsistency(object):
     def __init__(self, Z1, rna_conc, bins=0):
         self.logger = logging.getLogger("model.SelfConsistency")
-        self.Z1 = Z1
-        # print Z1.shape, Z1.min(), Z1.max()
-        self.N = len(Z1)
+        self.Z1 = Z1[Z1 > 0]
+        # print self.Z1.shape, self.Z1.min(), self.Z1.max()
+        self.N = len(self.Z1)
         self.rna_conc = rna_conc
         self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))
         
         if bins:
             # logarithmic binning
-            lZ = np.log(Z1)
+            lZ = np.log(self.Z1)
             self.counts, bins = np.histogram(lZ, bins=bins)
             self.bins = np.exp(bins)
             # midpoint integration

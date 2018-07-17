@@ -182,8 +182,6 @@ class DependentKmerAnalysis(CachedBase):
             prof = reads.kmer_mutual_information_profile(km)
             profs.append(prof)
             # free some memory!
-            # reads.cache_flush("__cached_get_index_matrix")
-            # reads.cache_flush("__cached_seqm")
             reads.cache_flush()
         
         self.profs = np.array(profs)
@@ -211,7 +209,7 @@ class DependentKmerAnalysis(CachedBase):
         S_B = 0
         kmers = list(cyska.yield_kmers(self.km))
         self.spaced_score = np.zeros(18,dtype=np.float32)
-
+        n_pairs = 0
         for d in range(18):
             # print reads.name, d
             self.logger.debug("build_matrices(d={0})".format(d))
@@ -222,7 +220,7 @@ class DependentKmerAnalysis(CachedBase):
 
             for n in I:
                 i, j = np.unravel_index(n, joint.shape[:2])
-                if jR[i,j,d] <= jRm * thresh:
+                if (jR[i,j,d] <= jRm * thresh):
                     break
                 
                 #print "most-co-enriched mers at d=", d, kmers[i], kmers[j], jR[i,j,d], jRm
@@ -237,7 +235,7 @@ class DependentKmerAnalysis(CachedBase):
                 S_A += s_A
                 S_B += s_B
                 self.spaced_score[d] += s_A + s_B
-
+                n_pairs += 1
                 # # autodetect order of sub-motifs
                 # Z = np.array([p.max_score for p in self.parts])
                 # sA = np.array([p.align(kmers[i])[1] for p in self.parts]) / Z
@@ -251,10 +249,11 @@ class DependentKmerAnalysis(CachedBase):
                 #     print "weird scores"
                 #     print kmers[i], sA
                 #     print kmers[j], sB
+
         self.lin_score = S_lin
         self.A_score = S_A
         self.B_score = S_B
-        self.logger.debug("build_matrices() done.")
+        self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
 
     # @pickled
     def linear_PSAM_seed(self, keep_weight=.9, n_max=7):

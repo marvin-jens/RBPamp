@@ -209,6 +209,11 @@ def PSAM_partition_function_gradient(state):
     # mutliplication is faster than division. So divide outside of loop.
     cdef FLOAT32_t [:] psam_inv = 1./psam.base
 
+    # do not even look at reads with Z1_read < this value
+    cdef FLOAT32_t Z1_thresh = state.threshold # set to 0 to look at all reads
+    cdef UINT64_t skipped = 0
+    cdef UINT64_t n_eval = 0
+
     # where to store the final gradient
     gradient = state.params.copy()
     gradient.data[:] = 0
@@ -223,12 +228,18 @@ def PSAM_partition_function_gradient(state):
     #         thread_num = openmp.omp_get_thread_num()
     # with nogil:
     for j in range(n_samples):
+        n_eval = 0
         for r in range(N):
             p = psi[j,r]
             # chain rule: how changes in per-sequence partition function
             # carry over to changes in binding probability
             Z1r = Z1_read[r]
+
             Z1rp = Z1r * rbp_free[j]
+            if Z1rp < Z1_thresh:
+                skipped += 1
+                continue
+
             dpsi = (p - (p * p)) / Z1rp
 
             # zero out dZj_dA. bc we accumulate this for each sequence separately
@@ -265,7 +276,9 @@ def PSAM_partition_function_gradient(state):
                         #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
                         y = (d << 2) + n + 1
                         db[index, y] += dpsi_dA[y]
+            n_eval += 1
 
+        print "number of reads evaluated:", n_eval
         # compute gradient of the squared R-value error over the PSAM parameters
         dbeta = 0
         Q2 = Q[j] * Q[j]
@@ -283,6 +296,7 @@ def PSAM_partition_function_gradient(state):
             dbeta += Eji * (N_by_Q - (N / Q2f) * b[j,i])
         grad[n_psam + j] = dbeta
 
+    state.skipped = skipped
     return gradient
 
 
