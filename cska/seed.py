@@ -21,7 +21,7 @@ class Alignment(object):
         self.ofs = []
         self.weights = []
 
-    def align(self, seq):
+    def align(self, seq, normalize=False):
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
         n = len(self.matrix)
@@ -38,20 +38,27 @@ class Alignment(object):
 
                 s_start = max(-ofs, 0)
                 s_end = s_start + n_cols
+                col_scores = []
                 score = 0
                 for i in range(n_cols):
                     if bits[i+s_start] > 3:
                         continue # skip gaps
-                    score += self.matrix[i+m_start, bits[i+s_start]]
+                    
+                    S = self.matrix[i+m_start, bits[i+s_start]]
+                    col_scores.append(S)
+                    score += S
                 
                 scores.append(score)
-        
-                # print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, self.matrix[m_start:m_end], "->", score
+                # print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
             x = np.array(scores).argmax()
-            return ofs_range[x], scores[x]
+            S = scores[x]
+            if normalize:
+                S /= self.max_score
+
+            return ofs_range[x], S
 
 
-    def blend(self, seq, ofs, weight):
+    def blend(self, seq, ofs, weight, normalize=False):
         self.seqs.append(seq)
         self.weights.append(weight)
         if ofs < 0:
@@ -76,6 +83,9 @@ class Alignment(object):
             if bits[i] > 3:
                 continue # skip gaps
             self.matrix[i+ofs, bits[i]] += weight
+        
+        if normalize:
+            self.matrix /= self.max_score
 
     def add(self, seq, weight=1.):
         ofs, score = self.align(seq)
@@ -89,7 +99,10 @@ class Alignment(object):
     
     @property
     def max_score(self):
-        return self.matrix.max(axis=1).sum()
+        if len(self.matrix):
+            return self.matrix.max(axis=1).sum()
+        else:
+            return 1.
 
     @property
     def wlen(self):
@@ -110,7 +123,11 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0):
+    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True):
+        # print self
+        # print "to PSAM"
+        # print self.matrix
+
         frac = self.matrix.sum(axis=1) 
         F = self.matrix.sum()
         n = len(self.matrix)
@@ -135,11 +152,11 @@ class Alignment(object):
                 break
 
         if not n_max or j-i <= n_max:
-            m = self.matrix[i:j] + 1
+            m = self.matrix[i:j] + pseudo
         else:
             if n_max <= n:
                 f, i, j = best[n_max]
-                m = self.matrix[i:j] + 1
+                m = self.matrix[i:j] + pseudo
             else:
                 # need to pad
                 s = n_max - n
@@ -150,6 +167,16 @@ class Alignment(object):
                     m = np.concatenate((np.zeros((left,4), m)))
                 if right:
                     m = np.concatenate((m, np.zeros((right,4))))
+
+        if col_scale:
+            # add pseudo-scores to columns 
+            # with fewer observations/lower score
+            M = m.max(axis=1)
+            # print "maxima along positions", M
+            # 0 for col with highest score, 
+            # approaching 1 for lowest
+            inc = 1 - M / M.max() 
+            m += inc[:,np.newaxis]
 
         psam = m / m.max(axis=1)[:,np.newaxis]
         # print m
@@ -254,6 +281,58 @@ class DependentKmerAnalysis(CachedBase):
         self.A_score = S_A
         self.B_score = S_B
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
+
+    # @property
+    def topR_PSAM_seed(self, k, keep_weight=.9, n_max=7, thresh = .6, z_cut=4):
+        """
+        Assemble a seed motif from the most enriched k-mers
+        """
+        from cska.seed import Alignment
+        import cska.cyska as cyska
+
+        aln = Alignment()
+        R, R_err = self.rbns.R_value_matrix(k)
+        R = R.mean(axis=0)
+        R_err = R_err.mean(axis=0)
+
+        I = R.argsort()[::-1]
+        R_sort = R[I]
+        z = (R_sort - R_sort.mean())/R_sort.std()
+        # print R_sort[:10]
+        # print "z-scores", z.min(), z.max(), z.mean()
+        i_cut = (z < z_cut).argmax()
+        # print i_cut
+        R_cut = max(1, R[I[i_cut]])
+        # print i_cut, "R_values above z-cut", R_cut
+        
+        r0 = R[I[0]]
+        # print "maxR", r0
+        for i in I[:100]:
+            kmer = cyska.index_to_seq(i, k)
+            r = R[i]
+            # print i, kmer, r, "+/-", R_err[i], R_cut
+            if r - R_err[i] < R_cut:
+                break
+
+            o, s = aln.align(kmer, normalize=True)
+            if s < thresh:
+                # print "skipping", kmer, r, o, s
+                continue
+            else:
+                # print "blending", i, kmer, r, o, s
+                aln.blend(kmer, o, r/r0, normalize=False)
+                # print aln.matrix
+
+        # print aln
+        return aln.to_PSAM(pseudo=0)
+        
+        # psam = aln.to_PSAM(n_max = n_max, pseudo=0)
+        # # before building a gradient, need to align to matrices and pad with zero columns
+        # grad = self.params.copy()
+        # grad.psam_matrix = psam.psam
+        # grad.A0 = 1.
+        # grad.betas[:] = 0
+        # return grad
 
     # @pickled
     def linear_PSAM_seed(self, keep_weight=.9, n_max=7):
@@ -450,7 +529,9 @@ class SeedRefinement(object):
 
 if __name__ == "__main__":
 
-    # A = Alignment()
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    A = Alignment()
     # A.add('GCAUG', 2.)
     # A.add('GCACG', .4)
     # A.add('UGCAU', 2.)
@@ -478,19 +559,25 @@ if __name__ == "__main__":
             fname, 
             rbp_conc=rbp_conc,
             rbp_name = rbp_name,
-            n_max=10000000,
+            n_max=0,
             pseudo_count=10, 
             rna_conc = 1000.,
             temp = 4,
-            n_subsamples = 0,
+            n_subsamples = 10,
             acc_storage_path = 'acc',
         )
         rbns.add_reads(reads)
 
     DK = DependentKmerAnalysis(rbns, km=3)    
-    DK.build_matrices()
+    print "6mer R-value derived linear logo"
+    kmer_seed = DK.topR_PSAM_seed(6, n_max=9)
+    print kmer_seed
+    kmer_seed.save_logo('kmer_seed.eps')
 
-    # DK.linear.save_logo("linear.eps")
+    DK.build_matrices()
+    print "assembled linear logo"
+    asm_seed = DK.linear_PSAM_seed(n_max=9)
+    asm_seed.save_logo("asm_seed.eps")
     # DK.A.save_logo("A.eps")
     # DK.B.save_logo("B.eps")
     # print "linear alignment"
@@ -508,16 +595,16 @@ if __name__ == "__main__":
     DK.interaction_plot()
 
 
-    print "A"
-    psam = DK.A.to_PSAM()
-    for mer, aff in zip(*psam.kmer_affinities):
-        print mer, aff
+    # print "A"
+    # psam = DK.A.to_PSAM()
+    # for mer, aff in zip(*psam.kmer_affinities):
+    #     print mer, aff
 
-    print "B"
-    psam = DK.B.to_PSAM()
-    kmers, aff = psam.kmer_affinities
-    for mer, a in zip(kmers, aff):
-        print mer, a
+    # print "B"
+    # psam = DK.B.to_PSAM()
+    # kmers, aff = psam.kmer_affinities
+    # for mer, a in zip(kmers, aff):
+    #     print mer, a
 
 
 
