@@ -91,7 +91,7 @@ class RBNSComparison(CachedBase):
             for sample in self.pd_reads.subsamples
         ])
         errors = sampled.std(axis=0)
-
+        assert res.shape == errors.shape
         return res, errors
         
     @cached
