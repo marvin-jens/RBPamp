@@ -340,10 +340,10 @@ def main():
                 seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
                 pwm = SR.psam_lin
 
-            from cska.meanfield import MeanFieldAnalysis
-            MFA = MeanFieldAnalysis(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl)
-            params = MFA.descent.params
-            pwm = PSAM(params.psam_matrix, A0=params.A0)
+            from cska.psamgrad import PSAMGradientDescent
+            PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl)
+            params = PGD.descent.params
+            pwm = PGD(params.psam_matrix, A0=params.A0)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:
@@ -378,7 +378,7 @@ def main():
                 pwm_opt.pwm0 = pwm
 
             if options.meanfield:
-                betas = MFA.descent.params.betas
+                betas = PGD.descent.params.betas
                 seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
                 pwm_opt.pwm0 = pwm
                 
