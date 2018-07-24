@@ -35,8 +35,11 @@ class PSAMGradientDescent(object):
         } [mdl_name]
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         self.descent = cska.gradient.GradientDescent(model, params)
+        
         state = model.predict(params)
-        params.betas[:] = model.estimate_betas(state)
+        
+        # params.betas[:] = model.estimate_betas(state)
+        params.betas[:] = model.optimal_betas(state)
 
         from cska.comparison import RefComparison
         from cska.report import GradientDescentReport, LiteratureComparisonReport

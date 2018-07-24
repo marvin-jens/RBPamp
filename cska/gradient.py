@@ -222,6 +222,59 @@ def emp_grad(state, eps=1e-4):
     
     return grad
 
+def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=3, **kwargs):
+    """
+    first evaluate at log-spaced sampling points along parameter range
+    then select at most 3 orders of magnitude around the lowest observed value
+    for Brent optimization. Requires pos. valued bounds!
+    """
+    from scipy.optimize import minimize_scalar
+    import time
+    t0 = time.time()
+    bmin = bounds.min()
+    bmax = bounds.max()
+
+    known = {}
+
+    def func_or_lookup(x):
+        if not x in known:
+            known[x] = func(x)
+        return known[x]
+
+    def logsearch(bmin, bmax):
+        
+        lmin = np.log10(bmin)
+        lmax = np.log10(bmax)
+        
+        sample_x = 10**np.linspace(lmin, lmax, n_samples)
+        samples = np.array([func_or_lookup(x) for x in sample_x])
+            
+        if debug:
+            print "logspaced sample", zip(sample_x, samples)
+
+        i = samples.argmin()
+        li = max(0, i -1)
+        ri = min(n_samples-1, i+1)
+        
+        brent_min = sample_x[li]
+        brent_max = sample_x[ri]
+        if debug:
+            print "search optimum between", brent_min, brent_max
+    
+        return brent_min, brent_max
+
+    for i in range(nested):
+        bmin, bmax = logsearch(bmin, bmax)
+
+    if debug:
+        print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
+    res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded') #, **kwargs)
+    t1 = time.time()
+    
+    # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
+
+    return res
+
 
 
 class GradientDescent(object):
@@ -292,61 +345,7 @@ class GradientDescent(object):
 
             a *= tau
 
-        return a, n
-
-    def minimize_logspaced(self, func, bounds = [], n_samples = 7, debug=False, nested=3, **kwargs):
-        """
-        first evaluate at log-spaced sampling points along parameter range
-        then select at most 3 orders of magnitude around the lowest observed value
-        for Brent optimization. Requires pos. valued bounds!
-        """
-        from scipy.optimize import minimize_scalar
-        import time
-        t0 = time.time()
-        bmin = bounds.min()
-        bmax = bounds.max()
-
-        known = {}
-
-        def func_or_lookup(x):
-            if not x in known:
-                known[x] = func(x)
-            return known[x]
-
-        def logsearch(bmin, bmax):
-            
-            lmin = np.log10(bmin)
-            lmax = np.log10(bmax)
-            
-            sample_x = 10**np.linspace(lmin, lmax, n_samples)
-            samples = np.array([func_or_lookup(x) for x in sample_x])
-                
-            if debug:
-                print "logspaced sample", zip(sample_x, samples)
-
-            i = samples.argmin()
-            li = max(0, i -1)
-            ri = min(n_samples-1, i+1)
-            
-            brent_min = sample_x[li]
-            brent_max = sample_x[ri]
-            if debug:
-                print "search optimum between", brent_min, brent_max
-        
-            return brent_min, brent_max
-
-        for i in range(nested):
-            bmin, bmax = logsearch(bmin, bmax)
-
-        if debug:
-            print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
-        res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded') #, **kwargs)
-        t1 = time.time()
-        
-        self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
-
-        return res
-        
+        return a, n        
 
     def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None):
         from scipy.optimize import minimize_scalar
@@ -376,7 +375,8 @@ class GradientDescent(object):
 
         #     return 0,e0,nfev
 
-        res = self.minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
+        res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
+        # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
         # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         if not res.success or res.fun > e0:

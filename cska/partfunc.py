@@ -13,7 +13,7 @@ class PartFuncModelState(object):
         self.params = params
         self.rbp_conc = mdl.rbp_conc
         self.threshold = 0 # TODO: cleanup! experimental
-        self.threshold = 1e-6 # TODO: cleanup! experimental
+        # self.threshold = 1e-6 # TODO: cleanup! experimental
     
         # self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
         t1 = time.time()
@@ -78,6 +78,7 @@ class PartFuncModelState(object):
         # _grad.betas = np.where(self.params.betas > 0, _grad.betas, 0)
         self.mdl.t_grad += time.time() - t0
         return _grad
+
 
     def archive(self):
         from copy import copy
@@ -147,6 +148,33 @@ class PartFuncModel(object):
         R_ns = np.percentile(self.R0, q, axis=1)
         beta = R_ns / (1 - R_ns)
         return state.Q * beta / self.reads.N
+
+    def optimal_betas(self, state):
+        from cska.gradient import minimize_logspaced
+        opt_betas = self.estimate_betas(state)
+        print "initial guess", opt_betas
+
+        check = cyska.seq_to_index('UGCAUG')
+        for i in range(self.n_samples):
+            def to_optimize(beta):
+                psi = state.psi[i]
+                b = cyska.weighted_kmer_counts(self.im, psi + beta, self.k)
+                Q = b.sum()
+                R = b / self.f0 / Q
+
+                R_errors = np.array(R - self.R0[i], dtype=np.float32)
+                error = (R_errors**2).mean()
+                print beta, "->", error, "R(UGCAUG)", R[check], self.R0[i,check]
+                return error
+            
+            res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=11, debug=True)
+            print "beta",i, res
+            if res.success:
+                opt_betas[i] = res.x
+
+        print "final values", opt_betas
+        return opt_betas
+             
 
     @property
     def affinities(self):
