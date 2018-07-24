@@ -153,12 +153,13 @@ class ModelParametrization(object):
         # return super(ModelParametrization, self).__setattr__(a, v)
 
     def __str__(self):
+        from cska.pwm import project_column
         buf = []
         buf.append("PSAM")
         buf.append("A0={0:.4e}".format(self.A0))
         buf.append("\tA\t\tC\t\tG\t\tU")
         for row in self.psam_matrix:
-            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row]))
+            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row),]))
 
         buf.append("BACKGROUND")
         for i, beta in enumerate(self.betas):
@@ -443,8 +444,8 @@ class GradientDescent(object):
         try:
             while not self.converged() and self.t < maxiter:
                 local_grad = state.grad.unity()
-                # print "LOCAL GRAD"
-                # print local_grad
+                print "LOCAL GRAD"
+                print local_grad
                 # local_grad.A0 = 0
                 # local_grad.betas *= 0
                 # local_grad = local_grad.unity()
