@@ -7,7 +7,15 @@ class SelfConsistency(object):
     def __init__(self, Z1, rna_conc, bins=0):
         self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1[Z1 > 0]
-        # print self.Z1.shape, self.Z1.min(), self.Z1.max()
+        if not len(self.Z1):
+            self.free_rbp = self.all_free
+            return
+
+        # # HACK! Just to mask annoying issues that arent important right now
+        # self.free_rbp = self.all_free
+        # return
+
+        print self.Z1.shape, self.Z1.min(), self.Z1.max()
         self.N = len(self.Z1)
         self.rna_conc = rna_conc
         self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))
@@ -22,6 +30,9 @@ class SelfConsistency(object):
             
             # switch over to fast approximation
             self.free_rbp = self.fast_free_rbp
+
+    def all_free(self, rbp_total, Z_scale=1.):
+        return rbp_total
 
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
         # TODO: use the binned version. Compare accuracy!
