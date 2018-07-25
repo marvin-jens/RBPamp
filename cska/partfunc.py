@@ -155,7 +155,9 @@ class PartFuncModel(object):
         opt_betas = self.estimate_betas(state)
         print "initial guess", opt_betas
 
-        check = cyska.seq_to_index('UGCAUG')
+        top_i = self.R0.max(axis=0).argmax()
+        top_mer = cyska.index_to_seq(top_i, self.k)
+
         for i in range(self.n_samples):
             def to_optimize(beta):
                 psi = state.psi[i]
@@ -165,7 +167,7 @@ class PartFuncModel(object):
 
                 R_errors = np.array(R - self.R0[i], dtype=np.float32)
                 error = (R_errors**2).mean()
-                print beta, "->", error, "R(UGCAUG)", R[check], self.R0[i,check]
+                print beta, "->", error, "R({})".format(top_mer), R[top_i], self.R0[i,top_i]
                 return error
             
             res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=11, debug=True)

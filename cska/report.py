@@ -98,6 +98,20 @@ def density_scatter_plot(
     xmax = x.max()
     ymin = y.min()
     ymax = y.max()
+
+    if N > dens_thresh and x_ref:
+        # use experiment as reference
+        m = xmin  
+        M = xmax
+    else:
+        # show full range
+        m = min(xmin, ymin)
+        M = max(xmax, ymax)
+    
+    # add margin in log-space
+    m += np.log10(3./4.)
+    M += np.log(4./3.)
+
     nbins = density_kw['nbins']
     t1 = time.time()
     #Z = zi.reshape((len(yi), len(xi)))
@@ -116,15 +130,16 @@ def density_scatter_plot(
 
         if N > dens_thresh:
             k = kde.gaussian_kde([x,y])
-            xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
+            xi, yi = np.mgrid[m:M:nbins*1j, m:M:nbins*1j]
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
             zi[zi < 1e-3] = np.nan
-            print "nans", np.isnan(zi).sum()
-            print zi.min(), zi.max()
 
+            z_min = np.nanmin(zi)
+            z_max = np.nanmax(zi)
+            print "zmin/max", z_min, z_max
             # pca().set_facecolor('w')
-            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0)
-            m.set_rasterized(True)
+            pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
+            pm.set_rasterized(True)
             cb = pp.colorbar(label='density', shrink=.5, ticks = matplotlib.ticker.MaxNLocator(nbins=3, )) #orientation='horizontal', fraction=.05)
             cb.ax.tick_params(axis='y', direction='out')
             # cb.ax.yaxis.set_major_locator(matplotlib.ticker.AutoLocator())
@@ -152,18 +167,6 @@ def density_scatter_plot(
             out_y = y[out]
             pp.plot(out_x, out_y, plot_kw['style'], color=plot_kw['color'], markersize=3, label=label, rasterized=True)
 
-        if N > dens_thresh and x_ref:
-            # use experiment as reference
-            m = xmin  
-            M = xmax
-        else:
-            # show full range
-            m = min(xmin, ymin)
-            M = max(xmax, ymax)
-        
-        # add margin in log-space
-        m += np.log10(3./4.)
-        M += np.log(4./3.)
 
         t3 = time.time()
         
