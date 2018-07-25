@@ -343,7 +343,7 @@ def main():
             from cska.psamgrad import PSAMGradientDescent
             PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl)
             params = PGD.descent.params
-            pwm = PGD(params.psam_matrix, A0=params.A0)
+            pwm = PSAM(params.psam_matrix, A0=params.A0)
 
         # fit of thermodynamic model parameters (affinities)
         if options.model:
