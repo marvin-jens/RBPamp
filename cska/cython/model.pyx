@@ -159,12 +159,40 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
 
     return Z.base
 
+def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
+    cdef UINT64_t N = Z.base.shape[0]
+    cdef UINT64_t l = Z.base.shape[1]
+    cdef FLOAT32_t Z_max=0, Z_max_local=0
+    cdef UINT64_t i=0, j=0, d=0, n=0
+    # cdef UINT32_t index=0
+    # cdef FLOAT32_t w=0
+    # cdef FLOAT64_t Z1=0 # Single protein partition function
+    cdef FLOAT32_t Z_sum=0
+    cdef FLOAT32_t *ptr = &Z_max
+    cdef FLOAT32_t [:] Z_read = np.zeros(N, dtype=np.float32)
+    with nogil, parallel():
+        for j in prange(N, schedule='guided'):
+            # make these thread-local
+            Z_sum = 0
+            Z_max_local = 0
+            # sum
+            for i in range(l):
+                Z_sum = Z_sum + Z[j,i]
+            # clip
+            Z_sum = min(Z_sum, clip)
 
-# @cython.boundscheck(True)
-# @cython.wraparound(True)
-# @cython.initializedcheck(True)
-# @cython.cdivision(True)
-# @cython.overflowcheck(True)
+            # keep max-value in thread-safe way
+            Z_read[j] = Z_sum
+            Z_max_local = Z_max
+            if Z_sum > Z_max_local:
+                while not cmpxchg_float32(ptr, Z_max_local, Z_sum):
+                    Z_max_local = Z_max
+    
+    return Z_read.base, Z_max
+            
+
+
+
 def PSAM_partition_function_gradient(state):
 
     # get the relevant data from the state object

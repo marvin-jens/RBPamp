@@ -28,8 +28,9 @@ class PartFuncModelState(object):
             np.array(params.psam_matrix, dtype=np.float32) * params.A0,
             openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1
         )
-        self.Z1_read = self.Z1.sum(axis=1)
-        self.Z1_read_max = self.Z1_read.max() # used for thresholding
+        self.Z1_read, self.Z1_read_max = cyska.clipped_sum_and_max(self.Z1, clip=1E6)
+        #self.Z1_read_max is used for thresholding
+
         # self-consistent free RBP concentrations
         self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read)
         # print "rbp_free", self.rbp_free
