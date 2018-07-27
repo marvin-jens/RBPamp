@@ -15,7 +15,7 @@ class SelfConsistency(object):
         # self.free_rbp = self.all_free
         # return
 
-        print self.Z1.shape, self.Z1.min(), self.Z1.max()
+        # print self.Z1.shape, self.Z1.min(), self.Z1.max()
         self.N = len(self.Z1)
         self.rna_conc = rna_conc
         self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))

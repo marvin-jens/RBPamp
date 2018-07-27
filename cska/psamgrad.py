@@ -40,6 +40,10 @@ class PSAMGradientDescent(object):
         
         # params.betas[:] = model.estimate_betas(state)
         params.betas[:] = model.optimal_betas(state)
+        # res = model.quantile_fit(state)
+        # print "optimal parameters from quantile fit"
+        # params.A0 = res[0]
+        # params.betas[:] = res[1:]
 
         from cska.comparison import RefComparison
         from cska.report import GradientDescentReport, LiteratureComparisonReport
@@ -64,15 +68,17 @@ class PSAMGradientDescent(object):
                 state = descent.model.predict(descent.params)
                 self.store_affinities(state)
                 self.store_residuals(state)
+                return True
+
         
         self.t0 = time.time()
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
             dt = time.time() - self.t0
-            make_plots(descent, dt)
-            self.t0 = time.time()
-            
+            if make_plots(descent, dt):
+                self.t0 = time.time()
+                
             # collect and write data on the gradient descent progress
             from scipy.stats import pearsonr
             pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T

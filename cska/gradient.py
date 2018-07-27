@@ -296,6 +296,7 @@ class GradientDescent(object):
         self.ls_nfev = []
         self.ls_step = []
         self.t = 0
+        self.last_quantile = 0
 
         # optimization result/status
         self.status = None
@@ -469,6 +470,13 @@ class GradientDescent(object):
                 upd = descent * s
                 self.params = self.apply_delta(self.params, upd)
                 self.model.params = self.params
+
+                if s < 1e-4 and self.t-self.last_quantile > 5:
+                    # res = self.model.quantile_fit(state)
+                    print "optimal parameters from quantile fit"
+                    # self.params.A0 = res[0]
+                    self.params.betas[:] = self.model.optimal_betas(state)
+                    self.last_quantile = self.t
 
                 state = self.model.predict(self.params)
                 self.errors.append(state.error)

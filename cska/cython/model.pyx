@@ -159,6 +159,7 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
 
     return Z.base
 
+
 def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
     cdef UINT64_t N = Z.base.shape[0]
     cdef UINT64_t l = Z.base.shape[1]
@@ -189,8 +190,6 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
                     Z_max_local = Z_max
     
     return Z_read.base, Z_max
-            
-
 
 
 def PSAM_partition_function_gradient(state):
@@ -204,7 +203,8 @@ def PSAM_partition_function_gradient(state):
     cdef UINT32_t [:,:] im = state.mdl.im
     cdef FLOAT32_t [:] psam = state.params.psam_vec
     cdef FLOAT32_t [:] Q = state.Q # normalization factors for each sample
-    cdef FLOAT32_t [:] rbp_free = state.rbp_free # self consistent free protein
+    cdef FLOAT32_t A0 = state.params.A0
+    cdef FLOAT32_t [:] rbp_free = state.rbp_free / state.params.A0 # self consistent free protein
     cdef FLOAT32_t [:,:] E = state.R_errors # R - R0
     cdef FLOAT32_t [:,:] b = state.b # n_samples x 4^k
     cdef int n_max=0    
