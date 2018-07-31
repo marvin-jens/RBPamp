@@ -482,3 +482,26 @@ class RBNSAnalysis(CachedBase):
                 of.write("\t".join(cols) + '\n')
             of.close()
  
+
+def read_kmer_matrix(path):
+    import re
+    kmers = []
+    data = []
+    for line in file(path):
+        if line.startswith('#'):
+            head = re.split('\s+', line.rstrip())
+            rbp_conc = [float(h.replace('nM','')) for h in head[2::2]]
+        else:
+            parts = line.split('\t')
+            kmers.append(parts[0])
+            data.append(np.array(parts[1:], dtype=np.float32))
+    
+    kmers = np.array(kmers)
+    I = kmers.argsort()
+    data = np.array(data)[I,:].T
+    values = data[::2,:]
+    errors = data[1::2,:]
+
+    return rbp_conc, values, errors
+
+

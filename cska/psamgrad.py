@@ -8,7 +8,7 @@ import time
 from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, pwm, ref=None, k_fit=6, mdl_name='partfunc'):
+    def __init__(self, rbns, pwm, ref=None, k_fit=6, mdl_name='partfunc', **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
@@ -33,13 +33,13 @@ class PSAMGradientDescent(object):
             'meanfield' : MeanFieldModel,
             'invmeanfield' : InvMeanFieldModel,
         } [mdl_name]
-        model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
+        model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
         self.descent = cska.gradient.GradientDescent(model, params)
         
         state = model.predict(params)
         
         # params.betas[:] = model.estimate_betas(state)
-        params.betas[:] = model.optimal_betas(state)
+        # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
         # print "optimal parameters from quantile fit"
         # params.A0 = res[0]
