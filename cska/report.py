@@ -850,8 +850,7 @@ class GradientDescentReport(object):
         from scipy.stats import pearsonr
         corr = []
         for state in self.descent.history:
-            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(np.log2(state.R), np.log2(R0))]
-            corr.append(Rs)
+            corr.append(state.correlations[0])
         
         corr = np.array(corr).T
         pp.subplot(413)
@@ -962,8 +961,9 @@ class LiteratureComparisonReport(object):
             return
 
         pp.figure(figsize=(6,6))
-        pp.title(self.comp.rbp_name)
-        x = 1/self.comp.observed_affinities
+        pp.title("comparison to {} literature affinities".format(self.comp.n))
+        x = self.comp.observed_Kd
+        x_err = self.comp.observed_Kd_err
         y = 1/self.comp.predict_affinities(self.descent.model)
 
         m = min(x.min(), y.min())
@@ -971,15 +971,27 @@ class LiteratureComparisonReport(object):
         pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
         print "seq\tknown\tpredict\tlog-ratio"
-        for _x, _y, seq in zip(x, y, self.comp.seqs):
+        lfc = np.log2(y/x)
+        I = lfc.argsort()
+        for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
             print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
 
         from scipy.stats import pearsonr, spearmanr
-        corr, p_value = spearmanr(np.log(x), np.log(y))
-        pp.loglog(x, y, '.', label=r"$\rho={0:.2f}$ ($P < {1:.2e}$)".format(corr, p_value))
-        pp.legend(loc='upper left')
-        pp.ylabel(r"predicted $K_d$ [nM]")
-        pp.xlabel(r"measured $K_d$ [nM]")
+        rho, p_spearman = spearmanr(np.log(x), np.log(y))
+        R, p_pearson = pearsonr(np.log(x), np.log(y))
+        print ">>> R={R} P-value < {p_pearson}".format(**locals())
+        print ">>> rho={rho} P-value < {p_spearman}".format(**locals())
+
+        # pp.loglog(x, y, '.', label=r"$R={R:.2f}$ ($P < {p_pearson:.2e}$) $\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals()))
+        label="$R={R:.2f}$ ($P < {p_pearson:.2e}$)\n$\\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals())
+        pp.errorbar(x, y, xerr=x_err, fmt='.', ecolor='k', elinewidth=.5, capsize=3, capthick=.5, label=label)
+        ax = pp.gca()
+        ax.set_xscale("log", nonposx='clip')
+        ax.set_yscale("log", nonposy='clip')
+
+        pp.legend(loc='upper left', shadow=False, fancybox=False)
+        pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
+        pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
         pp.tight_layout()
 
         pp.savefig(os.path.join(self.path,"literature_comparison_{0}mer.pdf".format(self.descent.params.k)))

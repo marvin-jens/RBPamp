@@ -193,7 +193,10 @@ def main():
     
     logger = logging.getLogger("CSKA")
     logger.setLevel(logging.INFO)
-    logger.info("version {0}".format(__version__))
+    import subprocess
+    path = os.path.dirname(os.path.realpath(__file__))
+    git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0]
+    logger.info("version {0} [git {1}]".format(__version__, git.rstrip()))
     logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
 
     # set info level for specific sub-systems
