@@ -21,7 +21,7 @@ class Alignment(object):
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1):
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
         n = len(self.matrix)
@@ -29,24 +29,52 @@ class Alignment(object):
             return 0, 1 # offset, alignment score
         else:
             scores = []
-            ofs_range = range(-l+1,n)
+            if contain:
+                assert n > l
+                d = n - l
+                ofs_range = range(-d, d+1)
+            else:
+                ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
             # print seq
             for ofs in ofs_range:
                 m_start = max(0, ofs)
                 m_end = min(n,ofs+l)
+                
+                if multiply:
+                    start_avg = 1.
+                    if m_start:
+                        start_avg = self.matrix[:m_start].mean(axis=1).prod()
+                    
+                    end_avg = 1.
+                    if m_end < n:
+                        end_avg = self.matrix[m_end:].mean(axis=1).prod()
+                else:
+                    start_avg = 0
+                    if m_start:
+                        start_avg = self.matrix[:m_start].mean(axis=1).sum()
+
+                    end_avg = 1.
+                    if m_end < n:
+                        end_avg = self.matrix[m_end:].mean(axis=1).sum()
+
+
                 n_cols = m_end - m_start
 
                 s_start = max(-ofs, 0)
                 s_end = s_start + n_cols
                 col_scores = []
-                score = 0
+                if end_weight:
+                    score = start_avg*end_avg if multiply else start_avg + end_avg
+                else:
+                    score = 1 if multiply else 0
+
                 for i in range(n_cols):
                     if bits[i+s_start] > 3:
                         continue # skip gaps
                     
                     S = self.matrix[i+m_start, bits[i+s_start]]
                     col_scores.append(S)
-                    score += S
+                    score = score * S if multiply else score + S
                 
                 scores.append(score)
                 # print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score

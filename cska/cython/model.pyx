@@ -58,7 +58,7 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
         N = min(N, n_max)
 
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             Z1 = 0
             # iterate over all k-mers, always adding next base to index
             for i in range(0, l):
@@ -94,7 +94,7 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
         N = min(N, n_max)
 
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             Z1 = 0
             # iterate over all k-mers
             for i in range(0, l):
@@ -149,7 +149,7 @@ def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOA
         N = min(N, n_max)
 
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             # iterate over all PSAM start positions
             for i in range(l):
                 Z[j,i] *= acc_matrix[j, i + openen_ofs]
@@ -171,24 +171,35 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
     cdef FLOAT32_t Z_sum=0
     cdef FLOAT32_t *ptr = &Z_max
     cdef FLOAT32_t [:] Z_read = np.zeros(N, dtype=np.float32)
+    cdef int num_threads=8
+    cdef int thread_num = -1
+    cdef FLOAT32_t [:] Z_max_thread = np.zeros(num_threads, dtype=np.float32)
+
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             # make these thread-local
+            thread_num = openmp.omp_get_thread_num()
+
             Z_sum = 0
-            Z_max_local = 0
             # sum
             for i in range(l):
                 Z_sum = Z_sum + Z[j,i]
             # clip
             Z_sum = min(Z_sum, clip)
 
-            # keep max-value in thread-safe way
+            # keep sum
             Z_read[j] = Z_sum
-            Z_max_local = Z_max
+
+            # keep max-value in thread-safe way
+            Z_max_local = Z_max_thread[thread_num]
             if Z_sum > Z_max_local:
-                while not cmpxchg_float32(ptr, Z_max_local, Z_sum):
-                    Z_max_local = Z_max
-    
+                Z_max_thread[thread_num] = Z_sum
+
+    # find the max over all threads
+    for thread_num in range(num_threads):
+        if Z_max_thread[thread_num] > Z_max:
+            Z_max = Z_max_thread[thread_num]
+
     return Z_read.base, Z_max
 
 
@@ -238,7 +249,7 @@ def PSAM_partition_function_gradient(state):
     cdef FLOAT32_t [:] psam_inv = 1./psam.base
 
     # do not even look at reads with Z1_read < this value
-    cdef FLOAT32_t Z1_thresh = state.threshold # set to 0 to look at all reads
+    cdef FLOAT32_t Z1_thresh = state.threshold * state.Z1_read_max # set to 0 to look at all reads
     cdef UINT64_t skipped = 0
     cdef UINT64_t n_eval = 0
 
@@ -252,7 +263,7 @@ def PSAM_partition_function_gradient(state):
 
     # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
     # with nogil, parallel():
-    #     for j in prange(N, schedule='guided'):
+    #     for j in prange(N, schedule='static'):
     #         thread_num = openmp.omp_get_thread_num()
     # with nogil:
     for j in range(n_samples):
@@ -268,7 +279,7 @@ def PSAM_partition_function_gradient(state):
                 skipped += 1
                 continue
 
-            dpsi = (p - (p * p)) / Z1rp
+            dpsi = (p - (p * p)) / Z1rp # This is still correct if rbp_free/A0 is used and Z1 only uses the matrix
 
             # zero out dZj_dA. bc we accumulate this for each sequence separately
             memset(&dpsi_dA[0], 0, zero_bytes)
@@ -392,7 +403,7 @@ def PSAM_partition_function_gradient_parallel(state):
 
     # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
     # with nogil, parallel():
-    #     for j in prange(N, schedule='guided'):
+    #     for j in prange(N, schedule='static'):
     #         thread_num = openmp.omp_get_thread_num()
 
     t1 = time()
@@ -404,7 +415,7 @@ def PSAM_partition_function_gradient_parallel(state):
     for j in range(n_samples):
         t0 = time()
         with nogil, parallel():
-            for r in prange(N, schedule='guided'):
+            for r in prange(N, schedule='static'):
                 thread_num = openmp.omp_get_thread_num()
                 p = psi[j,r]
                 # chain rule: how changes in per-sequence partition function
@@ -524,7 +535,7 @@ def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, 
 
     # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access
     # with nogil, parallel():
-    #     for j in prange(N, schedule='guided'):
+    #     for j in prange(N, schedule='static'):
     #         thread_num = openmp.omp_get_thread_num()
     
     for j in range(N):
@@ -584,7 +595,7 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     cdef FLOAT32_t A=0
 
     with nogil, parallel(num_threads=8):
-        for i in prange(Na, schedule='guided'):
+        for i in prange(Na, schedule='static'):
 
     # ugcacgu = seq_to_index('ugcacgu')
 
@@ -871,7 +882,7 @@ def PSAM_inv_mean_field_gradient(state):
 #         N = min(N, n_max)
 
 #     with nogil, parallel():
-#         for j in prange(N, schedule='guided'):
+#         for j in prange(N, schedule='static'):
 #             Z1 = 0
 #             # iterate over all k-mers in this read
 #             for i in range(0, l):
@@ -926,7 +937,7 @@ def SPA_bipartite_partition_function_raw(
         N = min(N, n_max)
 
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             Z1 = 0 # make thread-local
             # iterate over all k-mers and fill in single motif partition functions
             for i in range(L):
@@ -987,7 +998,7 @@ def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
     cdef FLOAT64_t Z1=0 # Single protein partition function
 
     # with nogil, parallel():
-        # for j in prange(N, schedule='guided'):
+        # for j in prange(N, schedule='static'):
     # with nogil:
     for n in range(N):
         # iterate over all k-mers
@@ -1018,7 +1029,7 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, FLOAT32_t [:] betas
     with nogil, parallel(num_threads=8):
         for i in range(n_conc):
             conc = rbp_conc_vector[i]
-            for j in prange(N, schedule='guided'):
+            for j in prange(N, schedule='static'):
                 Z = Z1[j] * conc
                 w = Z / (Z + 1.) 
                 p_bound[i,j] = w

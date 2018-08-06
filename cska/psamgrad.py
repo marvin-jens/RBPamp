@@ -19,8 +19,8 @@ class PSAMGradientDescent(object):
         self.logR = np.log2(self.R)
         self.logger = logging.getLogger('opt.PSAMGradientDescent')
         print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
-        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam, A0=1.)
-        params.betas[:] = .0001
+        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam)
+        # params.betas[:] = .0001
         # initial guess
         # params.betas[:] = [.013,.023,.062,.18,.19]
         # params.psam_matrix[3,1] = .1
@@ -36,7 +36,6 @@ class PSAMGradientDescent(object):
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
         self.descent = cska.gradient.GradientDescent(model, params)
         
-        state = model.predict(params)
         
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
@@ -87,7 +86,7 @@ class PSAMGradientDescent(object):
             self.track_file.write("\t".join([str(o) for o in out]))
             self.track_file.write('\n')
 
-        self.descent.optimize(maxiter=1000, debug=True, callback=callback)
+        self.descent.optimize(params, maxiter=1000, debug=True, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()

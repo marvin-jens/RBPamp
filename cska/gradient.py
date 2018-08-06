@@ -1,6 +1,7 @@
 import os
 import unittest
 import copy
+import time
 import numpy as np
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -202,7 +203,7 @@ class ModelParametrization(object):
         return ModelParametrization.from_vector(- self.data, self.k, self.n_samples)
 
 
-def emp_grad(state, eps=1e-4):
+def emp_grad(state, eps=1e-5):
     v0 = state.params.as_vector()
     var = state.params.copy()
     grad = state.params.copy()
@@ -222,7 +223,7 @@ def emp_grad(state, eps=1e-4):
     
     return grad
 
-def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=3, **kwargs):
+def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=2, **kwargs):
     """
     first evaluate at log-spaced sampling points along parameter range
     then select at most 3 orders of magnitude around the lowest observed value
@@ -308,7 +309,7 @@ class GradientDescent(object):
         M = p.max(axis=1)
         p /= M[:,np.newaxis]
         new.psam_matrix = np.clip(p, 1e-6, None)
-        new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+        # new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
         new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
 
         new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
@@ -348,19 +349,21 @@ class GradientDescent(object):
 
         return a, n        
 
-    def line_search(self, params, grad, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None):
+    def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None):
         from scipy.optimize import minimize_scalar
 
-        if e0 is None:
-            state = self.model.predict(params)
-            e0 = state.error
-
+        e0 = state.error
+        params0 = state.params
+        t0 = time.time()
+        N = {'fev' : 0}
+        self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
         def err(s):
             # s = np.exp(x)
-            m = self.apply_delta(params, grad * s)
-            state = self.model.predict(m)
+            m = self.apply_delta(params0, vec * s)
+            new = self.model.predict(m)
+            N['fev'] += 1
             # print s,"->", state.error - e0
-            return state.error
+            return new.error
 
         # def exponential_backtrack(func, e0, a,b, dec=.5):
         #     x = b
@@ -376,10 +379,12 @@ class GradientDescent(object):
 
         #     return 0,e0,nfev
 
-        res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
+        # res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
+        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
-        # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
+        self.model.set_mask()
+        self.logger.debug("line_search took {0:.3f} seconds for {1} iterations".format(time.time() - t0, N['fev']))
         if not res.success or res.fun > e0:
             self.logger.warning("line_search could not decrease error!")
             x = 0
@@ -434,11 +439,24 @@ class GradientDescent(object):
         
         return self.errors[-1] / self.errors[0]
 
-    def optimize(self, maxiter=100, debug=False, callback=None):
-        state = self.model.predict(self.params)
+    def print_state(self, state, s=0):
+        print ">>>>>>>>>PARAMS"
+        print state.params
+        print "=" * 50
+        print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s, "corr=", state.correlations[0]
+
+    def optimize(self, params, maxiter=100, debug=False, callback=None):
+        print "tick",params.betas
+        state = self.model.tune(self.params)
+        # state = self.model.predict(params)
+        print "tack",params.betas
         self.errors.append(state.error)
         self.history.append(state.archive())
         self.last_state = state
+
+        print "INITIAL STATE"
+        self.print_state(state)
+
         if callback:
             callback(self)
 
@@ -455,11 +473,11 @@ class GradientDescent(object):
                 # descent = - local_grad.unity()
 
 
-                s,n = self.line_search(self.params, descent, e0=self.errors[-1])
+                s,n = self.line_search(state, descent, e0=self.errors[-1])
                 if s == 0:
                     # take local gradient instead
                     descent = - local_grad.unity()
-                    s,n = self.line_search(self.params, descent, e0=self.errors[-1])
+                    s,n = self.line_search(state, descent, e0=self.errors[-1])
                     # and reset RMSProp
                     self.past_grad = None
                     self.past_sqg = 1
@@ -468,15 +486,16 @@ class GradientDescent(object):
                 self.ls_nfev.append(n)
 
                 upd = descent * s
-                self.params = self.apply_delta(self.params, upd)
+                self.params = self.apply_delta(state.params, upd)
                 self.model.params = self.params
 
-                if s < 1e-4 and self.t-self.last_quantile > 5:
-                    # res = self.model.quantile_fit(state)
-                    print "optimal parameters from quantile fit"
-                    # self.params.A0 = res[0]
-                    self.params.betas[:] = self.model.optimal_betas(state)
-                    self.last_quantile = self.t
+                # if s < 1e-4 and self.t-self.last_quantile > 5:
+                #     # res = self.model.quantile_fit(state)
+                #     print "optimal parameters from quantile fit"
+                #     # self.params.A0 = res[0]
+                #     # self.params.betas[:] = self.model.optimal_betas(state)
+                #     # self.last_quantile = self.t
+
 
                 state = self.model.predict(self.params)
                 self.errors.append(state.error)
@@ -486,10 +505,7 @@ class GradientDescent(object):
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
                     print descent
-                    print ">>>>>>>>>PARAMS"
-                    print self.params
-                    print "=" * 50
-                    print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s
+                    self.print_state(state, s=s)
 
                 if callback:
                     callback(self)
@@ -520,144 +536,11 @@ class GradientDescent(object):
 
 
 
-class TestGradientMethods(unittest.TestCase):
-
-    @staticmethod
-    def params_from_motif(motif, betas = [], a0=1e-6):
-        psam = motif.psam + a0
-        params = ModelParametrization(motif.n, max(1, len(betas)), psam=psam, A0=motif.A0, betas=betas)
-        return params
-
-    def run_descent(self, correct_params, initial_params, k_monitor=4, dec=.75, rbp_conc=None):
-        # generating reference state
-        R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
-        from cska.partfunc import PartFuncModel
-        if rbp_conc is None:
-            rbp_conc = [1.,] * correct_params.n_samples
-        model = PartFuncModel(reads, initial_params.copy(), R0, rbp_conc=rbp_conc)
-        state0 = model.predict(correct_params)
-        model.R0 = state0.R
-
-        print ">>> ORACLE0"
-        print correct_params
-        print ">>> INITIAL"
-        print initial_params
-        
-        print "R0.shape", R0.shape
-        G = GradientDescent(model, initial_params, dec=dec)
-        res = G.optimize(maxiter=500, debug=True)
-        print ">>> ORACLE"
-        print correct_params
-        print ">>> INITIAL"
-        print initial_params
-        print ">>> FINAL"
-        print G.params
-        print ">>> FINAL GRADIENT"
-        print G.last_state.grad
-        print ">>> FINAL EMP. GRADIENT"
-        print emp_grad(G.last_state)
-
-        d = np.fabs(G.params.data - correct_params.data)
-        print "maximal parameter deviation:", d.max(), d.argmax()
-        self.assertTrue(G.status.startswith('CONVERGED'))
-        # self.assertLess(G.t, 30)
-        self.assertTrue(np.allclose(G.params.data, correct_params.data, rtol=1e-3, atol=1e-2))
-
-
-    def from_kmers(self, *argc, **kwargs):
-        return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
-
-    def noisy_variant(self, motif, noise=.01, A0=None, betas=None, seed=4711):
-        if seed:
-            np.random.seed(seed)
-
-        delta = motif.copy()
-        delta.data[:] = np.array(np.random.randn(motif.n) * noise, dtype=np.float32)[:]
-        variant = GradientDescent.apply_delta(motif, delta)
-
-        if not A0 is None:
-            variant.A0 = A0
-
-        if not betas is None:
-            variant.betas[:] = betas[:]
-
-        return variant
-
-    @unittest.skip("")
-    def test_grad_optimum(self, dec=.75):
-        params = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
-        G = GradientDescent(reads, params, None, dec=dec, k_monitor=5, subsample=1.)
-        # generating reference state
-        R0, dR0 = G.predict_R(params)
-        G.set_reference(R0)
-
-        dR_dA0 = dR0[:,0]
-        I = dR_dA0.argsort()
-        print "gaining"
-        for i in I[::-1][:10]:
-            print cyska.index_to_seq(i, 5), dR_dA0[i], R0[i]
-
-        print "losing"
-        for i in I[:10]:
-            print cyska.index_to_seq(i, 5), dR_dA0[i], R0[i]
-
-        grad = G.ana_grad(params)
-        self.assertTrue(np.allclose(grad.data,0))
-
-        # reduce A0
-        params.A0 -= 1
-        ana = G.ana_grad(params)
-        emp = G.emp_grad(params)
-        print ">>>> analytical"
-        print ana.unity()
-        print ">>>> empirical"
-        print emp.unity()
-
-        
-    # @unittest.skip("")
-    def test_5mer_noise(self):
-        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
-        self.run_descent(motif, self.noisy_variant(motif, noise=.05), k_monitor=5, rbp_conc=[.1,.5,2.])
-
-    @unittest.skip("")
-    def test_5mer_betas(self):
-        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
-        variant = self.noisy_variant(motif, noise=.05)
-        variant.psam_vec[:] = motif.psam_vec[:]
-        self.run_descent(motif, variant, k_monitor=5, rbp_conc=[.5,50.,200.])
-
-    @unittest.skip("")
-    def test_5mer_optimum(self):
-        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [5., .6, .02,], betas = [.08, .11, .03])
-        print motif
-        self.run_descent(motif, motif, k_monitor=5, rbp_conc=[.5,50.,200.])
-        # self.run_descent(motif, motif, k_monitor=5, rbp_conc=[15., 50.,200.])
-
-    # def test_5mer_A0(self):
-    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
-    #     self.run_descent(motif, self.noisy_variant(motif, noise=0, A0=6.), k_monitor=5)
-
-    # def test_5mer_high_noise(self):
-    #     motif = PSAM.from_kmer_variants(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,])
-    #     self.run_descent(motif, self.noisy_variant(motif, noise=.1), k_monitor=5)
-
-    # def test_7mer_noise(self):
-    #     motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
-    #     self.run_descent(motif, self.noisy_variant(motif))
-
-    # def test_7mer_high_noise(self):
-    #     motif = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'UGCAGGC', ], [1., .5, .02])
-    #     self.run_descent(motif, self.noisy_variant(motif, noise=.2), k_monitor=5)
-
-    # def test_5mer_off_matrix(self):
-    #     motif_correct = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GCATG'], [1., 1., 1.])
-    #     motif_variant = PSAM.from_kmer_variants(['GCAGG', 'GCACG', 'GGATG','GGGGG'], [1., .2, .8,.1])
-    #     self.run_descent(motif_correct, motif_variant)
 
 if __name__ == '__main__':
     # import gzip
     # path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
     # TODO: include small amount of raw data in git repo for testing!
 
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=100000)
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
     unittest.main(verbosity=2)

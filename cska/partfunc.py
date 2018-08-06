@@ -5,14 +5,15 @@ import cska.gradient
 import cska.cyska as cyska
 from cska.pwm import PSAM
 from cska.sc import SelfConsistency
+from cska import vector_stats
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params):
+    def __init__(self, mdl, params, beta_fixed=False, **kwargs):
         t0 = time.time()
         self.mdl = mdl
-        self.params = params
+        self.params = params.copy()
         self.rbp_conc = mdl.rbp_conc
-        self.threshold = 0 # TODO: cleanup! experimental
+        self.threshold = mdl.Z_thresh # TODO: cleanup! experimental
         # self.threshold = 1e-6 # TODO: cleanup! experimental
     
         # self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
@@ -23,31 +24,42 @@ class PartFuncModelState(object):
 
         # evaluate single protein partition function of PSAM over reads
         self.Z1 = cyska.PSAM_partition_function(
-            self.mdl.seqm, 
-            self.mdl.openen.acc, 
+            self.mdl._seqm, 
+            self.mdl._acc, 
             np.array(params.psam_matrix, dtype=np.float32),# * params.A0,
             openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1
         )
         self.Z1_read, self.Z1_read_max = cyska.clipped_sum_and_max(self.Z1, clip=1E6)
+        # vector_stats(self.Z1_read)
         #self.Z1_read_max is used for thresholding
+
 
         # self-consistent free RBP concentrations
         self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
         # print "rbp_free", self.rbp_free
         # pull-down weights for each read, in each sample
         self.psi, w = cyska.p_bound(self.Z1_read, self.rbp_free/params.A0, params.betas)
+        # print "psi"
+        # vector_stats(self.psi)
         # print "PSI min", self.psi.min(axis=1)
+        # print "PartFuncModelState (betas=", params.betas,")"
+        # print "Z1_read_max", self.Z1_read_max
+        # print "psi", self.psi.shape, self.psi.min(axis=1), self.psi.max(axis=1), self.psi.mean(axis=1)
         # print "PSI max", self.psi.max(axis=1)
         # print "PSI mean", self.psi.mean(axis=1)
+        # self.Q = self.psi.sum(axis=1)
+        if not beta_fixed:
+            betas = self.mdl.optimal_betas(self.psi, params.betas)
+            self.params.betas[:] = betas
 
-        self.b = self.mdl.PD_kmer_weights(w)
-        # print "b min", self.b.min(axis=1)
-        # print "b max", self.b.max(axis=1)
-        # print "b mean", self.b.mean(axis=1)
+        self.b = self.mdl.PD_kmer_weights(self.psi)
 
         self.Q = self.b.sum(axis=1)
+        self.b += self.mdl.N * self.mdl.f0[np.newaxis,:] * self.params.betas[:,np.newaxis]
+        self.W = self.b.sum(axis=1)
+        # print "W", self.W
         # print "Q", self.Q
-        self.R = self.b / self.mdl.f0[np.newaxis,:] / self.Q[:,np.newaxis]
+        self.R = self.b / self.mdl.f0[np.newaxis,:] / self.W[:,np.newaxis]
         # gcaug = cyska.seq_to_index('ugcaugu')
         # print "R(uGCAUGu)", self.R[:,gcaug]
         # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
@@ -60,21 +72,40 @@ class PartFuncModelState(object):
         self.mdl.t_aff += 0
         
     @property
+    def correlations(self):
+        from scipy.stats import pearsonr
+        p_values = []
+        R_values = []
+
+        lR = np.log2(self.R)
+        # vector_stats(lR)
+        for r, r0 in zip(lR, self.mdl.lR0):
+            pears_R, p_val = pearsonr(r,r0)
+            p_values.append(p_val)
+            R_values.append(pears_R)
+
+        return np.array(R_values), np.array(p_values)
+
+    @property
     def grad(self):
         t0 = time.time()
         self.mdl.n_grad += 1
+        # self.mdl.set_mask( self.Z1_read > self.mdl.Z_thresh * self.Z1_read_max)
         # _grad = cska.gradient.emp_grad(self, eps=1e-4)
+        # self.mdl.set_mask()
         # print "state.psi", self.psi.shape
         # print "state.Q", self.Q.shape
         # print "state.rbp_free", self.rbp_free
         # print "state.b", self.b.shape
+
         _grad = cyska.PSAM_partition_function_gradient(self)
-        print "skipped reads below Z1_threshold", self.skipped
+        # print "skipped reads below Z1_threshold", self.skipped
+
         # print "parallel"
         # _grad = cyska.PSAM_partition_function_gradient_parallel(self)
         # # _grad.A0 *= 4*_grad.k
         # _grad.A0 *= 0
-        # _grad.betas *= 0
+        _grad.betas *= 0
         # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
         # _grad.betas = np.where(self.params.betas > 0, self.params.n_samples * _grad.betas, 0)
         # _grad.betas = np.where(self.params.betas > 0, _grad.betas, 0)
@@ -92,7 +123,16 @@ class PartFuncModelState(object):
         arc.b = None
         arc.R_errors = None
         return arc
-        
+
+
+    def __str__(self):
+        buf = [str(self.params)]
+        buf.append("error = {}".format(self.error))
+        buf.append("rbp_free = {}".format(self.rbp_free))
+        buf.append("correlation = {}".format(self.correlations))
+
+        return "\n".join(buf)
+
 
 class PartFuncModel(object):
     """
@@ -100,14 +140,15 @@ class PartFuncModel(object):
     Importantly, k_monitor can be < params.n, i.e. the model can be more complex than the kmer frequencies
     being used to estimate agreement with the experiment.
     """
-    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, **kwargs):
+    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, **kwargs):
+        self.logger = logging.getLogger('opt.PartFuncModel')
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
         self.params = params0
         self.k_mdl = self.params.k
+        self.Z_thresh = Z_thresh
 
-        self.R0 = R0
-        self.lR0 = np.log2(R0)
+        self.set_R0(R0)
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
         self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
@@ -122,6 +163,14 @@ class PartFuncModel(object):
         self.seqm = self.reads.get_padded_seqm(self.k_mdl) #2bit coded read sequences, including flanking adapter overlap
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
         self.openen = self.reads.acc_storage.get_raw(self.k_mdl) # corresponding accessibilities
+        self.acc = self.openen.acc
+
+        # in case a mask is set, this can be a subset
+        self.indices = []
+        self._seqm = self.seqm
+        self._acc = self.acc
+        self._im = self.im
+        self.N = np.float32(len(self._seqm))
 
         self.n_fev = 0
         self.t_fev = 0
@@ -129,6 +178,35 @@ class PartFuncModel(object):
         self.t_grad = 0
         self.t_aff = 0
 
+    def set_R0(self, R0):
+        self.R0 = np.array(R0, dtype=np.float32)
+        self.lR0 = np.log2(self.R0)
+
+    def tune(self, params):
+        state = self.predict(params)
+        # print state.error
+        params.A0 = self.optimal_A0(state)
+        state = self.predict(params)
+        params.betas[:] = self.optimal_betas(state.psi, state.params.betas)
+        state = self.predict(params)
+    
+        return state
+
+    def set_mask(self, indices=[]):
+        if not len(indices):
+            # unset mask
+            self._seqm = self.seqm
+            self._acc = self.acc
+            self._im = self.im
+            self.logger.debug("set_mask() unset")
+        else:
+            self._seqm = self.seqm[indices]
+            self._acc = self.acc[indices]
+            self._im = self.im[indices]
+            frac = float(len(self._seqm)) / len(self.seqm)
+            self.logger.debug("set_mask() to {0:.2f}% of reads".format(100. * frac))
+
+        self.N = np.float32(len(self._seqm))
 
     def SPA_free_protein(self, Z1, Z_scale=1.):
         sc = SelfConsistency(Z1, self.reads.rna_conc, bins=10000)
@@ -138,40 +216,51 @@ class PartFuncModel(object):
     def PD_kmer_weights(self, psi):
         w = np.zeros( (self.n_samples, self.nA), dtype=np.float32)
         for i in range(self.n_samples):
-            w[i] = cyska.weighted_kmer_counts(self.im, psi[i], self.k)
+            w[i] = cyska.weighted_kmer_counts(self._im, psi[i], self.k)
 
         return w
 
-    def predict(self, params, aff0=1e-6, debug=False):
-        state = PartFuncModelState(self, params)
+    def predict(self, params, aff0=1e-6, debug=False, **kwargs):
+        t0 = time.time()
+        state = PartFuncModelState(self, params, **kwargs)
+        self.logger.debug("predict() took {0:.2f} ms".format(1000. * (time.time() - t0)))
         return state
 
     def estimate_betas(self, state, q=5):
         R_ns = np.percentile(self.R0, q, axis=1)
         beta = R_ns / (1 - R_ns)
-        return state.Q * beta / self.reads.N
+        return state.Q * beta / self.reads.N / self.reads.L
 
-    def optimal_betas(self, state, n=20):
+    def optimal_betas(self, state_psi, opt_betas, n=5, q_top=10):
         from cska.gradient import minimize_logspaced
-        opt_betas = self.estimate_betas(state)
-        print "initial guess", opt_betas
+        from scipy.optimize import minimize_scalar
+        
+        # print "initial guess", opt_betas
 
+        t0 = time.time()
         top_i = self.R0.max(axis=0).argmax()
         top_mer = cyska.index_to_seq(top_i, self.k)
 
+        f0 = self.f0 * self.N
         for i in range(self.n_samples):
-            R0_quants = np.percentile(self.R0[i], np.linspace(0,100,n))
-            print "R0 quantiles", R0_quants
+            R0_quants = np.percentile(self.R0[i], np.linspace(0,q_top,n))
+            # print "R0 quantiles", R0_quants
+            psi = state_psi[i]
+            b0 = cyska.weighted_kmer_counts(self._im, psi, self.k)
+            # if i == 0:
+                # print "B0", b0[:10]
+
+
             def to_optimize(beta):
-                psi = state.psi[i]
-                b = cyska.weighted_kmer_counts(self.im, psi + beta, self.k)
+                # b = cyska.weighted_kmer_counts(self.im, psi + beta, self.k)
+                b = b0 + f0 * beta
                 Q = b.sum()
                 R = b / self.f0 / Q
 
-                # R_quants = np.percentile(R, np.linspace(0,100,n))
+                R_quants = np.percentile(R, np.linspace(0,q_top,n))
                 # print "beta", beta, "R quants", R_quants
-                R_errors = np.array(R - self.R0[i], dtype=np.float32)
-                # R_errors = R_quants - R0_quants
+                # R_errors = np.array(R - self.R0[i], dtype=np.float32)
+                R_errors = R_quants - R0_quants
                 # print "R-errors min/max/mean", R_errors.min(), R_errors.max(), R_errors.mean()
                 # print "most over-predicted", cyska.index_to_seq(R_errors.argmax(), self.k)
                 # print "most under-predicted", cyska.index_to_seq(R_errors.argmin(), self.k)
@@ -179,13 +268,58 @@ class PartFuncModel(object):
                 # print beta, "->", error, "R({})".format(top_mer), R[top_i], self.R0[i,top_i]
                 return error
             
-            res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=11, debug=True)
-            print "beta",i, res
+            res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=7, debug=False)
+            # res = minimize_scalar(to_optimize, opt_betas[i], bounds=np.array([1e-7, 10]), method='Bounded')
+            # print "beta",i, res
             if res.success:
                 opt_betas[i] = res.x
 
-        print "final values", opt_betas
-        return opt_betas
+        # print "final values", opt_betas
+        # self.logger.debug("optimal_betas took {0:.2f} ms".format(1000. * (time.time() - t0)))
+        return np.array(opt_betas, dtype=np.float32)
+
+    def optimal_A0(self, state):
+        from scipy.optimize import minimize_scalar
+        from cska.gradient import minimize_logspaced
+        params = state.params.copy()
+        sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=10000)
+        f0 = self.f0 * self.N
+
+        def err(A0):
+            # s = np.exp(x)
+            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
+            psi, w = cyska.p_bound(state.Z1_read, rbp_free/A0, params.betas)
+            # print "PSI min", self.psi.min(axis=1)
+            # print "PSI max", self.psi.max(axis=1)
+            # print "PSI mean", self.psi.mean(axis=1)
+            Q = psi.sum(axis=1)
+            betas = self.optimal_betas(psi, params.betas)
+            params.betas[:] = betas
+            params.A0 = A0
+            b = self.PD_kmer_weights(psi) + f0[np.newaxis,:] * betas[:,np.newaxis]
+            # print "b min", self.b.min(axis=1)
+            # print "b max", self.b.max(axis=1)
+            # print "b mean", self.b.mean(axis=1)
+
+            Q = b.sum(axis=1)
+            # print "Q", self.Q
+            R = b / self.f0[np.newaxis,:] / Q[:,np.newaxis]
+            # gcaug = cyska.seq_to_index('ugcaugu')
+            # print "R(uGCAUGu)", self.R[:,gcaug]
+            # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
+
+            R_errors = np.array(R - self.R0, dtype=np.float32)
+            error = (R_errors**2).mean()
+            # print "A0={0:.3e} -> err={1:.3e} betas={2} rbp_free={3} Q={4}".format(A0, error, betas, rbp_free, Q), psi.shape
+            return error
+
+
+        # res = minimize_scalar(err, 1., bounds=np.array([1e-3, 10]), method='Bounded')
+        res = minimize_logspaced(err, bounds=np.array([1e-3, 10]), debug=False, nested=2, n_samples=7)
+        # print "debug"
+        # err(1.)
+        # print res
+        return res.x
 
     def quantile_fit(self, state, n=20):
         """

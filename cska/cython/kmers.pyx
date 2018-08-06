@@ -452,7 +452,7 @@ def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_ma
         N = min(N, n_max)
 
     with nogil, parallel():
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             thread_num = openmp.omp_get_thread_num()
             # iterate over all k-mers
             for i in range(0, l):
@@ -480,7 +480,7 @@ def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_thre
     cdef UINT32_t index
 
     with nogil, parallel(num_threads=8):
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             thread_num = openmp.omp_get_thread_num()
 
             for i in range(0, l):
@@ -549,15 +549,16 @@ def weighted_kmer_counts(UINT32_t [:,:] index_matrix, FLOAT32_t [:] weights, UIN
     cdef FLOAT32_t w=0
 
     with nogil, parallel(num_threads=8):
-        for j in prange(N, schedule='guided'):
+        for j in prange(N, schedule='static'):
             thread_num = openmp.omp_get_thread_num()
 
             w = weights[j]
             for i in range(0, l):
                 index = index_matrix[j, i]
                 counts[thread_num, index] += w
-            
+        
     return counts.base.sum(axis=0)
+
 
 
 

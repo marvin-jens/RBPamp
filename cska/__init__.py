@@ -56,6 +56,16 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     return rbp_names.keys()[0], files[I], rbp_conc[I]
 
+def vector_stats(v):
+    print getattr(v,"__name__", "no name"), type(v)
+    print "shape",v.shape
+    print "pos. values", (v > 0).sum()
+    print "0 values", (v == 0).sum()
+    print "neg. values", (v < 0).sum()
+    print "nan values", np.isnan(v).sum()
+    print "non-finite values", (~np.isfinite(v)).sum()
+    print "min max", v.min(), v.max()
+    print "mean median", np.mean(v), np.median(v)
 
 def main():
     from optparse import OptionParser

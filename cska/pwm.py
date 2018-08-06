@@ -304,7 +304,7 @@ class PSAM(object):
         A = Alignment()
         A.matrix = self.psam
         
-        ofs, score = A.align(kmer)
+        ofs, score = A.align(kmer, multiply=True)
         frac = score / (self.n - abs(ofs) )
 
         if ofs == 0:
