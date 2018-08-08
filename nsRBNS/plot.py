@@ -171,6 +171,7 @@ class nsRBNSOligos(object):
         pp.close()
 
     def get_SPA_model(self, k=7, rna_conc=100., rbp_conc=[25.,125.,625.], seq_only=False):
+        # Bridget used 250 nM of RNA oligos
         from cska.reads import RBNSReads
         import cska.spa
 
