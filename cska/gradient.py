@@ -203,21 +203,23 @@ class ModelParametrization(object):
         return ModelParametrization.from_vector(- self.data, self.k, self.n_samples)
 
 
-def emp_grad(state, eps=1e-5):
+def emp_grad(state, eps=1e-6):
     v0 = state.params.as_vector()
     var = state.params.copy()
     grad = state.params.copy()
 
     err0 = state.error
+    # print "err0", err0
 
     for i in range(state.params.n):
         # print ">>> EMP GRAD", state.params.names[i]
-        d = max(v0[i] * eps,1e-6)
-        #d = eps
+        # d = max(v0[i] * eps,1e-6)
+        d = eps
         var.data[i] = v0[i] + d
-        state = state.mdl.predict(var)
+        state = state.mdl.predict(var, beta_fixed=True)
         derr = state.error - err0
         grad.data[i] = derr/d
+        # print "derr", derr
         var.data[i] = v0[i]
         # print ">>>GRAD ELEMENT", grad.data[i]
     
@@ -269,9 +271,20 @@ def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=2, 
 
     if debug:
         print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
+
     res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded') #, **kwargs)
     t1 = time.time()
-    
+
+    if debug:
+        print "PLOTTING LINESEARCH ERROR"
+        import matplotlib.pyplot as pp
+        x = sorted(known.keys())
+        y = [known[i] for i in x]
+        pp.semilogx(x,y)
+        pp.savefig('minimize_logspaced.pdf')
+        pp.show()
+        pp.close()
+
     # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
     return res
@@ -308,8 +321,8 @@ class GradientDescent(object):
         p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
         M = p.max(axis=1)
         p /= M[:,np.newaxis]
-        new.psam_matrix = np.clip(p, 1e-6, None)
-        # new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+        new.psam_matrix = np.clip(p, 1e-6, 1)
+        new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
         new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
 
         new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
@@ -353,18 +366,21 @@ class GradientDescent(object):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
+        assert e0 == state.mdl.predict(state.params).error
+
         params0 = state.params
         t0 = time.time()
         N = {'fev' : 0}
-        self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
+        # self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
         def err(s):
             # s = np.exp(x)
             m = self.apply_delta(params0, vec * s)
             new = self.model.predict(m)
             N['fev'] += 1
-            # print s,"->", state.error - e0
-            return new.error
+            print s,"->", new.error - e0
+            return new.error - e0
 
+        assert err(0) == 0
         # def exponential_backtrack(func, e0, a,b, dec=.5):
         #     x = b
         #     nfev = 0
@@ -379,13 +395,13 @@ class GradientDescent(object):
 
         #     return 0,e0,nfev
 
-        # res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=False, options=dict(maxiter=maxiter) )
-        res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
+        res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), debug=True, options=dict(maxiter=maxiter) )
+        # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
-        self.model.set_mask()
+        # self.model.set_mask()
         self.logger.debug("line_search took {0:.3f} seconds for {1} iterations".format(time.time() - t0, N['fev']))
-        if not res.success or res.fun > e0:
+        if not res.success or res.fun > 0:
             self.logger.warning("line_search could not decrease error!")
             x = 0
         else:
@@ -448,7 +464,6 @@ class GradientDescent(object):
     def optimize(self, params, maxiter=100, debug=False, callback=None):
         print "tick",params.betas
         state = self.model.tune(self.params)
-        # state = self.model.predict(params)
         print "tack",params.betas
         self.errors.append(state.error)
         self.history.append(state.archive())
@@ -475,7 +490,10 @@ class GradientDescent(object):
 
                 s,n = self.line_search(state, descent, e0=self.errors[-1])
                 if s == 0:
+                    # and tune parameters
+                    state = self.model.tune(state.params) # recent addition, needs testing!
                     # take local gradient instead
+                    local_grad = state.grad.unity()
                     descent = - local_grad.unity()
                     s,n = self.line_search(state, descent, e0=self.errors[-1])
                     # and reset RMSProp

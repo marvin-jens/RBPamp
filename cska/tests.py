@@ -59,7 +59,7 @@ class TestPhysModel(unittest.TestCase):
         self.assertTrue(np.allclose(zmax, Zmax))
 
 
-    def test_weighted_kmer_counts(self, N = 1000000, k=6, rnd_seed=47110815, n = 100):
+    def test_weighted_kmer_counts(self, N = 100000, k=6, rnd_seed=47110815, n = 100):
         from time import time
         np.random.seed(rnd_seed)
         reads = get_real_reads(N)
@@ -76,12 +76,13 @@ class TestPhysModel(unittest.TestCase):
             else:
                 prev = counts
         t1 = time()
-        print "took {0:.2f} ms".format(1000./n * (t1-t0))
+        # print "took {0:.2f} ms".format(1000./n * (t1-t0))
 
 
 from cska.pwm import *
 from cska.gradient import *
 class TestGradientMethods(unittest.TestCase):
+
 
     @staticmethod
     def params_from_motif(motif, betas = [], a0=1e-6):
@@ -89,18 +90,32 @@ class TestGradientMethods(unittest.TestCase):
         params = ModelParametrization(motif.n, max(1, len(betas)), psam=psam, A0=motif.A0, betas=betas)
         return params
 
-    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None):
+    def from_kmers(self, *argc, **kwargs):
+        return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
+
+    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=100000):
         # generating reference state
         R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
         from cska.partfunc import PartFuncModel
         if rbp_conc is None:
             rbp_conc = [1.,] * correct_params.n_samples
+        
+        reads = get_real_reads(N)
         model = PartFuncModel(reads, correct_params, R0, rbp_conc=rbp_conc)
         state0 = model.predict(correct_params, beta_fixed=True)
         R0 = state0.R
         model.set_R0(R0)
+        state0 = model.predict(correct_params, beta_fixed=True)
 
         return model, state0
+
+    def setUp(self):
+        params = self.from_kmers(['GCATG', 'GCACG', ], [5., .5, ], betas = [.01,.05,.09])
+        # params = self.from_kmers(['GCATG',], [5., ], betas = [.01,.05,.09])
+        self.model, self.state0 = self.setup_model(params, rbp_conc=[.2, 20., 2000.])
+
+    def get_default(self):
+        return self.model, self.state0
 
     def run_descent(self, correct_params, initial_params, k_monitor=5, dec=.75, rbp_conc=None):
         model, state0 = self.setup_model(correct_params, k_monitor=k_monitor, rbp_conc=rbp_conc)
@@ -137,9 +152,6 @@ class TestGradientMethods(unittest.TestCase):
         self.assertTrue(np.allclose(G.params.data, correct_params.data, rtol=1e-3, atol=1e-2))
 
 
-    def from_kmers(self, *argc, **kwargs):
-        return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
-
     def noisy_variant(self, motif, noise=.01, A0=None, betas=None, seed=4711):
         if seed:
             np.random.seed(seed)
@@ -157,72 +169,123 @@ class TestGradientMethods(unittest.TestCase):
         return variant
 
     # @unittest.skip("")
+    def test_beta_opt(self):
+        model, state0 = self.get_default()
+        state = model.predict(state0.params, beta_fixed=False)
+        print state0.params.betas
+        print state.params.betas
+        self.assertTrue( np.allclose(state.params.betas, state0.params.betas) )
+
+    def test_suboptimal(self):
+        model, state0 = self.get_default()
+
+        subopt_params = state0.params.copy()
+        subopt_params.psam_matrix[3,1] = 1e-6 # set C4 to near-zero
+        print subopt_params
+
+        state = model.predict(subopt_params, beta_fixed=False)
+        print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
+        print state.grad
+        
+        from cska.gradient import emp_grad
+        print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
+        print emp_grad(state)
+
+    # @unittest.skip("")
     def test_consistency(self):
-        from cska import vector_stats
+        """
+        Subsequent evaluations of the same model should yield the exact same results.
+        """
+        # from cska import vector_stats
+        model, state0 = self.get_default()
+        states = [model.predict(state0.params) for i in range(3)]
 
-        motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
-        model, state0 = self.setup_model(motif, rbp_conc=[.5,50.,400.])
+        def check(getter):
+            for i in range(1,len(states)):
+                self.assertTrue( (getter(states[0]) == getter(states[i])).all() )
 
-        states = [model.predict(motif) for i in range(3)]
-        i = 0
-        for i in range(1,len(states)):
-            print "psi", self.assertTrue(np.allclose(states[0].psi, states[i].psi))
-            print "psi", self.assertTrue( (states[0].psi == states[i].psi).all() )
-            print "b", self.assertTrue(np.allclose(states[0].b, states[i].b))
-            print "rbp_free", self.assertTrue(np.allclose(states[0].rbp_free, states[i].rbp_free))
-            print "betas", self.assertTrue(np.allclose(states[0].params.betas, states[1].params.betas))
-            print "Qs", self.assertTrue(np.allclose(states[0].Q, states[i].Q))
-            print "Ws", self.assertTrue(np.allclose(states[0].W, states[i].W))
-            print "R", self.assertTrue(np.allclose(states[0].R, states[i].R))
-            print "R0", self.assertTrue(np.allclose(states[0].mdl.R0, states[i].mdl.R0))
-            print "R_errors", self.assertTrue(np.allclose(states[0].R_errors, states[i].R_errors))
+        check(lambda x : x.psi)
+        check(lambda x : x.w )
+        check(lambda x : x.rbp_free )
+        check(lambda x : x.params.betas )
+        check(lambda x : x.Q )
+        check(lambda x : x.W )
+        check(lambda x : x.R )
+        check(lambda x : x.mdl.R0 )
+        check(lambda x : x.R_errors )
+        check(lambda x : x.grad.data )
 
-            delta = states[0].R - states[i].R
-            vector_stats(delta)
-            states[i].R_errors = states[0].R_errors
-            print "grads", self.assertTrue(np.allclose(states[0].grad.data, states[i].grad.data))
-
-    @unittest.skip("")
-    def test_grad_optimum(self, dec=.75):
-        from cska.partfunc import PartFuncModel
-        import cska.cyska as cyska
-        params = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [5., 3.0, .1,])
-        print "INITIAL PARAMS"
-        print params
-        R0 = np.ones((3,4**5), dtype=np.float32)
-        mdl = PartFuncModel(reads, params, R0)
-        state = mdl.predict(params)
-        mdl.R0 = state.R
-
-        G = GradientDescent(mdl, params, dec=dec)
-        # # generating reference state
-        # R0, dR0 = G.predict_R(params)
-        # G.set_reference(R0)
-
-        # dR_dA0 = dR0[:,0]
-        # I = dR_dA0.argsort()
-        # print "gaining"
-        # for i in I[::-1][:10]:
-        #     print cyska.index_to_seq(i, 5), dR_dA0[i], R0[i]
-
-        # print "losing"
-        # for i in I[:10]:
-        #     print cyska.index_to_seq(i, 5), dR_dA0[i], R0[i]
-
-        G.optimize()
-        grad = G.last_state.grad
+    # @unittest.skip("")
+    def test_grad_optimum(self):
+        """
+        At the optimal parameters, the gradient should be 0 in every element.
+        """
+        model, state0 = self.get_default()
+        grad = state0.grad
+        from cska.gradient import emp_grad
+        egrad = emp_grad(state0, eps=1e-6)
+        
+        print "\nANALYTICAL GRADIENT AT OPTIMUM"
+        print grad
+        print "EMP. GRADIENT AT OPTIMUM"
+        print egrad
         self.assertTrue(np.allclose(grad.data,0))
 
-        # reduce A0
-        params.A0 -= 1
-        # ana = G.ana_grad(params)
-        # emp = G.emp_grad(params)
-        # print ">>>> analytical"
-        # print ana.unity()
-        # print ">>>> empirical"
-        # print emp.unity()
+    # @unittest.skip("")
+    def test_grad_matrix(self, d=1e-4):
+        """
+        Small perturbations of the parameter matrix should result in gradients pointing
+        in the opposite direction.
+        """
+        from cska.gradient import GradientDescent, emp_grad
 
-        
+        model, state0 = self.get_default()
+        grad0 = state0.grad
+        n = len(state0.params.psam_vec)
+
+        ratios = np.ones(n, dtype=np.float32)
+        for i in range(1, n):
+        # for i in [1,2,3,4, 14,]:
+            if i and state0.params.data[i] >= 1:
+                continue # only non-cognate
+
+            delta = state0.params.copy()
+            delta.data[:] = 0
+            delta.data[i] = d
+
+            params = GradientDescent.apply_delta(state0.params, delta)
+            pert = params.copy()
+            pert.data[:] -= state0.params.data
+            print "perturbation", i, "params[i] =", state0.params.data[i]
+            print pert
+
+            state = model.predict(params, beta_fixed=True)
+            grad = state.grad
+            print "gradient"
+            print grad.unity()
+            egrad = emp_grad(state)
+            print "emp. gradient"
+            print egrad.unity()
+
+            i_pert = pert.data.argmax()
+            print "i_pert", i_pert
+            assert i_pert == i
+            I = grad.data.argsort()[::-1]
+            i_grad = I[0]
+            i_next = I[1]
+            # self.assertTrue(i_grad == i_pert)
+            # ratio of highest value in gradient to second-highest.
+            
+            if i_grad == i_pert:
+                ratios[i] = grad.data[i_pert] / grad.data[i_next]
+                print "SUCCESS"
+            else:
+                ratios[i] = grad.data[i_pert] / grad.data[i_grad]
+                print "FAILED"
+
+        print "summary", ratios
+        self.assertTrue((ratios >= 1.).all())
+
     @unittest.skip("")
     def test_5mer_noise(self):
         motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
@@ -277,8 +340,9 @@ if __name__ == '__main__':
     # import gzip
     # path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
     # TODO: include small amount of raw data in git repo for testing!
-
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
+    # import logging
+    # logging.basicConfig(level=logging.WARNING)
+    # reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
     unittest.main(verbosity=2)
 
 

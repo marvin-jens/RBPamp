@@ -8,7 +8,7 @@ from cska.sc import SelfConsistency
 from cska import vector_stats
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params, beta_fixed=False, **kwargs):
+    def __init__(self, mdl, params, beta_fixed=True, **kwargs):
         t0 = time.time()
         self.mdl = mdl
         self.params = params.copy()
@@ -38,7 +38,7 @@ class PartFuncModelState(object):
         self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
         # print "rbp_free", self.rbp_free
         # pull-down weights for each read, in each sample
-        self.psi, w = cyska.p_bound(self.Z1_read, self.rbp_free/params.A0, params.betas)
+        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*params.A0)
         # print "psi"
         # vector_stats(self.psi)
         # print "PSI min", self.psi.min(axis=1)
@@ -52,14 +52,13 @@ class PartFuncModelState(object):
             betas = self.mdl.optimal_betas(self.psi, params.betas)
             self.params.betas[:] = betas
 
-        self.b = self.mdl.PD_kmer_weights(self.psi)
-
-        self.Q = self.b.sum(axis=1)
-        self.b += self.mdl.N * self.mdl.f0[np.newaxis,:] * self.params.betas[:,np.newaxis]
-        self.W = self.b.sum(axis=1)
+        self.w = self.mdl.PD_kmer_weights(self.psi)
+        self.Q = self.w.sum(axis=1)
+        self.w += self.mdl.F0[np.newaxis,:] * self.params.betas[:,np.newaxis]
+        self.W = self.w.sum(axis=1)
         # print "W", self.W
         # print "Q", self.Q
-        self.R = self.b / self.mdl.f0[np.newaxis,:] / self.W[:,np.newaxis]
+        self.R = self.w / self.mdl.f0[np.newaxis,:] / self.W[:,np.newaxis]
         # gcaug = cyska.seq_to_index('ugcaugu')
         # print "R(uGCAUGu)", self.R[:,gcaug]
         # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
@@ -96,17 +95,22 @@ class PartFuncModelState(object):
         # print "state.psi", self.psi.shape
         # print "state.Q", self.Q.shape
         # print "state.rbp_free", self.rbp_free
-        # print "state.b", self.b.shape
+        # print "state.w", self.w.shape
 
+        self.E_weights = np.ones(self.mdl.nA, dtype=np.float32)
         _grad = cyska.PSAM_partition_function_gradient(self)
+        # _grad.A0 *= 0
+        # _grad.betas *= 0
+        # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
+
+        # from cska.gradient import emp_grad
+        # _grad = emp_grad(self)
+
         # print "skipped reads below Z1_threshold", self.skipped
 
         # print "parallel"
         # _grad = cyska.PSAM_partition_function_gradient_parallel(self)
         # # _grad.A0 *= 4*_grad.k
-        # _grad.A0 *= 0
-        _grad.betas *= 0
-        # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
         # _grad.betas = np.where(self.params.betas > 0, self.params.n_samples * _grad.betas, 0)
         # _grad.betas = np.where(self.params.betas > 0, _grad.betas, 0)
         self.mdl.t_grad += time.time() - t0
@@ -120,7 +124,7 @@ class PartFuncModelState(object):
         arc.Z1_read = None
         arc.psi  = None
         arc.Q = None
-        arc.b = None
+        arc.w = None
         arc.R_errors = None
         return arc
 
@@ -152,9 +156,10 @@ class PartFuncModel(object):
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
         self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
-        print "partfuncmodel: k_mdl, k_fit", self.k_mdl, self.k
-        f0 = reads.kmer_frequencies(self.k)
-        self.f0 = f0 / f0.sum()
+        # print "partfuncmodel: k_mdl, k_fit", self.k_mdl, self.k
+        self.F0 = reads.kmer_counts(self.k) # actual counts
+        self.f0 = np.array(self.F0 + reads.pseudo_count, dtype=np.float32)
+        self.f0 /= self.f0.sum() # relative frequencies
 
         self.aff0 = aff0
         self.opt = None
@@ -241,26 +246,25 @@ class PartFuncModel(object):
         top_i = self.R0.max(axis=0).argmax()
         top_mer = cyska.index_to_seq(top_i, self.k)
 
-        f0 = self.f0 * self.N
         for i in range(self.n_samples):
-            R0_quants = np.percentile(self.R0[i], np.linspace(0,q_top,n))
+            # R0_quants = np.percentile(self.R0[i], np.linspace(0,q_top,n))
             # print "R0 quantiles", R0_quants
             psi = state_psi[i]
-            b0 = cyska.weighted_kmer_counts(self._im, psi, self.k)
+            w0 = cyska.weighted_kmer_counts(self._im, psi, self.k)
             # if i == 0:
                 # print "B0", b0[:10]
 
 
             def to_optimize(beta):
                 # b = cyska.weighted_kmer_counts(self.im, psi + beta, self.k)
-                b = b0 + f0 * beta
-                Q = b.sum()
-                R = b / self.f0 / Q
+                w = w0 + self.F0 * beta
+                W = w.sum()
+                R = w / self.f0 / W
 
-                R_quants = np.percentile(R, np.linspace(0,q_top,n))
+                # R_quants = np.percentile(R, np.linspace(0,q_top,n))
                 # print "beta", beta, "R quants", R_quants
-                # R_errors = np.array(R - self.R0[i], dtype=np.float32)
-                R_errors = R_quants - R0_quants
+                R_errors = np.array(R - self.R0[i], dtype=np.float32)
+                # R_errors = R_quants - R0_quants
                 # print "R-errors min/max/mean", R_errors.min(), R_errors.max(), R_errors.mean()
                 # print "most over-predicted", cyska.index_to_seq(R_errors.argmax(), self.k)
                 # print "most under-predicted", cyska.index_to_seq(R_errors.argmin(), self.k)
@@ -283,34 +287,30 @@ class PartFuncModel(object):
         from cska.gradient import minimize_logspaced
         params = state.params.copy()
         sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=10000)
-        f0 = self.f0 * self.N
 
         def err(A0):
             # s = np.exp(x)
             rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
-            psi, w = cyska.p_bound(state.Z1_read, rbp_free/A0, params.betas)
+            psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
             # print "PSI min", self.psi.min(axis=1)
             # print "PSI max", self.psi.max(axis=1)
             # print "PSI mean", self.psi.mean(axis=1)
             Q = psi.sum(axis=1)
+            params.A0 = A0
             betas = self.optimal_betas(psi, params.betas)
             params.betas[:] = betas
-            params.A0 = A0
-            b = self.PD_kmer_weights(psi) + f0[np.newaxis,:] * betas[:,np.newaxis]
-            # print "b min", self.b.min(axis=1)
-            # print "b max", self.b.max(axis=1)
-            # print "b mean", self.b.mean(axis=1)
+            w = self.PD_kmer_weights(psi) + self.F0[np.newaxis,:] * betas[:,np.newaxis]
 
-            Q = b.sum(axis=1)
+            W = w.sum(axis=1)
             # print "Q", self.Q
-            R = b / self.f0[np.newaxis,:] / Q[:,np.newaxis]
-            # gcaug = cyska.seq_to_index('ugcaugu')
-            # print "R(uGCAUGu)", self.R[:,gcaug]
-            # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
+            R = w / self.f0[np.newaxis,:] / W[:,np.newaxis]
+            gcaug = cyska.seq_to_index('ugcaug')
+            print "R(uGCAUG)", R[:,gcaug]
+            print "R0(uGCAUG)", self.R0[:,gcaug]
 
             R_errors = np.array(R - self.R0, dtype=np.float32)
             error = (R_errors**2).mean()
-            # print "A0={0:.3e} -> err={1:.3e} betas={2} rbp_free={3} Q={4}".format(A0, error, betas, rbp_free, Q), psi.shape
+            print "A0={0:.3e} -> err={1:.3e} betas={2} rbp_free={3} Q={4}".format(A0, error, betas, rbp_free, Q), psi.shape
             return error
 
 
@@ -344,9 +344,9 @@ class PartFuncModel(object):
 
             # print "rbp_free", rbp_free
             # pull-down weights for each read, in each sample
-            psi, w = cyska.p_bound(state.Z1_read, rbp_free/A0, betas)
+            psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
 
-            b = self.PD_kmer_weights(w)
+            b = self.PD_kmer_weights(psi)
             # print "b min", self.b.min(axis=1)
             # print "b max", self.b.max(axis=1)
             # print "b mean", self.b.mean(axis=1)
