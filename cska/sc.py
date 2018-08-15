@@ -37,8 +37,9 @@ class SelfConsistency(object):
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
         # TODO: use the binned version. Compare accuracy!
         t0 = time.time()
+        y = self.x * Z_scale
         def to_optimize(p_free):
-            Z = p_free * self.x * Z_scale
+            Z = p_free * y
             p = Z / (Z + 1.)
             
             rbp_bound = ((p * self.rna_conc)*self.counts).sum() / self.N
@@ -48,6 +49,9 @@ class SelfConsistency(object):
         t1 = time.time()
         perc = 100. * res.x / rbp_total
         complex = rbp_total - res.x
+        if not np.allclose(res.fun, 0, atol=1e-3):
+            self.logger.warning("could not satisfy RBP conservation. error={}".format(res.fun))
+
         self.logger.debug("total RBP={0:.1f} free={1:.1f} ({2:.2f}%) complex={4:.2e} nM in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0), complex) )
         
         return res.x
