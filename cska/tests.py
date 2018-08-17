@@ -93,7 +93,7 @@ class TestGradientMethods(unittest.TestCase):
     def from_kmers(self, *argc, **kwargs):
         return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
 
-    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=1000000):
+    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=100000):
         # generating reference state
         R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
         from cska.partfunc import PartFuncModel
@@ -116,6 +116,7 @@ class TestGradientMethods(unittest.TestCase):
         kmers = ['TGCATG', 'TGCACG', 'AGCATG', 'CGCATG', 'GGCATG']
         aff = np.array([1.,.1,.5, .42, .4]) * 5
         params = self.from_kmers(kmers, aff, betas = [.001,.005,.025])
+        self.default_params = params
         self.model, self.state0 = self.setup_model(params, rbp_conc=[1.,5.,25.])
 
     def get_default(self):
@@ -180,108 +181,51 @@ class TestGradientMethods(unittest.TestCase):
         print state.params.betas
         self.assertTrue( np.allclose(state.params.betas, state0.params.betas) )
 
+    def test_gradient_descent(self):
+        from cska import vector_stats
+        from cska.gradient import GradientDescent
+        from cska.report import GradientDescentReport
+
+        model, state0 = self.setup_model(self.default_params, k_monitor=5, rbp_conc=[1.,5.,25.], N=1000000)
+        params1 = state0.params.copy()
+        params1.A0 *= .9
+        params1.betas[:] = [.2,.3,.5]
+        params1.psam_matrix[1,0] = .1
+        params1.psam_matrix[2,0] = .01
+        params1.psam_matrix[4,1] = .01
+
+        descent = GradientDescent(model, params1, ref_state=state0, predict_kwargs=dict(beta_fixed=False, tune=True))
+        descent.optimize(params1, debug=True)
+
+        report = GradientDescentReport(descent, path='.')
+        report.plot_param_ref_comparison()
+        report.plot_report()
+        report.plot_scatter()
+
+
     def test_fit_A0(self):
         from cska import vector_stats
-        model, state0 = self.get_default()
-
-        # state2 = model.fit_A0_and_betas(state1, plot="test_fit_A0.pdf")
-        # est = state2.beta_estimators
-        import matplotlib.pyplot as pp
-        # pp.figure()
-        # pp.title('after fit of A0 and beta')
-        # for i, per_sample in enumerate(est):
-        #     # print "sample", i
-        #     q = np.linspace(0,100,10)
-        #     perc = np.percentile(per_sample, q)
-        #     # print "percentiles", perc
-        #     pp.semilogx(model.R0[i], per_sample, '.')
-        #     pp.semilogx(model.R0[i][model.top_Ri], per_sample[model.top_Ri], 'xr')
-        #     pp.axhline(state0.params.betas[i], color='black')
-        #     pp.axhline(state2.params.betas[i], color='red')
-
-        # pp.ylim(0, .03)
-        def one_round_betas(state, n=10):
-            if n < 1:
-                return state
-
-            est = state.beta_estimators
-            est_b = np.median(est[:,state.mdl.top_Ri],axis=1)
-            print "quick'n'dirty estimates for beta at round", est_b, n
-            state.params.betas[:] = est_b
-            state._update_betas() # recompute everything after changing the beta values
-
-            return one_round_betas(state, n=n-1)
+        model, state0 = self.setup_model(self.default_params, rbp_conc=[1.,5.,25.], N=1000000)
 
         subopt_params = state0.params.copy()
         subopt_params.psam_matrix[4,1] = .01 # set C4 too low
         subopt_params.A0 = 1
         # subopt_params.betas[:] = [.1,.5,.1]
         state1 = model.predict(subopt_params, beta_fixed=True)
-        # print state1
+        print "PERTURBED STATE"
+        print state1
 
-        a0s = [subopt_params.A0]
-        beta0s = [subopt_params.betas[0]]
+        state = model.tune(subopt_params)
+        print "TUNED STATE"
+        print state
+        print "GRADIENT"
+        print state.grad
 
-        from scipy.stats import sem
-        def one_round_A0(state, n=20):
-            if n < 1:
-                return state
+        import matplotlib.pyplot as pp
+        a0s = state.a0s
+        beta0s = state.beta0s
 
-            est = state.beta_estimators
-            est_b = np.median(est[:,state.mdl.top_Ri],axis=1)
-            # est_b = state.params.betas
-            beta0s.append(est_b[0])
-            print "quick'n'dirty estimates for beta at round", est_b, n
-            print "SEM(betas)", sem(est, axis=1)
-            state.params.betas[:] = est_b
-
-            est = state.A0_estimators
-            est_A0 = np.median(est[:,state.mdl.top_Ri],axis=1).mean()
-            # est_A0 = state.params.A0
-            a0s.append(est_A0)
-
-            print "quick'n'dirty estimates for A0 at round", est_A0, n
-            print "SEM(A0)", sem(est, axis=1), sem(est, axis=None)
-            state.params.A0 = est_A0
-
-            # state._update_betas() # recompute everything after changing the beta values
-
-            state = state.mdl.predict(state.params, beta_fixed=True)
-
-            return one_round_A0(state, n=n-1)
-
-        def opt_A0(state):
-            from scipy.optimize import minimize_scalar
-            from cska.gradient import minimize_logspaced
-            opt_A0.state = state
-            mask = np.fabs(state.mdl.R0 - 1) > .001
-            print mask.shape
-
-            def err(A0):
-                opt_A0.state.params.A0 = A0
-                opt_A0.state = opt_A0.state.mdl.predict(opt_A0.state.params, beta_fixed=False)
-                # est = opt_A0.state.beta_estimators
-                # est_b = np.median(est[:,opt_A0.state.mdl.top_Ri],axis=1)
-                # opt_A0.state._update_betas()
-
-                a0s.append(A0)
-                beta0s.append(opt_A0.state.params.betas[0])
-
-                est = opt_A0.state.A0_estimators
-                err = sem(est[mask], axis=None)
-                print A0, "->", err, opt_A0.state.error
-                return err + opt_A0.state.error * opt_A0.state.mdl.nA
-
-            # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
-            res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf')
-            print res
-            state.params.A0 = res.x
-            state = state.mdl.predict(state.params, beta_fixed=False)
-
-            return state
-
-        # state = one_round_A0(state1)
-        state = opt_A0(state1)
+        # R-value scatter plot
         pp.figure()
         pp.loglog(state.mdl.R0.T, state.R.T, 'x')
         m = min(state.mdl.R0.min(), state.R.min())
@@ -289,77 +233,72 @@ class TestGradientMethods(unittest.TestCase):
         print m,M
         pp.loglog([m,m],[M,M], 'k', linestyle='dashed')
 
+        # (A0, beta) tune iterations
         pp.figure()
-        pp.loglog(a0s, beta0s, '-b')
-        pp.loglog(a0s, beta0s, '.k')
-        pp.plot([a0s[0],], [beta0s[0],],'^k') # start
-        pp.plot([a0s[-1],], [beta0s[-1],],'xk') # end
+        pp.loglog(state.a0s, state.beta0s, '-b')
+        pp.loglog(state.a0s, state.beta0s, '.k')
+        pp.plot([state.a0s[0],], [state.beta0s[0],],'^k') # start
+        pp.plot([state.a0s[-1],], [state.beta0s[-1],],'xk') # end
         pp.plot([state0.params.A0,], [state0.params.betas[0],],'.r')
 
-        # subopt_params.A0 = 5.
-        
-        # state1 = model.predict(subopt_params, beta_fixed=True)
-        # print state1
-        # print one_round_betas(state1, n=1)
-
-        state1 = state
-        est = state1.beta_estimators
+        # beta estimator scatter plot
+        est = state.beta_estimators
         pp.figure()
         pp.title('beta estimators')
         for i, per_sample in enumerate(est):
             pp.semilogx(model.R0[i], per_sample, '.')
             pp.semilogx(model.R0[i][model.top_Ri], per_sample[model.top_Ri], 'xr')
             pp.axhline(state0.params.betas[i], color='black')
-            pp.axhline(state1.params.betas[i], color='red')
+            pp.axhline(state.params.betas[i], color='red')
 
         # pp.ylim(0, .03)
         pp.ylabel('beta estimator')
 
+        # A0 estimator scatter plot
         est = state1.A0_estimators
         est_A0 = np.median(est[:,model.top_Ri],axis=1).mean()
-        print "quick'n'dirty estimates for A0", est_A0
-
         pp.figure()
         pp.title('A0 estimators')
         for i, per_sample in enumerate(est):
             pp.semilogx(model.R0[i], per_sample, '.')
             pp.semilogx(model.R0[i][model.top_Ri], per_sample[model.top_Ri], 'xr')
             pp.axhline(state0.params.A0, color='black')
-            pp.axhline(state1.params.A0, color='red')
+            pp.axhline(state.params.A0, color='red')
 
         # pp.ylim(0, 10)
         pp.ylabel('A0 estimator [nM]')
-        state1 = state.mdl.predict(state1.params, beta_fixed=True)
-        print state1
-        print state1.grad
-        # print state2.grad
+
         pp.show()
         return
 
 
-    def test_suboptimal(self):
+    def test_grad_subopt(self):
         from cska import vector_stats
         model, state0 = self.get_default()
 
         subopt_params = state0.params.copy()
-        subopt_params.psam_matrix[4,1] = .01 # set C4 too low
+        subopt_params.A0 += -1e-3
+        subopt_params.psam_matrix[0,0] += .0 # set A1 too high
+        # subopt_params.betas[2] += 1e-4
+        # subopt_params.psam_matrix[4,1] = .01 # set C4 too low
         print subopt_params
 
-        state = model.predict(subopt_params, beta_fixed=False)
-        # print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
-        # from time import time
+        state = model.predict(subopt_params, beta_fixed=True)
+        print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
+        from time import time
 
-        # t0 = time()
-        # print state.grad
-        # dt = 1000. * (time() - t0)
-        # print "# gradient computation took {0:.2f} ms".format(dt)
+        t0 = time()
+        print state.grad
+        dt = 1000. * (time() - t0)
+        print "# gradient computation took {0:.2f} ms".format(dt)
         
-        # from cska.gradient import emp_grad
-        # print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
-        # t0 = time()
-        # print emp_grad(state)
-        # dt = 1000. * (time() - t0)
-        # print "# gradient computation took {0:.2f} ms".format(dt)
+        from cska.gradient import emp_grad
+        print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
+        t0 = time()
+        print emp_grad(state)
+        dt = 1000. * (time() - t0)
+        print "# gradient computation took {0:.2f} ms".format(dt)
+        sys.exit()
 
         print "performing gradient descent optimization"
         G = GradientDescent(model, subopt_params)
@@ -458,7 +397,7 @@ class TestGradientMethods(unittest.TestCase):
         self.assertTrue(np.allclose(grad.data,0))
 
     # @unittest.skip("")
-    def test_grad_matrix(self, d=1e-4):
+    def test_grad_matrix(self, d=1e-1):
         """
         Small perturbations of the parameter matrix should result in gradients pointing
         in the opposite direction.
@@ -467,6 +406,8 @@ class TestGradientMethods(unittest.TestCase):
 
         model, state0 = self.get_default()
         grad0 = state0.grad
+        print "unperturbed model's gradient"
+        print grad0
         n = len(state0.params.psam_vec)
 
         ratios = np.ones(n, dtype=np.float32)
@@ -480,23 +421,25 @@ class TestGradientMethods(unittest.TestCase):
             delta.data[i] = d
 
             params = GradientDescent.apply_delta(state0.params, delta)
+            print "perturbation", i, "params[i] =", state0.params.data[i], "->", params.data[i]
             pert = params.copy()
-            pert.data[:] -= state0.params.data
-            print "perturbation", i, "params[i] =", state0.params.data[i]
+            pert.data[:] = params.data - state0.params.data
             print pert
 
-            state = model.predict(params, beta_fixed=True)
+            # state = model.predict(params, beta_fixed=True)
+            state = model.tune(params)
             grad = state.grad
             print "gradient"
-            print grad.unity()
-            egrad = emp_grad(state)
+            print grad #.unity()
+            egrad = emp_grad(state, eps=1e-5)
             print "emp. gradient"
-            print egrad.unity()
+            print egrad #.unity()
 
             i_pert = pert.data.argmax()
             print "i_pert", i_pert
             assert i_pert == i
-            I = grad.data.argsort()[::-1]
+            # I = grad.data.argsort()[::-1]
+            I = grad.psam_vec.argsort()[::-1]
             i_grad = I[0]
             i_next = I[1]
             # self.assertTrue(i_grad == i_pert)

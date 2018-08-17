@@ -33,14 +33,11 @@ class PartFuncModelState(object):
         # vector_stats(self.Z1_read)
         #self.Z1_read_max is used for thresholding
 
-
         # self-consistent free RBP concentrations
-        self.rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
+        rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
+        self._update_rbp_free(rbp_free)
         # print "rbp_free", self.rbp_free
         # pull-down weights for each read, in each sample
-        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
-        self.q = self.mdl.PD_kmer_weights(self.psi)
-        self.Q = self.q.sum(axis=1)
         # print "psi"
         # vector_stats(self.psi)
         # print "PSI min", self.psi.min(axis=1)
@@ -52,15 +49,23 @@ class PartFuncModelState(object):
         # self.Q = self.psi.sum(axis=1)
         if not beta_fixed:
             betas = self.mdl.optimal_betas(self.psi, params.betas)
-            self.params.betas[:] = betas
-
-        self._update_betas()
+        else:
+            betas = self.params.betas
+            
+        self._update_betas(betas)
 
         self.mdl.n_fev += 1
         self.mdl.t_fev += time.time() - t1
         self.mdl.t_aff += 0
 
-    def _update_betas(self):
+    def _update_rbp_free(self, rbp_free):
+        self.rbp_free = rbp_free
+        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
+        self.q = self.mdl.PD_kmer_weights(self.psi)
+        self.Q = self.q.sum(axis=1)
+
+    def _update_betas(self, betas):
+        self.params.betas[:] = betas
         # print self.mdl.F0.dtype, self.params.betas.dtype
         self.w = np.array(self.q + self.mdl.F0[np.newaxis,:] * self.params.betas[:,np.newaxis], dtype=np.float32)
         # print self.w.dtype
@@ -241,14 +246,56 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis,:] * (1 - self.R0)
 
-    def tune(self, params, A0_plot="", debug=False):
-        state = self.predict(params)
-        # print state.error
-        params.A0 = self.optimal_A0(state, plot=A0_plot, debug=debug)
-        state = self.predict(params)
-        params.betas[:] = self.optimal_betas(state.psi, state.params.betas)
-        state = self.predict(params)
-    
+    def tune(self, state, A0_plot="", debug=False):
+        params = state.params
+        # state2 = self.predict(params)
+        # print "TUNE STATE"
+        # print state
+        # print state.Z1_read
+
+        from scipy.optimize import minimize_scalar
+        from scipy.stats import sem
+        from cska.gradient import minimize_logspaced
+        sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
+        kmer_weights = state.kmer_affinity_weights(cutoff=.1)
+        e0 = state.error
+        mask = np.fabs(state.mdl.R0 - 1) > .001
+
+        a0s = [params.A0]
+        beta0s = [params.betas[0]]
+
+        def err(A0):
+            state.params.A0 = A0
+
+            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
+            state._update_rbp_free(rbp_free)
+
+            betas = self.optimal_betas(state.psi, state.params.betas)
+            state._update_betas(betas)
+
+            a0s.append(A0)
+            beta0s.append(betas[0])
+
+            if debug:
+                top = kmer_weights.argmax()
+                topmer = cyska.index_to_seq(top, self.k)
+                print "R({0})={1} [R0={2}]".format(topmer, state.R[:,top], self.R0[:,top])
+
+            est = state.A0_estimators
+            err = sem(est[mask], axis=None)
+            if debug:
+                print A0, "->", err, state.error
+            return err + state.error * self.nA
+
+        # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
+        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf')
+        if debug:
+            print res
+        state.params.A0 = res.x
+        state = state.mdl.predict(state.params, beta_fixed=False)
+        # HACK: attach to state object
+        state.a0s = a0s
+        state.beta0s = beta0s
         return state
 
     def set_mask(self, indices=[]):
@@ -270,6 +317,7 @@ class PartFuncModel(object):
     def SPA_free_protein(self, Z1, Z_scale=1.):
         sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
         rbp_free = [sc.free_rbp(total, Z_scale=Z_scale) for total in self.rbp_conc]
+        self._last_sc = sc # keep for debugging or re-use (if Z1 is unaltered)
         return np.array(rbp_free, dtype= np.float32)
 
     def PD_kmer_weights(self, psi):
@@ -279,22 +327,27 @@ class PartFuncModel(object):
 
         return w
 
-    def predict(self, params, aff0=1e-6, debug=False, **kwargs):
+    def predict(self, params, aff0=1e-6, debug=False, tune=False, **kwargs):
         t0 = time.time()
         state = PartFuncModelState(self, params, **kwargs)
         self.logger.debug("predict() took {0:.2f} ms".format(1000. * (time.time() - t0)))
+        if tune:
+            state = self.tune(state)
+
         return state
 
-    def estimate_betas(self, state, q=5):
-        R_ns = np.percentile(self.R0, q, axis=1)
-        beta = R_ns / (1 - R_ns)
-        return state.Q * beta / self.reads.N / self.reads.L
+    def estimate_betas(self, state):
+        est = state.beta_estimators
+        est_b = np.median(est[:,self.top_Ri],axis=1)
+
+        return est_b
 
     def optimal_betas(self, state_psi, opt_betas, n=5, q_top=10):
         from cska.gradient import minimize_logspaced
         from scipy.optimize import minimize_scalar
         
         # print "initial guess", opt_betas
+        # print "state_psi", state_psi
 
         t0 = time.time()
         top_i = self.R0.max(axis=0).argmax()
@@ -305,6 +358,8 @@ class PartFuncModel(object):
             # print "R0 quantiles", R0_quants
             psi = state_psi[i]
             w0 = cyska.weighted_kmer_counts(self._im, psi, self.k)
+            # w0 = state.q[i]
+            # TODO: should be w0 = state.q
             # if i == 0:
                 # print "B0", b0[:10]
 
@@ -336,124 +391,124 @@ class PartFuncModel(object):
         # self.logger.debug("optimal_betas took {0:.2f} ms".format(1000. * (time.time() - t0)))
         return np.array(opt_betas, dtype=np.float32)
 
-    def optimal_A0(self, state, debug=False, plot=""):
-        from scipy.optimize import minimize_scalar
-        from cska.gradient import minimize_logspaced
-        params = state.params.copy()
-        sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
+    # def optimal_A0(self, state, debug=False, plot=""):
+    #     from scipy.optimize import minimize_scalar
+    #     from cska.gradient import minimize_logspaced
+    #     params = state.params.copy()
+    #     sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
 
-        perc = np.linspace(0,100,50)
-        R0_quant = np.percentile(self.R0, perc, axis=1)
-        kmer_weights = state.kmer_affinity_weights(cutoff=.1)
-        e0 = state.error
-        def err(A0):
-            # s = np.exp(x)
+    #     perc = np.linspace(0,100,50)
+    #     R0_quant = np.percentile(self.R0, perc, axis=1)
+    #     kmer_weights = state.kmer_affinity_weights(cutoff=.1)
+    #     e0 = state.error
+    #     def err(A0):
+    #         # s = np.exp(x)
 
-            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
-            psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
-            # print "PSI min", self.psi.min(axis=1)
-            # print "PSI max", self.psi.max(axis=1)
-            # print "PSI mean", self.psi.mean(axis=1)
-            params.A0 = A0
-            betas = self.optimal_betas(psi, params.betas)
-            params.betas[:] = betas
-            q = self.PD_kmer_weights(psi)
-            Q = q.sum(axis=1)
-            w = q + self.F0[np.newaxis,:] * betas[:,np.newaxis]
+    #         rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
+    #         psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
+    #         # print "PSI min", self.psi.min(axis=1)
+    #         # print "PSI max", self.psi.max(axis=1)
+    #         # print "PSI mean", self.psi.mean(axis=1)
+    #         params.A0 = A0
+    #         betas = self.optimal_betas(psi, params.betas)
+    #         params.betas[:] = betas
+    #         q = self.PD_kmer_weights(psi)
+    #         Q = q.sum(axis=1)
+    #         w = q + self.F0[np.newaxis,:] * betas[:,np.newaxis]
 
-            W = w.sum(axis=1)
-            # print "Q", self.Q
-            R = w / self.f0[np.newaxis,:] / W[:,np.newaxis]
-            if debug:
-                top = kmer_weights.argmax()
-                topmer = cyska.index_to_seq(top, self.k)
-                print "R({0})={1} [R0={2}]".format(topmer, R[:,top], self.R0[:,top])
+    #         W = w.sum(axis=1)
+    #         # print "Q", self.Q
+    #         R = w / self.f0[np.newaxis,:] / W[:,np.newaxis]
+    #         if debug:
+    #             top = kmer_weights.argmax()
+    #             topmer = cyska.index_to_seq(top, self.k)
+    #             print "R({0})={1} [R0={2}]".format(topmer, R[:,top], self.R0[:,top])
 
-            # R_quant = np.percentile(R, perc, axis=1)
-            # !!!TODO!!! restrict to kmers that are currently covered by motif!!!
-            R_errors = np.array(R - self.R0, dtype=np.float32) * kmer_weights[np.newaxis,:]
-            # R_errors = R_quant - R0_quant
-            error = (R_errors**2).mean()
-            if debug:
-                print "A0={0:.3e} -> err={1:.3e} betas={2} rbp_free={3} Q={4}".format(A0, error, betas, rbp_free, Q), psi.shape
-            return error - e0
+    #         # R_quant = np.percentile(R, perc, axis=1)
+    #         # !!!TODO!!! restrict to kmers that are currently covered by motif!!!
+    #         R_errors = np.array(R - self.R0, dtype=np.float32) * kmer_weights[np.newaxis,:]
+    #         # R_errors = R_quant - R0_quant
+    #         error = (R_errors**2).mean()
+    #         if debug:
+    #             print "A0={0:.3e} -> err={1:.3e} betas={2} rbp_free={3} Q={4}".format(A0, error, betas, rbp_free, Q), psi.shape
+    #         return error - e0
 
 
-        # res = minimize_scalar(err, 1., bounds=np.array([1e-3, 10]), method='Bounded')
-        res = minimize_logspaced(err, bounds=np.array([1e-3, 10000]), debug=False, nested=2, n_samples=5, options=dict(maxiter=5), plot=plot)
-        # print "debug"
-        # err(1.)
-        # print res
-        return res.x
+    #     # res = minimize_scalar(err, 1., bounds=np.array([1e-3, 10]), method='Bounded')
+    #     res = minimize_logspaced(err, bounds=np.array([1e-3, 10000]), debug=False, nested=2, n_samples=5, options=dict(maxiter=5), plot=plot)
+    #     # print "debug"
+    #     # err(1.)
+    #     # print res
+    #     return res.x
 
-    def fit_A0_and_betas(self, state, plot=""):
-        from scipy.optimize import minimize_scalar
-        # from cska.gradient import minimize_logspaced
+    # def fit_A0_and_betas(self, state, plot=""):
+    #     from scipy.optimize import minimize_scalar
+    #     # from cska.gradient import minimize_logspaced
 
-        params = state.params.copy()
-        sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
+    #     params = state.params.copy()
+    #     sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
 
-        e0 = state.error
+    #     e0 = state.error
 
-        I = self.top_Ri
-        Rf0 = self.Rf0[:,I]
-        bd = self.beta_denom[:,I]
+    #     I = self.top_Ri
+    #     Rf0 = self.Rf0[:,I]
+    #     bd = self.beta_denom[:,I]
 
-        # psi0 = state.psi / state.params.A0
-        # q0 = self.PD_kmer_weights(psi0)
-        # Q0 = q0.sum(axis=1)
+    #     # psi0 = state.psi / state.params.A0
+    #     # q0 = self.PD_kmer_weights(psi0)
+    #     # Q0 = q0.sum(axis=1)
 
-        sampled = {}
-        def compute(A0):
-            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
-            psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
-            psi0 = np.array(state.Z1_read[np.newaxis,:] * (rbp_free * A0)[:,np.newaxis], dtype=np.float32)
-            q0 = self.PD_kmer_weights(psi0)
-            Q0 = q0.sum(axis=1)
+    #     sampled = {}
+    #     def compute(A0):
+    #         rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
+    #         psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
+    #         psi0 = np.array(state.Z1_read[np.newaxis,:] * (rbp_free * A0)[:,np.newaxis], dtype=np.float32)
+    #         q0 = self.PD_kmer_weights(psi0)
+    #         Q0 = q0.sum(axis=1)
 
-            q = self.PD_kmer_weights(psi)
-            Q = q.sum(axis=1)
+    #         q = self.PD_kmer_weights(psi)
+    #         Q = q.sum(axis=1)
 
-            # print "Q0", Q0
-            # print "Q", Q
-            beta_est = (Rf0 * Q[:,np.newaxis] - q[:,I]) / bd
-            betas = np.mean(beta_est, axis=1)
-            betas = params.betas
-            A0_est = betas[:,np.newaxis] * bd / (Q0[:,np.newaxis] * Rf0 - q0[:,I])
-            return betas, beta_est, rbp_free, A0_est
+    #         # print "Q0", Q0
+    #         # print "Q", Q
+    #         beta_est = (Rf0 * Q[:,np.newaxis] - q[:,I]) / bd
+    #         betas = np.mean(beta_est, axis=1)
+    #         betas = params.betas
+    #         A0_est = betas[:,np.newaxis] * bd / (Q0[:,np.newaxis] * Rf0 - q0[:,I])
+    #         return betas, beta_est, rbp_free, A0_est
 
-        def to_optimize(A0):
-            betas, beta_est, rbp_free, A0_est = compute(A0)
+    #     def to_optimize(A0):
+    #         betas, beta_est, rbp_free, A0_est = compute(A0)
 
-            err_beta = np.median((beta_est - betas[:,np.newaxis])**2)
-            err_A0 = np.median((A0_est - A0)**2)
-            err = err_beta + err_A0
-            print A0, "->", rbp_free, "->", betas, "->", err_beta, err_A0, err
-            sampled[A0] = (err_beta, err_A0, err)
-            return err
+    #         err_beta = np.median((beta_est - betas[:,np.newaxis])**2)
+    #         err_A0 = np.median((A0_est - A0)**2)
+    #         err = err_beta + err_A0
+    #         print A0, "->", rbp_free, "->", betas, "->", err_beta, err_A0, err
+    #         sampled[A0] = (err_beta, err_A0, err)
+    #         return err
 
-        res = minimize_scalar(to_optimize, state.params.A0, bounds=np.array([1e-6, 10000]), method='Bounded')
-        betas, beta_est, rbp_free, A0_est = compute(res.x)
+    #     res = minimize_scalar(to_optimize, state.params.A0, bounds=np.array([1e-6, 10000]), method='Bounded')
+    #     betas, beta_est, rbp_free, A0_est = compute(res.x)
 
-        params.A0 = res.x
-        params.betas[:] = betas
+    #     params.A0 = res.x
+    #     params.betas[:] = betas
         
-        if plot:
-            import matplotlib.pyplot as plt
-            plt.figure()
-            plt.title("fit_A0_and_betas")
-            x = sorted(sampled.keys())
-            y_beta, y_A0, y_total = np.array([sampled[i] for i in x]).T
-            plt.loglog(x,y_total)
-            plt.loglog(x,y_total, 'xr')
-            plt.loglog(x,y_beta,label="beta_err")
-            plt.loglog(x,y_A0,label="A0_err")
-            plt.legend(loc='lower right')
-            plt.show()
-            plt.savefig(plot)
-            plt.close()
+    #     if plot:
+    #         import matplotlib.pyplot as plt
+    #         plt.figure()
+    #         plt.title("fit_A0_and_betas")
+    #         x = sorted(sampled.keys())
+    #         y_beta, y_A0, y_total = np.array([sampled[i] for i in x]).T
+    #         plt.loglog(x,y_total)
+    #         plt.loglog(x,y_total, 'xr')
+    #         plt.loglog(x,y_beta,label="beta_err")
+    #         plt.loglog(x,y_A0,label="A0_err")
+    #         plt.legend(loc='lower right')
+    #         plt.show()
+    #         plt.savefig(plot)
+    #         plt.close()
 
-        return self.predict(params, beta_fixed=True)
+    #     return self.predict(params, beta_fixed=True)
 
 
             

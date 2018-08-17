@@ -909,20 +909,48 @@ class GradientDescentReport(object):
         pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
 
-    def plot_scatter(self):
-        for i in range(self.descent.last_state.params.n_samples):
+    def plot_param_ref_comparison(self):
+        """ 
+        used in unit-testing/gradient debugging, where true values are known to track progress of
+        the optimization.
+        """
+        last_state = self.descent.history[-1]
+
+        values = np.array([state.params.data for state in self.descent.history]).T
+        ref_values = self.descent.ref_state.params.data
+        dev = (values - ref_values[:,np.newaxis])
+        print "plotting {} steps of history".format(len(self.descent.history))
+        pp.figure()
+        for d,n in zip(dev, last_state.params.names):
+            pp.plot(d, label=n)
+
+        pp.ylim(-100.,100.)
+        pp.yscale('symlog', linthreshy=.05)
+        pp.legend(bbox_to_anchor=(1.04,1), loc="upper left", ncol=2)
+        pp.xlabel('step')
+        pp.ylabel('deviation from reference value')
+        pp.tight_layout()
+
+        pp.savefig(os.path.join(self.path,"descent_params_to_ref_{0}mer.pdf".format(self.descent.params.k)))
+        pp.close()
+
+    def plot_scatter(self, t=-1):
+        state = self.descent.history[t]
+        for i in range(state.params.n_samples):
             pp.figure()
             title = "{0}mer R-value scatter plot".format(self.descent.model.k)
             pp.title(title)
 
             x = self.descent.model.lR0[i]
-            y = np.log2(self.descent.last_state.R[i])
+            y = np.log2(state.R[i])
             corr, pval = pearsonr(x,y)
             label = "sample_{0} R={1:.3f} (P < {2:.3e})".format(i, corr, pval)
             # data_labels = self.opt.mdl.parameters.param_name
             density_scatter_plot(x, y, label=label)
             pp.legend(loc='upper left')
-            pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, self.descent.t)))
+            if t == -1:
+                t == self.descent.t
+            pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, t)))
             pp.close()
 
     def plot_psam(self, psam, title):

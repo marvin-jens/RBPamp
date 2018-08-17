@@ -214,13 +214,15 @@ def emp_grad(state, eps=1e-6):
 
     err0 = state.error
     # print "err0", err0
+    kw = dict(self.predict_kwargs)
+    kw['beta_fixed'] = True
 
     for i in range(state.params.n):
         # print ">>> EMP GRAD", state.params.names[i]
         # d = max(v0[i] * eps,1e-6)
         d = eps
         var.data[i] = v0[i] + d
-        state = state.mdl.predict(var, beta_fixed=True)
+        state = state.mdl.predict(var, **kw)
         derr = state.error - err0
         grad.data[i] = derr/d
         # print "derr", derr
@@ -301,10 +303,12 @@ def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=2, 
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5):
+    def __init__(self, model, params0, dec=.5, ref_state=None, predict_kwargs={}):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
+        self.ref_state = ref_state # used for simulations, where true values are known.
+        self.predict_kwargs = predict_kwargs
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
 
         # momentum smoothing of the gradient
@@ -345,7 +349,7 @@ class GradientDescent(object):
             m = self.apply_delta(params, grad * s)
             # d = delta(m.data, correct_params.data)
             # print s, d, m.data, 
-            R, dR = self.predict_R(m, grad=False)
+            R, dR = self.predict_R(m, grad=False, **self.predict_kwargs)
             e = self.error(R)
             # print s,"->", e - e0, d - d0
             return e
@@ -375,16 +379,20 @@ class GradientDescent(object):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
-        assert e0 == state.mdl.predict(state.params).error
+        assert e0 == state.mdl.predict(state.params, **self.predict_kwargs).error
 
         params0 = state.params
         t0 = time.time()
         N = {'fev' : 0}
+        kw = dict(self.predict_kwargs)
+        kw['beta_fixed'] = True
+        kw['tune'] = False
+
         self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
         def err(s):
             # s = np.exp(x)
             m = self.apply_delta(params0, vec * s)
-            new = self.model.predict(m)
+            new = self.model.predict(m, **kw)
             N['fev'] += 1
             if debug:
                 print s,"->", new.error - e0
@@ -443,7 +451,7 @@ class GradientDescent(object):
 
         return upd
 
-    def converged(self, rtol=1e-6, atol=1e-8, tau=10):
+    def converged(self, rtol=1e-6, atol=1e-7, tau=10):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
@@ -473,22 +481,24 @@ class GradientDescent(object):
             s = self.ls_step[-1]
 
         print "=" * 50
-        print "step:", self.t, self.errors[-1], self.model.n_fev, self.model.n_grad, s, "corr=", state.correlations[0]
+        last_err = self.errors[-1]
+        print "step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals())
 
 
     def optimize(self, params, maxiter=100, debug=False, callback=None, ls_plot="", A0_plot="", tune=True):
+        if debug:
+            print "INITIAL PARAMETERS"
+            print params
         
-        if tune:
-            state = self.model.tune(self.params, A0_plot=A0_plot.format(**locals()), debug=debug)
-        else:
-            state = self.model.predict(self.params, beta_fixed=False)
+        # state = self.model.tune(self.params, A0_plot=A0_plot.format(**locals()), debug=debug)
+        state = self.model.predict(self.params, **self.predict_kwargs)
 
         self.errors.append(state.error)
         self.history.append(state.archive())
         self.last_state = state
 
         if debug:
-            print "INITIAL STATE"
+            print "INITIAL STATE AFTER FIRST EVAL kwargs=", self.predict_kwargs
             self.print_state(state)
 
         if callback:
@@ -500,18 +510,18 @@ class GradientDescent(object):
                 if debug:
                     print "LOCAL GRAD"
                     print local_grad
-                # local_grad.A0 = 0
+                local_grad.A0 = 0
                 local_grad.betas *= 0
                 # local_grad = local_grad.unity()
-                descent = self.RMSprop(- local_grad).unity()
+                descent = self.RMSprop( -local_grad ).unity()
                 # descent = self.momentum_grad( - local_grad).unity()
                 # descent = - local_grad.unity()
 
 
                 s,n = self.line_search(state, descent, e0=self.errors[-1], plot=ls_plot.format(**locals()))
                 if s == 0:
-                    # and tune parameters
-                    state = self.model.tune(state.params) # recent addition, needs testing!
+                    # # and tune parameters
+                    # state = self.model.tune(state.params) # recent addition, needs testing!
                     # take local gradient instead
                     local_grad = state.grad
                     # TODO: Clean up my act and handle this gracefully
@@ -523,15 +533,18 @@ class GradientDescent(object):
                     # and reset RMSProp
                     self.past_grad = None
                     self.past_sqg = 1
+                    if s == 0:
+                        self.status = "CONVERGED_NO_DECREASE_ALONG_GRADIENT"
+                        break
 
                 self.ls_step.append(s)
                 self.ls_nfev.append(n)
 
                 upd = descent * s
                 self.params = self.apply_delta(state.params, upd)
-                if tune:
-                    state = self.model.tune(self.params, A0_plot=A0_plot.format(**locals()), debug=debug)
-                    self.params = state.params
+                # if tune:
+                #     state = self.model.tune(self.params, A0_plot=A0_plot.format(**locals()), debug=debug)
+                #     self.params = state.params
 
                 self.model.params = self.params
 
@@ -543,7 +556,7 @@ class GradientDescent(object):
                 #     # self.last_quantile = self.t
 
 
-                state = self.model.predict(self.params)
+                state = self.model.predict(self.params, **self.predict_kwargs)
                 self.errors.append(state.error)
                 self.t += 1
                 self.history.append(state.archive())

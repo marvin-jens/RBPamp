@@ -231,6 +231,7 @@ def PSAM_partition_function_gradient(state):
     cdef UINT64_t l = L - k + 1 # no. of positions for the PSAM
     cdef UINT64_t lam = im.shape[1] # no. of kmers in each read
     cdef UINT64_t Nk = state.mdl.nA # 4^k
+    cdef FLOAT32_t Nk_inv = 1./Nk
     cdef int n_threads = 8
 
     ### Local variables
@@ -253,6 +254,7 @@ def PSAM_partition_function_gradient(state):
     
     # change in partition function (per read, thread-local). Gets zeroed a lot.
     cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam), dtype=np.float32)
+    cdef FLOAT32_t [:,:,:] dw_dA = np.empty((n_threads, n_samples, n_psam), dtype=np.float32)
     cdef UINT64_t zero_bytes = n_psam*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
@@ -291,42 +293,53 @@ def PSAM_partition_function_gradient(state):
 
             # zero out dZj_dA. bc we accumulate this for each sequence separately
             memset(&dZr_dA[tid, 0], 0, zero_bytes)
-            
             # compute dZj_dA. gradient matrix for current read
             # with . being the matrix elements of the psam (here flattened)
+
+            # since A0 is all over the place
+            dZr_dA[tid, 0] = Z1r
             for x in range(l):
                 for d in range(k):
                     n = seqm[r, x+d]
                     y = (d << 2) + n + 1
-                    dZr_dA[tid, y] += Z1[r,x] * psam_inv[y]
+                    dZr_dA[tid, y] += Z1[r,x] 
 
             # need for going from dZ/dA. to dPsi/dA. Useful to precompute for all samples.
             for j in range(n_samples):
                 p = psi[j,r]
                 pp2[tid, j] = (p - (p * p))
 
-            # propagate effect to pulldown kmer weights
-            for x in range(lam):
-                index = im[r,x]
-                
+            # compute dw_dA once for this read, before pushing to individual kmer weights
+            for y in range(n_psam):
+                # for A0: dw_dA =  (psi - psi^2) * 1/A0
+                # for A.: dw_dA =  (psi - psi^2) * 1/A. * [1/Zr sum_x Zx ]
+                to_w = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
+                for j in range(n_samples):
+                    dw_dA[tid, j, y] = to_w * pp2[tid, j] 
+               
                 # db/dA0
                 # print index, db.base.shape
                 # accumulate the aggregate changes in kmer weight w_i
-                for j in range(n_samples):
-                    to_w = psam_inv[0] * pp2[tid, j] # 1./A0 * (psi - psi^2) = dpsi/dA0
-                    dw[tid, j, index, 0] += to_w
-                    dW[tid, j, 0] += to_w
-                
-                    # db/dA.
-                    for y in range(1, n_psam):
-                    # for d in range(k):
-                    #     for n in range(4):
-                    #         # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
-                    #         #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
-                    #         y = (d << 2) + n + 1
-                        to_w = dZr_dA[tid, y]  * Z1r_inv * pp2[tid, j]
-                        dw[tid, j, index, y] += to_w
-                        dW[tid, j,y] += to_w
+
+            # propagate effect to pulldown kmer weights
+            for j in range(n_samples):
+                for y in range(0, n_psam):
+                #     to_w = dw_dA[tid, j, y] 
+                #     dw[tid, j, index, 0] += to_w
+                #     dW[tid, j, 0] += to_w
+                # # for d in range(k):
+                # #     for n in range(4):
+                # #         # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
+                # #         #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
+                # #         y = (d << 2) + n + 1
+                #     to_w = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv * pp2[tid, j] 
+
+                    # individual kmers
+                    for x in range(lam):
+                        dw[tid, j, im[r,x], y] += dw_dA[tid, j, y]
+    
+                    dW[tid, j, y] += lam * dw_dA[tid, j, y]
+
 
         # n_eval[j] += 1
     t1 = time()
@@ -370,7 +383,6 @@ def PSAM_partition_function_gradient(state):
         # print gradient
         # gradient.data[:] = 0
 
-        rA = 1. #rbp_free_inv[j] * A0
         #### END DEBUG CODE
         for i in range(Nk):
             Eji = 2 * E[j,i]
@@ -384,10 +396,10 @@ def PSAM_partition_function_gradient(state):
                     _dw += dw[tid, j, i, y]
                 
                 dR_dA = pre1 * (_dw - pre2 * dW[0, j, y])
-                grad[y] += Eji * dR_dA * E_weights[i] #* rA
+                grad[y] += Eji * dR_dA * E_weights[i] * Nk_inv#* rA
 
-            dbeta = pre1 * F0[i] * (1 - R[j,i])
-            grad[n_psam+j] = dbeta
+            dbeta = Eji * pre1 * F0[i] * (1 - R[j,i])
+            grad[n_psam+j] += dbeta * Nk_inv
 
         # for i in range(Nk):
         #     W2f = W2*f0[i]

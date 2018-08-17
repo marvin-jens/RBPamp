@@ -38,6 +38,7 @@ class SelfConsistency(object):
         # TODO: use the binned version. Compare accuracy!
         t0 = time.time()
         y = self.x * Z_scale
+        # self.logger.debug("y={}".format(y[:10]))
         def to_optimize(p_free):
             Z = p_free * y
             p = Z / (Z + 1.)
