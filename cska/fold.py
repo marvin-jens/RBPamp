@@ -39,7 +39,7 @@ class RBNSOpenen(CachedBase):
         self.discretized = ("discretized" in self.fname)
         self.T = rbns_reads.temp
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
-        self.logger = logging.getLogger('fold.RBNSOpenen({self.fname} T={self.T}C)'.format(self=self))
+        self.logger = logging.getLogger('fold.RBNSOpenen')
 
         
         # to be initialized upon first access to oem
@@ -66,7 +66,7 @@ class RBNSOpenen(CachedBase):
         else:
             self.is_subsample = False
 
-        self.logger.info("initialized")
+        self.logger.info("initialized for data from '{self.fname}' @{self.T} C".format(self=self))
     
     @classmethod
     def from_array(cls, reads, k, oem, dtype=np.uint8, mode='gamma', **kwargs):
@@ -110,13 +110,19 @@ class RBNSOpenen(CachedBase):
         """
         self.logger.debug("loading open energies from {self.fname}".format(self=self) )
         #oem = np.fromfile(self.fname, dtype=self.dtype)
-        oem = np.memmap(self.fname, dtype=self.dtype, mode='c') # FIXME: should be read only but Cython MemoryViews currently don't support that! :(
         N = self.rbns_reads.N
+        l = self.rbns_reads.L - self.k + 1
+        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
+
+        if not os.path.exists(self.fname):
+            self.logger.warning("file not found. Assuming accessibility = 1".format(self.fname))
+            oem = np.zeros(N*l_adap, dtype=self.dtype)
+        else:
+            oem = np.memmap(self.fname, dtype=self.dtype, mode='c') # FIXME: should be read only but Cython MemoryViews currently don't support that! :(
+
         L = len(oem)/float(N)
         self.logger.debug("open-energy row l={0}".format(L))
         
-        l = self.rbns_reads.L - self.k + 1
-        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
         if L == l:
             self.logger.info("data excludes adapters L={0}".format(L))
             self.include_adapters = False
