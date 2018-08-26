@@ -129,14 +129,14 @@ def seqm_pad_adapters(UINT8_t [:,:] seqm, UINT8_t [:] adap5, UINT8_t [:] adap3, 
     return padded.base
 
 
-def PSAM_partition_function(UINT8_t [:,:] seqm, FLOAT32_t [:,:] acc_matrix, FLOAT32_t [:,:] psam, int n_max=0, int openen_ofs=0):
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
     cdef UINT64_t l = L - k + 1
     # print "part_func L-k+1", l, k
     # result will be stored here (Z = 'Zustandssumme' sum of states)
-    cdef FLOAT32_t [:,:] Z = np.ones((N,l), dtype=np.float32)
+    cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
     
     # helper variables to tell cython the types
     # cdef FLOAT32_t a=0
@@ -226,7 +226,10 @@ def PSAM_partition_function_gradient(state):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t n_psam = len(state.params.psam_vec)
+    cdef UINT64_t pad = 16 - (n_psam % 16) # 16 x FLOAT32 = 1 L1 Cache line
+    cdef UINT64_t n_psam_padded = n_psam + pad
     cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t n_params = n_psam + n_samples # affinity + beta values
     cdef UINT64_t k = (n_psam - 1) / 4
     cdef UINT64_t l = L - k + 1 # no. of positions for the PSAM
     cdef UINT64_t lam = im.shape[1] # no. of kmers in each read
@@ -238,7 +241,7 @@ def PSAM_partition_function_gradient(state):
     cdef int tid = 0 # thread number
     cdef UINT32_t index=0
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
-    cdef FLOAT32_t Z1r=0, Z1r_inv = 0, dZ=0, p=0, to_w, dbeta
+    cdef FLOAT32_t Z1r=0, Z1r_inv = 0, dZ=0, p=0, pp2=0, to_w=0, dbeta
     cdef FLOAT64_t dR_dA, pre1, pre2, Eji, rA
 
     ### Static vectors needed during computation
@@ -250,23 +253,24 @@ def PSAM_partition_function_gradient(state):
     ### (Thread-)local buffers
     cdef UINT32_t [:] skipped = np.zeros(n_threads, dtype=np.uint32)
     # holds psi - psi^2 for each sample (per read, thread-local). Gets overwritten
-    cdef FLOAT32_t [:,:] pp2 = np.empty((n_threads, n_samples), dtype=np.float32)
     
     # change in partition function (per read, thread-local). Gets zeroed a lot.
-    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam), dtype=np.float32)
-    cdef FLOAT32_t [:,:,:] dw_dA = np.empty((n_threads, n_samples, n_psam), dtype=np.float32)
-    cdef UINT64_t zero_bytes = n_psam*4 # 4 = sizeof(FLOAT32_t)
+    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+    cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
-    cdef FLOAT64_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, Nk, n_psam), dtype=np.float64)
+    cdef FLOAT64_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, n_psam, Nk), dtype=np.float64)
 
     # change in normalization factor
-    cdef FLOAT64_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam), dtype=np.float64)
+    cdef FLOAT64_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float64)
 
     # where to store the final gradient
     gradient = state.params.copy()
     gradient.data[:] = 0
     cdef FLOAT32_t [:] grad = gradient.data
+
+    # store kmer-specific dR_dA
+    cdef FLOAT32_t [:,:,:] gradi = np.zeros( (n_samples, Nk, n_psam), dtype=np.float32)
 
     # TODO: make safe for parallelization by thread-local dpsi_dM and CAS for dpi access  
     
@@ -278,83 +282,74 @@ def PSAM_partition_function_gradient(state):
     # for 3 samples, a 11nt PSAM, and k=6 dw requires only ~2MB per thread
     from time import time
     t0 = time()
+
     with nogil, parallel():
         for r in prange(N, schedule='static'):
             tid = openmp.omp_get_thread_num()
 
-        # for r in range(N):
+    ## single threaded version for testing
+    # for tid in range(1):
+    #     for r in range(N):
+            
             Z1r = Z1_read[r]
             if Z1r < Z1_thresh:
                 # skip early and save time
                 skipped[tid] += 1
                 continue
 
-            Z1r_inv = 1./Z1r
-
             # zero out dZj_dA. bc we accumulate this for each sequence separately
-            memset(&dZr_dA[tid, 0], 0, zero_bytes)
+            # memset(&dZr_dA[tid, 0], 0, zero_bytes)
             # compute dZj_dA. gradient matrix for current read
             # with . being the matrix elements of the psam (here flattened)
 
-            # since A0 is all over the place
-            dZr_dA[tid, 0] = Z1r
+            # since A0 is not inside Zr
+            dZr_dA[tid, 0] = psam_inv[0]
+            
+            # initialize other elements to 0
+            memset(&dZr_dA[tid, 1], 0, zero_bytes)
+            # for y in range(1, n_psam):
+            #     dZr_dA[tid, y] = 0
+
             for x in range(l):
                 for d in range(k):
                     n = seqm[r, x+d]
                     y = (d << 2) + n + 1
-                    dZr_dA[tid, y] += Z1[r,x] 
+                    dZr_dA[tid, y] += Z1[r,x]
 
-            # need for going from dZ/dA. to dPsi/dA. Useful to precompute for all samples.
+            # compute dPsi/dA. up to the (psi - psi^2) factor 
+            Z1r_inv = 1./Z1r
+            for y in range(1, n_psam):
+                dZr_dA[tid, y] = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
+                # print r,y,"dZr_dA", dZr_dA[tid, y]
+
+            # push dpsi_dA. to individual kmer weights dw_dA.
             for j in range(n_samples):
                 p = psi[j,r]
-                pp2[tid, j] = (p - (p * p))
-
-            # compute dw_dA once for this read, before pushing to individual kmer weights
-            for y in range(n_psam):
-                # for A0: dw_dA =  (psi - psi^2) * 1/A0
-                # for A.: dw_dA =  (psi - psi^2) * 1/A. * [1/Zr sum_x Zx ]
-                to_w = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
-                for j in range(n_samples):
-                    dw_dA[tid, j, y] = to_w * pp2[tid, j] 
-               
-                # db/dA0
-                # print index, db.base.shape
-                # accumulate the aggregate changes in kmer weight w_i
-
-            # propagate effect to pulldown kmer weights
-            for j in range(n_samples):
-                for y in range(0, n_psam):
-                #     to_w = dw_dA[tid, j, y] 
-                #     dw[tid, j, index, 0] += to_w
-                #     dW[tid, j, 0] += to_w
-                # # for d in range(k):
-                # #     for n in range(4):
-                # #         # if dpsi_dM[(d << 2) + n + 1] == np.NaN:
-                # #         #     print "encountered NaN in gradient computation", j, dpsi_dM, psam_inv, dpsi, Z[j]
-                # #         y = (d << 2) + n + 1
-                #     to_w = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv * pp2[tid, j] 
-
-                    # individual kmers
+                # (psi - psi^2) is the only sample/concentration dependent term
+                pp2 = (p - (p * p))
+                for y in range(n_psam):
+                    to_w = dZr_dA[tid, y] * pp2 
+                    # propagate to individual kmers
                     for x in range(lam):
-                        dw[tid, j, im[r,x], y] += dw_dA[tid, j, y]
-    
-                    dW[tid, j, y] += lam * dw_dA[tid, j, y]
+                        dw[tid, j, y, im[r,x]] += to_w
+
+                    dW[tid, j, y] += lam * to_w
 
 
         # n_eval[j] += 1
     t1 = time()
-    # compute gradient of the squared R-value error over the PSAM parameters
-    # W2 = W[j] * W[j]
-    # N_by_W = N/W[j]
-
+  
     # gather data from threads into the 0-th entry
     for tid in range(1, n_threads):
         skipped[0] += skipped[tid]
         for j in range(n_samples):
-            for y in range(n_samples):
+            for y in range(n_psam):
                 dW[0, j, y] += dW[tid, j, y]
+                for i in range(Nk):
+                    dw[0, j, y, i] += dw[tid, j, y, i]
 
 
+    print "dW after collecting from threads", dW.base[0]
     for j in range(n_samples):
         #### DEBUG CODE
         # index = 582 # GCACG
@@ -389,14 +384,25 @@ def PSAM_partition_function_gradient(state):
             pre1 = R[j,i] / w[j,i]
             pre2 = f0[i] * R[j,i]
 
+            # if i == 590 and j == 0:
+            # print "pre-factors for", i, Eji, pre1, pre2
+            # elif i == 582 and j == 0:
+                # print "pre-factors for GCACG", Eji, pre1, pre2
+
             for y in range(n_psam):
                 
-                _dw = 0
-                for tid in range(n_threads):
-                    _dw += dw[tid, j, i, y]
-                
+                _dw = dw[0, j, y, i]
                 dR_dA = pre1 * (_dw - pre2 * dW[0, j, y])
+                gradi[j, i, y] += dR_dA
                 grad[y] += Eji * dR_dA * E_weights[i] * Nk_inv#* rA
+                # if i == 590 and j == 0:
+                #     ### DEBUG CODE
+                #     print ">>>>dw GCATG", np.round(_dw,2)
+                #     print "current grad", grad[y]
+
+                # elif i == 582 and j == 0:
+                #     print ">>>>dw GCACG", np.round(_dw,2)
+                #     print "current grad", grad[y]
 
             dbeta = Eji * pre1 * F0[i] * (1 - R[j,i])
             grad[n_psam+j] += dbeta * Nk_inv
@@ -415,6 +421,7 @@ def PSAM_partition_function_gradient(state):
     t2 = time()
     print "dw/dA. over all reads took {0:.2f}ms. Combination into dE_dA. took {1:.2f} ms".format(1000. * (t1-t0), 1000. * (t2-t1))
     state.skipped = skipped.base[0]
+    state.gradi = gradi
     # state.n_eval = n_eval.base
     return gradient
 
