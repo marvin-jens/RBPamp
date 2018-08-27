@@ -21,7 +21,7 @@ cimport cython
 cimport openmp
 
 from libc.math cimport exp, log
-from libc.stdlib cimport abort, malloc, free
+from libc.stdlib cimport abort, malloc, free #, posix_memalign
 from libc.string cimport memset #faster than np.zeros
 
 cdef extern from "cmpxchg.h":
@@ -202,7 +202,6 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
 
     return Z_read.base, Z_max
 
-
 def PSAM_partition_function_gradient(state):
 
     ### Relevant data from the state object
@@ -242,7 +241,7 @@ def PSAM_partition_function_gradient(state):
     cdef UINT32_t index=0
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
     cdef FLOAT32_t Z1r=0, Z1r_inv = 0, dZ=0, p=0, pp2=0, to_w=0, dbeta=-1, norm=-1
-    cdef FLOAT64_t dR_dA, pre1, pre2, Eji, rA
+    cdef FLOAT32_t dR_dA, pre1, pre2, Eji, rA
 
     ### Static vectors needed during computation
     # mul is faster than div
@@ -254,14 +253,25 @@ def PSAM_partition_function_gradient(state):
     cdef UINT32_t [:] skipped = np.zeros(n_threads, dtype=np.uint32)
     
     # change in partition function (per read, thread-local). Gets zeroed a lot.
-    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+    # cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+
+    # get dZr_dA cache aligned
+    cdef FLOAT32_t *ptr = <FLOAT32_t*> malloc(4*n_threads*n_psam_padded+64)
+    if ptr == NULL:
+        raise ValueError('could not allocate cache-line aligned buffer')
+    cdef int base = <int> ptr
+    if base % 64 > 0: # not cache aligned?
+        base = base + 64 - (base % 64) # use the padding
+    # print base, base % 64, <int> ptr
+    cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
+
     cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
-    cdef FLOAT64_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, n_psam, Nk), dtype=np.float64)
+    cdef FLOAT32_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, n_psam, Nk), dtype=np.float32)
 
     # change in normalization factor
-    cdef FLOAT64_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float64)
+    cdef FLOAT32_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float32)
 
     # where to store the final gradient
     gradient = state.params.copy()
@@ -363,10 +373,11 @@ def PSAM_partition_function_gradient(state):
 
     state.skipped = skipped.base[0]
     state.gradi = gradi
+    free(ptr)
     # state.n_eval = n_eval.base
     return gradient
 
-from libc.string cimport memset #faster than np.zeros
+
 def PSAM_kmer_gradient(UINT8_t [:,:] seqm, FLOAT32_t [:,:] Z, FLOAT32_t [:] Zj, FLOAT32_t [:] psi, UINT32_t [:,:] index_matrix, FLOAT32_t [:] psam, UINT64_t k_mer, int n_max=0):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]

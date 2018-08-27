@@ -104,7 +104,7 @@ class TestGradientMethods(unittest.TestCase):
     def from_kmers(self, *argc, **kwargs):
         return TestGradientMethods.params_from_motif(PSAM.from_kmer_variants(*argc), **kwargs)
 
-    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=100000):
+    def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=1000000):
         # generating reference state
         R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
         from cska.partfunc import PartFuncModel
@@ -152,34 +152,45 @@ class TestGradientMethods(unittest.TestCase):
         print np.isnan(state.R_errors[0]).sum()
         print np.isnan(state.w).sum()
 
-        I = np.array([0,]) #582,590,1023,seq_to_index('GTACG')]) # AAAAA GCACG GCATG TTTTT
+        I = np.array([0,582,590,1023,seq_to_index('GTACG')]) # AAAAA GCACG GCATG TTTTT
         print "psi", state.psi
-        # print state.rbp_free
-        # print state.params.betas
-        # print state.q
-        # print state.Q
-        j = 1
-        for i in I:
-            print "q", index_to_seq(i, 5), state.q[j,i], "w", state.w[j,i]
-
-        for i in I:
-            print "R", index_to_seq(i, 5), state.R[j,i]
 
         g = state.grad
         print g
         from cska.gradient import emp_gradi
-        eg = emp_gradi(state, eps=1e-5)
+        eg = emp_gradi(state, eps=1e-4)
 
         out = params.copy()
         out.data[:] = 0
+        l = len(out.psam_vec)
+
         for i in I:
-            out.psam_vec[:] = state.gradi[j, i]
-            print "dR_dA", index_to_seq(i, 5), out
+            ana = state.gradi[j, i]
+            emp = eg[j, i][:l]
 
-            out.data[:] = eg[j, i]
-            print "emp. dR_dA", index_to_seq(i, 5), out
+            delta = np.fabs(ana - emp)
+            print "largest abs. deviation between empirical and analytical gradient", delta.max(), "index", delta.argmax()
+            if delta.max() > .5:
+                out.psam_vec[:] = ana
+                print "dR_dA", index_to_seq(i, 5), out
+                out.psam_vec[:] = emp
+                print "emp. dR_dA", index_to_seq(i, 5), out
 
+        emp = emp_grad(state, eps=1e-4)
+        print "analytical gradient"
+        print g
+        print "empirical"
+        print emp
 
+        rec = - 2 * (state.R_errors[:,:,np.newaxis] * eg).mean(axis=(0,1))
+        print "emp. from individual"
+        out.data[:] = rec
+        print out
+
+        rec = - 2 * (state.R_errors[:,:,np.newaxis] * state.gradi).mean(axis=(0,1))
+        print "ana. from individual"
+        out.psam_vec[:] = rec
+        print out
 
 
     def run_descent(self, correct_params, initial_params, k_monitor=5, dec=.75, rbp_conc=None):
@@ -277,7 +288,7 @@ class TestGradientMethods(unittest.TestCase):
         print "PERTURBED STATE"
         print state1
 
-        state = model.tune(subopt_params)
+        state = model.tune(state1)
         print "TUNED STATE"
         print state
         print "GRADIENT"
@@ -339,28 +350,28 @@ class TestGradientMethods(unittest.TestCase):
         model, state0 = self.get_default()
 
         subopt_params = state0.params.copy()
-        subopt_params.A0 += -1e-3
+        subopt_params.A0 *= .1
         subopt_params.psam_matrix[0,0] += .0 # set A1 too high
         # subopt_params.betas[2] += 1e-4
-        # subopt_params.psam_matrix[4,1] = .01 # set C4 too low
+        subopt_params.psam_matrix[4,1] = .01 # set C4 too low
         print subopt_params
 
-        state = model.predict(subopt_params, beta_fixed=True)
-        print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
-        from time import time
+        # state = model.predict(subopt_params, beta_fixed=True)
+        # print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
+        # from time import time
 
-        t0 = time()
-        print state.grad
-        dt = 1000. * (time() - t0)
-        print "# gradient computation took {0:.2f} ms".format(dt)
+        # t0 = time()
+        # print state.grad
+        # dt = 1000. * (time() - t0)
+        # print "# gradient computation took {0:.2f} ms".format(dt)
         
-        from cska.gradient import emp_grad
-        print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
-        t0 = time()
-        print emp_grad(state)
-        dt = 1000. * (time() - t0)
-        print "# gradient computation took {0:.2f} ms".format(dt)
-        sys.exit()
+        # from cska.gradient import emp_grad
+        # print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
+        # t0 = time()
+        # print emp_grad(state)
+        # dt = 1000. * (time() - t0)
+        # print "# gradient computation took {0:.2f} ms".format(dt)
+        # # sys.exit()
 
         print "performing gradient descent optimization"
         G = GradientDescent(model, subopt_params)
@@ -459,7 +470,7 @@ class TestGradientMethods(unittest.TestCase):
         self.assertTrue(np.allclose(grad.data,0))
 
     # @unittest.skip("")
-    def test_grad_matrix(self, d=1e-1):
+    def test_grad_matrix(self, d=2e-2):
         """
         Small perturbations of the parameter matrix should result in gradients pointing
         in the opposite direction.
@@ -467,9 +478,9 @@ class TestGradientMethods(unittest.TestCase):
         from cska.gradient import GradientDescent, emp_grad
 
         model, state0 = self.get_default()
-        grad0 = state0.grad
-        print "unperturbed model's gradient"
-        print grad0
+        # grad0 = state0.grad
+        # print "unperturbed model's gradient"
+        # print grad0
         n = len(state0.params.psam_vec)
 
         ratios = np.ones(n, dtype=np.float32)
@@ -483,22 +494,21 @@ class TestGradientMethods(unittest.TestCase):
             delta.data[i] = d
 
             params = GradientDescent.apply_delta(state0.params, delta)
-            print "perturbation", i, "params[i] =", state0.params.data[i], "->", params.data[i]
+            # print "perturbation", i, "params[i] =", state0.params.data[i], "->", params.data[i]
             pert = params.copy()
             pert.data[:] = params.data - state0.params.data
-            print pert
+            # print pert
 
-            # state = model.predict(params, beta_fixed=True)
-            state = model.tune(params)
+            state = model.predict(params, beta_fixed=False, tune=True)
+            # state = model.tune(params)
             grad = state.grad
             print "gradient"
             print grad #.unity()
-            egrad = emp_grad(state, eps=1e-5)
-            print "emp. gradient"
-            print egrad #.unity()
+            # egrad = emp_grad(state, eps=1e-5)
+            # print "emp. gradient"
+            # print egrad #.unity()
 
             i_pert = pert.data.argmax()
-            print "i_pert", i_pert
             assert i_pert == i
             # I = grad.data.argsort()[::-1]
             I = grad.psam_vec.argsort()[::-1]
@@ -513,6 +523,8 @@ class TestGradientMethods(unittest.TestCase):
             else:
                 ratios[i] = grad.data[i_pert] / grad.data[i_grad]
                 print "FAILED"
+
+            print "i_pert", i_pert, "i_grad", i_grad, "i_next", i_next, "ratio", ratios[i]
 
         print "summary", ratios
         self.assertTrue((ratios >= 1.).all())

@@ -565,7 +565,7 @@ class GradientDescent(object):
                 if debug:
                     print "LOCAL GRAD"
                     print local_grad
-                local_grad.A0 = 0
+                # local_grad.A0 = 0
                 local_grad.betas *= 0
                 # local_grad = local_grad.unity()
                 descent = self.RMSprop( -local_grad ).unity()
