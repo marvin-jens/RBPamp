@@ -209,11 +209,12 @@ def emp_grad(state, eps=1e-6):
     v0 = state.params.as_vector()
     var = state.params.copy()
     grad = state.params.copy()
-
-    err0 = state.error
+    state0 = state
     # print "err0", err0
     kw = dict()#.predict_kwargs)
     kw['beta_fixed'] = True
+    kw['tune'] = False
+    kw['rbp_free'] = state0.rbp_free
 
     for i in range(state.params.n):
         # print ">>> EMP GRAD", state.params.names[i]
@@ -221,7 +222,7 @@ def emp_grad(state, eps=1e-6):
         d = eps
         var.data[i] = v0[i] + d
         state = state.mdl.predict(var, **kw)
-        derr = state.error - err0
+        derr = state.error - state0.error
         grad.data[i] = derr/d
         # print "derr", derr
         var.data[i] = v0[i]
@@ -254,28 +255,28 @@ def emp_gradi(state, eps=1e-6):
         state = state.mdl.predict(var, **kw)
         dR = state.R - R0
         from cska.cyska import index_to_seq
-        if i == 12:
-            print "funky gradient element, should be zero for aaaaaa"
-            print "dR(aaaaa)_dU3", dR[:,0]
-            print "dpsi_dU3", state.psi - state0.psi
-            print "dq(aaaaa)_dU3", state.q[:,0] - state0.q[:, 0]
-            print "dQ_dU3", state.Q - state0.Q
-            print "kmers with changes in dq at conc 1"
-            dq = state.q[1, :] - state0.q[1, :]
-            for j in dq.argsort()[::-1][:10]:
-                print index_to_seq(j, 5), dq[j], state.mdl.f0[j]
-            print "partition function elements reacting to change"
-            dZ = state.Z1 - state0.Z1
-            _dZ = state0.Z1 / var.data[i]
-            for z, a in zip(dZ, _dZ):
-                if (z == 0).all():
-                    continue
-                print "emp", ["{0:.2e}".format(x) for x in z]
-                print "ana", ["{0:.2e}".format(x) for x in a]
+        # if i == 12:
+        #     print "funky gradient element, should be zero for aaaaaa"
+        #     print "dR(aaaaa)_dU3", dR[:,0]
+        #     print "dpsi_dU3", state.psi - state0.psi
+        #     print "dq(aaaaa)_dU3", state.q[:,0] - state0.q[:, 0]
+        #     print "dQ_dU3", state.Q - state0.Q
+        #     print "kmers with changes in dq at conc 1"
+        #     dq = state.q[1, :] - state0.q[1, :]
+        #     for j in dq.argsort()[::-1][:10]:
+        #         print index_to_seq(j, 5), dq[j], state.mdl.f0[j]
+        #     print "partition function elements reacting to change"
+        #     dZ = state.Z1 - state0.Z1
+        #     _dZ = state0.Z1 / var.data[i]
+        #     for z, a in zip(dZ, _dZ):
+        #         if (z == 0).all():
+        #             continue
+        #         print "emp", ["{0:.2e}".format(x) for x in z]
+        #         print "ana", ["{0:.2e}".format(x) for x in a]
         
-            print "dZ_read", state.Z1_read - state0.Z1_read
+        #     print "dZ_read", state.Z1_read - state0.Z1_read
 
-        print "dRBP_free", state.rbp_free - state0.rbp_free, state.mdl._last_sc.last_error
+        # print "dRBP_free", state.rbp_free - state0.rbp_free, state.mdl._last_sc.last_error
 
         gradi[:,:,i] = dR/d
         # print "derr", derr
