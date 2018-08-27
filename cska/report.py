@@ -949,7 +949,7 @@ class GradientDescentReport(object):
             density_scatter_plot(x, y, label=label)
             pp.legend(loc='upper left')
             if t == -1:
-                t == self.descent.t
+                t = self.descent.t
             pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, t)))
             pp.close()
 
