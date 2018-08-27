@@ -4,8 +4,7 @@ import unittest
 from cska.reads import RBNSReads
 from cyska import *
 
-def get_test_reads(adap5='CCCCCCC', adap3='TTTTTTTT'):
-    return RBNSReads("""GAGGTCACTCTCTTGCATGTATGCATGCAGTCTCAACGAA
+test_reads = """GAGGTCACTCTCTTGCATGTATGCATGCAGTCTCAACGAA
 CATTTTTTTTGAAACTACGTGCATGTACAATAGGCGACGA
 ATACGACTGCTTATCCACTGCATGCTGCAGGAAGTGCATG
 TTGTAGCATGTCCGTCAACAGAAACTGCATGTTTCTAATA
@@ -25,8 +24,20 @@ TCATGCATGTTTGATTATAACTGGTAAGTCCTGTACACGT
 TCCAGAATTAGTGCATGTAGGAGAAACACACGATATTGAT
 GAGGAAAATAACGTGCATGTCCCACTTTAAATATATAGCA
 GAATGCAGTCCGGCGCTTTAATGCATGTGCATCCTATACT
-""".split('\n'), adap5=adap5, adap3=adap3)
-    
+"""
+minimal_reads = """
+TTTTTGCATGTTTTTTTTTTTTTTT
+AAAAAAAAAAAAATGCACGTAAAAA
+TACGTACGTACGTACGTACGTACGT
+TACGTACGTACGTACGTACGTACGT
+TACGTACGTACGTACGTACGTACGT
+TACGTACGTACGTACGTACGTACGT
+TACGTACGTACGTACGTACGTACGT
+"""
+
+def get_test_reads(adap5='CCCCCCC', adap3='GGGGGGG', seqs=test_reads, pseudo_count = 1e-8, **kwargs):
+    return RBNSReads.from_seqs(seqs.split('\n'), adap5=adap5, adap3=adap3, pseudo_count=pseudo_count, **kwargs)
+
 
 real_reads = {}
 def get_real_reads(N =100000):
@@ -122,6 +133,55 @@ class TestGradientMethods(unittest.TestCase):
     def get_default(self):
         return self.model, self.state0
 
+    def test_lowlevel(self):
+        from cska.partfunc import PartFuncModel
+
+        reads = get_test_reads(seqs=minimal_reads, rna_conc=1. )
+        params = self.state0.params.copy()
+        params.A0 = .1
+        params.betas = [1e-5, 1e-2, 1e-3]
+        R0 = np.zeros(self.state0.R.shape, dtype=np.float32)
+        model = PartFuncModel(reads, params, R0, rbp_conc=[1.,5.,25.])
+        for i,f in enumerate(model.F0):
+            if f > 0:
+                print index_to_seq(i,5), f, model.f0[i]
+        # sys.exit()
+        state = model.predict(params, beta_fixed=True, tune=False)
+        print state
+        print np.round(state.Z1_read,2)
+        print np.isnan(state.R_errors[0]).sum()
+        print np.isnan(state.w).sum()
+
+        I = np.array([0,]) #582,590,1023,seq_to_index('GTACG')]) # AAAAA GCACG GCATG TTTTT
+        print "psi", state.psi
+        # print state.rbp_free
+        # print state.params.betas
+        # print state.q
+        # print state.Q
+        j = 1
+        for i in I:
+            print "q", index_to_seq(i, 5), state.q[j,i], "w", state.w[j,i]
+
+        for i in I:
+            print "R", index_to_seq(i, 5), state.R[j,i]
+
+        g = state.grad
+        print g
+        from cska.gradient import emp_gradi
+        eg = emp_gradi(state, eps=1e-5)
+
+        out = params.copy()
+        out.data[:] = 0
+        for i in I:
+            out.psam_vec[:] = state.gradi[j, i]
+            print "dR_dA", index_to_seq(i, 5), out
+
+            out.data[:] = eg[j, i]
+            print "emp. dR_dA", index_to_seq(i, 5), out
+
+
+
+
     def run_descent(self, correct_params, initial_params, k_monitor=5, dec=.75, rbp_conc=None):
         model, state0 = self.setup_model(correct_params, k_monitor=k_monitor, rbp_conc=rbp_conc)
         from cska import vector_stats
@@ -186,7 +246,9 @@ class TestGradientMethods(unittest.TestCase):
         from cska.gradient import GradientDescent
         from cska.report import GradientDescentReport
 
-        model, state0 = self.setup_model(self.default_params, k_monitor=5, rbp_conc=[1.,5.,25.], N=1000000)
+        params = dict(self.default_params)
+        params['debug'] = True
+        model, state0 = self.setup_model(params, k_monitor=5, rbp_conc=[1.,5.,25.], N=1000000)
         params1 = state0.params.copy()
         params1.A0 *= .9
         params1.betas[:] = [.2,.3,.5]
