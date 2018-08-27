@@ -1,6 +1,5 @@
 import os
 import unittest
-import copy
 import time
 import numpy as np
 import logging
@@ -81,19 +80,18 @@ class ModelParametrization(object):
 
         self.names =['A0']
         for i in range(self.k):
-            self.names.extend(['{0}{1}'.format(nt,i+1) for nt in 'ACGU'])
+            self.names.extend(['{0}{1}'.format(nt, i+1) for nt in 'ACGU'])
         for i in range(self.n_samples):
             self.names.append('beta{0}'.format(i))
 
     @classmethod
     def from_vector(cls, vec, k, n_samples=1):
-        return cls(k, n_samples, data = vec)
+        return cls(k, n_samples, data=vec)
 
     def as_vector(self, dtype=np.float32):
         return self.data
     
     def as_PSAM(self):
-        from cska.pwm import PSAM
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
@@ -164,7 +162,7 @@ class ModelParametrization(object):
         buf.append("A0={0:.4e}".format(self.A0))
         buf.append("\tA\t\tC\t\tG\t\tU")
         for row in self.psam_matrix:
-            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row),]))
+            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row), ]))
 
         buf.append("BACKGROUND")
         for i, beta in enumerate(self.betas):
@@ -214,7 +212,7 @@ def emp_grad(state, eps=1e-6):
 
     err0 = state.error
     # print "err0", err0
-    kw = dict(self.predict_kwargs)
+    kw = dict()#.predict_kwargs)
     kw['beta_fixed'] = True
 
     for i in range(state.params.n):
@@ -231,7 +229,63 @@ def emp_grad(state, eps=1e-6):
     
     return grad
 
-def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=2, plot="", **kwargs):
+
+def emp_gradi(state, eps=1e-6):
+    v0 = state.params.as_vector()
+    var = state.params.copy()
+    Nk = state.mdl.nA
+    n_data = len(state.params.data)
+    n_samples = state.params.n_samples
+    gradi = np.zeros((n_samples, Nk, n_data), dtype=np.float32)
+
+    R0 = state.R
+    state0 = state
+
+    # print "err0", err0
+    kw = dict()  # .predict_kwargs)
+    kw['beta_fixed'] = True
+    kw['rbp_free'] = state0.rbp_free
+
+    for i in range(state.params.n):
+        # print ">>> EMP GRAD", state.params.names[i]
+        # d = max(v0[i] * eps,1e-6)
+        d = eps
+        var.data[i] = v0[i] + d
+        state = state.mdl.predict(var, **kw)
+        dR = state.R - R0
+        from cska.cyska import index_to_seq
+        if i == 12:
+            print "funky gradient element, should be zero for aaaaaa"
+            print "dR(aaaaa)_dU3", dR[:,0]
+            print "dpsi_dU3", state.psi - state0.psi
+            print "dq(aaaaa)_dU3", state.q[:,0] - state0.q[:, 0]
+            print "dQ_dU3", state.Q - state0.Q
+            print "kmers with changes in dq at conc 1"
+            dq = state.q[1, :] - state0.q[1, :]
+            for j in dq.argsort()[::-1][:10]:
+                print index_to_seq(j, 5), dq[j], state.mdl.f0[j]
+            print "partition function elements reacting to change"
+            dZ = state.Z1 - state0.Z1
+            _dZ = state0.Z1 / var.data[i]
+            for z, a in zip(dZ, _dZ):
+                if (z == 0).all():
+                    continue
+                print "emp", ["{0:.2e}".format(x) for x in z]
+                print "ana", ["{0:.2e}".format(x) for x in a]
+        
+            print "dZ_read", state.Z1_read - state0.Z1_read
+
+        print "dRBP_free", state.rbp_free - state0.rbp_free, state.mdl._last_sc.last_error
+
+        gradi[:,:,i] = dR/d
+        # print "derr", derr
+        var.data[i] = v0[i]
+        # print ">>>GRAD ELEMENT", grad.data[i]
+    
+    return gradi
+
+
+def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, plot="", **kwargs):
     """
     first evaluate at log-spaced sampling points along parameter range
     then select at most 3 orders of magnitude around the lowest observed value
@@ -303,7 +357,7 @@ def minimize_logspaced(func, bounds = [], n_samples = 7, debug=False, nested=2, 
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, predict_kwargs={}):
+    def __init__(self, model, params0, dec=.5, ref_state=None, predict_kwargs=dict(beta_fixed=False, tune=True)):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
