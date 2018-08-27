@@ -8,7 +8,7 @@ from cska.sc import SelfConsistency
 from cska import vector_stats
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params, beta_fixed=True, **kwargs):
+    def __init__(self, mdl, params, beta_fixed=True, rbp_free = None, **kwargs):
         t0 = time.time()
         self.mdl = mdl
         self.params = params.copy()
@@ -34,7 +34,9 @@ class PartFuncModelState(object):
         #self.Z1_read_max is used for thresholding
 
         # self-consistent free RBP concentrations
-        rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
+        if rbp_free is None:
+            rbp_free = self.mdl.SPA_free_protein(self.Z1_read, Z_scale=params.A0)
+        
         self._update_rbp_free(rbp_free)
         # print "rbp_free", self.rbp_free
         # pull-down weights for each read, in each sample
@@ -263,6 +265,9 @@ class PartFuncModel(object):
 
         a0s = [params.A0]
         beta0s = [params.betas[0]]
+        R_err = {}
+        A0_est = {}
+        A0_sem = {}
 
         def err(A0):
             state.params.A0 = A0
@@ -282,15 +287,32 @@ class PartFuncModel(object):
                 print "R({0})={1} [R0={2}]".format(topmer, state.R[:,top], self.R0[:,top])
 
             est = state.A0_estimators
+            
             err = sem(est[mask], axis=None)
             if debug:
                 print A0, "->", err, state.error
+            
+            A0_sem[A0] = err
+            R_err[A0] = state.error * self.nA
+            A0_est[A0] = est
+
             return err + state.error * self.nA
 
         # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
         res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf')
         if debug:
             print res
+            import matplotlib.pyplot as plt
+            plt.figure()
+            a0 = sorted(a0s)
+            plt.semilogx(a0, [R_err[a] for a in a0], '.b')
+            plt.semilogx(a0, [A0_sem[a] for a in a0], '.r')
+            a_opt = a0s[-1]
+
+            pp.figure()
+            pp.hist(A0_est[a_opt], bins=100)
+            pp.show()
+
         state.params.A0 = res.x
         state = state.mdl.predict(state.params, beta_fixed=False)
         # HACK: attach to state object
@@ -321,9 +343,9 @@ class PartFuncModel(object):
         return np.array(rbp_free, dtype= np.float32)
 
     def PD_kmer_weights(self, psi):
-        w = np.zeros( (self.n_samples, self.nA), dtype=np.float32)
+        w = np.zeros( (self.n_samples, self.nA), dtype=np.float32) 
         for j in range(self.n_samples):
-            w[j] = cyska.weighted_kmer_counts(self._im, psi[j], self.k)
+            w[j] = cyska.weighted_kmer_counts(self._im, psi[j], self.k) + 1e-20
 
         return w
 
