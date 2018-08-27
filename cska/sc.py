@@ -7,6 +7,7 @@ class SelfConsistency(object):
     def __init__(self, Z1, rna_conc, bins=0):
         self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1[Z1 > 0]
+        self.last_error = -1
         if not len(self.Z1):
             self.free_rbp = self.all_free
             return
@@ -54,7 +55,7 @@ class SelfConsistency(object):
             self.logger.warning("could not satisfy RBP conservation. error={}".format(res.fun))
 
         self.logger.debug("total RBP={0:.1f} free={1:.1f} ({2:.2f}%) complex={4:.2e} nM in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0), complex) )
-        
+        self.last_error = res.fun
         return res.x
         
     def free_rbp(self, rbp_total, Z_scale=1.):
