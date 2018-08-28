@@ -262,6 +262,9 @@ def main():
 
         # open energy prediction from folding
         fold_path = os.path.join(options.output, "acc")
+        if options.no_structure:
+            fold_path = "NOSTRUCTURE"
+
         storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear', dummy=options.no_structure)
         if int(options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(options.openen_discretize))
