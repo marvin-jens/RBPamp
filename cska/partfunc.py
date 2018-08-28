@@ -248,7 +248,7 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis,:] * (1 - self.R0)
 
-    def tune(self, state, A0_plot="", debug=False):
+    def tune(self, state, A0_plot="", debug=True):
         params = state.params
         # state2 = self.predict(params)
         # print "TUNE STATE"
@@ -261,13 +261,17 @@ class PartFuncModel(object):
         sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
         kmer_weights = state.kmer_affinity_weights(cutoff=.1)
         e0 = state.error
-        mask = np.fabs(state.mdl.R0 - 1) > .001
+        # mask = np.fabs(state.mdl.R0 - 1) > .001
+        # mask = np.logical_or(state.mdl.R0 > 1.1, state.mdl.R0 < .9)
+        mask = state.mdl.R0 > 1.5
+        print "estimators used", mask.sum() 
 
-        a0s = [params.A0]
-        beta0s = [params.betas[0]]
+        a0s = []
+        beta0s = []
         R_err = {}
         A0_est = {}
         A0_sem = {}
+        R_corr = {}
 
         def err(A0):
             state.params.A0 = A0
@@ -294,9 +298,10 @@ class PartFuncModel(object):
             
             A0_sem[A0] = err
             R_err[A0] = state.error * self.nA
+            R_corr[A0] = np.array(state.correlations).max()
             A0_est[A0] = est
 
-            return err + state.error * self.nA
+            return state.error #err + state.error * self.nA
 
         # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
         res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf')
@@ -305,14 +310,36 @@ class PartFuncModel(object):
             import matplotlib.pyplot as plt
             plt.figure()
             a0 = sorted(a0s)
-            plt.semilogx(a0, [R_err[a] for a in a0], '.b')
-            plt.semilogx(a0, [A0_sem[a] for a in a0], '.r')
+            plot = plt.loglog
+            rerr = np.array([R_err[a] for a in a0])
+            rcorr = np.array([R_corr[a] for a in a0])
+            asem = np.array([A0_sem[a] for a in a0])
+            plt.subplot(311)
+            plot(a0, rerr, '.b', label='MSE')
+            plot(a0, rerr, '-b')
+            plt.legend(loc='upper left')
+
+            plt.subplot(312)
+            plot(a0, asem, '.r', label='SEM')
+            plot(a0, asem, '-r')
+            plt.legend(loc='upper left')
+
+            plt.subplot(313)
+            plot(a0, rcorr, '.k', label='best correlation')
+            plot(a0, rcorr, '-k')
+            plt.legend(loc='upper left')
+
             a_opt = a0s[-1]
 
-            pp.figure()
-            pp.hist(A0_est[a_opt], bins=100)
-            pp.show()
+            self.logger.info("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()) )
+            # plt.figure()
+            # a0 = np.array(A0_est[a_opt])
+            # print a0
+            # plt.hist(a0, bins=100)
+            plt.tight_layout()
+            plt.savefig("_err_.pdf")
 
+        
         state.params.A0 = res.x
         state = state.mdl.predict(state.params, beta_fixed=False)
         # HACK: attach to state object
