@@ -286,7 +286,7 @@ def emp_gradi(state, eps=1e-6):
     return gradi
 
 
-def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, plot="", **kwargs):
+def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, plot="", options=None, **kwargs):
     """
     first evaluate at log-spaced sampling points along parameter range
     then select at most 3 orders of magnitude around the lowest observed value
@@ -333,7 +333,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, plot
     if debug:
         print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
 
-    res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded') #, **kwargs)
+    res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded', options=options) #, **kwargs)
     t1 = time.time()
 
     if plot:
