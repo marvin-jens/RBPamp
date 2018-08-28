@@ -248,8 +248,9 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis,:] * (1 - self.R0)
 
-    def tune(self, state, A0_plot="", debug=True):
+    def tune(self, state, A0_plot="", debug=True, maxiter=5):
         params = state.params
+        A00 = params.A0
         # state2 = self.predict(params)
         # print "TUNE STATE"
         # print state
@@ -263,7 +264,7 @@ class PartFuncModel(object):
         e0 = state.error
         # mask = np.fabs(state.mdl.R0 - 1) > .001
         # mask = np.logical_or(state.mdl.R0 > 1.1, state.mdl.R0 < .9)
-        mask = state.mdl.R0 > 1.5
+        mask = state.mdl.R0 > 1.1
         print "estimators used", mask.sum() 
 
         a0s = []
@@ -297,14 +298,14 @@ class PartFuncModel(object):
                 print A0, "->", err, state.error
             
             A0_sem[A0] = err
-            R_err[A0] = state.error * self.nA
+            R_err[A0] = state.error
             R_corr[A0] = np.array(state.correlations).max()
             A0_est[A0] = est
 
             return state.error #err + state.error * self.nA
 
         # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
-        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf')
+        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf', options=dict(maxiter=maxiter))
         if debug:
             print res
             import matplotlib.pyplot as plt
@@ -340,7 +341,12 @@ class PartFuncModel(object):
             plt.savefig("_err_.pdf")
 
         
-        state.params.A0 = res.x
+        if 5e-3 < res.x < 500:
+            state.params.A0 = res.x
+        else:
+            self.logger.warning("fit would push A0 to boundaries. Letting drift through gradient-only instead.")
+            state.params.A0 = A00
+        
         state = state.mdl.predict(state.params, beta_fixed=False)
         # HACK: attach to state object
         state.a0s = a0s
