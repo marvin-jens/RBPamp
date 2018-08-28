@@ -375,8 +375,13 @@ class TestGradientMethods(unittest.TestCase):
 
         print "performing gradient descent optimization"
         G = GradientDescent(model, subopt_params)
+        from cska.report import GradientDescentReport
+        rep = GradientDescentReport(G, path='.')
         def callback(descent):
             state = descent.last_state
+            rep.plot_report()
+            rep.plot_param_hist()
+
             # descent.print_state(state)
             # import matplotlib.pylab as pp
             # pp.figure()
