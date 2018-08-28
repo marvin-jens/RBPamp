@@ -129,37 +129,6 @@ def seqm_pad_adapters(UINT8_t [:,:] seqm, UINT8_t [:] adap5, UINT8_t [:] adap3, 
     return padded.base
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0):
-    cdef UINT64_t N = seqm.base.shape[0]
-    cdef UINT64_t L = seqm.base.shape[1]
-    cdef UINT64_t k = psam.base.shape[0]
-    cdef UINT64_t l = L - k + 1
-    # print "part_func L-k+1", l, k
-    # result will be stored here (Z = 'Zustandssumme' sum of states)
-    cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
-    
-    # helper variables to tell cython the types
-    # cdef FLOAT32_t a=0
-    cdef UINT64_t i=0, j=0, d=0, n=0
-    # cdef UINT32_t index=0
-    # cdef FLOAT32_t w=0
-    # cdef FLOAT64_t Z1=0 # Single protein partition function
-
-    if n_max:
-        N = min(N, n_max)
-
-    with nogil, parallel():
-        for j in prange(N, schedule='static'):
-            # iterate over all PSAM start positions
-            for i in range(l):
-                Z[j,i] *= acc_matrix[j, i + openen_ofs]
-                for d in range(k):
-                    n = seqm[j,i+d]
-                    Z[j,i] *= psam[d,n]
-
-    return Z.base
-
-
 def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
     cdef UINT64_t N = Z.base.shape[0]
     cdef UINT64_t l = Z.base.shape[1]
@@ -201,6 +170,69 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
             Z_max = Z_max_thread[thread_num]
 
     return Z_read.base, Z_max
+
+
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0):
+    cdef UINT64_t N = seqm.base.shape[0]
+    cdef UINT64_t L = seqm.base.shape[1]
+    cdef UINT64_t k = psam.base.shape[0]
+    cdef UINT64_t l = L - k + 1
+    # print "part_func L-k+1", l, k
+    # result will be stored here (Z = 'Zustandssumme' sum of states)
+    cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
+    
+    # helper variables to tell cython the types
+    # cdef FLOAT32_t a=0
+    cdef UINT64_t i=0, j=0, d=0, n=0, ind=0
+    # cdef UINT32_t index=0
+    # cdef FLOAT32_t w=0
+    # cdef FLOAT64_t Z1=0 # Single protein partition function
+    cdef int thread_num = 0
+    cdef int n_threads = 8
+
+    if n_max:
+        N = min(N, n_max)
+
+    # ## pre-compute all k-mer relative affinities
+    # cdef UINT64_t Na = 4**k
+    # # store parameters here
+    # cdef FLOAT32_t [:] affinity = np.empty(Na, dtype = np.float32)
+    # cdef FLOAT32_t A=0
+
+    # t0 = time.time()
+    # with nogil, parallel():
+    #     for i in prange(Na, schedule='static'):
+    #         A = 1
+    #         d = k-1
+    #         ind = i
+    #         for j in range(k):
+    #             n = ind & 3
+    #             A = A * psam[d, n]
+    #             ind = ind >> 2
+    #             d = d - 1
+
+    #         affinity[i] = A
+    # t1 = time.time()
+
+    ## evaluate partition function
+    # with nogil, parallel():
+    #     for j in prange(N, schedule='static'):
+    #         # iterate over all PSAM start positions
+    #         for i in range(l):
+    #             Z[j,i] = acc_matrix[j, i + openen_ofs] + affinity[im[j, i]]
+    # t2 = time.time()
+
+    with nogil, parallel():
+        for j in prange(N, schedule='static'):
+            # iterate over all PSAM start positions
+            for i in range(l):
+                Z[j,i] *= acc_matrix[j, i + openen_ofs]
+                for d in range(k):
+                    n = seqm[j,i+d]
+                    Z[j,i] *= psam[d,n]
+
+    return Z.base
+
 
 def PSAM_partition_function_gradient(state):
 
