@@ -450,11 +450,11 @@ class GradientDescent(object):
             new = self.model.predict(m, **kw)
             N['fev'] += 1
             scales.append(s)
-            new_err = new.error - e0
+            new_err = new.error
             errors.append(new_err)
             if debug:
-                print s,"->", new_err
-            return new_err
+                print s,"->", new_err - e0
+            return new_err - e0
 
         assert np.fabs(err(0)) < 1e-6
 
@@ -474,7 +474,7 @@ class GradientDescent(object):
         scales = np.array(scales)
         errors = np.array(errors)
         I = scales.argsort()
-        return s, Tracked(scales = scales[I], errors=errors[I], res=res, s_opt=s)
+        return s, Tracked(scales = scales[I], errors=errors[I], res=res, s_opt=s, err0=e0)
 
     def momentum_grad(self, local_grad):
         if self.past_grad is None:

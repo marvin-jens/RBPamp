@@ -1000,14 +1000,16 @@ class GradientDescentReport(object):
 
         x = state._ls_data.scales
         y = state._ls_data.errors
+        err0 = state._ls_data.err0
         s_opt = state._ls_data.s_opt
 
-        pp.axhline(0, color='gray')
-        pp.semilogx(x, y)
-        pp.semilogx(x, y, 'xr')
+        pp.axhline(err0, color='gray')
+        pp.loglog(x, y)
+        pp.loglog(x, y, 'xr')
         pp.axvline(s_opt, color='red')
+
         pp.xlabel('variable')
-        pp.ylabel('change in error')
+        pp.ylabel('mean squared error')
         
         pp.tight_layout()
         pp.savefig(os.path.join(self.path, "line_search_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
