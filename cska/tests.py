@@ -381,6 +381,8 @@ class TestGradientMethods(unittest.TestCase):
             state = descent.last_state
             rep.plot_report()
             rep.plot_param_hist()
+            rep.plot_line_search()
+            rep.plot_A0_fit()
 
             # descent.print_state(state)
             # import matplotlib.pylab as pp
@@ -392,7 +394,7 @@ class TestGradientMethods(unittest.TestCase):
             # pp.show()
             # pp.close()
 
-        res = G.optimize(subopt_params, maxiter=20, debug=True, ls_plot="ls_subopt_{self.t}.pdf", A0_plot="A0_subopt_{self.t}.pdf", tune=True, callback=callback)
+        res = G.optimize(subopt_params, maxiter=20, debug=True, tune=True, callback=callback)
         # res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
         print res.last_state.params
 

@@ -56,6 +56,8 @@ class PSAMGradientDescent(object):
             if dt > 5 or dt is None:
                 rep.plot_report()
                 rep.plot_param_hist()
+                rep.plot_line_search()
+                rep.plot_A0_fit()
                 lrep.plot_scatter()
 
                 pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
@@ -86,7 +88,7 @@ class PSAMGradientDescent(object):
             self.track_file.write("\t".join([str(o) for o in out]))
             self.track_file.write('\n')
 
-        self.descent.optimize(params, maxiter=1000, debug=True, callback=callback, ls_plot="ls_{self.t}.pdf", A0_plot="optA0_{self.t}.pdf")
+        self.descent.optimize(params, maxiter=1000, debug=True, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()

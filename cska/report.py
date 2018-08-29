@@ -953,6 +953,66 @@ class GradientDescentReport(object):
             pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, t)))
             pp.close()
 
+    def plot_A0_fit(self, t=-1):
+        state = self.descent.history[t]
+        if t == -1:
+            t = self.descent.t
+
+        if not hasattr(state, "_A0_data"):
+            return
+
+        a0 = state._A0_data.a0
+        rerr = state._A0_data.rerr
+        asem = state._A0_data.asem
+        rcorr = state._A0_data.rcorr
+
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plot = plt.loglog
+        plt.subplot(311)
+        plot(a0, rerr, '.b', label='MSE')
+        plot(a0, rerr, '-b')
+        plt.legend(loc='upper left')
+
+        plt.subplot(312)
+        plot(a0, asem, '.r', label='SEM')
+        plot(a0, asem, '-r')
+        plt.legend(loc='upper left')
+
+        plt.subplot(313)
+        plot(a0, rcorr, '.k', label='best correlation')
+        plot(a0, rcorr, '-k')
+        plt.legend(loc='upper left')
+
+        a_opt = a0[rerr.argmin()]
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.path,"A0_fit_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
+        plt.close()
+
+    def plot_line_search(self, t=-1):
+        state = self.descent.history[t]
+        if t == -1:
+            t = self.descent.t
+
+        if not hasattr(state, "_ls_data"):
+            return
+
+        x = state._ls_data.scales
+        y = state._ls_data.errors
+        s_opt = state._ls_data.s_opt
+
+        pp.axhline(0, color='gray')
+        pp.semilogx(x, y)
+        pp.semilogx(x, y, 'xr')
+        pp.axvline(s_opt, color='red')
+        pp.xlabel('variable')
+        pp.ylabel('change in error')
+        
+        pp.tight_layout()
+        pp.savefig(os.path.join(self.path, "line_search_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
+        pp.close()
+
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
         pp.xlabel(title)
@@ -970,7 +1030,6 @@ class GradientDescentReport(object):
         pp.subplot(133)
         self.plot_psam(unity_matrix(grad),'RMSprop')
 
-        
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
         pp.xlabel(title)

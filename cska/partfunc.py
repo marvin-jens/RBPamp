@@ -268,7 +268,7 @@ class PartFuncModel(object):
         print "estimators used", mask.sum() 
 
         a0s = []
-        beta0s = []
+        # beta0s = []
         R_err = {}
         A0_est = {}
         A0_sem = {}
@@ -284,7 +284,7 @@ class PartFuncModel(object):
             state._update_betas(betas)
 
             a0s.append(A0)
-            beta0s.append(betas[0])
+            # beta0s.append(betas[0])
 
             if debug:
                 top = kmer_weights.argmax()
@@ -305,42 +305,11 @@ class PartFuncModel(object):
             return state.error #err + state.error * self.nA
 
         # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
-        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, plot='minimize_A0_est_SEM.pdf', options=dict(maxiter=maxiter))
+        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter))
+
         if debug:
             print res
-            import matplotlib.pyplot as plt
-            plt.figure()
-            a0 = sorted(a0s)
-            plot = plt.loglog
-            rerr = np.array([R_err[a] for a in a0])
-            rcorr = np.array([R_corr[a] for a in a0])
-            asem = np.array([A0_sem[a] for a in a0])
-            plt.subplot(311)
-            plot(a0, rerr, '.b', label='MSE')
-            plot(a0, rerr, '-b')
-            plt.legend(loc='upper left')
-
-            plt.subplot(312)
-            plot(a0, asem, '.r', label='SEM')
-            plot(a0, asem, '-r')
-            plt.legend(loc='upper left')
-
-            plt.subplot(313)
-            plot(a0, rcorr, '.k', label='best correlation')
-            plot(a0, rcorr, '-k')
-            plt.legend(loc='upper left')
-
-            a_opt = a0s[-1]
-
-            self.logger.info("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()) )
-            # plt.figure()
-            # a0 = np.array(A0_est[a_opt])
-            # print a0
-            # plt.hist(a0, bins=100)
-            plt.tight_layout()
-            plt.savefig("_err_.pdf")
-
-        
+    
         if 5e-3 < res.x < 500:
             state.params.A0 = res.x
         else:
@@ -349,8 +318,14 @@ class PartFuncModel(object):
         
         state = state.mdl.predict(state.params, beta_fixed=False)
         # HACK: attach to state object
-        state.a0s = a0s
-        state.beta0s = beta0s
+        a0 = sorted(a0s)
+        rerr = np.array([R_err[a] for a in a0])
+        rcorr = np.array([R_corr[a] for a in a0])
+        asem = np.array([A0_sem[a] for a in a0])
+        
+        self.logger.info("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()) )
+        from gradient import Tracked
+        state._A0_data = Tracked(a0=a0, rerr=rerr, asem=asem, rcorr=rcorr)
         return state
 
     def set_mask(self, indices=[]):
