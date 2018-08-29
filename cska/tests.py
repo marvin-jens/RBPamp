@@ -394,7 +394,7 @@ class TestGradientMethods(unittest.TestCase):
             # pp.show()
             # pp.close()
 
-        res = G.optimize(subopt_params, maxiter=20, debug=True, tune=True, callback=callback)
+        res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
         # res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
         print res.last_state.params
 
