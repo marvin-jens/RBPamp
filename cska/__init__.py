@@ -84,17 +84,19 @@ def main():
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature",dest="temp",default=22.,type=float,help="temperature of the experiment in degrees Celsius (default=22.0)")
-    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
     parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
     parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
+    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
 
     # RNA folding
-    parser.add_option("","--fold",dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
-    parser.add_option("","--openen-discretize",dest="openen_discretize",default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
-    parser.add_option("","--parallel",dest="parallel",default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
+    parser.add_option("","--fold", dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
+    parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
+    parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
+    parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
+    parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
     # RBNS metrics
     parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
@@ -290,6 +292,7 @@ def main():
             )
             
             rbns.add_reads(reads)
+
         # first, compute RBNS metrics
         metrics = [m.strip() for m in options.results.strip().split(',') if m.strip()]
         if metrics:
@@ -312,6 +315,11 @@ def main():
 
             # fold the reads
             for reads in rbns.reads:
+                if options.skip_folded:
+                    if reads.acc_storage.has_data(options.max_k):
+                        logger.info("skipping {} because accessibilities have already been computed and stored.".format(reads.name))
+                        continue
+
                 logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
                 parallel_fold(
                     reads.iter_reads(), 
@@ -327,23 +335,28 @@ def main():
                     n_parallel= options.parallel,
                 )
 
-        # prime the optimization from dependent-kmer analysis
+            sys.exit(0)
+
+        ## prime the optimization from dependent-kmer analysis or load PSAM
         from cska.pwm import PWMOptimizer, PSAM
-        print "pwm_init?", options.mdl_pwm_init
         if options.seed_analysis:
             logger.info("performing seed analysis")
             from cska.seed import SeedRefinement
             SR = SeedRefinement(rbns, km=options.seed_analysis, max_linear_k=options.max_k)
             k = SR.linear_k
+            seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
+            pwm = SR.psam_lin
 
         elif options.mdl_pwm_init:
             logger.info("resuming from PWM: '{0}'".format(options.mdl_pwm_init))
             pwm = PSAM.load(options.mdl_pwm_init)
             k = pwm.n
-            print pwm
         else:
             k = options.min_k
+            logger.error("need to either load a PSAM using --pwm-resume or build one using --seed-analysis")
+            sys.exit(1)
 
+        print pwm
         from cska.comparison import RefComparison
         if options.compare:
             compare = options.compare
@@ -351,100 +364,71 @@ def main():
             compare = rbp_name
         ref = RefComparison(compare, ref_file=options.ref_file)
 
-        # TODO: cleanup initial PWM handling
-        if options.grad_mdl:
-            if options.seed_analysis:
-                seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
-                pwm = SR.psam_lin
+        from cska.psamgrad import PSAMGradientDescent
+        PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl, Z_thresh=options.Z_thresh)
 
-            from cska.psamgrad import PSAMGradientDescent
-            PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl, Z_thresh=options.Z_thresh)
+        if options.acc_scan:
+            import matplotlib.pyplot as pp
+            for comp in rbns.comparisons:
+                ratio = comp.motif_accessibility_profiles(PGD.descent.params)
+                pp.plot(ratio, label=comp.pd_reads.name)
+            pp.legend()
+            pp.savefig('acc_footprint.pdf')
+            pp.close()
+            sys.exit(0)
+
+        if options.grad_mdl:
+            PGD.optimize()
             params = PGD.descent.params
             pwm = PSAM(params.psam_matrix, A0=params.A0)
 
-        # fit of thermodynamic model parameters (affinities)
-        if options.model:
-            from cska.optimize import ModelOptimization
-            opt = ModelOptimization(
-                k, 
-                rbns,
-                n_subsample=0, 
-                sub_replace=False, 
-                param_file=options.mdl_resume,
-                # kmer_opt_global=options.kmer_opt_global,
-            )
-            pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
+        # # # fit of thermodynamic model parameters (affinities)
+        # # if options.model:
+        # #     from cska.optimize import ModelOptimization
+        # #     opt = ModelOptimization(
+        # #         k, 
+        # #         rbns,
+        # #         n_subsample=0, 
+        # #         sub_replace=False, 
+        # #         param_file=options.mdl_resume,
+        # #         # kmer_opt_global=options.kmer_opt_global,
+        # #     )
+        # #     pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
             
 
-            from cska.report import OptReporting
-            opt.reporter = OptReporting(
-                opt, 
-                os.path.join(run_path, 'plots'), 
-                track=options.mdl_report_sensors.split(','), 
-                triggers=options.mdl_report_trigger.split(','),
-                ref = ref,
-            )
+        # #     from cska.report import OptReporting
+        # #     opt.reporter = OptReporting(
+        # #         opt, 
+        # #         os.path.join(run_path, 'plots'), 
+        # #         track=options.mdl_report_sensors.split(','), 
+        # #         triggers=options.mdl_report_trigger.split(','),
+        # #         ref = ref,
+        # #     )
 
-            seed_params = None
-            if options.seed_analysis:
-                seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
-                pwm_opt.pwm0 = SR.psam_lin
+        # #     seed_params = None
+        # #     if options.seed_analysis:
+        # #         seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
+        # #         pwm_opt.pwm0 = SR.psam_lin
 
-            if options.mdl_pwm_init:
-                seed_params = pwm.kmer_affinity_table(aff0=1e-5)
-                pwm_opt.pwm0 = pwm
+        # #     if options.mdl_pwm_init:
+        # #         seed_params = pwm.kmer_affinity_table(aff0=1e-5)
+        # #         pwm_opt.pwm0 = pwm
 
-            if options.meanfield:
-                betas = PGD.descent.params.betas
-                seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
-                pwm_opt.pwm0 = pwm
+        # #     if options.meanfield:
+        # #         betas = PGD.descent.params.betas
+        # #         seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
+        # #         pwm_opt.pwm0 = pwm
+        # #     try:
+        # #         pwm_opt.optimize(seed_params=seed_params)
+        # #     except KeyboardInterrupt:
+        # #         opt.logger.warning("Keyboard interrupt while in:")
+        # #         exc = traceback.format_exc()
+        # #         logger.error(exc)
                 
-                # from copy import copy
-                # from cska.report import p_bound_plot
-                # p_bound_plot(opt.current)
-                # import matplotlib.pyplot as pp
-                # pp.figure()
-                # # Zs = []N 
-                # global Zs
-                # for reads in rbns.reads:
-                #     im = reads.get_index_matrix(opt.k, _do_not_cache=True)
-                #     acc = reads.acc_storage.get_raw(opt.k, _do_not_cache=True).acc
-                #     Z1 = opt.mdl._spa_partition_function(im, acc, opt.mdl.parameters.affinities)
-                #     Zs.append(Z1)
-                #     # state = copy(opt.current)
-                #     # state.Z1 = Z1
+        # #     opt.reporter.close()
+        # #     pwm_opt.store_params()
 
-                #     lZ = np.log(Z1)
-                #     counts, bins = np.histogram(lZ, bins=1000)
-                #     bins = np.exp(bins)
-                #     # midpoint integration
-                #     aff = (bins[1:] + bins[:-1])/2.
-                #     if reads.rbp_conc == 0:
-                #         pp.loglog(aff, counts, label=reads.name, color='black')
-                #     else:
-                #         pp.loglog(aff, counts, label=reads.name)
-
-                # pp.legend(loc = 'upper left')
-                # pp.xlabel("total read affinity [1/nM]")
-                # pp.ylabel("count")
-                # pp.savefig("aff_dist_observed.pdf")
-                # pp.close()
-
-                #print "step scale"
-                #opt.step_scale(min_scale=.01, max_scale=100.)
-                
-
-            try:
-                pwm_opt.optimize(seed_params=seed_params)
-            except KeyboardInterrupt:
-                opt.logger.warning("Keyboard interrupt while in:")
-                exc = traceback.format_exc()
-                logger.error(exc)
-                
-            opt.reporter.close()
-            pwm_opt.store_params()
-
-            opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
+        # #     opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
         
 
         ###rbns.compare_k()

@@ -35,8 +35,10 @@ class PSAMGradientDescent(object):
         } [mdl_name]
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
         self.descent = cska.gradient.GradientDescent(model, params)
-        
-        
+        self.model = model
+        self.params = params
+    
+    def optimize(self):
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
@@ -70,9 +72,7 @@ class PSAMGradientDescent(object):
                 self.store_affinities(state)
                 self.store_residuals(state)
                 return True
-
         
-        self.t0 = time.time()
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
@@ -88,12 +88,13 @@ class PSAMGradientDescent(object):
             self.track_file.write("\t".join([str(o) for o in out]))
             self.track_file.write('\n')
 
-        self.descent.optimize(params, maxiter=1000, debug=True, callback=callback)
+        self.t0 = time.time()
+        self.descent.optimize(self.params, maxiter=1000, debug=True, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()
         
-        state = model.predict(self.descent.params)
+        state = self.model.predict(self.descent.params)
         # import matplotlib.pyplot as pp
         # pp.figure()
         # pp.loglog(self.R[0],state.R[0],'x')
@@ -106,6 +107,8 @@ class PSAMGradientDescent(object):
         make_plots(self.descent)
         self.store_affinities(state)
         self.store_residuals(state)
+
+        return state
 
     def store_affinities(self, state):
         with file(os.path.join(self.out_path, '{0}mer_affinities.tsv'.format(state.params.k)),'w') as f:

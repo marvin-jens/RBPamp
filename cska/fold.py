@@ -393,6 +393,11 @@ class OpenenStorage(CachedBase):
         
             self.cache_flush()
             
+    def has_data(self, k):
+        fname = self._make_filename(k)
+        print "CHECKING FOR", fname
+        return os.path.exists(fname)
+
     @cached
     def get_raw(self, k):
         return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
