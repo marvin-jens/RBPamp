@@ -62,6 +62,8 @@ class RBNSSample(CachedBase):
         print MI
 
 
+from cska.partfunc import PartFuncModel
+
 class RBNSComparison(CachedBase):
     def __init__(self, in_reads, pd_reads, ska_runner = None):
         
@@ -74,6 +76,44 @@ class RBNSComparison(CachedBase):
         
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
+    def motif_accessibility_profiles(self, params, mdl_class = PartFuncModel, **kwargs):
+        import cska.cyska as cyska
+        
+        def get_motif_scores(reads):
+            seqm = reads.get_padded_seqm(params.k)
+            w = reads.L - params.k + 1 + reads.l5 + reads.l3
+            acc1 = np.ones( (reads.N, w), dtype=np.float32)
+        
+            Z1 = cyska.PSAM_partition_function(
+                seqm, 
+                acc1,
+                np.array(params.psam_matrix, dtype=np.float32),# * params.A0,
+                openen_ofs=0
+            )
+            
+            return Z1 # relative affinities of all motif instances everywhere
+
+        instor = self.in_reads.acc_storage
+        pdstor = self.pd_reads.acc_storage
+
+        # print "computing per-position weights of hits in input sample"
+        inZ = get_motif_scores(self.in_reads)
+        # print "getting footprint..."
+        single = instor.get_raw(1)
+        infp = cyska.acc_footprints(inZ, single.acc, params.k, 1, single.ofs - params.k + 1)
+        # print infp
+        # print "computing per-position weights of hits in pd sample"
+        pdZ = get_motif_scores(self.pd_reads)
+
+        # print "getting footprint..."
+        single = pdstor.get_raw(1)
+        pdfp = cyska.acc_footprints(pdZ, single.acc, params.k, 1, single.ofs - params.k + 1)
+        # print pdfp
+
+        ratios = pdfp / infp * self.in_reads.N / float(self.pd_reads.N)
+        return ratios
+
+
     @property
     def cache_key(self):
         return "{self.name}.{self.pd_reads.cache_key}.{self.in_reads.cache_key}".format(self=self)
