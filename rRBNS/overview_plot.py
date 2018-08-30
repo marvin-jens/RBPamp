@@ -126,6 +126,13 @@ def corr_scatter(full, nostruct):
 
     order = ['20+','5-20','2-5','1-2']
     lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
+
+    df['delta'] = df['corr_full'] - df['corr_nostruct']
+    # df.set_index(['rbp','delta', 'corr_full','corr_nostruct'])
+    # what are the proteins with highest difference?
+    print df.sort_values('delta', ascending=False)[['rbp_full', 'domain_full', 'motif_linearity_full', 'delta', 'corr_full','corr_nostruct']]
+
+
     plt.xlabel('max. Pearson-R nostruct model')
     plt.xlim(0.4,1)
     plt.ylim(0.4,1)
@@ -140,9 +147,9 @@ corr_scatter(df, df_nostruct)
 by_R_value_plot(combined)
 by_domain_plot(combined)
 
-print "worst proteins using nostruct"
-df = df_nostruct.sort_values('corr')
-print df[:10]
+# print "worst proteins using nostruct"
+# df = df_nostruct.sort_values('corr')
+# print df[:10]
 # rbps = ['RBFOX3','RBFOX2','ELAVL4', 'HNRNPA0','GST','SRSF11','SRSF5','SRSF4','SRSF2','GST','PRR3','ESRP1', 'MSI1']
 # rows = df.loc[df['rbp'].isin(rbps)]
 # tolabel = rows[['top_R','corr','rbp']]
