@@ -77,7 +77,7 @@ class RBNSComparison(CachedBase):
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
     @pickled
-    def motif_accessibility_profile(self, params, mdl_class = PartFuncModel, pad=0, **kwargs):
+    def motif_accessibility_profiles(self, params, mdl_class = PartFuncModel, pad=0, **kwargs):
         import cska.cyska as cyska
         
         def get_motif_scores(reads):
@@ -99,19 +99,27 @@ class RBNSComparison(CachedBase):
 
         # print "computing per-position weights of hits in input sample"
         inZ = get_motif_scores(self.in_reads)
-        # print "getting footprint..."
-        single = instor.get_raw(1)
-        infp = cyska.acc_footprints(inZ, single.acc, params.k, 1, single.ofs - params.k + 1, pad=pad)
-        print "input", infp
-        # print "computing per-position weights of hits in pd sample"
         pdZ = get_motif_scores(self.pd_reads)
 
-        # print "getting footprint..."
-        single = pdstor.get_raw(1)
-        pdfp = cyska.acc_footprints(pdZ, single.acc, params.k, 1, single.ofs - params.k + 1, pad=pad)
-        print "PD", pdfp
+        ratios = []
+        for k in range(1, params.k+2):
+            inacc = instor.get_raw(k)
+            infp = cyska.acc_footprints(inZ, inacc.acc, params.k, k, inacc.ofs - params.k + 1, pad=pad)
+            print "scanning {}nt accessibility".format(k)
+            # print "computing per-position weights of hits in pd sample"
+            # print "getting footprint..."
+            pdacc = pdstor.get_raw(k)
+            pdfp = cyska.acc_footprints(pdZ, pdacc.acc, params.k, k, pdacc.ofs - params.k + 1, pad=pad)
+            # print "PD", pdfp
 
-        ratios = pdfp / infp * self.in_reads.N / float(self.pd_reads.N)
+            ratios.append(pdfp / infp * self.in_reads.N / float(self.pd_reads.N))
+            print ratios
+
+            pdacc = None
+            inacc = None
+            instor.cache_flush()
+            pdstor.cache_flush()
+
         return ratios
 
 

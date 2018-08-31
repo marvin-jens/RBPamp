@@ -368,22 +368,46 @@ def main():
         PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl, Z_thresh=options.Z_thresh)
 
         if options.acc_scan:
-            import matplotlib.pyplot as pp
+            # TODO: re-factor this entire analysis somewhere else
+            ratios = []
+            names = []
             for comp in rbns.comparisons:
-                pad = 10
-                ratio = comp.motif_accessibility_profile(PGD.descent.params, pad=pad)
-                print ratio
-                x = np.arange(-pad, pwm.n + pad)
-                pp.plot(x, ratio, label=comp.pd_reads.name)
-                pp.axvline( - .5)
-                pp.axvline(pwm.n - .5)
-                cons = pwm.consensus
+                pad = 5
+                ratios.append( comp.motif_accessibility_profiles(PGD.descent.params, pad=pad) )
+                names.append(comp.pd_reads.name)
 
-                pp.xticks(x, [str(i) for i in range(-pad,0)] + list(cons) + [str(i) for i in range(1, pad+1)])
+            ratios = np.swapaxes(np.array(ratios), 0, 1)
+            print ratios.shape
+            import matplotlib.pyplot as pp
 
-            pp.legend()
-            pp.savefig('acc_footprint.pdf')
-            pp.close()
+            maxk = 0
+            maxr = 0
+            maxx = -1
+            for i, R in enumerate(ratios):
+                k = i + 1
+                pp.figure()
+                pp.title("{}nt accessibility".format(k))
+                for j, r in enumerate(R):
+                    print "k=", i, len(r), r
+                    x = np.arange(-pad, pwm.n + pad )
+                    pp.plot(x, r[:len(x)], label=names[j])
+                    pp.axvline( - .5)
+                    pp.axvline(pwm.n - .5)
+                    cons = pwm.consensus
+
+                    pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+                    if r.max() > maxr:
+                        maxr = r.max()
+                        maxk = k
+                        maxx = r.argmax() - pad
+
+                pp.legend()
+                pp.xlabel("pos. relative to motif")
+                pp.ylabel("accessibility enrichment (affinity weighted) [PD/IN]")
+                pp.savefig(os.path.join(run_path, 'acc_footprint_{rbp_name}_{k}mer.pdf'.format(**locals())))
+                pp.close()
+
+            print "most enriched accessibility is {}mer with offset {} rel to motif. enrichment={}".format(maxk, maxx, maxr)
             sys.exit(0)
 
         if options.grad_mdl:

@@ -1599,7 +1599,7 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, UINT6
         # for x in range(pad, L-pad):
         #     for d in range(-pad, w+pad):
         #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
-        for x in range(L):
+        for x in range(pad, L-pad):
             Z += Z1[j, x]
             for d in range(-pad, w + pad):
                 # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
