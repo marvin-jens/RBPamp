@@ -407,7 +407,7 @@ def main():
                 pp.savefig(os.path.join(run_path, 'acc_footprint_{rbp_name}_{k}mer.pdf'.format(**locals())))
                 pp.close()
 
-            print "most enriched accessibility is {}mer with offset {} rel to motif. enrichment={}".format(maxk, maxx, maxr)
+            logger.info("most enriched accessibility is {}mer with offset {} rel to motif. enrichment={}".format(maxk, maxx, maxr) )
             sys.exit(0)
 
         if options.grad_mdl:
