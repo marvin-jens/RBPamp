@@ -1583,25 +1583,27 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
 
 
-def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, UINT64_t w, UINT64_t k, UINT64_t ofs=0, UINT64_t pad=5):
+def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, UINT64_t ofs=0, int pad=5):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
     
-    # cdef FLOAT32_t [:] footprint = np.zeros(w + 2 * pad, dtype=np.float32)
-    cdef FLOAT32_t [:] footprint = np.zeros(w, dtype=np.float32)
+    cdef FLOAT32_t [:] footprint = np.zeros(w + 2 * pad, dtype=np.float32)
+    # cdef FLOAT32_t [:] footprint = np.zeros(w, dtype=np.float32)
 
-    cdef UINT64_t j,x,d,a
+    cdef UINT64_t j,x
+    cdef int d
     cdef FLOAT32_t Z = 0
     # for j in prange(N, schedule='static')
-    with nogil:
-        for j in range(N):
-            # for x in range(pad, L-pad):
-            #     for d in range(-pad, w+pad):
-            #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
-            for x in range(L):
-                Z += Z1[j, x]
-                for d in range(w):
-                    footprint[d] += Z1[j, x] * acc[j, ofs + x + d]
+    # with nogil:
+    for j in range(N):
+        # for x in range(pad, L-pad):
+        #     for d in range(-pad, w+pad):
+        #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
+        for x in range(L):
+            Z += Z1[j, x]
+            for d in range(-pad, w + pad):
+                # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
+                footprint[d + pad] += Z1[j, x] * acc[j, ofs + x + d]
 
 
     return footprint.base / Z

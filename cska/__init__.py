@@ -370,8 +370,17 @@ def main():
         if options.acc_scan:
             import matplotlib.pyplot as pp
             for comp in rbns.comparisons:
-                ratio = comp.motif_accessibility_profiles(PGD.descent.params)
-                pp.plot(ratio, label=comp.pd_reads.name)
+                pad = 10
+                ratio = comp.motif_accessibility_profile(PGD.descent.params, pad=pad)
+                print ratio
+                x = np.arange(-pad, pwm.n + pad)
+                pp.plot(x, ratio, label=comp.pd_reads.name)
+                pp.axvline( - .5)
+                pp.axvline(pwm.n - .5)
+                cons = pwm.consensus
+
+                pp.xticks(x, [str(i) for i in range(-pad,0)] + list(cons) + [str(i) for i in range(1, pad+1)])
+
             pp.legend()
             pp.savefig('acc_footprint.pdf')
             pp.close()

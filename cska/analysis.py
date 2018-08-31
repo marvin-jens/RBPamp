@@ -76,7 +76,8 @@ class RBNSComparison(CachedBase):
         
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
-    def motif_accessibility_profiles(self, params, mdl_class = PartFuncModel, **kwargs):
+    @pickled
+    def motif_accessibility_profile(self, params, mdl_class = PartFuncModel, pad=0, **kwargs):
         import cska.cyska as cyska
         
         def get_motif_scores(reads):
@@ -100,15 +101,15 @@ class RBNSComparison(CachedBase):
         inZ = get_motif_scores(self.in_reads)
         # print "getting footprint..."
         single = instor.get_raw(1)
-        infp = cyska.acc_footprints(inZ, single.acc, params.k, 1, single.ofs - params.k + 1)
-        # print infp
+        infp = cyska.acc_footprints(inZ, single.acc, params.k, 1, single.ofs - params.k + 1, pad=pad)
+        print "input", infp
         # print "computing per-position weights of hits in pd sample"
         pdZ = get_motif_scores(self.pd_reads)
 
         # print "getting footprint..."
         single = pdstor.get_raw(1)
-        pdfp = cyska.acc_footprints(pdZ, single.acc, params.k, 1, single.ofs - params.k + 1)
-        # print pdfp
+        pdfp = cyska.acc_footprints(pdZ, single.acc, params.k, 1, single.ofs - params.k + 1, pad=pad)
+        print "PD", pdfp
 
         ratios = pdfp / infp * self.in_reads.N / float(self.pd_reads.N)
         return ratios
