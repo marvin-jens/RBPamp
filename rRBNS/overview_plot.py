@@ -124,8 +124,10 @@ def by_domain_plot(df):
 def corr_scatter(full, nostruct):
     df = full.join(nostruct, lsuffix="_full", rsuffix='_nostruct')
 
-    order = ['20+','5-20','2-5','1-2']
-    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
+    # order = ['20+','5-20','2-5','1-2']
+    # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
+    order = ['1+', '0.7-1', '0.7-', "NA"]
+    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='motif_linearity_full', hue_order=order[::-1], legend=True,palette='viridis')
 
     df['delta'] = df['corr_full'] - df['corr_nostruct']
     # df.set_index(['rbp','delta', 'corr_full','corr_nostruct'])
@@ -153,10 +155,17 @@ by_domain_plot(combined)
 # rbps = ['RBFOX3','RBFOX2','ELAVL4', 'HNRNPA0','GST','SRSF11','SRSF5','SRSF4','SRSF2','GST','PRR3','ESRP1', 'MSI1']
 # rows = df.loc[df['rbp'].isin(rbps)]
 # tolabel = rows[['top_R','corr','rbp']]
-# corr = df['corr']
-# qrange = np.percentile(corr,[25,75])
-# corrmean = np.mean(corr)
-# print "final best R-value correlation quartile range and mean", qrange, corrmean
+
+def quality(df):
+    corr = df['corr']
+    qrange = np.percentile(corr,[25,75])
+    corrmean = np.mean(corr)
+    print "final best R-value correlation quartile range and mean", qrange, corrmean
+
+print "no structure"
+quality(df_nostruct)
+print "full model"
+quality(df)
 # lmp = sns.lmplot(x='top_R',y='corr',data=df, fit_reg=False, hue='motif_linearity', hue_order=['1+','0.7-1','0.7-','NA'],legend=True,palette='viridis')
 # # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', legend=True)
 # lmp.set(xscale="log")
