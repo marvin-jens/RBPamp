@@ -55,7 +55,7 @@ class Proxy(object):
 
 
 class ModelParametrization(object):
-    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32):
+    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32, acc_ofs=0, acc_k=None):
         self.k = k
         self.n_samples = n_samples
         self.n = 4*k + 1 + n_samples
@@ -66,6 +66,13 @@ class ModelParametrization(object):
         self.betas_start = self.psam_end
         self.betas_end = self.n
         self.dtype = dtype
+        
+        # accessibility might be selected in a shifted region of size != k
+        self.acc_ofs = acc_ofs
+        if acc_k is None: 
+            self.acc_k = self.k
+        else:
+            self.acc_k = self.k 
 
         self.data = np.zeros(self.n, dtype=np.float32)
 
@@ -106,7 +113,7 @@ class ModelParametrization(object):
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
-        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data)
+        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_ofs=self.acc_ofs)
         if not np.allclose(new.data, self.data):
             d = np.fabs(new.data - self.data)
             i = d.argmax()
@@ -178,6 +185,8 @@ class ModelParametrization(object):
         buf.append("BACKGROUND")
         for i, beta in enumerate(self.betas):
             buf.append('beta{0}\t{1:.3e}'.format(i, beta))
+        
+        buf.append("acc_k={self.acc_k} acc_ofs={self.acc_ofs}".format(self=self))
         return '\n'.join(buf)
 
     def __add__(self, x):

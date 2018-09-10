@@ -345,6 +345,44 @@ class TestGradientMethods(unittest.TestCase):
         return
 
 
+    def test_acc_shift(self):
+        params = self.default_params.copy()
+        params.acc_k = 7
+        params.acc_ofs = -1
+
+        model0, state0 = self.setup_model(params, rbp_conc=[1.,5.,25.])
+        params = params.copy()
+
+        params.acc_k = 7
+        params.acc_ofs = -1
+        model1, state1 = self.setup_model(params, rbp_conc=[1.,5.,25.])
+        model0.R0 = state1.R
+        print "performing gradient descent optimization"
+        G = GradientDescent(model0, params)
+        from cska.report import GradientDescentReport
+        rep = GradientDescentReport(G, path='.')
+        def callback(descent):
+            state = descent.last_state
+            rep.plot_report()
+            rep.plot_param_hist()
+            rep.plot_line_search()
+            rep.plot_A0_fit()
+
+            # descent.print_state(state)
+            # import matplotlib.pylab as pp
+            # pp.figure()
+            # print state0.R.shape, state.R.shape
+            # pp.loglog(state0.R[0], state.R[0], 'x', label="A0={0:.2f} beta={1:.2e}".format(state.params.A0, state.params.betas[0]))
+            # pp.legend(loc='lower right')
+            # pp.savefig('dA0_{}.pdf'.format(descent.t))
+            # pp.show()
+            # pp.close()
+
+        res = G.optimize(params, maxiter=100, debug=True, tune=True, callback=callback)
+        # res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
+        print res.last_state.params
+
+
     def test_grad_subopt(self):
         from cska import vector_stats
         model, state0 = self.get_default()

@@ -27,7 +27,7 @@ class PartFuncModelState(object):
             self.mdl._seqm, 
             self.mdl._acc, 
             np.array(params.psam_matrix, dtype=np.float32),# * params.A0,
-            openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1
+            openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1 + self.mdl.acc_ofs
         )
         self.Z1_read, self.Z1_read_max = cyska.clipped_sum_and_max(self.Z1, clip=1E6)
         # vector_stats(self.Z1_read)
@@ -201,6 +201,8 @@ class PartFuncModel(object):
         self.reads = reads
         self.params = params0
         self.k_mdl = self.params.k
+        self.acc_k = self.params.acc_k
+        self.acc_ofs = self.params.acc_ofs
         self.Z_thresh = Z_thresh
 
         self.n_samples, self.nA = R0.shape
@@ -219,7 +221,7 @@ class PartFuncModel(object):
         self.im = self.reads.get_index_matrix(self.k)
         self.seqm = self.reads.get_padded_seqm(self.k_mdl) #2bit coded read sequences, including flanking adapter overlap
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
-        self.openen = self.reads.acc_storage.get_raw(self.k_mdl) # corresponding accessibilities
+        self.openen = self.reads.acc_storage.get_raw(self.acc_k) # corresponding accessibilities
         self.acc = self.openen.acc
 
         # in case a mask is set, this can be a subset
