@@ -36,6 +36,11 @@ class Alignment(object):
             else:
                 ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
             # print seq
+            if end_weight:
+                func = np.mean
+            else:
+                func = np.min
+
             for ofs in ofs_range:
                 m_start = max(0, ofs)
                 m_end = min(n,ofs+l)
@@ -43,19 +48,19 @@ class Alignment(object):
                 if multiply:
                     start_avg = 1.
                     if m_start:
-                        start_avg = self.matrix[:m_start].mean(axis=1).prod()
+                        start_avg = func(self.matrix[:m_start], axis=1).prod()
                     
                     end_avg = 1.
                     if m_end < n:
-                        end_avg = self.matrix[m_end:].mean(axis=1).prod()
+                        end_avg = func(self.matrix[m_end:], axis=1).prod()
                 else:
                     start_avg = 0
                     if m_start:
-                        start_avg = self.matrix[:m_start].mean(axis=1).sum()
+                        start_avg = func(self.matrix[:m_start], axis=1).sum()
 
                     end_avg = 1.
                     if m_end < n:
-                        end_avg = self.matrix[m_end:].mean(axis=1).sum()
+                        end_avg = func(self.matrix[m_end:], axis=1).sum()
 
 
                 n_cols = m_end - m_start
@@ -63,10 +68,11 @@ class Alignment(object):
                 s_start = max(-ofs, 0)
                 s_end = s_start + n_cols
                 col_scores = []
-                if end_weight:
-                    score = start_avg*end_avg if multiply else start_avg + end_avg
-                else:
-                    score = 1 if multiply else 0
+                # if end_weight:
+                #     score = start_avg*end_avg if multiply else start_avg + end_avg
+                # else:
+                #     score = 1 if multiply else 0
+                score = start_avg*end_avg if multiply else start_avg + end_avg
 
                 for i in range(n_cols):
                     if bits[i+s_start] > 3:
