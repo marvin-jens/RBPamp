@@ -1582,17 +1582,17 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
     return _profile.reshape( (4**k_flank, 2*l) ), _mask.reshape( (N, l) )
 
 
-
-def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, UINT64_t ofs=0, int pad=5):
+# @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
     
     cdef FLOAT32_t [:] footprint = np.zeros(w + 2 * pad, dtype=np.float32)
     # cdef FLOAT32_t [:] footprint = np.zeros(w, dtype=np.float32)
 
-    cdef UINT64_t j,x
-    cdef int d
-    cdef FLOAT32_t Z = 0
+    cdef int j,x
+    cdef int d,x0,x1,x2,x3
+    cdef FLOAT32_t Z = 0, f0,f1,f2,f3
     # for j in prange(N, schedule='static')
     # with nogil:
     for j in range(N):
@@ -1603,6 +1603,18 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, UINT6
             Z += Z1[j, x]
             for d in range(-pad, w + pad):
                 # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
+                # x0 = d+pad
+                # try:
+                #     x1 = ofs + x + d
+                # except OverflowError:
+                #     print ofs, x, d
+                #     raise
+                # assert x1 > 0
+                # f0 = acc[j, x1]
+                # f1 = Z1[j, x] * acc[j, ofs + x + d]
+                # f2 = footprint[x0]
+                # f3 = f2 + f1
+                # footprint[x0] = f3
                 footprint[d + pad] += Z1[j, x] * acc[j, ofs + x + d]
 
 

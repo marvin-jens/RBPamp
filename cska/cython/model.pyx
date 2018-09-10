@@ -178,6 +178,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     cdef UINT64_t k = psam.base.shape[0]
     cdef UINT64_t l = L - k + 1
     # print "part_func L-k+1", l, k
+    assert acc_matrix.base.shape[1] - openen_ofs >= l 
+    assert openen_ofs >= 0
     # result will be stored here (Z = 'Zustandssumme' sum of states)
     cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
     
@@ -187,8 +189,6 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     # cdef UINT32_t index=0
     # cdef FLOAT32_t w=0
     # cdef FLOAT64_t Z1=0 # Single protein partition function
-    cdef int thread_num = 0
-    cdef int n_threads = 8
 
     if n_max:
         N = min(N, n_max)
