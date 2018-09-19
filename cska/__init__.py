@@ -83,7 +83,7 @@ def main():
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
-    parser.add_option("-T","--temperature",dest="temp",default=22.,type=float,help="temperature of the experiment in degrees Celsius (default=22.0)")
+    parser.add_option("-T","--temperature",dest="temp",default=4.,type=float,help="temperature of the experiment in degrees Celsius (default=4.0)")
     parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
@@ -95,6 +95,7 @@ def main():
     parser.add_option("","--fold", dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
     parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
     parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
+    parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
     parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
@@ -267,7 +268,7 @@ def main():
         if options.no_structure:
             fold_path = "NOSTRUCTURE"
 
-        storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear', dummy=options.no_structure)
+        storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear', dummy=options.no_structure, acc_scale=options.acc_scale)
         if int(options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(options.openen_discretize))
             storage_kw.update(dict(discretize=True, disc_dtype=dtype))
@@ -347,6 +348,10 @@ def main():
             seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
             pwm = SR.psam_lin
 
+            # clean up memory usage
+            for reads in rbns.reads:
+                reads.cache_flush()
+
         elif options.mdl_pwm_init:
             logger.info("resuming from PWM: '{0}'".format(options.mdl_pwm_init))
             pwm = PSAM.load(options.mdl_pwm_init)
@@ -365,50 +370,176 @@ def main():
         ref = RefComparison(compare, ref_file=options.ref_file)
 
         from cska.psamgrad import PSAMGradientDescent
+
+        # TODO: first, gather parameters. Then (after acc_scan) build the PSAMGradientDescent (so acc_k, acc_shift can be set)
         PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl, Z_thresh=options.Z_thresh)
 
         if options.acc_scan:
             # TODO: re-factor this entire analysis somewhere else
             ratios = []
             names = []
-            for comp in rbns.comparisons:
-                pad = 5
-                ratios.append( comp.motif_accessibility_profiles(PGD.descent.params, pad=pad) )
-                names.append(comp.pd_reads.name)
+            all_data = {}
+            all_res = []
+            from cska.punpcal import PunpairedCalibrate
+            cal = PunpairedCalibrate(rbns, PGD.descent.params, k_core_range=[7, 7])
 
-            ratios = np.swapaxes(np.array(ratios), 0, 1)
-            print ratios.shape
+            pad = 5
+
+            # for comp in rbns.comparisons:
+            #     acc_k, acc_shift, err, res, raw = comp.acc_congruence_analysis(PGD.descent.params, pad=pad, kmin=7, kmax=7)
+            #     # ratios.append( comp.motif_accessibility_profiles(PGD.descent.params, pad=pad, kmax=1) )
+            #     # names.append(comp.pd_reads.name)
+            #     logger.info("most enriched accessibility is {}mer with offset {} rel to motif. err={}".format(acc_k, acc_shift, err) )
+            #     all_data.update(raw)
+            #     all_res.extend(res)
+
+            # print "top 10 results"
+            # all_res = sorted(all_res)
+            # for err, k, shift, conc in all_res[:10]:
+            #     print conc, k, shift, "->", err
+
+            # err, acc_k, acc_shift, conc = all_res[0]
+            # in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
+            # print in_noacc
+            # print in_acc
+            # print pd_noacc
+
             import matplotlib.pyplot as pp
+            x = np.arange(-pad, pwm.n + pad )
+            pp.figure()
+            # pp.plot(x, in_noacc, 'k-', label = 'input no acc')
+            
+            # acc_k = 10
+            # acc_shift = 0
+            acc_k = 7 # RBFOX
+            acc_shift = 1
 
-            maxk = 0
-            maxr = 0
-            maxx = -1
-            for i, R in enumerate(ratios):
-                k = i + 1
-                pp.figure()
-                pp.title("{}nt accessibility".format(k))
-                for j, r in enumerate(R):
-                    print "k=", i, len(r), r
-                    x = np.arange(-pad, pwm.n + pad )
-                    pp.plot(x, r[:len(x)], label=names[j])
-                    pp.axvline( - .5)
-                    pp.axvline(pwm.n - .5)
-                    cons = pwm.consensus
+            rbp_conc = rbns.rbp_conc #[5., 20., 80.] # RBFOX3
+            #rbp_conc = [121.,365.,1100.] # RBFOX2
 
-                    pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
-                    if r.max() > maxr:
-                        maxr = r.max()
-                        maxk = k
-                        maxx = r.argmax() - pad
+            # in_acc =  all_data[ (rbp_conc[0], acc_k, acc_shift)][1]
+            # pp.plot(x, in_acc, 'r:', label = 'input acc_k={} acc_shift={}'.format(acc_k, acc_shift))
+            
+            # in_acc2 = all_data[ (rbp_conc[0], 5, 2)][1]
 
-                pp.legend()
-                pp.xlabel("pos. relative to motif")
-                pp.ylabel("accessibility enrichment (affinity weighted) [PD/IN]")
-                pp.savefig(os.path.join(run_path, 'acc_footprint_{rbp_name}_{k}mer.pdf'.format(**locals())))
-                pp.close()
+            # experiment with non-specific binding
+            params_ = PGD.descent.params.copy()
+            params_.acc_k = acc_k
+            params_.acc_shift = acc_shift
+            # params_.non_specific = 0.002
+            
+            # RBFOX3
+            # A0 = .8
+            # params_.acc_scale = .12
+            
+            # RBFOX2
+            # A0 = 0.163120955229
+            A0 = 6.8670e-01 #0.51511579752
+            params_.acc_scale = .5 #.25
 
-            logger.info("most enriched accessibility is {}mer with offset {} rel to motif. enrichment={}".format(maxk, maxx, maxr) )
+            A0 = .5 #0.51511579752
+            params_.acc_scale = .1 #.25
+
+
+            Z1 = rbns.input_reads.PSAM_partition_function(params_) #+ 5e-4
+            Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6) # aggregate to read-level
+            
+            from cska.sc import SelfConsistency
+            sc = SelfConsistency(Z1, rbns.input_reads.rna_conc, bins=1000)
+            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in rbns.rbp_conc], dtype=np.float32)
+            print "rbp_free", rbp_free
+            psi = cyska.p_bound(Z1_read, rbp_free*A0)
+
+
+            # in_acc2 = rbns.input_reads.weighted_accessibility_profile(Z1, params_.k, pad=pad)
+            print "Z1 with scaling", Z1.min(), Z1.mean(), Z1.max()
+            # pp.plot(x, in_acc2, 'k:', label = 'input with scaling')
+
+            # no non-specific for motif analysis!
+            # params_.non_specific = 0.0 #002
+            # Z1 = rbns.input_reads.PSAM_partition_function(params_)
+
+            for conc, color, p, beta in zip(rbp_conc, ['b','g',''], psi, [1e-6, 1e-6, 1e-6] ):
+                w = p[:,np.newaxis]*Z1 #+ 5e-5# + beta
+                in_acc2 = rbns.input_reads.weighted_accessibility_profile(w, params_.k, pad=pad)
+                pp.plot(x, in_acc2, color+':', label = 'input w/scake {}nM'.format(conc))
+
+            # for conc, color in zip(rbp_conc, ['b','g','']):
+            #     in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
+            #     pp.plot(x, pd_noacc, color, label = 'pulldown no-acc {}nM'.format(conc))
+
+            #     print np.log2(pd_noacc / in_noacc)
+
+            cons = pwm.consensus
+            pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            pp.axvline( - .5)
+            pp.axvline(pwm.n - .5)
+
+            # pp.legend(loc='upper left')
+            pp.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left", mode="expand", borderaxespad=0, ncol=2)
+            pp.ylabel(r"$P_{unpaired}$ (motif-weighted)")
+            pp.xlabel('pos. rel to motif (consensus) [nt]')
+            pp.tight_layout()
+            pp.savefig('opt.pdf')
+            pp.close()
+
+            # pp.figure()
+            # maxl = []
+            # meanl = []
+            # for conc, color in zip(rbp_conc, ['b','g','']):
+            #     in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
+            #     lratio = np.log2(pd_noacc / in_noacc)
+            #     pp.plot(x, lratio, color, label = 'log2 {}nM'.format(conc))
+            #     maxl.append(lratio.max())
+            #     meanl.append(lratio.mean())
+            
+            # pp.plot(x, .3*np.log2(in_acc / in_noacc) + .02, 'r', label= 'log2 9-mer')
+            # pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            # pp.axvline( - .5)
+            # pp.axvline(pwm.n - .5)
+
+            # pp.savefig('l2.pdf')
+            # pp.close()
+            
+            # pp.figure()
+            # plot = pp.semilogx
+            # c = np.array([5.0, 20.0, 80.0])
+            # plot(c, maxl, 'o', label='max' )
+            # plot(c, meanl, '^', label='mean')
+            # pp.xlabel('concentration [nM]')
+            # pp.ylabel('log2 ratio to input')
+            # pp.savefig('ratio.pdf')
             sys.exit(0)
+            # ratios = np.swapaxes(np.array(ratios), 0, 1)
+            # print ratios.shape
+
+            # maxk = 0
+            # maxr = 0
+            # maxx = -1
+            # for i, R in enumerate(ratios):
+            #     k = i + 1
+            #     pp.figure()
+            #     pp.title("{}nt accessibility".format(k))
+            #     for j, r in enumerate(R):
+            #         print "k=", i, len(r), r
+            #         pp.plot(x, r[:len(x)], label=names[j])
+            #         pp.axvline( - .5)
+            #         pp.axvline(pwm.n - .5)
+            #         cons = pwm.consensus
+
+            #         pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            #         if r.max() > maxr:
+            #             maxr = r.max()
+            #             maxk = k
+            #             maxx = r.argmax() - pad
+
+            #     pp.legend()
+            #     pp.xlabel("pos. relative to motif")
+            #     pp.ylabel("accessibility enrichment (affinity weighted) [PD/IN]")
+            #     pp.savefig(os.path.join(run_path, 'acc_footprint_{rbp_name}_{k}mer.pdf'.format(**locals())))
+            #     pp.close()
+
+            # sys.exit(0)
 
         if options.grad_mdl:
             PGD.optimize()
