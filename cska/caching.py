@@ -9,6 +9,9 @@ import numpy as np
 import cPickle as pickle
 import hashlib
 
+from collections import defaultdict
+cached_objects = defaultdict(dict)
+
 def key_to_hash(key):
     return hashlib.md5(key).hexdigest()
 
@@ -36,7 +39,13 @@ def args_to_key(argc, kwargs, self, func_name):
     
     return key, kw
 
-    
+def get_cache_sizes():
+    cache_size = []
+    for k, d in cached_objects.items():
+        cache_size.append( (np.array(d.values()).sum(), k) )
+
+    return sorted(cache_size)[::-1]
+
     
 class CachedBase(object):
     """
@@ -65,6 +74,31 @@ class CachedBase(object):
 
         #self._do_not_cache = True # DEBUG!!
 
+    def __dump_cache_inventory(self):
+        import sys
+        print "Cache inventory of", self.cache_key
+        for cache_name in sorted(self._cache_names):
+            cache = getattr(self, cache_name)
+            print "cache '{} has {} entries:".format(cache_name, len(cache))
+            for k in sorted(cache.keys()):
+                v = cache[k]
+                print "  '{}' : {:.2f}kb".format(k, sys.getsizeof(v) / 1024.)
+
+    def _store(self, cache_name, key, value):
+        cache = getattr(self, cache_name)        
+        cache[key] = value
+
+        global cached_objects
+        import sys
+        cached_objects["{}.{}".format(self.cache_key, cache_name)][key] = sys.getsizeof(value)
+
+    def _clear(self, cache_name):
+        setattr(self, cache_name, dict() )
+
+        global cached_objects
+        import sys
+        del cached_objects["{}.{}".format(self.cache_key, cache_name)]
+
     @property
     def cache_key(self):
         """
@@ -81,7 +115,8 @@ class CachedBase(object):
             setattr(self, cache_name, dict() )
 
         key, kw = args_to_key(argc, kwargs, self, func_name)
-        getattr(self, cache_name)[key] = value
+        # getattr(self, cache_name)[key] = value
+        self._store(cache_name, key, value)
         if self.debug_caching:
             self.cache_logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, key, value) )
     
@@ -90,7 +125,7 @@ class CachedBase(object):
             cache_names = self._cache_names
         self.cache_logger.debug("{0} flushing caches '{1}'".format(self.cache_key, cache_names) )
         for cache_name in cache_names:
-            setattr(self, cache_name, dict() )
+            self._clear(cache_name)
 
     def cache_debug(self):
         for name in self._cache_names:
@@ -98,6 +133,9 @@ class CachedBase(object):
             for k,v in sorted(getattr(self, name).items()):
                 print "  '{0}' : '{1}'".format(k,v)
     
+    def __del__(self):
+        self.cache_flush()
+
 def cached(func):
     """
     Decorator for class methods that keeps the results of the first call and 
@@ -116,9 +154,10 @@ def cached(func):
 
         #if self.debug_caching:
             #self.cache_logger.debug("cached function {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
-                
-        cache = getattr(self, cache_name)
+
         key, kw = args_to_key(argc, kwargs, self, func.__name__)
+        
+        cache = getattr(self, cache_name)
         if not key in cache:
             if self.debug_caching:
                 self.cache_logger.debug("{0} cache-miss '{1}'".format(cache_name, key) )
@@ -134,7 +173,7 @@ def cached(func):
                 #if self.debug_caching:
                     #self.cache_logger.debug("! calling {0} of {1} called with argc={2} kw={3}".format(func.__name__, self, argc, kwargs) )
 
-                cache[key] = func(self, *argc, **kw)
+                self._store(cache_name, key, func(self, *argc, **kw))
         else:
             if self.debug_caching:
                 self.cache_logger.debug("{0} cache-hit '{1}'".format(cache_name, key) )
@@ -191,3 +230,33 @@ def pickled(func):
     
     pickled_func.__name__ = func.__name__
     return pickled_func
+
+if __name__ == "__main__":
+
+    class A(CachedBase):
+        @cached
+        def get_data(self, N):
+            return np.zeros(N)
+    
+    class B(CachedBase):
+        @cached
+        def get_nested(self, N):
+
+            res = []
+            for i in range(N):
+                a = A()
+                b = a.get_data(100)
+                res.append(a)
+
+            return res
+    
+    a0 = A()
+    a0.get_data(20000)
+
+    b = B()
+    b.get_nested(20)
+
+    for size, name in get_cache_sizes():
+        print size, name
+                
+
