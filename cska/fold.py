@@ -28,7 +28,7 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, dummy=False, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, dummy=False, acc_scale=1., **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
@@ -39,6 +39,7 @@ class RBNSOpenen(CachedBase):
         self.discretized = ("discretized" in self.fname)
         self.T = rbns_reads.temp
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
+        self.acc_scale = acc_scale
         self.logger = logging.getLogger('fold.RBNSOpenen')
 
         
@@ -86,7 +87,7 @@ class RBNSOpenen(CachedBase):
         
     @property
     def cache_key(self):
-        return "{self.rbns_reads.cache_key} k={self.k} disc={self.disc} nmax={self.rbns_reads.n_max}".format(self=self)
+        return "RBNSOpenen({self.rbns_reads.cache_key}) k={self.k} disc={self.disc} nmax={self.rbns_reads.n_max}".format(self=self)
 
     @property
     @cached
@@ -160,7 +161,7 @@ class RBNSOpenen(CachedBase):
             return np.ones(self.oem.shape, dtype=np.float32)
 
         if not self.discretized:
-            return np.exp(-self.oem/self.RT)
+            return np.exp(-self.oem*self.acc_scale/self.RT)
         else:
             return self.acc_lookup[self.oem]
         
@@ -323,7 +324,7 @@ class ViennaOpenen(object):
     
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22.):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22., **kwargs):
         
         CachedBase.__init__(self)
         
@@ -340,8 +341,13 @@ class OpenenStorage(CachedBase):
         self.n_sets = 0
         self.discretize = discretize
         self.dummy = dummy
+        self.kwargs = kwargs
         if dummy:
             self.write = self.dummy_write
+
+    @property
+    def cache_key(self):
+        return "OpenenStorage({})".format(self.reads.cache_key)
 
     def fix_skipped_reads(self, krange):
         keep = []
@@ -400,7 +406,7 @@ class OpenenStorage(CachedBase):
 
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
+        return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy, **self.kwargs)
         
     @cached
     def get_discretized(self, k, disc_mode = ''):
