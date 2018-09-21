@@ -4,7 +4,7 @@ import time
 from scipy.optimize import minimize_scalar
 
 class SelfConsistency(object):
-    def __init__(self, Z1, rna_conc, bins=0):
+    def __init__(self, Z1, rna_conc, bins=None):
         self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1[Z1 > 0]
         self.last_error = -1
@@ -21,6 +21,7 @@ class SelfConsistency(object):
         self.rna_conc = rna_conc
         self.logger.debug('rna_conc={0:.3e}'.format(self.rna_conc))
         
+        self.bins = bins
         if bins:
             # logarithmic binning
             lZ = np.log(self.Z1)
@@ -30,12 +31,15 @@ class SelfConsistency(object):
             self.x = (self.bins[1:] + self.bins[:-1])/2.
             
             # switch over to fast approximation
-            self.free_rbp = self.fast_free_rbp
+            # self.free_rbp = self.fast_free_rbp
 
     def all_free(self, rbp_total, Z_scale=1.):
         return rbp_total
 
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
+        if self.bins is None:
+            raise ValueError("fast_free_rbp called without binning!")
+
         # TODO: use the binned version. Compare accuracy!
         t0 = time.time()
         y = self.x * Z_scale
@@ -77,9 +81,12 @@ class SelfConsistency(object):
         return res.x
         
     def free_rbp_vector(self, rbp_total, Z_scale=1.):
-        free = np.array([self.free_rbp(rbp, Z_scale=Z_scale) for rbp in rbp_total])
+        free = np.array([self.fast_free_rbp(rbp, Z_scale=Z_scale) for rbp in rbp_total], dtype=np.float32)
         return free
     
+    def __del__(self):
+        print "SelfConsistency.__del__ called"
+
     #def _spa_free_protein(self, Z1, rbp_conc):
         #rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
         #return np.array(rbp_free, dtype= np.float32)
