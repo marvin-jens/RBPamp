@@ -20,7 +20,7 @@ cimport numpy as np
 cimport cython
 cimport openmp
 
-from libc.math cimport exp, log
+from libc.math cimport exp, log, pow
 from libc.stdlib cimport abort, malloc, free #, posix_memalign
 from libc.string cimport memset #faster than np.zeros
 
@@ -172,7 +172,25 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
     return Z_read.base, Z_max
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0):
+def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
+    cdef UINT64_t N = Z.base.shape[0]
+    cdef UINT64_t l = Z.base.shape[1]
+    cdef UINT64_t i=0, j=0, d=0, n=0
+    # cdef FLOAT32_t [:,:] Z_scaled = np.empty(Z.base.shape, dtype=np.float32)
+    cdef int num_threads=8
+    cdef int thread_num = -1
+
+    with nogil, parallel():
+        for j in prange(N, schedule='static'):
+            # make these thread-local
+            # thread_num = openmp.omp_get_thread_num()
+
+            for i in range(l):
+                # Z[j, i] = pow(Z[j, i], a)
+                Z[j, i] = exp(a * log(Z[j, i]))
+
+
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
@@ -188,7 +206,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     cdef UINT64_t i=0, j=0, d=0, n=0, ind=0
     # cdef UINT32_t index=0
     # cdef FLOAT32_t w=0
-    # cdef FLOAT64_t Z1=0 # Single protein partition function
+    cdef FLOAT32_t z=0 # Single protein partition function
 
     if n_max:
         N = min(N, n_max)
@@ -226,10 +244,14 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
         for j in prange(N, schedule='static'):
             # iterate over all PSAM start positions
             for i in range(l):
-                Z[j,i] *= acc_matrix[j, i + openen_ofs]
+                # specific binding: product of per-site affinities
+                z = 1.
                 for d in range(k):
                     n = seqm[j,i+d]
-                    Z[j,i] *= psam[d,n]
+                    z = z * psam[d,n]
+                # add non-specific component (still reacts to accessbility)
+                z = z + non_specific
+                Z[j,i] = z * acc_matrix[j, i + openen_ofs]
 
     return Z.base
 
