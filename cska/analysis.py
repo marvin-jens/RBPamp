@@ -76,53 +76,6 @@ class RBNSComparison(CachedBase):
         
         self.name = 'RBNS:{pd_reads.rbp_conc}nM:{in_reads.rbp_conc}nM'.format(**locals())
         
-    @pickled
-    def motif_accessibility_profiles(self, params, mdl_class = PartFuncModel, pad=0, **kwargs):
-        import cska.cyska as cyska
-        
-        def get_motif_scores(reads):
-            seqm = reads.get_padded_seqm(params.k)
-            w = reads.L - params.k + 1 + reads.l5 + reads.l3
-            acc1 = np.ones( (reads.N, w), dtype=np.float32)
-        
-            Z1 = cyska.PSAM_partition_function(
-                seqm, 
-                acc1,
-                np.array(params.psam_matrix, dtype=np.float32),# * params.A0,
-                openen_ofs=0
-            )
-            
-            return Z1 # relative affinities of all motif instances everywhere
-
-        instor = self.in_reads.acc_storage
-        pdstor = self.pd_reads.acc_storage
-
-        # print "computing per-position weights of hits in input sample"
-        inZ = get_motif_scores(self.in_reads)
-        pdZ = get_motif_scores(self.pd_reads)
-
-        ratios = []
-        for k in range(1, params.k+2):
-            inacc = instor.get_raw(k)
-            infp = cyska.acc_footprints(inZ, inacc.acc, params.k, k, inacc.ofs - params.k + 1, pad=pad)
-            print "scanning {}nt accessibility".format(k)
-            # print "computing per-position weights of hits in pd sample"
-            # print "getting footprint..."
-            pdacc = pdstor.get_raw(k)
-            pdfp = cyska.acc_footprints(pdZ, pdacc.acc, params.k, k, pdacc.ofs - params.k + 1, pad=pad)
-            # print "PD", pdfp
-
-            ratios.append(pdfp / infp * self.in_reads.N / float(self.pd_reads.N))
-            print ratios
-
-            pdacc = None
-            inacc = None
-            instor.cache_flush()
-            pdstor.cache_flush()
-
-        return ratios
-
-
     @property
     def cache_key(self):
         return "{self.name}.{self.pd_reads.cache_key}.{self.in_reads.cache_key}".format(self=self)
@@ -312,6 +265,12 @@ class RBNSAnalysis(CachedBase):
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
     
+    @property
+    def input_reads(self):
+        # return reads with lowest concentration (should be 0)
+        i = np.array(self.rbp_conc).argsort()[0]
+        return self.reads[i]
+
     def _make_matrices(self, comp_attr, *argc, **kwargs):
         self.logger.debug("gathering data matrices for {0}".format(comp_attr) )
 
