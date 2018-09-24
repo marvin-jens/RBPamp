@@ -96,8 +96,7 @@ class CachedBase(object):
         setattr(self, cache_name, dict() )
 
         global cached_objects
-        import sys
-        del cached_objects["{}.{}".format(self.cache_key, cache_name)]
+        cached_objects.pop("{}.{}".format(self.cache_key, cache_name), None)
 
     @property
     def cache_key(self):
