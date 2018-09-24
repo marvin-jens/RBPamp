@@ -730,19 +730,6 @@ def kmer_openen_profile(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matrix
                 pos = l_openen + m - i
                 counts[pos, openen_matrix[j, m + ofs]] += 1
 
-        #for i in range(0,l_seq):
-            #index = indices[i]
-            ##print i, index, range(-i, l-i)
-            #for m in range(0, l_openen):
-                #x = m - i
-                #pos = l_openen + x
-                ##print x, pos
-                ##if index == 0b1001001110:
-                    ##print "i={0}, x={1}, pos={2}, openens[x+i] = {3}, sums[index, pos] = {4}, counts[index,pos]={5}".format(i, x, pos, openens[x+i], sums[index, pos], counts[index, pos])
-
-                ##sums[index, pos] += openens[m]
-                #counts[index, pos, openens[m]] += 1
-            
     return counts.base
 
 
@@ -787,20 +774,7 @@ def kmer_openen_profiles(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_matri
                 for m in range(l_openen):
                     pos = l_openen + m - i
                     counts[index, pos, openen_matrix[j, m + ofs]] += 1
-
-        #for i in range(0,l_seq):
-            #index = indices[i]
-            ##print i, index, range(-i, l-i)
-            #for m in range(0, l_openen):
-                #x = m - i
-                #pos = l_openen + x
-                ##print x, pos
-                ##if index == 0b1001001110:
-                    ##print "i={0}, x={1}, pos={2}, openens[x+i] = {3}, sums[index, pos] = {4}, counts[index,pos]={5}".format(i, x, pos, openens[x+i], sums[index, pos], counts[index, pos])
-
-                ##sums[index, pos] += openens[m]
-                #counts[index, pos, openens[m]] += 1
-            
+           
     return counts.base
 
 
@@ -935,165 +909,6 @@ def seq_set_SKA(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[FLOAT32_t] _w
     # normalize such that all weights sum up to 4**k
     _weights *= Z
     return _weights
-
-
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.initializedcheck(False)
-# @cython.cdivision(True)
-# @cython.overflowcheck(False)
-# def count_best_ranked_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _order):
-#     # largest index in array of DNA/RNA k-mer counts
-#     cdef UINT64_t k = np.log2(len(_order))/2
-#     cdef UINT32_t MAX_INDEX = 4**k - 1
-    
-#     cdef UINT32_t N = len(seq_matrix)
-#     cdef UINT32_t L = len(seq_matrix[0])
-#     cdef UINT32_t l = L-k+1
-
-#     # count reads covered by kmer with best rank
-#     cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_order) ,dtype=np.uint32)
-    
-#     # a MemoryView into each sequence (already converted 
-#     # from letters to bits)
-    
-#     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-#     cdef UINT32_t [::1] order = _order
-#     cdef UINT32_t [::1] hit_counts = _hit_counts
-#     cdef UINT8_t [::1] seq_bits
-    
-#     # helper variables to tell cython the types
-#     cdef UINT8_t s
-#     cdef UINT32_t best_order = MAX_INDEX
-#     cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0
-    
-#     with nogil:
-#         for j in range(N):
-#             best_order=MAX_INDEX
-#             ofs = j*L
-
-#             # compute index of first k-1 mer by bit-shifts
-#             index = 0
-#             for i in range(k-1):
-#                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
-
-#             # iterate over remaining k-mers
-#             for i in range(0, l):
-#                 # get next "letter"
-#                 s = _seq_matrix[ofs+i+k-1]
-#                 # compute next index from previous by shift + next letter
-#                 index = ((index << 2) | s ) & MAX_INDEX
-                
-#                 # assign hit to kmer with best rank
-#                 if order[index] < best_order:
-#                     best_index = index
-#                     best_order = order[index]
-
-#             hit_counts[best_index] += 1
-
-#     return _hit_counts
-
-
-
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.initializedcheck(False)
-# @cython.cdivision(True)
-# @cython.overflowcheck(False)
-# def count_pure_hits(np.ndarray[UINT8_t, ndim=2] seq_matrix, np.ndarray[UINT32_t, ndim=1] _candidates, out_file=None, UINT32_t n_sample=100000):
-#     # largest index in array of DNA/RNA k-mer counts
-#     cdef UINT64_t k = np.log2(len(_candidates))/2
-#     cdef UINT32_t MAX_INDEX = 4**k - 1
-    
-#     cdef UINT32_t N = len(seq_matrix)
-#     cdef UINT32_t L = len(seq_matrix[0])
-#     cdef UINT32_t l = L-k+1
-
-#     # count reads with only one and no other kmer out of the candidates
-#     cdef np.ndarray[UINT32_t, ndim=1] _hit_counts = np.zeros(len(_candidates) ,dtype=np.uint32)
-#     cdef np.ndarray[UINT32_t] _n = np.zeros(4**k, dtype=np.uint32)
-#     cdef np.ndarray[UINT8_t] _seq = np.zeros(L, dtype=np.uint8)
-#     cdef np.ndarray[UINT8_t] _kmer = np.zeros(k, dtype=np.uint8)
-    
-        
-#     # a MemoryView into each sequence (already converted 
-#     # from letters to bits)
-#     cdef UINT8_t [::1] _seq_matrix = seq_matrix.flatten()
-#     cdef UINT32_t [::1] candidates = _candidates
-#     cdef UINT32_t [::1] hit_counts = _hit_counts
-    
-#     cdef UINT8_t [::1] seq = _seq
-#     cdef UINT8_t [::1] kmer = _kmer
-#     cdef UINT32_t [::1] n = _n
-    
-#     # helper variables to tell cython the types
-#     cdef UINT8_t s
-#     cdef UINT32_t hit_id = 0
-#     cdef UINT64_t ofs, index, i, j, n_hits=0, best_index=0, best_i = 0, ov=0, best=MAX_INDEX, do_write=0
-    
-#     if out_file:
-#         # avoid GIL issues if we want to write to this file
-#         do_write = 1
-    
-#     with nogil:
-#         for j in range(N):
-#             hit_id = 0
-#             n_hits = 0
-#             ofs = j*L
-
-#             # compute index of first k-1 mer by bit-shifts
-#             index = 0
-#             for i in range(k-1):
-#                 index += _seq_matrix[ofs+i] << 2 * (k - i - 2)
-
-#             # iterate over remaining k-mers
-#             for i in range(0, l):
-#                 # get next "letter"
-#                 s = _seq_matrix[ofs+i+k-1]
-#                 # compute next index from previous by shift + next letter
-#                 index = ((index << 2) | s ) & MAX_INDEX
-                
-#                 # assign hit to kmer with best rank
-#                 if candidates[index] > 0:
-#                     if ov == 0:
-#                         # non-overlapping hit. Always counts!
-#                         n_hits += 1
-
-#                     if candidates[index] < best:
-#                         # attribute read to lowest-ranked kmer
-#                         best = candidates[index]
-#                         best_index = index
-#                         best_i = i
-                    
-#                     ov = 7 # re-start overlap count-down
-
-#                 if ov > 0:
-#                     ov -= 1
-            
-#             if n_hits != 1:
-#                 # do not count ambiguous or no hit
-#                 continue
-
-#             hit_counts[best_index] += 1
-#             if do_write and n[best_index] < n_sample:
-#                 with gil:
-#                     n[best_index] += 1
-
-#                     # convert seq entries back to string
-#                     for i in range(L):
-#                         seq[i] = bits_to_letters[ _seq_matrix[ofs+i] ]
-
-#                     # convert hit index back to kmer
-#                     for i in range(k):
-#                         s = best_index >> ((k - i-1) * 2)
-#                         kmer[i] = bits_to_letters[s & 3]
-                    
-#                     out_file.write(">{0} | p={1} | r={2} | n={3}\n{4}\n".format(_kmer.tobytes(), best_i, best, n[best_index], _seq.tobytes()) )
-                        
-
-#     return _hit_counts
-
-
 
 
 def store_pure_reads(
@@ -1583,39 +1398,63 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
 
 # @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
-def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5):
+def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
-    
-    cdef FLOAT32_t [:] footprint = np.zeros(w + 2 * pad, dtype=np.float32)
-    # cdef FLOAT32_t [:] footprint = np.zeros(w, dtype=np.float32)
+    cdef int n_threads = 8
+    cdef int tid=-1
+    cdef int l = w + 2 * pad
+    cdef FLOAT32_t [:,:] rw
+    cdef int n_cols=0, col=0
+    if row_w is None:
+        n_cols = 1
+        rw = np.ones((1,N), dtype=np.float32)
+    else:
+        n_cols = row_w.shape[0]
+        rw = row_w
+
+    # print "n_cols=", n_cols
+    cdef FLOAT32_t [:,:,:] footprint = np.zeros((n_threads, n_cols, (l % 64 + 1) * 64), dtype=np.float32)
+    cdef FLOAT32_t [:,:] Z = np.zeros((n_threads, n_cols), dtype=np.float32)
 
     cdef int j,x
     cdef int d,x0,x1,x2,x3
-    cdef FLOAT32_t Z = 0, f0,f1,f2,f3
+    cdef FLOAT32_t f0,f1,f2,f3
     # for j in prange(N, schedule='static')
-    # with nogil:
-    for j in range(N):
+    with nogil:
+        for j in prange(N):
+            tid = openmp.omp_get_thread_num()
+
         # for x in range(pad, L-pad):
         #     for d in range(-pad, w+pad):
         #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
-        for x in range(pad, L-pad):
-            Z += Z1[j, x]
-            for d in range(-pad, w + pad):
-                # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
-                # x0 = d+pad
-                # try:
-                #     x1 = ofs + x + d
-                # except OverflowError:
-                #     print ofs, x, d
-                #     raise
-                # assert x1 > 0
-                # f0 = acc[j, x1]
-                # f1 = Z1[j, x] * acc[j, ofs + x + d]
-                # f2 = footprint[x0]
-                # f3 = f2 + f1
-                # footprint[x0] = f3
-                footprint[d + pad] += Z1[j, x] * acc[j, ofs + x + d]
+            for x in range(pad, L-pad):
+                for col in range(n_cols):
+                    Z[tid, col] += Z1[j, x] * rw[col, j]
 
+                for d in range(-pad, w + pad):
+                    # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
+                    # x0 = d+pad
+                    # try:
+                    #     x1 = ofs + x + d
+                    # except OverflowError:
+                    #     print ofs, x, d
+                    #     raise
+                    # assert x1 > 0
+                    # f0 = acc[j, x1]
+                    # f1 = Z1[j, x] * acc[j, ofs + x + d]
+                    # f2 = footprint[x0]
+                    # f3 = f2 + f1
+                    # footprint[x0] = f3
+                    f0 = Z1[j, x] * acc[j, ofs + x + d]
+                    for col in range(n_cols):
+                        footprint[tid, col, d + pad] += f0 * rw[col, j]
 
-    return footprint.base / Z
+        # collect data from all threads
+        for tid in range(1, n_threads):
+            for col in range(n_cols):
+                for d in range(w + 2 * pad):
+                    footprint[0, col, d] += footprint[tid, col, d]
+                Z[0, col] += Z[tid, col]
+
+    return footprint.base[0,:,:l] / Z.base[0, :, np.newaxis]
