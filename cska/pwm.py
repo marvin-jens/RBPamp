@@ -71,22 +71,33 @@ def expand(kmer_set, left=True):
                 yield kmer + nt
     
 def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
-        import weblogolib as wl
-        from corebio.seq import unambiguous_rna_alphabet
-        #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
-        data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
-        #import sys
-        #sys.stderr.write(str( data))
-        options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=scale_width, resolution=300)
-        # options.title = "A Logo Title"
-        fmt = wl.LogoFormat(data, options)
-        dump = wl.eps_formatter( data, fmt)
-        
-        if fname:
-            with file(fname,'wb') as f:
-                f.write(dump)
-        
-        return fname
+    import weblogolib as wl
+    from corebio.seq import unambiguous_rna_alphabet
+    #data = LogoData(alphabet=unambiguous_rna_alphabet, length=5, counts=counts, entropy=np.ones(5), weight=np.ones(5))
+    data = wl.LogoData.from_counts(unambiguous_rna_alphabet, counts)
+    #import sys
+    #sys.stderr.write(str( data))
+    options = wl.LogoOptions(color_scheme=wl.classic, fineprint="", logo_title=title, yaxis_label='A.U.', scale_width=scale_width, resolution=300)
+    # options.title = "A Logo Title"
+    fmt = wl.LogoFormat(data, options)
+    dump = wl.eps_formatter( data, fmt)
+    
+    if fname:
+        with file(fname,'wb') as f:
+            f.write(dump)
+    
+    return fname
+
+def afflogo_save(psam, fname="psam.pdf", title="", scale_width=True, **kwargs):
+    import matplotlib.pyplot as plt
+    from cska.affinitylogo import plot_afflogo
+    fig = plt.figure(figsize=(8,6))
+    ax = fig.add_subplot(111)
+    plot_afflogo(ax, psam, title=title)
+    plt.savefig(fname)
+    plt.close()
+
+    return fname
 
 
 class OptimizationStatus(object):
@@ -361,7 +372,7 @@ class PSAM(object):
 
     def save_logo(self, fname='pwm.eps', title=""):
         counts = self.psam
-        weblogo_save(self.psam, fname=fname, title=title, scale_width=False)
+        afflogo_save(self.psam, fname=fname, title=title, scale_width=False)
 
     def shrink(self, thresh = .75, n=0):
         disc = self.discrimination
