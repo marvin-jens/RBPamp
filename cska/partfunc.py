@@ -348,7 +348,7 @@ class PartFuncModel(object):
 
     def SPA_free_protein(self, Z1, Z_scale=1.):
         sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
-        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=A0)
+        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=Z_scale)
         self._last_sc = sc # keep for debugging or re-use (if Z1 is unaltered)
         return np.array(rbp_free, dtype= np.float32)
 
@@ -424,65 +424,6 @@ class PartFuncModel(object):
         return np.array(opt_betas, dtype=np.float32)
 
   
-
-    # def quantile_fit(self, state, n=20):
-    #     """True
-    #     Optimize A0 and betas jointly to match the distribution of R-values, not considering the exact
-    #     identity of the kmers. The idea is to "straighten the Banana" which is sometimes the shape of the
-    #     kmer scatter plots if betas+A0 are stuck in sub-optimal values.
-    #     """
-    #     # observed R-value quantiles
-    #     Rq0 = np.array([np.percentile(self.R0[i], np.linspace(0,100,n)) for i in range(self.n_samples)])
-
-    #     # track most enriched kmer
-    #     top_i = self.R0.max(axis=0).argmax()
-    #     top_mer = cyska.index_to_seq(top_i, self.k)
-
-    #     sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
-
-    #     def to_optimize(args):
-    #         args = np.array(args, dtype=np.float32)
-    #         A0, betas = args[0], args[1:]
-    #         # rbp_free = self.SPA_free_protein(state.Z1_read, Z_scale=A0)
-    #         rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in self.rbp_conc], dtype= np.float32)
-
-    #         # print "rbp_free", rbp_free
-    #         # pull-down weights for each read, in each sample
-    #         psi = cyska.p_bound(state.Z1_read, rbp_free*A0)
-
-    #         b = self.PD_kmer_weights(psi)
-    #         # print "b min", self.b.min(axis=1)
-    #         # print "b max", self.b.max(axis=1)
-    #         # print "b mean", self.b.mean(axis=1)
-
-    #         Q = b.sum(axis=1)
-    #         # print "Q", self.Q
-    #         R = b / self.f0[np.newaxis,:] / Q[:,np.newaxis]
-
-    #         # self.R_errors = np.array(self.R - self.mdl.R0, dtype=np.float32)
-    #         # self.error = (self.R_errors**2).mean()
-       
-    #         Rq = np.array([np.percentile(r, np.linspace(0,100,n)) for r in R])
-    #         Rq_errors = Rq - Rq0
-    #         # for beta, rq in zip(betas, Rq_errors):
-    #         #     print "beta", beta, "quantile errors", rq
-            
-    #         # print "R-errors min/max/mean", R_errors.min(), R_errors.max(), R_errors.mean()
-    #         # print "most over-predicted", cyska.index_to_seq(R_errors.argmax(), self.k)
-    #         # print "most under-predicted", cyska.index_to_seq(R_errors.argmin(), self.k)
-    #         error = (Rq_errors**2).mean()
-    #         # print args, "->", error, "R({})".format(top_mer), R[:,top_i], self.R0[:,top_i]
-    #         return error
-
-    #     from scipy.optimize import minimize
-    #     args0 = np.array([state.params.A0,] + list(state.params.betas))
-    #     print "args0", args0
-    #     bounds = np.array([(1e-4,1e3),] + [(1e-9, 10)] * self.n_samples)
-    #     print "bounds", bounds
-    #     res = minimize(to_optimize, args0, bounds=bounds, method='L-BFGS-B')
-    #     print res
-    #     return res.x
-
     @property
     def affinities(self):
         A, I = cyska.params_from_pwm(self.params.psam_matrix, A0=self.params.A0, aff0=self.aff0)
