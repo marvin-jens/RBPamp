@@ -184,7 +184,61 @@ class RBNSReads(CachedBase):
         prof = cyska.kmer_openen_profiles(im, acc, k_seq, k_acc, 0)
 
         return prof
+
+    def PSAM_partition_function(self, params):
+        """
+        Note: it is more efficient to request the necessary ingredients once and re-use them, as
+        PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
+        this should do the trick! Set params.acc_k=0 to disable accessibility scoring.
+        """
+        seqm = self.get_padded_seqm(params.k)
+        w = self.L - params.k + 1 + self.l5 + self.l3
+       
+        acc_k = getattr(params, "acc_k", None)
+        if not acc_k:
+            print "acc_k=0 pretending everything is accessible"
+            acc1 = np.ones( (self.N, w), dtype=np.float32)
+            ofs = self.l5
+        else:
+            openen = self.acc_storage.get_raw(acc_k)
+            acc1 = np.array(openen.acc)
+            ofs = openen.ofs
+            acc_scale = getattr(params, "acc_scale", 1.)
+            if acc_scale != 1.:
+                # print "power"
+                # import time
+                # t0 = time.time()
+                # np.power(acc1, acc_scale)
+                t1 = time.time()
+                cyska.pow_scale(acc1, acc_scale)
+                # t2 = time.time()
+                # print "got it", t1-t0, t2-t1
+    
+        non_specific = getattr(params, "non_specific", 0.)
+        Z1 = cyska.PSAM_partition_function(
+            seqm, 
+            acc1,
+            np.array(params.psam_matrix, dtype=np.float32),
+            openen_ofs=ofs - params.k + 1 + params.acc_shift, non_specific = non_specific
+        )
         
+        return Z1 # relative affinities of all motif instances everywhere
+
+    def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, **kwargs):
+        """
+        Use Boltzmann-weights in Z1 to weigh k-nt accesibility (p-unpaired) profiles across the motifs + <pad> nts 
+        on either side.
+        """
+        from time import time
+        # t0 = time()
+        acc = self.acc_storage.get_raw(k_acc)
+        # t1 = time()
+        fp = cyska.acc_footprints(Z1, acc.acc, k_motif, k_acc, acc.ofs - k_motif + 1, pad=pad, row_w = row_w)
+        # t2 = time()
+        # print "t_get={:.2f} t_fp={:.2f}".format(1000. * (t1-t0), 1000. * (t2-t1))
+        
+        return fp
+
     @pickled
     def get_kmer_accessibility_binned(self, k):
         counts, openen = cyska.kmer_acc_counts(self, k)
