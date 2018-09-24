@@ -30,9 +30,6 @@ class SelfConsistency(object):
             # midpoint integration
             self.x = (self.bins[1:] + self.bins[:-1])/2.
             
-            # switch over to fast approximation
-            # self.free_rbp = self.fast_free_rbp
-
     def all_free(self, rbp_total, Z_scale=1.):
         return rbp_total
 
@@ -83,14 +80,7 @@ class SelfConsistency(object):
     def free_rbp_vector(self, rbp_total, Z_scale=1.):
         free = np.array([self.fast_free_rbp(rbp, Z_scale=Z_scale) for rbp in rbp_total], dtype=np.float32)
         return free
-    
-    def __del__(self):
-        print "SelfConsistency.__del__ called"
-
-    #def _spa_free_protein(self, Z1, rbp_conc):
-        #rbp_free = [self.self_consistent_free_rbp(Z1, total) for total in rbp_conc]
-        #return np.array(rbp_free, dtype= np.float32)
-    
+        
 if __name__ == "__main__":
     logging.basicConfig()
     logging.getLogger('model').setLevel(logging.DEBUG)
