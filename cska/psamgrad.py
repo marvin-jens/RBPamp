@@ -20,6 +20,10 @@ class PSAMGradientDescent(object):
         self.logger = logging.getLogger('opt.PSAMGradientDescent')
         print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam)
+
+        # TODO: instead of hard-coded, determine this automatically from the data!
+        params.acc_k = 7
+        params.acc_shift = 1
         # params.betas[:] = .0001
         # initial guess
         # params.betas[:] = [.013,.023,.062,.18,.19]
@@ -34,6 +38,7 @@ class PSAMGradientDescent(object):
             'invmeanfield' : InvMeanFieldModel,
         } [mdl_name]
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
+        # print self.descent.params.acc_k, self.descent.model.acc_k
         self.descent = cska.gradient.GradientDescent(model, params)
         self.model = model
         self.params = params
