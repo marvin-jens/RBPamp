@@ -980,8 +980,8 @@ class GradientDescentReport(object):
         plt.legend(loc='upper left')
 
         plt.subplot(313)
-        plot(a0, rcorr, '.k', label='best correlation')
-        plot(a0, rcorr, '-k')
+        plt.plot(a0, rcorr, '.k', label='best correlation')
+        plt.plot(a0, rcorr, '-k')
         plt.legend(loc='upper left')
 
         a_opt = a0[rerr.argmin()]
