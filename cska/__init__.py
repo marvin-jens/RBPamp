@@ -381,107 +381,108 @@ def main():
             all_data = {}
             all_res = []
             from cska.punpcal import PunpairedCalibrate
-            cal = PunpairedCalibrate(rbns, PGD.descent.params, k_core_range=[7, 7])
+            cal = PunpairedCalibrate(rbns, PGD.descent.params)
+            params = cal.calibrate(k_core_range=[options.min_k, options.max_k])
+            # sys.exit(0)
+            # pad = 5
 
-            pad = 5
+            # # for comp in rbns.comparisons:
+            # #     acc_k, acc_shift, err, res, raw = comp.acc_congruence_analysis(PGD.descent.params, pad=pad, kmin=7, kmax=7)
+            # #     # ratios.append( comp.motif_accessibility_profiles(PGD.descent.params, pad=pad, kmax=1) )
+            # #     # names.append(comp.pd_reads.name)
+            # #     logger.info("most enriched accessibility is {}mer with offset {} rel to motif. err={}".format(acc_k, acc_shift, err) )
+            # #     all_data.update(raw)
+            # #     all_res.extend(res)
 
-            # for comp in rbns.comparisons:
-            #     acc_k, acc_shift, err, res, raw = comp.acc_congruence_analysis(PGD.descent.params, pad=pad, kmin=7, kmax=7)
-            #     # ratios.append( comp.motif_accessibility_profiles(PGD.descent.params, pad=pad, kmax=1) )
-            #     # names.append(comp.pd_reads.name)
-            #     logger.info("most enriched accessibility is {}mer with offset {} rel to motif. err={}".format(acc_k, acc_shift, err) )
-            #     all_data.update(raw)
-            #     all_res.extend(res)
+            # # print "top 10 results"
+            # # all_res = sorted(all_res)
+            # # for err, k, shift, conc in all_res[:10]:
+            # #     print conc, k, shift, "->", err
 
-            # print "top 10 results"
-            # all_res = sorted(all_res)
-            # for err, k, shift, conc in all_res[:10]:
-            #     print conc, k, shift, "->", err
+            # # err, acc_k, acc_shift, conc = all_res[0]
+            # # in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
+            # # print in_noacc
+            # # print in_acc
+            # # print pd_noacc
 
-            # err, acc_k, acc_shift, conc = all_res[0]
-            # in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
-            # print in_noacc
-            # print in_acc
-            # print pd_noacc
-
-            import matplotlib.pyplot as pp
-            x = np.arange(-pad, pwm.n + pad )
-            pp.figure()
-            # pp.plot(x, in_noacc, 'k-', label = 'input no acc')
+            # import matplotlib.pyplot as pp
+            # x = np.arange(-pad, pwm.n + pad )
+            # pp.figure()
+            # # pp.plot(x, in_noacc, 'k-', label = 'input no acc')
             
-            # acc_k = 10
-            # acc_shift = 0
-            acc_k = 7 # RBFOX
-            acc_shift = 1
+            # # acc_k = 10
+            # # acc_shift = 0
+            # acc_k = 7 # RBFOX
+            # acc_shift = 1
 
-            rbp_conc = rbns.rbp_conc #[5., 20., 80.] # RBFOX3
-            #rbp_conc = [121.,365.,1100.] # RBFOX2
+            # rbp_conc = rbns.rbp_conc #[5., 20., 80.] # RBFOX3
+            # #rbp_conc = [121.,365.,1100.] # RBFOX2
 
-            # in_acc =  all_data[ (rbp_conc[0], acc_k, acc_shift)][1]
-            # pp.plot(x, in_acc, 'r:', label = 'input acc_k={} acc_shift={}'.format(acc_k, acc_shift))
+            # # in_acc =  all_data[ (rbp_conc[0], acc_k, acc_shift)][1]
+            # # pp.plot(x, in_acc, 'r:', label = 'input acc_k={} acc_shift={}'.format(acc_k, acc_shift))
             
-            # in_acc2 = all_data[ (rbp_conc[0], 5, 2)][1]
+            # # in_acc2 = all_data[ (rbp_conc[0], 5, 2)][1]
 
-            # experiment with non-specific binding
-            params_ = PGD.descent.params.copy()
-            params_.acc_k = acc_k
-            params_.acc_shift = acc_shift
-            # params_.non_specific = 0.002
+            # # experiment with non-specific binding
+            # params_ = PGD.descent.params.copy()
+            # params_.acc_k = acc_k
+            # params_.acc_shift = acc_shift
+            # # params_.non_specific = 0.002
             
-            # RBFOX3
-            # A0 = .8
-            # params_.acc_scale = .12
+            # # RBFOX3
+            # # A0 = .8
+            # # params_.acc_scale = .12
             
-            # RBFOX2
-            # A0 = 0.163120955229
-            A0 = 6.8670e-01 #0.51511579752
-            params_.acc_scale = .5 #.25
+            # # RBFOX2
+            # # A0 = 0.163120955229
+            # A0 = 6.8670e-01 #0.51511579752
+            # params_.acc_scale = .5 #.25
 
-            A0 = .5 #0.51511579752
-            params_.acc_scale = .1 #.25
+            # A0 = .5 #0.51511579752
+            # params_.acc_scale = .1 #.25
 
 
-            Z1 = rbns.input_reads.PSAM_partition_function(params_) #+ 5e-4
-            Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6) # aggregate to read-level
+            # Z1 = rbns.input_reads.PSAM_partition_function(params_) #+ 5e-4
+            # Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6) # aggregate to read-level
             
-            from cska.sc import SelfConsistency
-            sc = SelfConsistency(Z1, rbns.input_reads.rna_conc, bins=1000)
-            rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in rbns.rbp_conc], dtype=np.float32)
-            print "rbp_free", rbp_free
-            psi = cyska.p_bound(Z1_read, rbp_free*A0)
+            # from cska.sc import SelfConsistency
+            # sc = SelfConsistency(Z1, rbns.input_reads.rna_conc, bins=1000)
+            # rbp_free = np.array([sc.free_rbp(total, Z_scale=A0) for total in rbns.rbp_conc], dtype=np.float32)
+            # print "rbp_free", rbp_free
+            # psi = cyska.p_bound(Z1_read, rbp_free*A0)
 
 
-            # in_acc2 = rbns.input_reads.weighted_accessibility_profile(Z1, params_.k, pad=pad)
-            print "Z1 with scaling", Z1.min(), Z1.mean(), Z1.max()
-            # pp.plot(x, in_acc2, 'k:', label = 'input with scaling')
+            # # in_acc2 = rbns.input_reads.weighted_accessibility_profile(Z1, params_.k, pad=pad)
+            # print "Z1 with scaling", Z1.min(), Z1.mean(), Z1.max()
+            # # pp.plot(x, in_acc2, 'k:', label = 'input with scaling')
 
-            # no non-specific for motif analysis!
-            # params_.non_specific = 0.0 #002
-            # Z1 = rbns.input_reads.PSAM_partition_function(params_)
+            # # no non-specific for motif analysis!
+            # # params_.non_specific = 0.0 #002
+            # # Z1 = rbns.input_reads.PSAM_partition_function(params_)
 
-            for conc, color, p, beta in zip(rbp_conc, ['b','g',''], psi, [1e-6, 1e-6, 1e-6] ):
-                w = p[:,np.newaxis]*Z1 #+ 5e-5# + beta
-                in_acc2 = rbns.input_reads.weighted_accessibility_profile(w, params_.k, pad=pad)
-                pp.plot(x, in_acc2, color+':', label = 'input w/scake {}nM'.format(conc))
+            # for conc, color, p, beta in zip(rbp_conc, ['b','g',''], psi, [1e-6, 1e-6, 1e-6] ):
+            #     w = p[:,np.newaxis]*Z1 #+ 5e-5# + beta
+            #     in_acc2 = rbns.input_reads.weighted_accessibility_profile(w, params_.k, pad=pad)[0]
+            #     pp.plot(x, in_acc2, color+':', label = 'input w/scake {}nM'.format(conc))
 
-            # for conc, color in zip(rbp_conc, ['b','g','']):
-            #     in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
-            #     pp.plot(x, pd_noacc, color, label = 'pulldown no-acc {}nM'.format(conc))
+            # # for conc, color in zip(rbp_conc, ['b','g','']):
+            # #     in_noacc, in_acc, pd_noacc = all_data[ (conc, acc_k, acc_shift) ]
+            # #     pp.plot(x, pd_noacc, color, label = 'pulldown no-acc {}nM'.format(conc))
 
-            #     print np.log2(pd_noacc / in_noacc)
+            # #     print np.log2(pd_noacc / in_noacc)
 
-            cons = pwm.consensus
-            pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
-            pp.axvline( - .5)
-            pp.axvline(pwm.n - .5)
+            # cons = pwm.consensus
+            # pp.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            # pp.axvline( - .5)
+            # pp.axvline(pwm.n - .5)
 
-            # pp.legend(loc='upper left')
-            pp.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left", mode="expand", borderaxespad=0, ncol=2)
-            pp.ylabel(r"$P_{unpaired}$ (motif-weighted)")
-            pp.xlabel('pos. rel to motif (consensus) [nt]')
-            pp.tight_layout()
-            pp.savefig('opt.pdf')
-            pp.close()
+            # # pp.legend(loc='upper left')
+            # pp.legend(bbox_to_anchor=(0,1.02,1,0.2), loc="lower left", mode="expand", borderaxespad=0, ncol=2)
+            # pp.ylabel(r"$P_{unpaired}$ (motif-weighted)")
+            # pp.xlabel('pos. rel to motif (consensus) [nt]')
+            # pp.tight_layout()
+            # pp.savefig('opt.pdf')
+            # pp.close()
 
             # pp.figure()
             # maxl = []
@@ -509,7 +510,7 @@ def main():
             # pp.xlabel('concentration [nM]')
             # pp.ylabel('log2 ratio to input')
             # pp.savefig('ratio.pdf')
-            sys.exit(0)
+            # sys.exit(0)
             # ratios = np.swapaxes(np.array(ratios), 0, 1)
             # print ratios.shape
 
