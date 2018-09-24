@@ -55,7 +55,7 @@ class Proxy(object):
 
 
 class ModelParametrization(object):
-    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32, acc_ofs=0, acc_k=None):
+    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32, acc_shift=0, acc_k=None, acc_scale=1.):
         self.k = k
         self.n_samples = n_samples
         self.n = 4*k + 1 + n_samples
@@ -68,11 +68,12 @@ class ModelParametrization(object):
         self.dtype = dtype
         
         # accessibility might be selected in a shifted region of size != k
-        self.acc_ofs = acc_ofs
+        self.acc_shift = acc_shift
+        self.acc_scale = acc_scale
         if acc_k is None: 
             self.acc_k = self.k
         else:
-            self.acc_k = self.k 
+            self.acc_k = acc_k
 
         self.data = np.zeros(self.n, dtype=np.float32)
 
@@ -106,6 +107,11 @@ class ModelParametrization(object):
     def from_vector(cls, vec, k, n_samples=1):
         return cls(k, n_samples, data=vec)
 
+    @classmethod
+    def from_file(cls, fname):
+        pass
+        #TODO: implement!
+
     def as_vector(self, dtype=np.float32):
         return self.data
     
@@ -113,7 +119,7 @@ class ModelParametrization(object):
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
-        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_ofs=self.acc_ofs)
+        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_shift=self.acc_shift)
         if not np.allclose(new.data, self.data):
             d = np.fabs(new.data - self.data)
             i = d.argmax()
@@ -186,7 +192,7 @@ class ModelParametrization(object):
         for i, beta in enumerate(self.betas):
             buf.append('beta{0}\t{1:.3e}'.format(i, beta))
         
-        buf.append("acc_k={self.acc_k} acc_ofs={self.acc_ofs}".format(self=self))
+        buf.append("acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}".format(self=self))
         return '\n'.join(buf)
 
     def __add__(self, x):
@@ -601,18 +607,7 @@ class GradientDescent(object):
 
                 upd = descent * s
                 self.params = self.apply_delta(state.params, upd)
-                # if tune:
-                #     state = self.model.tune(self.params, A0_plot=A0_plot.format(**locals()), debug=debug)
-                #     self.params = state.params
-
                 self.model.params = self.params
-
-                # if s < 1e-4 and self.t-self.last_quantile > 5:
-                #     # res = self.model.quantile_fit(state)
-                #     print "optimal parameters from quantile fit"
-                #     # self.params.A0 = res[0]
-                #     # self.params.betas[:] = self.model.optimal_betas(state)
-                #     # self.last_quantile = self.t
 
                 state = self.model.predict(self.params, **self.predict_kwargs)
                 state._ls_data = ls_data
