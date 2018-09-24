@@ -104,7 +104,7 @@ class PunpairedCalibrate(object):
         self.params.acc_scale = res.x[0]
         self.params.A0 = res.x[1]
 
-        file(os.path.join(self.path, 'calibrated.tsv'), 'w').write(str(self.params))
+        file(os.path.join(self.path, 'calibrated.tsv'), 'w').write(str(self.params) + '\n')
         return self.params
     
     def plot_profiles(self, punp_expect, acc_k, acc_shift, res):
