@@ -124,23 +124,45 @@ def by_domain_plot(df):
 def corr_scatter(full, nostruct):
     df = full.join(nostruct, lsuffix="_full", rsuffix='_nostruct')
 
-    # order = ['20+','5-20','2-5','1-2']
+    order = ['20+','5-20','2-5','1-2'][::-1]
     # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
-    order = ['1+', '0.7-1', '0.7-', "NA"]
-    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='motif_linearity_full', hue_order=order[::-1], legend=True,palette='viridis')
+    # order = ['1+', '0.7-1', '0.7-', "NA"]
+    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=False, palette='viridis')
 
     df['delta'] = df['corr_full'] - df['corr_nostruct']
     # df.set_index(['rbp','delta', 'corr_full','corr_nostruct'])
     # what are the proteins with highest difference?
-    print df.sort_values('delta', ascending=False)[['rbp_full', 'domain_full', 'motif_linearity_full', 'delta', 'corr_full','corr_nostruct']]
+    by_delta = df.sort_values('delta', ascending=False)
+
+    def label_point(row, ax):
+        print row
+        ax.text(row.corr_nostruct+.02, row.corr_full, str(row.rbp_full))
+
+    # print by_delta[['rbp_full', 'delta']][:5]
+    # print by_delta
+    for row in by_delta[['rbp_full','corr_full','corr_nostruct']][:5].itertuples():
+        label_point(row, plt.gca())
+
+    for row in by_delta[['rbp_full','corr_full','corr_nostruct']][-5:].itertuples():
+        label_point(row, plt.gca())
+
+    by_corr = df.sort_values('corr_nostruct', ascending=False)
+    # print by_corr.iloc[0]
+    label_point(by_corr.iloc[0], plt.gca())
+    label_point(by_corr.iloc[-1], plt.gca())
+
+    # print by_delta[['rbp_full', 'delta']][-5:]
+    # for row in by_delta.iloc[-5:, :].iterrows():
+    #     label_point(row, plt.gca())
 
 
     plt.xlabel('max. Pearson-R nostruct model')
-    plt.xlim(0.4,1)
-    plt.ylim(0.4,1)
+    plt.xlim(0.4,1.1)
+    plt.ylim(0.4,1.1)
     plt.plot([0,1],[0,1],'-k', linewidth=.1)
     plt.ylabel('max. Pearson-R full model')
     # tolabel.apply(label_point, axis=1)
+    plt.legend(loc='upper left', title="max. R-value")
     plt.savefig('overview_scatter.pdf')
     plt.close()
 
