@@ -100,75 +100,75 @@ def afflogo_save(psam, fname="psam.pdf", title="", scale_width=True, **kwargs):
     return fname
 
 
-class OptimizationStatus(object):
-    def __init__(self, pwm, state, opt):
-        self.pwm = pwm
-        self.state = state
-        self.opt = opt
+# class OptimizationStatus(object):
+#     def __init__(self, pwm, state, opt):
+#         self.pwm = pwm
+#         self.state = state
+#         self.opt = opt
 
-    def mispredicted_kmer_set(self, cutoff=.01, n_max=100):
-        # gather kmers that have prediction errors within the range 
-        # of max(abs(errors)) ... cutoff*max(abs(error))[:n_max]
-        errors = self.opt.kmer_errors(self.state.R)
-        MAX = np.fabs(errors).max(axis=0)
-        I = MAX.argsort()[::-1]
+#     def mispredicted_kmer_set(self, cutoff=.01, n_max=100):
+#         # gather kmers that have prediction errors within the range 
+#         # of max(abs(errors)) ... cutoff*max(abs(error))[:n_max]
+#         errors = self.opt.kmer_errors(self.state.R)
+#         MAX = np.fabs(errors).max(axis=0)
+#         I = MAX.argsort()[::-1]
         
-        E0 = MAX[I[0]]
+#         E0 = MAX[I[0]]
         
-        pwm_rel = defaultdict(list)
-        pwm_rel_error = defaultdict(float)
+#         pwm_rel = defaultdict(list)
+#         pwm_rel_error = defaultdict(float)
         
-        unrel = defaultdict(list)
-        unrel_error = defaultdict(float)
+#         unrel = defaultdict(list)
+#         unrel_error = defaultdict(float)
         
-        for kmer_i in I[:n_max]:
-            kmer = cyska.index_to_seq(kmer_i, self.opt.k)
-            delta = errors[:,kmer_i]
-            cat, arg, frac = self.pwm.align(kmer)
-            merr = delta.mean()
+#         for kmer_i in I[:n_max]:
+#             kmer = cyska.index_to_seq(kmer_i, self.opt.k)
+#             delta = errors[:,kmer_i]
+#             cat, arg, frac = self.pwm.align(kmer)
+#             merr = delta.mean()
             
-            if frac > 0:
-                pwm_rel_error[cat] += merr * frac
-                pwm_rel[cat].append( (merr, arg, frac, kmer, kmer_i, delta) )
+#             if frac > 0:
+#                 pwm_rel_error[cat] += merr * frac
+#                 pwm_rel[cat].append( (merr, arg, frac, kmer, kmer_i, delta) )
             
-            if frac < 1:
-                unrel[cat].append( (merr, arg, 1-frac, kmer, kmer_i, delta) )
-                unrel_error[cat] += merr * (1-frac)
+#             if frac < 1:
+#                 unrel[cat].append( (merr, arg, 1-frac, kmer, kmer_i, delta) )
+#                 unrel_error[cat] += merr * (1-frac)
             
-            if MAX[kmer_i] < cutoff * E0:
-                break
+#             if MAX[kmer_i] < cutoff * E0:
+#                 break
             
-        print ">>>>PWM related errors", pwm_rel_error
-        for cat, values in pwm_rel.items():
-            for v in values:
-                print cat, v
+#         print ">>>>PWM related errors", pwm_rel_error
+#         for cat, values in pwm_rel.items():
+#             for v in values:
+#                 print cat, v
         
-        # print ">>>>PWM un-related errors", unrel_error
-        # for cat, values in unrel.items():
-        #     for v in values:
-        #         print cat, v
+#         # print ">>>>PWM un-related errors", unrel_error
+#         # for cat, values in unrel.items():
+#         #     for v in values:
+#         #         print cat, v
 
-        return pwm_rel, pwm_rel_error, unrel, unrel_error
+#         return pwm_rel, pwm_rel_error, unrel, unrel_error
             
-    def best_update_set(self):
-        pwm_rel, pwm_rel_error, unrel, unrel_error = self.mispredicted_kmer_set()
-        s = np.sign(np.array(pwm_rel_error.values()))
-        # if (s == 1).all():
-        #     # need to scale affinity down
-        #     return "scale", (0.1, 1.)
-        # elif (s == -1).all():
-        #     # need to scale affinity up
-        #     return "scale", (1., 10.)
+#     def best_update_set(self):
+#         pwm_rel, pwm_rel_error, unrel, unrel_error = self.mispredicted_kmer_set()
+#         s = np.sign(np.array(pwm_rel_error.values()))
+#         # if (s == 1).all():
+#         #     # need to scale affinity down
+#         #     return "scale", (0.1, 1.)
+#         # elif (s == -1).all():
+#         #     # need to scale affinity up
+#         #     return "scale", (1., 10.)
         
-        # this is not it, let's tune individual kmers and their hull
-        need_fit = sorted(pwm_rel['match'], key=lambda x: np.fabs(x[0]))
-        worst = need_fit[-1]
-        worst_kmer = worst[1]
-        print "WORST KMER IS", worst_kmer
-        sorted_hull = sorted([(self.pwm.score(mer), mer) for mer in hull(worst_kmer)[1:]])
-        kmer_set = [worst_kmer,] + [mer for score, mer in sorted_hull[::-1]]
-        print "corresponding set", kmer_set
-        return "kmer_set", kmer_set
+#         # this is not it, let's tune individual kmers and their hull
+#         need_fit = sorted(pwm_rel['match'], key=lambda x: np.fabs(x[0]))
+#         worst = need_fit[-1]
+#         worst_kmer = worst[1]
+#         print "WORST KMER IS", worst_kmer
+#         sorted_hull = sorted([(self.pwm.score(mer), mer) for mer in hull(worst_kmer)[1:]])
+#         kmer_set = [worst_kmer,] + [mer for score, mer in sorted_hull[::-1]]
+#         print "corresponding set", kmer_set
+#         return "kmer_set", kmer_set
         
 
 class PSAM(object):
@@ -237,53 +237,6 @@ class PSAM(object):
         psam.kmer_set = kmers
         return psam
 
-
-    def propagate_kmer_change(self):
-        pass # TODO: implement
-
-
-    def kmer_affinities(self, relA_thresh=1e-6):
-
-        I = (-self.psam).argsort()
-        A0 = self.A0
-
-        ind0 = self.psam.argmax(axis=1)
-        mers = [''.join(bases[ind0]),]
-        aff = [A0,]
-        uniq = set()
-        mers = []
-        aff = []
-        def recurse(A0, IND, col_first):
-            # print "recurse", A0, IND, col_first
-            if col_first >= self.n:
-                return
-
-            # for col in range(col_first, self.n):
-            col = col_first
-            ind = np.array(IND) # make a fresh copy
-            for i in range(0,4):
-                row = I[col,i] 
-                a0 = A0 * self.psam[col, row]
-
-                if a0 < relA_thresh*self.A0:
-                    # print col_first, col, i, "break"
-                    break
-                
-                ind[col] = row
-                mer = ''.join(bases[ind])                
-                if not mer in uniq:
-                    mers.append(mer)
-                    aff.append(a0)
-                    # print col_first, col, i, mer, '->', a0
-                    uniq.add(mer)
-
-                for j in range(col_first+1, self.n):
-                    recurse(a0, ind, j)
-
-        recurse(self.A0, ind0, 0)
-        return np.array(mers), np.array(aff)
-
-
     def kmer_affinity_table(self, aff0=1e-6):
         params, indices = cyska.params_from_pwm(self.psam, A0=self.A0, aff0=aff0)
         return params
@@ -296,18 +249,15 @@ class PSAM(object):
     def consensus(self):
         return "".join([project_column(col) for col in self.psam])
         
-    def __add__(self, mdl):
-        assert self.n == mdl.n
+    # def __add__(self, mdl):
+    #     assert self.n == mdl.n
         
-        A0 = self.A0 + mdl.A0
-        #w1 = self.A0 / A0
-        #w2 = mdl.A0 / A0
-
-        psam = self.A0 * self.psam + mdl.A0 * mdl.psam
-        amax = psam.max(axis=1)
-        psam /= amax[:, np.newaxis]
+    #     A0 = self.A0 + mdl.A0
+    #     psam = self.A0 * self.psam + mdl.A0 * mdl.psam
+    #     amax = psam.max(axis=1)
+    #     psam /= amax[:, np.newaxis]
         
-        return PSAMState(psam, max(self.A0, mdl.A0))
+    #     return PSAMState(psam, max(self.A0, mdl.A0))
 
     def align(self, kmer):
         """ slide kmer over matrix and classify best, gapless alignment"""
@@ -350,7 +300,7 @@ class PSAM(object):
         return "\n".join(buf)
 
     def store_params(self, fname):
-        file(fname, 'w').write(str(self))
+        file(fname, 'w').write(str(self) + '\n')
 
     @classmethod
     def load(cls, fname):
@@ -405,672 +355,714 @@ class PSAM(object):
 
         return PSAM(psam, A0 = A0)
 
-from collections import defaultdict 
-import logging
-class PWMOptimizer(object):
-    def __init__(self, k_min, k_max, opt, lag=3, eps=1e-2, max_iter=1000):
-        self.k = k_min
-        self.k_max = k_max
-        self.nA = 4**k_min
-        self.opt = opt
-        self.lag = lag
-        self.eps = eps
-        self.max_iter = max_iter
-        self.pwm_by_kmer = {}
-        self.pwms = {}
-        self.errors = []
-        self.last_improvements = []
-        self.t = 0
-        self.kmer_queues = defaultdict(set)
-        
-        self.masked = np.ones(self.nA, dtype=np.uint8)
-        self.weights = np.ones(self.nA, dtype=np.uint8)
-        self.logger = logging.getLogger("opt.PWMOptimizer")
+ # def kmer_affinities(self, relA_thresh=1e-6):
 
-    def record_cue(self, seed, shift, i, compound):
-        # store shifted motifs for future analyses on k+x
-        self.kmer_queues[seed.lower()].add( (shift, i, compound) )
+    #     I = (-self.psam).argsort()
+    #     A0 = self.A0
 
-    def digest_cues(self, seed):
-        """
-        Based on stored cues, decide in which direction to expand a PWM (add a column).
-        Cues are taken from previously selected k-mers with bad R-value agreement that
-        were identified as shifted versions of the PWM associated with seed.
-        We add up the affinities assigned to those shifted versions to determine if
-        more affinity can be "added to the PWM" by adding a column left or right.
-        """
-        left = []
-        l = 0
-        
-        right = []
-        r = 0
-        seed_cues = self.kmer_queues[seed.lower()]
-        cues = [(self.opt.mdl.params[i], shift, compound) for i, shift, compound in seed_cues]
-        for aff, shift, compound in sorted(cues, reverse=True):
-            if shift < 0:
-                l += aff
-                left.append(compound)
-            else:
-                r += aff
-                right.append(compound)
-        
-        return l, left, r, right
-        
-        
-    def kmer_residuals(self):
-        errors = self.opt.kmer_errors(self.opt.current.R)
-        return (errors**2).sum(axis=0) # sum sq. error across concentrations
-        #return (errors**2).sum(axis=0) # sum sq. error across concentrations
-    
-    def kmer_logratios(self):
-        lr = np.log2(self.opt.current.R / self.opt.R_obs)
-        return lr
+    #     ind0 = self.psam.argmax(axis=1)
+    #     mers = [''.join(bases[ind0]),]
+    #     aff = [A0,]
+    #     uniq = set()
+    #     mers = []
+    #     aff = []
+    #     def recurse(A0, IND, col_first):
+    #         # print "recurse", A0, IND, col_first
+    #         if col_first >= self.n:
+    #             return
 
-    def kmer_logerrors(self):
-        le = self.kmer_logratios().mean(axis=0)
-        return le
+    #         # for col in range(col_first, self.n):
+    #         col = col_first
+    #         ind = np.array(IND) # make a fresh copy
+    #         for i in range(0,4):
+    #             row = I[col,i] 
+    #             a0 = A0 * self.psam[col, row]
 
-    def dump_logratios(self):
-        path = cska.ensure_path(os.path.join(self.opt.out_path,"affinity","{0}mer_logratios.tsv".format(self.k)))
-        self.logger.debug("storing kmer prediction error in {0}".format(path) )
-        LR = self.kmer_logratios()
-        #print LR.shape
-        #print self.opt.mdl.param_name.shape
-        f = file(path, 'w')
-        for kmer, aff, lr in zip(self.opt.mdl.parameters.param_name, self.opt.mdl.params, LR.T):
-            row = [kmer, str(aff), ] + [str(l) for l in lr]
-            f.write("\t".join(row) + '\n')
-        
-    def worst_kmer(self, debug=False):
-        #residual = self.kmer_residuals()
-        residual = self.kmer_logerrors()
-        w = self.masked / self.weights
-        i = (residual * w).argmin()
-        kmer = cyska.index_to_seq(i, self.k)
-        self.weights = np.where(self.weights > 1, self.weights - 1, 1)
-        self.weights[i] *= 2
-        
-        if debug:
-            R_obs = self.opt.R_obs[:,i]
-            R_pred = self.opt.current.R[:,i]
-            dR = R_pred - R_obs
-            self.logger.debug("{kmer} R_obs={R_obs} R_pred={R_pred} dR={dR}".format(**locals()) )
-        
-        self.dump_logratios() # THIS IS FOR DEBUGGING
-
-        return i, kmer, residual[i]
-    
-    def is_shifted(self, kmer, s_max=2):
-        k = len(kmer)
-        kmer_pwm_map = self.pwm_by_kmer
-        #print "mapped", sorted(self.pwm_by_kmer.keys())
-        for x in range(1,s_max+1):
-            for pad in list(cyska.yield_kmers(x)):
-                rshifted = (pad + kmer[:k-x]).lower()
-                lshifted = (kmer[x:]+pad).lower()
-                #print "l", x, kmer, lshifted
-                #print "r", x, kmer, rshifted
-                if lshifted in kmer_pwm_map:
-                    seed = kmer_pwm_map[lshifted].kmer_seed
-                    return -x, seed, kmer[:x] + seed
-                elif rshifted in kmer_pwm_map:
-                    seed = kmer_pwm_map[rshifted].kmer_seed
-                    return x, seed, seed + kmer[-x:]
-
-        return 0, kmer, kmer
-        
-        
-    def optimize_kmer_set_ordered(self, kmers, opt_tick=True, ordered=False):
-        #print "optimize_kmer_set_ordered", kmers
-        kmers = np.array(kmers)
-        kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
-        kmer_res = self.kmer_residuals()[kmer_indices]
-    
-        # sort descending by residual R-value error
-        if not ordered:
-            I = kmer_res.argsort()[::-1]
-            kmers = kmers[I]
-            kmer_indices = kmer_indices[I]
-
-        err0 = self.opt.global_error(self.opt.current.R)
-        self.logger.debug("error before optimizing kmer set {0}".format(err0))
-        # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
-        #repeat = True
-        #while repeat:
-        
-        N = float(len(kmers))
-        for n, (i, mer) in enumerate(zip(kmer_indices, kmers)):
-            param0 = self.opt.current.params[i]
-            #if mer.lower() == 'gccca':
-                #self.opt.sweep_param(i,x0=param0)
+    #             if a0 < relA_thresh*self.A0:
+    #                 # print col_first, col, i, "break"
+    #                 break
                 
-            best, err, new_state = self.opt.optimize_single_param(i, local = False)
-            better = self.opt.update(new_state, err, "{mer} {param0:.3e} -> {best:.3e}".format(**locals()))
-            #if self.opt.t <= (self.k*3)+1:
-                #self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
-            
-            cum_change = err0 - err
-            rel_change = cum_change / err0
-            if rel_change > .1:
-                self.logger.warning('substantial changes accumulated during kmer_set fit -> re-freshing')
-                self.opt.step_tm_refresh()
-                b, new_state, err0 = self.opt.step_betas()
+    #             ind[col] = row
+    #             mer = ''.join(bases[ind])                
+    #             if not mer in uniq:
+    #                 mers.append(mer)
+    #                 aff.append(a0)
+    #                 # print col_first, col, i, mer, '->', a0
+    #                 uniq.add(mer)
 
-            if n >= 100 and (n % 100 == 0):
-                self.logger.warning('{0:.2f}%  of kmer set optimized'.format(100. * n/N) )
-                    #repeat = True
-                    #break
-                #else:
-                    #repeat = False
+    #             for j in range(col_first+1, self.n):
+    #                 recurse(a0, ind, j)
 
-        d_err = err - err0
+    #     recurse(self.A0, ind0, 0)
+    #     return np.array(mers), np.array(aff)
 
-        # re-sort, descending on fitted kmer affinity
-        kmer_aff = new_state.params[kmer_indices]
-        I = kmer_aff.argsort()[::-1]
 
-        return kmers[I], kmer_indices[I], kmer_aff[I], d_err
+# from collections import defaultdict 
+# import logging
+# class PWMOptimizer(object):
+#     def __init__(self, k_min, k_max, opt, lag=3, eps=1e-2, max_iter=1000):
+#         self.k = k_min
+#         self.k_max = k_max
+#         self.nA = 4**k_min
+#         self.opt = opt
+#         self.lag = lag
+#         self.eps = eps
+#         self.max_iter = max_iter
+#         self.pwm_by_kmer = {}
+#         self.pwms = {}
+#         self.errors = []
+#         self.last_improvements = []
+#         self.t = 0
+#         self.kmer_queues = defaultdict(set)
         
+#         self.masked = np.ones(self.nA, dtype=np.uint8)
+#         self.weights = np.ones(self.nA, dtype=np.uint8)
+#         self.logger = logging.getLogger("opt.PWMOptimizer")
 
-    def retrieve_aff_kmer_set(self, kmers, state):
-        kmers = np.array(kmers)
-        kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
-        kmer_aff = state.params[kmer_indices]
-        I = kmer_aff.argsort()[::-1]
+#     def record_cue(self, seed, shift, i, compound):
+#         # store shifted motifs for future analyses on k+x
+#         self.kmer_queues[seed.lower()].add( (shift, i, compound) )
 
-        return kmers[I], kmer_indices[I], kmer_aff[I]
-
-    def build_pwm(self, kmer_seed):
-        # build the PWM from its hull
-        kmer_set, kmer_indices, kmer_aff = self.retrieve_aff_kmer_set(PSAM.from_kmer(kmer_seed).kmer_set, self.opt.current)
-        pwm = PSAM.from_kmer_variants(kmer_set, kmer_aff)
-        return pwm
-
-    def pwm_optimize_hull(self, kmer, keep_pwm=True):
+#     def digest_cues(self, seed):
+#         """
+#         Based on stored cues, decide in which direction to expand a PWM (add a column).
+#         Cues are taken from previously selected k-mers with bad R-value agreement that
+#         were identified as shifted versions of the PWM associated with seed.
+#         We add up the affinities assigned to those shifted versions to determine if
+#         more affinity can be "added to the PWM" by adding a column left or right.
+#         """
+#         left = []
+#         l = 0
         
-        # create a PWM "centered" on the seeding kmer
-        pwm = PSAM.from_kmer(kmer)
-        kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
+#         right = []
+#         r = 0
+#         seed_cues = self.kmer_queues[seed.lower()]
+#         cues = [(self.opt.mdl.params[i], shift, compound) for i, shift, compound in seed_cues]
+#         for aff, shift, compound in sorted(cues, reverse=True):
+#             if shift < 0:
+#                 l += aff
+#                 left.append(compound)
+#             else:
+#                 r += aff
+#                 right.append(compound)
         
-        if kmer.lower() != kmers[0].lower():
-            # The hull contains a kmer with higher affinity than our initial seed!
-            # Select that kmer as hull instead.
-            new = kmers[0]
-            self.logger.debug("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
-            return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
-            
-        self.opt.step_scale()
-        # reload these after the step_scale!
-        kmer_aff = self.opt.current.params[kmer_indices]
-        #self.opt.step_betas()
-
-        pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
-        if keep_pwm:
-            for mer in kmers:
-                self.pwm_by_kmer[mer.lower()] = pwm
-            self.pwms[pwm.kmer_seed] = pwm
+#         return l, left, r, right
         
-        self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.3e} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
-        return pwm, d_err
+        
+#     def kmer_residuals(self):
+#         errors = self.opt.kmer_errors(self.opt.current.R)
+#         return (errors**2).sum(axis=0) # sum sq. error across concentrations
+#         #return (errors**2).sum(axis=0) # sum sq. error across concentrations
     
-    def pwm_optimize_shell(self, pwm):
-        kmers, aff = pwm.kmer_affinities(relA_thresh=self.opt.aff0/pwm.A0)
-        I = (-aff).argsort()
-        kmer_set = kmers[I]
-        kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
-        return self.build_pwm(kmers[0]), d_err
-            
+#     def kmer_logratios(self):
+#         lr = np.log2(self.opt.current.R / self.opt.R_obs)
+#         return lr
 
-    def get_pwms(self, thresh=100.):
-        covered_kmers = set()
-        names = self.opt.mdl.parameters.param_name
-        # kmers in reverse affinity order
-        aff = self.opt.current.params[:self.opt.nA]
-        I = aff.argsort()[::-1]
-        A0 = aff[I[0]]
-        last_explained = np.zeros(self.opt.n_conc)
+#     def kmer_logerrors(self):
+#         le = self.kmer_logratios().mean(axis=0)
+#         return le
 
-        high_affinity_pwms = []
-        for i in I:
-            #print "covered", sorted(covered_kmers)
-            a = aff[i]
-            kmer_seed = names[i].lower()
-            #print "checking ",kmer_seed,aff[i]
-            if a < A0/thresh:
-                break
+#     def dump_logratios(self):
+#         path = cska.ensure_path(os.path.join(self.opt.out_path,"affinity","{0}mer_logratios.tsv".format(self.k)))
+#         self.logger.debug("storing kmer prediction error in {0}".format(path) )
+#         LR = self.kmer_logratios()
+#         #print LR.shape
+#         #print self.opt.mdl.param_name.shape
+#         f = file(path, 'w')
+#         for kmer, aff, lr in zip(self.opt.mdl.parameters.param_name, self.opt.mdl.params, LR.T):
+#             row = [kmer, str(aff), ] + [str(l) for l in lr]
+#             f.write("\t".join(row) + '\n')
+        
+#     def worst_kmer(self, debug=False):
+#         #residual = self.kmer_residuals()
+#         residual = self.kmer_logerrors()
+#         w = self.masked / self.weights
+#         i = (residual * w).argmin()
+#         kmer = cyska.index_to_seq(i, self.k)
+#         self.weights = np.where(self.weights > 1, self.weights - 1, 1)
+#         self.weights[i] *= 2
+        
+#         if debug:
+#             R_obs = self.opt.R_obs[:,i]
+#             R_pred = self.opt.current.R[:,i]
+#             dR = R_pred - R_obs
+#             self.logger.debug("{kmer} R_obs={R_obs} R_pred={R_pred} dR={dR}".format(**locals()) )
+        
+#         self.dump_logratios() # THIS IS FOR DEBUGGING
 
-            kmers, kmer_ind, kmer_aff = self.retrieve_aff_kmer_set(
-                PSAM.from_kmer(kmer_seed).kmer_set,
-                self.opt.current
-            )
-            if kmers[0].lower() != kmer_seed:
-                continue
-            
-            #for m,i,a in zip(kmers, kmer_ind, kmer_aff):
-                #print m,a
+#         return i, kmer, residual[i]
+    
+#     def is_shifted(self, kmer, s_max=2):
+#         k = len(kmer)
+#         kmer_pwm_map = self.pwm_by_kmer
+#         #print "mapped", sorted(self.pwm_by_kmer.keys())
+#         for x in range(1,s_max+1):
+#             for pad in list(cyska.yield_kmers(x)):
+#                 rshifted = (pad + kmer[:k-x]).lower()
+#                 lshifted = (kmer[x:]+pad).lower()
+#                 #print "l", x, kmer, lshifted
+#                 #print "r", x, kmer, rshifted
+#                 if lshifted in kmer_pwm_map:
+#                     seed = kmer_pwm_map[lshifted].kmer_seed
+#                     return -x, seed, kmer[:x] + seed
+#                 elif rshifted in kmer_pwm_map:
+#                     seed = kmer_pwm_map[rshifted].kmer_seed
+#                     return x, seed, seed + kmer[-x:]
+
+#         return 0, kmer, kmer
+        
+        
+#     def optimize_kmer_set_ordered(self, kmers, opt_tick=True, ordered=False):
+#         #print "optimize_kmer_set_ordered", kmers
+#         kmers = np.array(kmers)
+#         kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
+#         kmer_res = self.kmer_residuals()[kmer_indices]
+    
+#         # sort descending by residual R-value error
+#         if not ordered:
+#             I = kmer_res.argsort()[::-1]
+#             kmers = kmers[I]
+#             kmer_indices = kmer_indices[I]
+
+#         err0 = self.opt.global_error(self.opt.current.R)
+#         self.logger.debug("error before optimizing kmer set {0}".format(err0))
+#         # optimize kmer and all of its 1-mismatch relatives, ordered by their scheduler scores
+#         #repeat = True
+#         #while repeat:
+        
+#         N = float(len(kmers))
+#         for n, (i, mer) in enumerate(zip(kmer_indices, kmers)):
+#             param0 = self.opt.current.params[i]
+#             #if mer.lower() == 'gccca':
+#                 #self.opt.sweep_param(i,x0=param0)
                 
-            pwm = PSAM.from_kmer_variants(kmers, kmer_aff)
-
-            if pwm.kmer_seed.lower() not in covered_kmers:
-                covered_kmers |= set([mer.lower() for mer in pwm.kmer_set])
-
-                fraction_explained = np.array([reads.reads_with_kmer_set(list(pwm.kmer_set)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
-                pwm.fraction_explained = fraction_explained
-                high_affinity_pwms.append(pwm)
-        
-        pwms_ordered = sorted(high_affinity_pwms, key = lambda pwm : - pwm.fraction_explained.mean())
-        f0 = pwms_ordered[0].fraction_explained
-        kmer_set_selected = set()
-        n = 0
-        for pwm in pwms_ordered:
-            if (pwm.fraction_explained / f0 > .25).any():
-                yield pwm
-                kmer_set_selected |= set(pwm.kmer_set)
-                n += 1
-            else:
-                break
-
-        total_fraction_explained = np.array([reads.reads_with_kmer_set(list(kmer_set_selected)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
-        self.logger.info("{0} selected PWMS explain {1} of RBNS reads".format(n, total_fraction_explained))
-
-    def save_pwms(self):
-        for i,pwm in enumerate(self.get_pwms()):
-            rank = i+1 # TODO: improve by how much data "is explained"
-            pwm_path = cska.ensure_path(
-                os.path.join(
-                    self.opt.out_path, "motifs", "{pwm.n}mer_rank{rank:02d}_{pwm.consensus}/".format(**locals())
-                )
-            )
-            param_fname = '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
-            pwm.store_params(os.path.join(pwm_path, param_fname))
-
-            logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
-            logo_fname = '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
-            self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{pwm_path}'".format(pwm=pwm, pwm_path=pwm_path) )
-
-            pwm.save_logo(os.path.join(pwm_path, logo_fname), title=logo_title)
+#             best, err, new_state = self.opt.optimize_single_param(i, local = False)
+#             better = self.opt.update(new_state, err, "{mer} {param0:.3e} -> {best:.3e}".format(**locals()))
+#             #if self.opt.t <= (self.k*3)+1:
+#                 #self.opt.reporter.trigger_plots(self.opt.t, occasion="initial_{0}".format(mer.upper()))
             
-            # save the k-mer parameters for only this PWM
-            self.opt.mdl.parameters.store(
-                os.path.join(self.opt.out_path, "affinity"), 
-                params=pwm.kmer_affinity_table(),
-                suffix="__{pwm.consensus}_Kd={pwm.Kd:.3e}_t={self.t}".format(**locals()),
-            )
+#             cum_change = err0 - err
+#             rel_change = cum_change / err0
+#             if rel_change > .1:
+#                 self.logger.warning('substantial changes accumulated during kmer_set fit -> re-freshing')
+#                 self.opt.step_tm_refresh()
+#                 b, new_state, err0 = self.opt.step_betas()
+
+#             if n >= 100 and (n % 100 == 0):
+#                 self.logger.warning('{0:.2f}%  of kmer set optimized'.format(100. * n/N) )
+#                     #repeat = True
+#                     #break
+#                 #else:
+#                     #repeat = False
+
+#         d_err = err - err0
+
+#         # re-sort, descending on fitted kmer affinity
+#         kmer_aff = new_state.params[kmer_indices]
+#         I = kmer_aff.argsort()[::-1]
+
+#         return kmers[I], kmer_indices[I], kmer_aff[I], d_err
         
 
-    def store_params(self):
-        self.opt.mdl.parameters.store(os.path.join(self.opt.out_path, "affinity"))
+#     def retrieve_aff_kmer_set(self, kmers, state):
+#         kmers = np.array(kmers)
+#         kmer_indices = np.array([cyska.seq_to_index(mer) for mer in kmers])
+#         kmer_aff = state.params[kmer_indices]
+#         I = kmer_aff.argsort()[::-1]
 
-        # temporary: save partition function samples
-        #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
+#         return kmers[I], kmer_indices[I], kmer_aff[I]
 
-        self.save_pwms()
+#     def build_pwm(self, kmer_seed):
+#         # build the PWM from its hull
+#         kmer_set, kmer_indices, kmer_aff = self.retrieve_aff_kmer_set(PSAM.from_kmer(kmer_seed).kmer_set, self.opt.current)
+#         pwm = PSAM.from_kmer_variants(kmer_set, kmer_aff)
+#         return pwm
 
-
-    def rel_change(self):
-        if len(self.last_improvements) > self.lag:
-            mean_improve = np.mean(np.array(self.last_improvements)[-self.lag:])
-            mean_error = np.mean(np.array(self.errors)[-self.lag:])
-            last_error = self.errors[-1]
-            rc = mean_improve / mean_error
-            self.logger.debug("t={self.t} mean_improve={mean_improve:.2e}, mean_error={mean_error:.2e} last_error={last_error:.2e} rel_change={rc:.2e} eps={self.eps}".format(**locals()))
+#     def pwm_optimize_hull(self, kmer, keep_pwm=True):
+        
+#         # create a PWM "centered" on the seeding kmer
+#         pwm = PSAM.from_kmer(kmer)
+#         kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
+        
+#         if kmer.lower() != kmers[0].lower():
+#             # The hull contains a kmer with higher affinity than our initial seed!
+#             # Select that kmer as hull instead.
+#             new = kmers[0]
+#             self.logger.debug("{kmer} can not be seed, because it is not hull-maximal! Switching to {new} which has higher affinity.".format(**locals()))
+#             return self.pwm_optimize_hull(kmers[0], keep_pwm=keep_pwm)
             
-            return rc
-        else:
-            return self.eps
+#         self.opt.step_scale()
+#         # reload these after the step_scale!
+#         kmer_aff = self.opt.current.params[kmer_indices]
+#         #self.opt.step_betas()
 
-    def optimize(self, seed_params=None):
-        if not seed_params is None:
-            self.opt.mdl.params[:len(seed_params)] = seed_params
-
-        self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
-        # do a beta sweep
-        for i in range(self.opt.mdl.n_conc):
-            self.opt.sweep_param(self.opt.mdl.nA + i)
-
-        self.opt.step_betas()
-
-        self.opt.reporter.tick(0)
-        self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
+#         pwm = PSAM.from_kmer_variants(kmers, np.array(kmer_aff))
+#         if keep_pwm:
+#             for mer in kmers:
+#                 self.pwm_by_kmer[mer.lower()] = pwm
+#             self.pwms[pwm.kmer_seed] = pwm
         
-        err0 = self.opt.global_error(self.opt.current.R)
-        self.errors.append(err0)
-
-        for t in xrange(self.max_iter):
-            err = self.next_move()
-            d_err = self.errors[-1] - err
-            self.errors.append(err)
-            self.last_improvements.append(d_err)
-
-            if self.rel_change() < self.eps:
-                if not len(seed_params) and self.k < self.k_max:
-                    self.increase_k()
-                else:
-                    break
-
-        self.opt.reporter.trigger_plots(self.opt.t, occasion="final")
-        self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
-        
-    def next_move(self):
-        # if self.t == 0:
-        #     self.increase_k() # force k increase to test degradation of fit
-        
-        # if self.t == 0:
-        #     for pwm in self.get_pwms():
-        #         print pwm
-
-        corr = self.opt.correlation()
-        self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
-        
-        status = OptimizationStatus(self.pwm0, self.opt.current, self.opt)
-        op, data = status.best_update_set()
-        self.logger.debug("best_update: {0} ({1})".format(op, data))
-
-        aff = self.opt.mdl.parameters.affinities
-        best_kmer_i = aff.argmax()
-        best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
-        print "best kmer before scale", best_kmer, aff[best_kmer_i]
-        self.opt.step_scale(min_scale=.1, max_scale=10.)
-
-        if op == 'scale':
-            aff = self.opt.mdl.parameters.affinities
-            best_kmer_i = aff.argmax()
-            best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
-            print "best kmer before scale", best_kmer, aff[best_kmer_i]
-            self.opt.step_scale(min_scale=.1, max_scale=10.)
+#         self.logger.info("pwm_optimize_hull({pwm.kmer_seed})->Kd={pwm.Kd:.3e} nM d_err={d_err:.3e}".format(pwm=pwm, d_err=d_err) )
+#         return pwm, d_err
+    
+#     def pwm_optimize_shell(self, pwm):
+#         kmers, aff = pwm.kmer_affinities(relA_thresh=self.opt.aff0/pwm.A0)
+#         I = (-aff).argsort()
+#         kmer_set = kmers[I]
+#         kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(pwm.kmer_set)
+#         return self.build_pwm(kmers[0]), d_err
             
-        elif op == 'kmer_set':
-            kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(data, ordered=True)
-            self.opt.step_betas()
 
-        aff = self.opt.mdl.parameters.affinities
-        best_kmer_i = aff.argmax()
-        best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
+#     def get_pwms(self, thresh=100.):
+#         covered_kmers = set()
+#         names = self.opt.mdl.parameters.param_name
+#         # kmers in reverse affinity order
+#         aff = self.opt.current.params[:self.opt.nA]
+#         I = aff.argsort()[::-1]
+#         A0 = aff[I[0]]
+#         last_explained = np.zeros(self.opt.n_conc)
 
+#         high_affinity_pwms = []
+#         for i in I:
+#             #print "covered", sorted(covered_kmers)
+#             a = aff[i]
+#             kmer_seed = names[i].lower()
+#             #print "checking ",kmer_seed,aff[i]
+#             if a < A0/thresh:
+#                 break
 
-        print "best kmer after op", best_kmer, aff[best_kmer_i]
-        pwm0 = self.build_pwm(best_kmer)
-        self.pwm0, d_err = self.pwm_optimize_shell(pwm0)
-        print self.pwm0
-        self.save_pwms()
+#             kmers, kmer_ind, kmer_aff = self.retrieve_aff_kmer_set(
+#                 PSAM.from_kmer(kmer_seed).kmer_set,
+#                 self.opt.current
+#             )
+#             if kmers[0].lower() != kmer_seed:
+#                 continue
+            
+#             #for m,i,a in zip(kmers, kmer_ind, kmer_aff):
+#                 #print m,a
+                
+#             pwm = PSAM.from_kmer_variants(kmers, kmer_aff)
 
-        # i, kmer, res = self.worst_kmer(debug=True)
-        # keep_pwm = True
-        # self.logger.info("selected worst kmer {kmer} with residual error={res}".format(**locals()) )
-        # if kmer in self.pwm_by_kmer:
-        #     pwm = self.pwm_by_kmer[kmer]
-        #     self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
-        #     kmer = pwm.kmer_seed
-        # #else:
-        #     #shift, seed, compound = self.is_shifted(kmer)
-        #     #ashift = abs(shift)
-        #     #if ashift > 0:
-        #         #self.logger.info("{kmer} is {ashift}-SHIFT of HULL({seed}). Recording {compound} for k+{shift}".format(**locals()) )
-        #         #self.record_cue(seed, shift, i, compound)
-        #         ##keep_pwm = False
-        #     #else:
-        #         #self.logger.info("{kmer} does not belong to current PWM set. Starting new PWM".format(**locals()) )
+#             if pwm.kmer_seed.lower() not in covered_kmers:
+#                 covered_kmers |= set([mer.lower() for mer in pwm.kmer_set])
 
-        # pwm, d_err = self.pwm_optimize_hull(kmer, keep_pwm=keep_pwm)
-        err = self.opt.global_error(self.opt.current.R)
-
-        self.t += 1
-        return err
+#                 fraction_explained = np.array([reads.reads_with_kmer_set(list(pwm.kmer_set)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
+#                 pwm.fraction_explained = fraction_explained
+#                 high_affinity_pwms.append(pwm)
         
-    def params_for_k_increase(self, waterline = None):
-        """
-        generate kmer parameters for k+1 by scoring k+1 mers with existing  
-        k-mer parameters
-        """
-        k = self.k
-        try:
-            # try to load k-1 mer ("core") affinities to determine energy contributed by overlap
-            # between k-mers
-            core_mdl = self.opt.mdl.parameters.resume(os.path.join(self.opt.out_path,"affinities"), k=k-1)
-            core = core_mdl.parameters
-            self.logger.warning("using '{0}' as core energies".format(core))
-        except IOError:
-            core = None
+#         pwms_ordered = sorted(high_affinity_pwms, key = lambda pwm : - pwm.fraction_explained.mean())
+#         f0 = pwms_ordered[0].fraction_explained
+#         kmer_set_selected = set()
+#         n = 0
+#         for pwm in pwms_ordered:
+#             if (pwm.fraction_explained / f0 > .25).any():
+#                 yield pwm
+#                 kmer_set_selected |= set(pwm.kmer_set)
+#                 n += 1
+#             else:
+#                 break
+
+#         total_fraction_explained = np.array([reads.reads_with_kmer_set(list(kmer_set_selected)) / float(reads.N) for reads in self.opt.rbns_analysis.reads[1:]])
+#         self.logger.info("{0} selected PWMS explain {1} of RBNS reads".format(n, total_fraction_explained))
+
+#     def save_pwms(self):
+#         for i,pwm in enumerate(self.get_pwms()):
+#             rank = i+1 # TODO: improve by how much data "is explained"
+#             pwm_path = cska.ensure_path(
+#                 os.path.join(
+#                     self.opt.out_path, "motifs", "{pwm.n}mer_rank{rank:02d}_{pwm.consensus}/".format(**locals())
+#                 )
+#             )
+#             param_fname = '{pwm.consensus}_t{self.t}.tsv'.format(self=self, pwm=pwm)
+#             pwm.store_params(os.path.join(pwm_path, param_fname))
+
+#             logo_title = 'Kd={pwm.Kd:.2e} nM'.format(**locals())
+#             logo_fname = '{pwm.consensus}_Kd_{pwm.Kd:.3f}_t={self.t}.eps'.format(**locals())
+#             self.logger.info("storing PWM {pwm.kmer_seed} Kd={pwm.Kd:.2e} -> '{pwm_path}'".format(pwm=pwm, pwm_path=pwm_path) )
+
+#             pwm.save_logo(os.path.join(pwm_path, logo_fname), title=logo_title)
+            
+#             # save the k-mer parameters for only this PWM
+#             self.opt.mdl.parameters.store(
+#                 os.path.join(self.opt.out_path, "affinity"), 
+#                 params=pwm.kmer_affinity_table(),
+#                 suffix="__{pwm.consensus}_Kd={pwm.Kd:.3e}_t={self.t}".format(**locals()),
+#             )
         
-        new = self.opt.mdl.parameters.params_for_next_k(core_param=core, waterline=10*self.opt.aff0, aff0=self.opt.aff0)
-        return new
 
-    def create_optimizer(self, k, params=[]):
-        from cska.optimize import ModelOptimization
-        # free some memory
-        self.opt.input_reads.cache_flush('__cached_get_index_matrix')
-        self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
+#     def store_params(self):
+#         self.opt.mdl.parameters.store(os.path.join(self.opt.out_path, "affinity"))
 
-        # create new optimizer and model
-        new_opt = ModelOptimization(k, self.opt.rbns_analysis,
-            mdl_params = params,
-            t0 = self.opt.t,
-            reporter = self.opt.reporter,
-            kmer_opt_global = not self.opt.param_local_fit,
-        )
-        new_opt.errors = self.opt.errors + new_opt.errors
-        new_opt.correlations = self.opt.correlations
-        new_opt.rel_improvements = self.opt.rel_improvements
+#         # temporary: save partition function samples
+#         #self.opt.current.store_Z(os.path.join(self.opt.opt_path, '{self.k}mer_Z1.npy'.format(self=self)))
 
-        # some plumbing to make reports/plots contiguous
-        self.opt.reporter.set_opt(new_opt)
-        return new_opt
+#         self.save_pwms()
 
-    def increase_k(self, cutoff=.01):
-        # get new optimizer and model with expanded kmer model parameters
-        corr = self.opt.correlation()
-        self.logger.warning("{self.k}mer correlations BEFORE k-increase {corr}".format(**locals()) )
 
-        waterline = self.opt.aff0 * 10
-        new_params = self.params_for_k_increase(waterline=waterline)
+#     def rel_change(self):
+#         if len(self.last_improvements) > self.lag:
+#             mean_improve = np.mean(np.array(self.last_improvements)[-self.lag:])
+#             mean_error = np.mean(np.array(self.errors)[-self.lag:])
+#             last_error = self.errors[-1]
+#             rc = mean_improve / mean_error
+#             self.logger.debug("t={self.t} mean_improve={mean_improve:.2e}, mean_error={mean_error:.2e} last_error={last_error:.2e} rel_change={rc:.2e} eps={self.eps}".format(**locals()))
+            
+#             return rc
+#         else:
+#             return self.eps
+
+#     def optimize(self, seed_params=None):
+#         if not seed_params is None:
+#             self.opt.mdl.params[:len(seed_params)] = seed_params
+
+#         self.opt.current = self.opt.mdl.evaluate(self.opt.mdl.params, tm_update=True, keep=True)
+#         # do a beta sweep
+#         for i in range(self.opt.mdl.n_conc):
+#             self.opt.sweep_param(self.opt.mdl.nA + i)
+
+#         self.opt.step_betas()
+
+#         self.opt.reporter.tick(0)
+#         self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
+        
+#         err0 = self.opt.global_error(self.opt.current.R)
+#         self.errors.append(err0)
+
+#         for t in xrange(self.max_iter):
+#             err = self.next_move()
+#             d_err = self.errors[-1] - err
+#             self.errors.append(err)
+#             self.last_improvements.append(d_err)
+
+#             if self.rel_change() < self.eps:
+#                 if not len(seed_params) and self.k < self.k_max:
+#                     self.increase_k()
+#                 else:
+#                     break
+
+#         self.opt.reporter.trigger_plots(self.opt.t, occasion="final")
+#         self.logger.info("ending optimization after {self.t} iterations at k={self.k}".format(self=self))
+        
+#     def next_move(self):
+#         # if self.t == 0:
+#         #     self.increase_k() # force k increase to test degradation of fit
+        
+#         # if self.t == 0:
+#         #     for pwm in self.get_pwms():
+#         #         print pwm
+
+#         corr = self.opt.correlation()
+#         self.logger.info("{self.k}mer correlations at t={self.t} {corr}".format(**locals()) )
+        
+#         status = OptimizationStatus(self.pwm0, self.opt.current, self.opt)
+#         op, data = status.best_update_set()
+#         self.logger.debug("best_update: {0} ({1})".format(op, data))
+
+#         aff = self.opt.mdl.parameters.affinities
+#         best_kmer_i = aff.argmax()
+#         best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
+#         print "best kmer before scale", best_kmer, aff[best_kmer_i]
+#         self.opt.step_scale(min_scale=.1, max_scale=10.)
+
+#         if op == 'scale':
+#             aff = self.opt.mdl.parameters.affinities
+#             best_kmer_i = aff.argmax()
+#             best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
+#             print "best kmer before scale", best_kmer, aff[best_kmer_i]
+#             self.opt.step_scale(min_scale=.1, max_scale=10.)
+            
+#         elif op == 'kmer_set':
+#             kmers, kmer_indices, kmer_aff, d_err = self.optimize_kmer_set_ordered(data, ordered=True)
+#             self.opt.step_betas()
+
+#         aff = self.opt.mdl.parameters.affinities
+#         best_kmer_i = aff.argmax()
+#         best_kmer = cyska.index_to_seq(best_kmer_i, self.pwm0.n)
+
+
+#         print "best kmer after op", best_kmer, aff[best_kmer_i]
+#         pwm0 = self.build_pwm(best_kmer)
+#         self.pwm0, d_err = self.pwm_optimize_shell(pwm0)
+#         print self.pwm0
+#         self.save_pwms()
+
+#         # i, kmer, res = self.worst_kmer(debug=True)
+#         # keep_pwm = True
+#         # self.logger.info("selected worst kmer {kmer} with residual error={res}".format(**locals()) )
+#         # if kmer in self.pwm_by_kmer:
+#         #     pwm = self.pwm_by_kmer[kmer]
+#         #     self.logger.info("{kmer} belongs to PWM({pwm.kmer_seed})".format(**locals()) )
+#         #     kmer = pwm.kmer_seed
+#         # #else:
+#         #     #shift, seed, compound = self.is_shifted(kmer)
+#         #     #ashift = abs(shift)
+#         #     #if ashift > 0:
+#         #         #self.logger.info("{kmer} is {ashift}-SHIFT of HULL({seed}). Recording {compound} for k+{shift}".format(**locals()) )
+#         #         #self.record_cue(seed, shift, i, compound)
+#         #         ##keep_pwm = False
+#         #     #else:
+#         #         #self.logger.info("{kmer} does not belong to current PWM set. Starting new PWM".format(**locals()) )
+
+#         # pwm, d_err = self.pwm_optimize_hull(kmer, keep_pwm=keep_pwm)
+#         err = self.opt.global_error(self.opt.current.R)
+
+#         self.t += 1
+#         return err
+        
+#     def params_for_k_increase(self, waterline = None):
+#         """
+#         generate kmer parameters for k+1 by scoring k+1 mers with existing  
+#         k-mer parameters
+#         """
+#         k = self.k
+#         try:
+#             # try to load k-1 mer ("core") affinities to determine energy contributed by overlap
+#             # between k-mers
+#             core_mdl = self.opt.mdl.parameters.resume(os.path.join(self.opt.out_path,"affinities"), k=k-1)
+#             core = core_mdl.parameters
+#             self.logger.warning("using '{0}' as core energies".format(core))
+#         except IOError:
+#             core = None
+        
+#         new = self.opt.mdl.parameters.params_for_next_k(core_param=core, waterline=10*self.opt.aff0, aff0=self.opt.aff0)
+#         return new
+
+#     def create_optimizer(self, k, params=[]):
+#         from cska.optimize import ModelOptimization
+#         # free some memory
+#         self.opt.input_reads.cache_flush('__cached_get_index_matrix')
+#         self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
+
+#         # create new optimizer and model
+#         new_opt = ModelOptimization(k, self.opt.rbns_analysis,
+#             mdl_params = params,
+#             t0 = self.opt.t,
+#             reporter = self.opt.reporter,
+#             kmer_opt_global = not self.opt.param_local_fit,
+#         )
+#         new_opt.errors = self.opt.errors + new_opt.errors
+#         new_opt.correlations = self.opt.correlations
+#         new_opt.rel_improvements = self.opt.rel_improvements
+
+#         # some plumbing to make reports/plots contiguous
+#         self.opt.reporter.set_opt(new_opt)
+#         return new_opt
+
+#     def increase_k(self, cutoff=.01):
+#         # get new optimizer and model with expanded kmer model parameters
+#         corr = self.opt.correlation()
+#         self.logger.warning("{self.k}mer correlations BEFORE k-increase {corr}".format(**locals()) )
+
+#         waterline = self.opt.aff0 * 10
+#         new_params = self.params_for_k_increase(waterline=waterline)
                
-        self.opt = self.create_optimizer(self.k+1, params=new_params)
-        self.logger.warning("new {0} mer parameters:'{1}'".format(self.k+1, self.opt.mdl.parameters))
-        self.k = self.k + 1
-        self.nA = 4**self.k
+#         self.opt = self.create_optimizer(self.k+1, params=new_params)
+#         self.logger.warning("new {0} mer parameters:'{1}'".format(self.k+1, self.opt.mdl.parameters))
+#         self.k = self.k + 1
+#         self.nA = 4**self.k
 
-        corr = self.opt.correlation()
-        self.logger.warning("new {self.k}mer correlations before scaling {corr}".format(**locals()) )
+#         corr = self.opt.correlation()
+#         self.logger.warning("new {self.k}mer correlations before scaling {corr}".format(**locals()) )
 
-        rep = self.opt.reporter
-        rep.trigger_plots(self.opt.t, occasion="param_expansion")
-        # self.opt.step_betas()
-        # corr = self.opt.correlation()
-        # self.logger.warning("new {self.k}mer correlations after beta {corr}".format(**locals()) )
+#         rep = self.opt.reporter
+#         rep.trigger_plots(self.opt.t, occasion="param_expansion")
+#         # self.opt.step_betas()
+#         # corr = self.opt.correlation()
+#         # self.logger.warning("new {self.k}mer correlations after beta {corr}".format(**locals()) )
 
-        self.opt.step_scale(min_scale=.001, max_scale=4.)
-        corr = self.opt.correlation()
-        self.logger.warning("new {self.k}mer correlations after scaling {corr}".format(**locals()) )
+#         self.opt.step_scale(min_scale=.001, max_scale=4.)
+#         corr = self.opt.correlation()
+#         self.logger.warning("new {self.k}mer correlations after scaling {corr}".format(**locals()) )
 
-        rep.trigger_plots(self.opt.t, occasion="param_expansion_rescaled")
+#         rep.trigger_plots(self.opt.t, occasion="param_expansion_rescaled")
         
-        # all parameters that have been changed from background levels
-        need_fit = (new_params[:self.opt.nA] > waterline).nonzero()[0]
+#         # all parameters that have been changed from background levels
+#         need_fit = (new_params[:self.opt.nA] > waterline).nonzero()[0]
 
-        n_fit = len(need_fit)
-        self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
+#         n_fit = len(need_fit)
+#         self.logger.info("switched to k+1 ={self.k} step 1: re-calibration of {n_fit} parameters.".format(**locals()) )
         
-        res = self.kmer_residuals()[need_fit]
-        aff = new_params[need_fit]
-        kmers = self.opt.mdl.parameters.param_name[need_fit]
-        order = aff.argsort()[::-1]
-        #order = res.argsort()[::-1]
-        #need_fit = new_param[need_fit].argsort()[::-1]
+#         res = self.kmer_residuals()[need_fit]
+#         aff = new_params[need_fit]
+#         kmers = self.opt.mdl.parameters.param_name[need_fit]
+#         order = aff.argsort()[::-1]
+#         #order = res.argsort()[::-1]
+#         #need_fit = new_param[need_fit].argsort()[::-1]
 
-        self.optimize_kmer_set_ordered(kmers[order])
-        corr = self.opt.correlation()
-        self.logger.warning("new {self.k}mer correlations after param opt {corr}".format(**locals()) )
+#         self.optimize_kmer_set_ordered(kmers[order])
+#         corr = self.opt.correlation()
+#         self.logger.warning("new {self.k}mer correlations after param opt {corr}".format(**locals()) )
 
-        rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized")
-        self.opt.step_scale()
-        corr = self.opt.correlation()
-        self.logger.warning("new {self.k}mer correlations after final scaling {corr}".format(**locals()) )
+#         rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized")
+#         self.opt.step_scale()
+#         corr = self.opt.correlation()
+#         self.logger.warning("new {self.k}mer correlations after final scaling {corr}".format(**locals()) )
 
-        rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized_scaled")
+#         rep.trigger_plots(self.opt.t, occasion="param_expansion_optimized_scaled")
         
-        old_pwms = self.pwms
-        n_pwm = len(old_pwms.values())
-        pwm_list = sorted(old_pwms.values(), key=lambda x : x.Kd)
-        pwm_str = ",".join(["{p.kmer_seed} Kd={p.Kd:.2f}".format(p=pwm) for pwm in pwm_list])
-        self.logger.info("switched to k+1 ={self.k} step 2: reconstruction of {n_pwm} PWMs.".format(**locals()) )
+#         old_pwms = self.pwms
+#         n_pwm = len(old_pwms.values())
+#         pwm_list = sorted(old_pwms.values(), key=lambda x : x.Kd)
+#         pwm_str = ",".join(["{p.kmer_seed} Kd={p.Kd:.2f}".format(p=pwm) for pwm in pwm_list])
+#         self.logger.info("switched to k+1 ={self.k} step 2: reconstruction of {n_pwm} PWMs.".format(**locals()) )
         
 
-        #old_kmers = kmer_set_union(self.pwms)
+#         #old_kmers = kmer_set_union(self.pwms)
         
-        self.pwm_by_kmer = {}
-        self.pwms = {}
-        self.last_improvements = []
-        #self.t = 0
+#         self.pwm_by_kmer = {}
+#         self.pwms = {}
+#         self.last_improvements = []
+#         #self.t = 0
         
-        self.masked = np.ones(self.nA, dtype=np.uint8)
-        self.weights = np.ones(self.nA, dtype=np.uint8)
+#         self.masked = np.ones(self.nA, dtype=np.uint8)
+#         self.weights = np.ones(self.nA, dtype=np.uint8)
 
-        # # migrate PWMs, ordered by affinity
-        # for pwm in pwm_list:
-        #     l, left, r, right = self.digest_cues(pwm.kmer_seed)
+#         # # migrate PWMs, ordered by affinity
+#         # for pwm in pwm_list:
+#         #     l, left, r, right = self.digest_cues(pwm.kmer_seed)
 
-        #     # expand the PWM's seed kmer in the direction indicated by the cues
-        #     new_seed_candidates = np.array(list(expand([pwm.kmer_seed,],l > r)))
+#         #     # expand the PWM's seed kmer in the direction indicated by the cues
+#         #     new_seed_candidates = np.array(list(expand([pwm.kmer_seed,],l > r)))
             
-        #     # optimize the 4 versions of the extended (k+1) seed kmer
-        #     kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
-        #     self.opt.step_betas()
-        #     rep.trigger_plots(self.opt.t, occasion="increase_k_pwm_{pwm.kmer_seed}_update".format(pwm=pwm))
-        #     a0 = aff[0] # highest affinity comes first
-        #     for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
-        #         if a >= a0 * cutoff:
-        #             # affinity is within reasonable range of the optimum
-        #             #hull_kmers = hull(kmer)
-        #             #hull_indices = np.array([cyska.seq_to_index(mer) for mer in hull_kmers])
-        #             ##new_pwm = PSAM.from_kmer_variants(hull_kmers, self.opt.mdl.params[hull_indices])
+#         #     # optimize the 4 versions of the extended (k+1) seed kmer
+#         #     kmers, indices, aff, d_err = self.optimize_kmer_set_ordered(new_seed_candidates)
+#         #     self.opt.step_betas()
+#         #     rep.trigger_plots(self.opt.t, occasion="increase_k_pwm_{pwm.kmer_seed}_update".format(pwm=pwm))
+#         #     a0 = aff[0] # highest affinity comes first
+#         #     for kmer, a in zip(kmers, aff)[:1]: # hack, disable pwm split for now!
+#         #         if a >= a0 * cutoff:
+#         #             # affinity is within reasonable range of the optimum
+#         #             #hull_kmers = hull(kmer)
+#         #             #hull_indices = np.array([cyska.seq_to_index(mer) for mer in hull_kmers])
+#         #             ##new_pwm = PSAM.from_kmer_variants(hull_kmers, self.opt.mdl.params[hull_indices])
                     
-        #             self.pwm_optimize_hull(kmer)
-        #     corr = self.opt.correlation()
-        #     self.logger.warning("{self.k}mer correlations with new parameters after optimizing PWM {pwm.kmer_seed} corr={corr}".format(**locals()) )
+#         #             self.pwm_optimize_hull(kmer)
+#         #     corr = self.opt.correlation()
+#         #     self.logger.warning("{self.k}mer correlations with new parameters after optimizing PWM {pwm.kmer_seed} corr={corr}".format(**locals()) )
 
-        # reset migration cues
-        self.kmer_queues = defaultdict(set)
-        rep.trigger_plots(self.opt.t, occasion="increase_k_finished")
+#         # reset migration cues
+#         self.kmer_queues = defaultdict(set)
+#         rep.trigger_plots(self.opt.t, occasion="increase_k_finished")
 
         
         
-def opt_merge(p0, pk, padding):
+# def opt_merge(p0, pk, padding):
     
-    pre0, app0, prek, appk = padding
+#     pre0, app0, prek, appk = padding
 
-    A0 = p0.A0
-    Ak = pk.A0
+#     A0 = p0.A0
+#     Ak = pk.A0
     
-    if prek:
-        Ak /= p0.psam[:prek].mean(axis=1).prod() * A0
-    if appk:
-        Ak /= p0.psam[-appk:].mean(axis=1).prod() * A0
+#     if prek:
+#         Ak /= p0.psam[:prek].mean(axis=1).prod() * A0
+#     if appk:
+#         Ak /= p0.psam[-appk:].mean(axis=1).prod() * A0
 
-    print "A0", A0, "Ak", Ak
-    A = max(A0, Ak)
-
-    
-    n_ext = pre0 + app0
-    if n_ext:
-        A0_avg = (A0/A)**(1./n_ext)
-    
-    n_ext = prek + appk
-    if n_ext:
-        Ak_avg = (Ak/A)**(1./n_ext)
-
-    if pre0:
-        p0.psam[:pre0,  :] *= A0_avg
-    if app0:
-        p0.psam[-app0:, :] *= A0_avg
-        print app0, A0_avg, p0.psam[-app0:, :]        
-    if prek:
-        pk.psam[:prek,  :] *= Ak_avg
-        print prek, Ak_avg, pk.psam[:prek, :]        
-    if appk:
-        pk.psam[-app0:, :] *= Ak_avg
-        
-    print "p0"
-    print p0.psam
-    print "pk"
-    print pk.psam
-    
-    I0 = (p0.psam == 1).nonzero()
-    Ik = (pk.psam == 1).nonzero()
-    I = ((p0.psam == 1) | (pk.psam == 1) ).nonzero()
+#     print "A0", A0, "Ak", Ak
+#     A = max(A0, Ak)
 
     
+#     n_ext = pre0 + app0
+#     if n_ext:
+#         A0_avg = (A0/A)**(1./n_ext)
     
-    #print I
-    n = len(I[0])
-    #if not n:
-        #I = (pk.psam > 0).nonzero() * p0.psam[I0]
-        #p0.psam *= p0.A0 / pk.A0
-        #p0.psam[I] = 1.
-        #p0.A0 = pk.A0
-        #return p0
-    
-    ratio = pk.A0 / p0.A0
-    #current = p0.psam[I].prod()
-    #if current > 0:
-        #ratio /= current
+#     n_ext = prek + appk
+#     if n_ext:
+#         Ak_avg = (Ak/A)**(1./n_ext)
+
+#     if pre0:
+#         p0.psam[:pre0,  :] *= A0_avg
+#     if app0:
+#         p0.psam[-app0:, :] *= A0_avg
+#         print app0, A0_avg, p0.psam[-app0:, :]        
+#     if prek:
+#         pk.psam[:prek,  :] *= Ak_avg
+#         print prek, Ak_avg, pk.psam[:prek, :]        
+#     if appk:
+#         pk.psam[-app0:, :] *= Ak_avg
         
-    #print "RATIO to distribute", ratio, pk.A0, p0.A0, p0.psam[I].prod()
-    #if n == 1:
-        #p0.psam[I] = ratio
-        #return p0
+#     print "p0"
+#     print p0.psam
+#     print "pk"
+#     print pk.psam
     
-    # find optimal distribution of changes over 
-    # elements in p0 such that product == ratio
-    # and perturbation of non-zero elements is 
-    # minimal
+#     I0 = (p0.psam == 1).nonzero()
+#     Ik = (pk.psam == 1).nonzero()
+#     I = ((p0.psam == 1) | (pk.psam == 1) ).nonzero()
+
     
-    def normed(w):
-        p = np.array(p0.psam, dtype=float)
-        p[I] = w
-        amax = p.max(axis=1)
-        p /= amax[:, np.newaxis]
-        return p
-        
-    cost_mask = (p0.psam > 0) | (p0.psam == 1).all(axis=1)[:, np.newaxis]
     
-    def to_optimize(w):
-        p = normed(w)
-        a0 = p[I0].prod() * A # affinity assigned by current weights to best previous sequence
-        ak = p[Ik].prod() * A # affinity assigned by current weights to new sequence
+#     #print I
+#     n = len(I[0])
+#     #if not n:
+#         #I = (pk.psam > 0).nonzero() * p0.psam[I0]
+#         #p0.psam *= p0.A0 / pk.A0
+#         #p0.psam[I] = 1.
+#         #p0.A0 = pk.A0
+#         #return p0
+    
+#     ratio = pk.A0 / p0.A0
+#     #current = p0.psam[I].prod()
+#     #if current > 0:
+#         #ratio /= current
         
-        if pre0:
-            a0 *= p[:pre0, :].mean(axis=1).prod()
-        if prek:
-            ak *= p[:prek, :].mean(axis=1).prod()
+#     #print "RATIO to distribute", ratio, pk.A0, p0.A0, p0.psam[I].prod()
+#     #if n == 1:
+#         #p0.psam[I] = ratio
+#         #return p0
+    
+#     # find optimal distribution of changes over 
+#     # elements in p0 such that product == ratio
+#     # and perturbation of non-zero elements is 
+#     # minimal
+    
+#     def normed(w):
+#         p = np.array(p0.psam, dtype=float)
+#         p[I] = w
+#         amax = p.max(axis=1)
+#         p /= amax[:, np.newaxis]
+#         return p
         
-        if app0:
-            a0 *= p[-app0:, :].mean(axis=1).prod()
-        if appk:
-            ak *= p[-appk:, :].mean(axis=1).prod()
+#     cost_mask = (p0.psam > 0) | (p0.psam == 1).all(axis=1)[:, np.newaxis]
+    
+#     def to_optimize(w):
+#         p = normed(w)
+#         a0 = p[I0].prod() * A # affinity assigned by current weights to best previous sequence
+#         ak = p[Ik].prod() * A # affinity assigned by current weights to new sequence
+        
+#         if pre0:
+#             a0 *= p[:pre0, :].mean(axis=1).prod()
+#         if prek:
+#             ak *= p[:prek, :].mean(axis=1).prod()
+        
+#         if app0:
+#             a0 *= p[-app0:, :].mean(axis=1).prod()
+#         if appk:
+#             ak *= p[-appk:, :].mean(axis=1).prod()
             
-        matrix_dev = ((A*p - A0 * p0.psam )**2 * cost_mask).sum()
-        Ak_dev = (Ak - ak)**2
-        A0_dev = (A0 - a0)**2
-        cost = matrix_dev + 100*Ak_dev + 100*A0_dev 
+#         matrix_dev = ((A*p - A0 * p0.psam )**2 * cost_mask).sum()
+#         Ak_dev = (Ak - ak)**2
+#         A0_dev = (A0 - a0)**2
+#         cost = matrix_dev + 100*Ak_dev + 100*A0_dev 
 
-        #print p
-        #print "costs:", matrix_dev, Ak_dev, A0_dev, cost
-        return cost
+#         #print p
+#         #print "costs:", matrix_dev, Ak_dev, A0_dev, cost
+#         return cost
 
-    from scipy.optimize import minimize
-    w0 = np.ones(n) * ratio**(1./n)
-    bounds = np.array([(1e-10, max(ratio, 1./ratio)),]*n)
-    #print "w0", w0
-    #print "bounds", bounds
-    res = minimize(to_optimize, w0, bounds=bounds)
+#     from scipy.optimize import minimize
+#     w0 = np.ones(n) * ratio**(1./n)
+#     bounds = np.array([(1e-10, max(ratio, 1./ratio)),]*n)
+#     #print "w0", w0
+#     #print "bounds", bounds
+#     res = minimize(to_optimize, w0, bounds=bounds)
     
-    weights = res.x
-    #print res.x, res.fun, res
-    #remain = ratio / weights.prod()
-    #weights = np.concatenate( ( weights, (remain,)) )
-    p0.psam = normed(weights)
-    p0.A0 = A
-    return p0
+#     weights = res.x
+#     #print res.x, res.fun, res
+#     #remain = ratio / weights.prod()
+#     #weights = np.concatenate( ( weights, (remain,)) )
+#     p0.psam = normed(weights)
+#     p0.A0 = A
+#     return p0
     
     
     
