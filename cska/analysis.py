@@ -223,6 +223,7 @@ class RBNSAnalysis(CachedBase):
         CachedBase.__init__(self)
         
         self.reads = []
+        self.n_samples = 0
         self.acc_storages = []
         self.rbp_name = rbp_name
         self.out_path = out_path
@@ -264,6 +265,8 @@ class RBNSAnalysis(CachedBase):
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
+
+        self.n_samples = len(self.reads) - 1
     
     @property
     def input_reads(self):

@@ -237,6 +237,7 @@ class DependentKmerAnalysis(CachedBase):
         profs = []
         joints = []
         
+        self.logger.info("performing seed analysis")
         for reads in rbns.reads:
             self.logger.debug("collecting joint kmer frequencies for {reads.name}".format(reads=reads))
             joint = reads.joint_kmer_freq_distance_profile(km)
@@ -493,6 +494,10 @@ class SeedRefinement(object):
 
         self.store_logos()
 
+    def seeded_params(self, n_samples, **kwargs):
+        from cska.params import ModelParametrization
+        return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
+
     def distance_xcorr_plot(self, fname="xcorr.pdf"):
         self.logger.debug("generating xcorr plot")
 
@@ -526,11 +531,11 @@ class SeedRefinement(object):
         # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
 
 
-    def linear_seed_params(self, A0=1., aff0=1e-6):
-        psam = self.psam_lin
-        psam.A0 = A0
+    # def linear_seed_params(self, A0=1., aff0=1e-6):
+    #     psam = self.psam_lin
+    #     psam.A0 = A0
 
-        return psam.kmer_affinity_table(aff0-aff0)
+    #     return psam.kmer_affinity_table(aff0-aff0)
 
     # def optimize(self, eps=1e-3, A0=1.):
 

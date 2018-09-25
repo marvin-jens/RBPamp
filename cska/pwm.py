@@ -176,7 +176,11 @@ class PSAM(object):
         self.psam = np.array(psam, dtype=np.float32)
         amax = psam.max(axis=1)
         self.psam /= amax[:, np.newaxis]
-        assert (self.psam.max(axis=1) == 1).all()
+        cond = (self.psam.max(axis=1) == 1).all()
+        if not cond:
+            print "FCKP"
+            print self.psam
+        assert cond
         
         self.A0 = A0
         self.n = len(psam)

@@ -91,6 +91,12 @@ class ModelParametrization(object):
         return cls(k, n_samples, data=vec)
 
     @classmethod
+    def from_PSAM(cls, psam, n_samples=1, **kwargs):
+        params = cls(psam.n, n_samples, psam=psam.psam, **kwargs)
+        params.A0 = psam.A0
+        return params
+
+    @classmethod
     def load(cls, fname, n_samples):
         aff = []
         attrs = {}
@@ -194,10 +200,10 @@ class ModelParametrization(object):
         from cska.pwm import project_column
         buf = []
         buf.append("PSAM A0={self.A0} n={self.k} acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}".format(self=self))
-        buf.append("#\tA\t\tC\t\tG\t\tU\tcons\tdisc")
-        psam = self.as_PSAM()
-        for row, d in zip(psam.psam, psam.discrimination):
-            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row), str(d)]))
+        buf.append("#\tA\t\tC\t\tG\t\tU\tcons")
+        
+        for row in self.psam_matrix:
+            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row)]))
 
         # buf.append("BACKGROUND")
         # for i, beta in enumerate(self.betas):

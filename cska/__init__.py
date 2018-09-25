@@ -1,5 +1,5 @@
 __license__ = "MIT"
-__version__ = "0.9.8"
+__version__ = "0.9.9"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -12,8 +12,98 @@ import os
 import logging
 import collections
 import traceback
-#import cska.cyska
-import matplotlib
+
+def parse_cmdline():
+    from optparse import OptionParser
+    usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
+
+    parser = OptionParser(usage=usage)
+    # basic options
+    parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
+    parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
+    parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
+    parser.add_option("","--run-path",dest="run",default="run_{datestr}",help="pattern for run-folder name (default='run_{datestr}')")
+    parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
+    parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
+    parser.add_option("","--multi-stage",dest="multi_stage",default=False, action="store_true",help="SWITCH: perform multiple stages of optimization")
+    
+    parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
+    parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-T","--temperature",dest="temp",default=4.,type=float,help="temperature of the experiment in degrees Celsius (default=4.0)")
+    parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
+    parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
+    parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
+    parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
+    parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
+    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
+
+    # RNA folding
+    parser.add_option("","--fold", dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
+    parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
+    parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
+    parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
+    parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
+    parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
+    
+    # RBNS metrics
+    parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
+    parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
+    parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
+    parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
+    parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
+    parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
+    parser.add_option("","--ska-convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
+
+    # seed motif analysis
+    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
+
+    # affinity model optimization 
+    # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
+    parser.add_option("","--grad-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
+    parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
+    parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
+
+    parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
+    parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
+    parser.add_option("","--resume",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file for further optimization")
+    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
+
+    # TODO: update
+    parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
+    parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
+
+    parser.add_option("","--reference",dest="ref_file",default="", help="tab-separated file with measured (reference) Kd values (default=use builtin known_kds.csv)")
+    parser.add_option("","--compare",dest="compare",default="", help="compare to literature values for this protein")
+
+    # infrastructure and logging/debugging control
+    parser.add_option("","--disable-caching",dest="disable_caching",default=False, action="store_true",help="DEBUG: disable transparent caching (SLOW!)")
+    parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
+    parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
+    
+    parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+    parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+
+    # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
+
+    # read simulation (currently broken)
+    parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
+    parser.add_option("","--rnd-seed",dest="seed",default=47110815,type=int,help="seed for fast pseudo-random number generator (for RBNS simulation)")
+    parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
+    parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
+    parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
+    parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
+    
+    options, args = parser.parse_args()
+    
+    if options.version:
+        print __version__
+        print __license__
+        print "by", ", ".join(__authors__)
+        sys.exit(0)
+
+    return options, args
 
 
 def ensure_path(full):
@@ -22,6 +112,7 @@ def ensure_path(full):
         os.makedirs(path)
 
     return full
+
 
 def auto_detect(path='.', exts=["reads","txt"]):
     """
@@ -56,6 +147,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     return rbp_names.keys()[0], files[I], rbp_conc[I]
 
+
 def vector_stats(v):
     print getattr(v,"__name__", "no name"), type(v)
     print "shape",v.shape
@@ -67,414 +159,321 @@ def vector_stats(v):
     print "min max", v.min(), v.max()
     print "mean median", np.mean(v), np.median(v)
 
-def main():
-    from optparse import OptionParser
-    usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
 
-    parser = OptionParser(usage=usage)
-    # basic options
-    parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
-    parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
-    parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
-    parser.add_option("","--run-path",dest="run",default="run_{datestr}",help="pattern for run-folder name (default='run_{datestr}')")
-    parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
-    parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
-    
-    
-    parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
-    parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
-    parser.add_option("-T","--temperature",dest="temp",default=4.,type=float,help="temperature of the experiment in degrees Celsius (default=4.0)")
-    parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
-    parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
-    parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
-    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
-
-    # RNA folding
-    parser.add_option("","--fold", dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
-    parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
-    parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
-    parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
-    parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
-    parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
-    
-    # RBNS metrics
-    parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
-    parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
-    parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
-    parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
-    parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
-    parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
-    parser.add_option("","--ska-convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
-
-    # seed motif analysis
-    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
-
-    # affinity model optimization 
-    # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
-    parser.add_option("","--gradient-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
-    parser.add_option("","--gradient-mdl",dest="grad_mdl",default="partfunc", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
-    parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
-    parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
-    parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
-    parser.add_option("","--resume",dest="mdl_resume",default=None,help="start with affinity parameters from this file for further optimization")
-    parser.add_option("","--pwm-resume",dest="mdl_pwm_init",default=None,help="start with affinity parameters from this PWM file for further optimization")
-    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
-    parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
-    parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
-    parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
-
-    parser.add_option("","--reference",dest="ref_file",default="", help="tab-separated file with measured (reference) Kd values (default=use builtin known_kds.csv)")
-    parser.add_option("","--compare",dest="compare",default="", help="compare to literature values for this protein")
-
-    # parser.add_option("","--model-global",dest="kmer_opt_global",default=False, action="store_true",help="SWITCH: do global instead of local error optimization when fitting a kmer affinity")
-    # parser.add_option("","--interactions",dest="interactions",default=False, action="store_true",help="SWITCH: activate combinatorial search") # TODO: merge into --compute-results
-
-    # infrastructure and logging/debugging control
-    parser.add_option("","--disable-caching",dest="disable_caching",default=False, action="store_true",help="DEBUG: disable transparent caching (SLOW!)")
-    parser.add_option("","--disable-unpickle",dest="disable_unpickle",default=False, action="store_true",help="DEBUG: disable unpickling. Will recompute and overwrite existing pickled data")
-    parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
-    
-    parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
-    parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
-
-    # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
-
-    # read simulation (currently broken)
-    parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
-    parser.add_option("","--seed",dest="seed",default=47110815,type=int,help="seed for fast pseudo-random number generator (for RBNS simulation)")
-    parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
-    parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
-    
-    options,args = parser.parse_args()
-
-    from cska.caching import cached, pickled, CachedBase
-    from cska.reads import RBNSReads
-    from cska.analysis import RBNSAnalysis
-    from cska.ska_runner import SKARunner
-
-    if options.version:
-        print __version__
-        print __license__
-        print "by", ", ".join(__authors__)
-        sys.exit(0)
-
-    if options.auto:
-        rbp_name, reads_files, rbp_concentrations = auto_detect('.')
-    else:
-        rbp_name = options.name
-        reads_files = args
-        rbp_concentrations = [float(c) for c in options.rbp_conc.split(',')]
-    
-    if not len(reads_files):
-        parser.error("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
-        sys.exit(1)
-    
-    # control caching framework behaviour
-    CachedBase._do_not_cache = options.disable_caching
-    CachedBase._do_not_pickle = options.disable_pickle
-    CachedBase._do_not_unpickle= options.disable_unpickle
+class Run(object):
+    def __init__(self, options):
+        self.options = options
+        if options.auto:
+            self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
+        else:
+            self.rbp_name = options.name
+            self.reads_files = args
+            self.rbp_concentrations = [float(c) for c in options.rbp_conc.split(',')]
         
-    # prepare outout path
-    import datetime
-    run_folder = (options.run+"/").format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+        if not len(self.reads_files):
+            raise ValueError("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
 
-    run_path = ensure_path(os.path.join(options.output, run_folder))
+        # control caching framework behavior
+        from cska.caching import CachedBase
+        CachedBase._do_not_cache = options.disable_caching
+        CachedBase._do_not_pickle = options.disable_pickle
+        CachedBase._do_not_unpickle= options.disable_unpickle
 
-    # keep a symlink named "recent" always pointing to last run folder
-    recent_path = os.path.join(options.output, "recent")
-    try:
-        os.remove(recent_path)
-    except OSError:
-        pass
+        self._init_paths()
+        self._init_logging()
 
-    os.symlink(run_folder, recent_path)
 
-    # set up logging
-    log_path = os.path.join(run_path,"run.log")
+    def _init_paths(self):
+        """prepare and initialize outout paths"""
+        import datetime
+        self.run_folder = (self.options.run+"/").format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+        self.run_path = ensure_path(os.path.join(self.options.output, self.run_folder))
+        
+        # keep a symlink named "recent" always pointing to last run folder
+        recent_path = os.path.join(self.options.output, "recent")
+        try:
+            os.remove(recent_path)
+        except OSError:
+            pass
 
-    FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
-    formatter = logging.Formatter(FORMAT)
-    logging.basicConfig(level=logging.INFO, format=FORMAT)    
-    root = logging.getLogger('')
-    fh = logging.FileHandler(filename=log_path, mode='a')
-    fh.setFormatter(logging.Formatter(FORMAT))
-    root.addHandler(fh)
-    
-    logger = logging.getLogger("CSKA")
-    logger.setLevel(logging.INFO)
-    import subprocess
-    path = os.path.dirname(os.path.realpath(__file__))
-    git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0]
-    logger.info("version {0} [git {1}]".format(__version__, git.rstrip()))
-    logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
-
-    # set info level for specific sub-systems
-    for sub in options.info.split(','):
-        if not sub:
-            continue
-        sub = sub.replace('root',"")
-        logging.getLogger(sub).setLevel(logging.INFO)
-
-    # set debug log level for specific sub-systems
-    for sub in options.debug.split(','):
-        if not sub:
-            continue
-        sub = sub.replace('root',"")
-        logging.getLogger(sub).setLevel(logging.DEBUG)
-        if sub == 'cache':
-            CachedBase.debug_caching = True
-
-    try:
-        # parametrize SKA algorithm
-        ska = SKARunner(
-            max_iterations = options.n_passes,
-            convergence = options.convergence, 
-        )
+        os.symlink(self.run_folder, recent_path)
         
         # where to put/find transparent pickle/unpickle objects
-        CachedBase.pkl_path = os.path.join(options.output, ".pkl")
+        from cska.caching import CachedBase
+        CachedBase.pkl_path = os.path.join(self.options.output, ".pkl")
 
-        # start a new analysis
-        rbns = RBNSAnalysis(
-            rbp_name = rbp_name,
-            out_path = run_path,
-            ska_runner = ska,
+        # accessibility prediction from folding
+        self.fold_path = os.path.join(self.options.output, "acc")
+        if self.options.no_structure:
+            self.fold_path = "NOSTRUCTURE"
+
+
+    def _init_logging(self):
+        # set up logging
+        self.log_path = os.path.join(self.run_path,"run.log")
+
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
+        formatter = logging.Formatter(FORMAT)
+        logging.basicConfig(level=logging.INFO, format=FORMAT)    
+        root = logging.getLogger('')
+        fh = logging.FileHandler(filename=self.log_path, mode='a')
+        fh.setFormatter(logging.Formatter(FORMAT))
+        root.addHandler(fh)
+        
+        self.logger = logging.getLogger('CSKA')
+        self.logger.setLevel(logging.INFO)
+        import subprocess
+        path = os.path.dirname(os.path.realpath(__file__))
+        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0]
+        self.logger.info("version {0} [git {1}]".format(__version__, git.rstrip()))
+        self.logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
+
+        # set info level for specific sub-systems
+        for sub in self.options.info.split(','):
+            if not sub:
+                continue
+            sub = sub.replace('root',"")
+            logging.getLogger(sub).setLevel(logging.INFO)
+
+        # set debug log level for specific sub-systems
+        for sub in self.options.debug.split(','):
+            if not sub:
+                continue
+            sub = sub.replace('root',"")
+            logging.getLogger(sub).setLevel(logging.DEBUG)
+            if sub == 'cache':
+                from cska.caching import CachedBase
+                CachedBase.debug_caching = True
+
+
+    def make_SKA(self):
+        """parametrize SKA algorithm"""
+        from cska.ska_runner import SKARunner
+        ska = SKARunner(
+            max_iterations = self.options.n_passes,
+            convergence = self.options.convergence, 
         )
+        return ska
 
-        # TODO: properly integrate simulation
-        if options.simulate == "reads":
-            from cska.optimize import RBNSGenerator
-            for k in range(options.min_k, options.max_k + 1):
-                gen = RBNSGenerator(k,l=40, seed=options.seed)
-                gen.assign_experimental_input(reads_files[0])
-                gen.energy_plot()
 
-                r_matrix = []
-                for P in np.array(rbp_concentrations[1:]):
-                    r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
-                    r_matrix.append(r)
-                    
-                    read_path = os.path.join(self.out_path,"sim_bound_{0}.reads".format(P) )
-                    gen.generate_bound_reads(read_path, P=P, p_ns=0.00, N=20000000)
-                    occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
-                    
-
-        # open energy prediction from folding
-        fold_path = os.path.join(options.output, "acc")
-        if options.no_structure:
-            fold_path = "NOSTRUCTURE"
-
-        storage_kw = dict(overwrite = options.overwrite, T=options.temp, disc_mode='linear', dummy=options.no_structure, acc_scale=options.acc_scale)
-        if int(options.openen_discretize):
-            dtype = getattr(np, "uint{0}".format(options.openen_discretize))
+    def get_storage_kwargs(self):
+        storage_kw = dict(
+            overwrite = self.options.overwrite, 
+            T=self.options.temp, 
+            disc_mode='linear', 
+            dummy=self.options.no_structure, 
+            acc_scale=self.options.acc_scale
+        )
+        if int(self.options.openen_discretize):
+            dtype = getattr(np, "uint{0}".format(self.options.openen_discretize))
             storage_kw.update(dict(discretize=True, disc_dtype=dtype))
         else:
             storage_kw.update(dict(discretize=False, raw_dtype=np.float32))
-        logger.info("populating RBNS analysis with reads")
-        # populate with experimental data
-        for fname, rbp_conc in zip(reads_files, rbp_concentrations):
+
+        return storage_kw
+
+
+    def select_reads(self):
+        # start a new analysis
+        from cska.analysis import RBNSAnalysis
+        from cska.reads import RBNSReads
+
+        storage_kw = self.get_storage_kwargs()
+
+        rbns = RBNSAnalysis(
+            rbp_name = self.rbp_name,
+            out_path = self.run_path,
+            ska_runner = self.make_SKA(),
+        )
+        self.logger.info("populating RBNS analysis with reads")
+        
+        for fname, rbp_conc in zip(self.reads_files, self.rbp_concentrations):
             reads = RBNSReads(
                 fname, 
-                format = options.format,
+                format = self.options.format,
                 rbp_conc=rbp_conc,
-                rbp_name = rbp_name,
-                n_max=options.n_max, 
-                pseudo_count=options.pseudo, 
-                rna_conc = options.rna_conc,
-                temp = options.temp,
-                n_subsamples = options.subsamples,
-                adap3=options.adap3,
-                acc_storage_path = fold_path,
+                rbp_name = self.rbp_name,
+                n_max=self.options.n_max, 
+                pseudo_count=self.options.pseudo, 
+                rna_conc = self.options.rna_conc,
+                temp = self.options.temp,
+                n_subsamples = self.options.subsamples,
+                adap3=self.options.adap3,
+                acc_storage_path = self.fold_path,
                 storage_kw=storage_kw
             )
             
             rbns.add_reads(reads)
+        
+        self.rbns = rbns
+        self.n_samples = len(self.rbns.reads) - 1 # first is input control
+        return rbns
 
+
+    def compute_metrics(self, metrics):
+        self.logger.info("computing RBNS metrics '{0}'".format(metrics))
+        for k in range(self.options.min_k, self.options.max_k + 1):
+            self.rbns.compute_results(k, self.options, results=metrics)
+            self.rbns.flush()
+
+
+    def keep_best(self):
+        if self.options.best:
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best)
+        return self.rbns
+
+
+    def fold_reads(self):
+        self.logger.info("folding reads with '{0}' threads".format(self.options.parallel))
+        from cska.fold import parallel_fold
+        # prepare outout path
+        if not os.path.exists(self.fold_path):
+            os.makedirs(self.fold_path)
+
+        # fold the reads
+        for reads in self.rbns.reads:
+            if self.options.skip_folded:
+                if reads.acc_storage.has_data(self.options.max_k):
+                    self.logger.info("skipping {} because accessibilities have already been computed and stored.".format(reads.name))
+                    continue
+
+            self.logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
+            parallel_fold(
+                reads.iter_reads(), 
+                reads.acc_storage,
+                temp = reads.temp,
+                adap5 = self.options.adap5,
+                adap3 = self.options.adap3,
+                k_min = self.options.min_k,
+                k_max = self.options.max_k,
+                n_max = self.options.n_max,
+                l_insert = self.rbns.reads[0].L,
+                skip_adap = self.options.skip_adap,
+                n_parallel= self.options.parallel,
+            )
+
+
+    def simulate(self):
+        pass
+        # # TODO: properly integrate simulation
+        # if options.simulate == "reads":
+        #     from cska.optimize import RBNSGenerator
+        #     for k in range(options.min_k, options.max_k + 1):
+        #         gen = RBNSGenerator(k,l=40, seed=options.seed)
+        #         gen.assign_experimental_input(reads_files[0])
+        #         gen.energy_plot()
+
+        #         r_matrix = []
+        #         for P in np.array(rbp_concentrations[1:]):
+        #             r = gen.predict_r_values(P=P, store="r_{0}.tsv".format(P))
+        #             r_matrix.append(r)
+                    
+        #             read_path = os.path.join(self.out_path,"sim_bound_{0}.reads".format(P) )
+        #             gen.generate_bound_reads(read_path, P=P, p_ns=0.00, N=20000000)
+        #             occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
+
+    
+    def init_model_parameters(self):
+        ## prime the optimization from dependent-kmer analysis or load PSAM
+        from cska.gradient import ModelParametrization
+        if self.options.mdl_psam_init:
+            self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
+            self.params = ModelParametrization.load(self.options.mdl_psam_init, self.n_samples)
+
+        elif self.options.seed_analysis:
+            from cska.seed import SeedRefinement
+            SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_k)
+            self.params = SR.seeded_params(self.rbns.n_samples)
+
+            # clean up memory usage
+            for reads in self.rbns.reads:
+                reads.cache_flush()
+        else:
+            raise ValueError("need to either load a PSAM using --psam-resume or build one using --seed-analysis")
+            sys.exit(1)
+
+        return params
+
+
+    def calibrate_footprint(self):
+        from cska.punpcal import PunpairedCalibrate
+        cal = PunpairedCalibrate(self.rbns, self.params)
+        self.params = cal.calibrate(k_core_range=[self.options.min_k, self.options.max_k])
+
+
+    def PSAM_gradient_descent(self, name="opt"):
+        if self.options.compare:
+            compare = self.options.compare
+        else:
+            compare = self.rbp_name
+        
+        from cska.comparison import RefComparison
+        ref = RefComparison(compare, ref_file=self.options.ref_file)
+
+        from cska.psamgrad import PSAMGradientDescent
+        PGD = PSAMGradientDescent(self.rbns, self.params, ref=ref, k_fit=self.options.grad_k, mdl_name=self.options.grad_mdl, Z_thresh=self.options.Z_thresh, run_name=name, maxiter=self.options.grad_maxiter, eps=self.options.mdl_epsilon)
+        PGD.optimize()
+        self.params = PGD.descent.params
+
+        return self.params
+
+
+def main():
+    options, args = parse_cmdline()
+    run = Run(options)
+
+    try:
+        rbns = run.select_reads()
         # first, compute RBNS metrics
         metrics = [m.strip() for m in options.results.strip().split(',') if m.strip()]
         if metrics:
-            logger.info("computing RBNS metrics '{0}'".format(metrics))
-            for k in range(options.min_k, options.max_k + 1):
-                rbns.compute_results(k, options, results=metrics)
-                rbns.flush()
-
-        if options.best:
-            rbns = rbns.keep_best_samples(n=options.best)
-            
-        ### special run modes: 
-        # secondary structure prediction and accessibility recording
+            run.compute_metrics(metrics)
+           
+        rbns = run.keep_best()
         if options.folding:
-            logger.info("folding reads with '{0}' threads".format(options.parallel))
-            from cska.fold import parallel_fold
-            # prepare outout path
-            if not os.path.exists(fold_path):
-                os.makedirs(fold_path)
-
-            # fold the reads
-            for reads in rbns.reads:
-                if options.skip_folded:
-                    if reads.acc_storage.has_data(options.max_k):
-                        logger.info("skipping {} because accessibilities have already been computed and stored.".format(reads.name))
-                        continue
-
-                logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
-                parallel_fold(
-                    reads.iter_reads(), 
-                    reads.acc_storage,
-                    temp = reads.temp,
-                    adap5 = options.adap5,
-                    adap3 = options.adap3,
-                    k_min = options.min_k,
-                    k_max = options.max_k,
-                    n_max = options.n_max,
-                    l_insert = rbns.reads[0].L,
-                    skip_adap = options.skip_adap,
-                    n_parallel= options.parallel,
-                )
-
+            run.fold_reads()
             sys.exit(0)
 
-        ## prime the optimization from dependent-kmer analysis or load PSAM
-        from cska.pwm import PWMOptimizer, PSAM
-        if options.seed_analysis:
-            logger.info("performing seed analysis")
-            from cska.seed import SeedRefinement
-            SR = SeedRefinement(rbns, km=options.seed_analysis, max_linear_k=options.max_k)
-            k = SR.linear_k
-            seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
-            pwm = SR.psam_lin
+        run.init_model_parameters()
 
-            # clean up memory usage
-            for reads in rbns.reads:
-                reads.cache_flush()
-
-        elif options.mdl_pwm_init:
-            logger.info("resuming from PWM: '{0}'".format(options.mdl_pwm_init))
-            pwm = PSAM.load(options.mdl_pwm_init)
-            k = pwm.n
-        else:
-            k = options.min_k
-            logger.error("need to either load a PSAM using --pwm-resume or build one using --seed-analysis")
-            sys.exit(1)
-
-        print pwm
-        from cska.comparison import RefComparison
-        if options.compare:
-            compare = options.compare
-        else:
-            compare = rbp_name
-        ref = RefComparison(compare, ref_file=options.ref_file)
-
-        from cska.psamgrad import PSAMGradientDescent
-
-        # TODO: first, gather parameters. Then (after acc_scan) build the PSAMGradientDescent (so acc_k, acc_shift can be set)
-        PGD = PSAMGradientDescent(rbns, pwm, ref=ref, k_fit=options.grad_k, mdl_name=options.grad_mdl, Z_thresh=options.Z_thresh)
         if options.acc_scan:
-            # TODO: re-factor this entire analysis somewhere else
-            ratios = []
-            names = []
-            all_data = {}
-            all_res = []
-            from cska.punpcal import PunpairedCalibrate
-            cal = PunpairedCalibrate(rbns, PGD.descent.params)
-            params = cal.calibrate(k_core_range=[options.min_k, options.max_k])
+            run.calibrate_footprint()
             sys.exit(0)
 
         if options.grad_mdl:
-            PGD.optimize()
-            params = PGD.descent.params
-            pwm = PSAM(params.psam_matrix, A0=params.A0)
+            run.PSAM_gradient_descent()
+            sys.exit(0)
 
-        # # # fit of thermodynamic model parameters (affinities)
-        # # if options.model:
-        # #     from cska.optimize import ModelOptimization
-        # #     opt = ModelOptimization(
-        # #         k, 
-        # #         rbns,
-        # #         n_subsample=0, 
-        # #         sub_replace=False, 
-        # #         param_file=options.mdl_resume,
-        # #         # kmer_opt_global=options.kmer_opt_global,
-        # #     )
-        # #     pwm_opt = PWMOptimizer(k, options.max_k, opt, eps=options.mdl_epsilon)
-            
+        if options.multi_stage:
+            run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
+            params = run.init_model_parameters()
 
-        # #     from cska.report import OptReporting
-        # #     opt.reporter = OptReporting(
-        # #         opt, 
-        # #         os.path.join(run_path, 'plots'), 
-        # #         track=options.mdl_report_sensors.split(','), 
-        # #         triggers=options.mdl_report_trigger.split(','),
-        # #         ref = ref,
-        # #     )
+            run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
+            run.params.acc_k = 0 # disable accessibility
+            params = run.PSAM_gradient_descent('opt_nostruct')
 
-        # #     seed_params = None
-        # #     if options.seed_analysis:
-        # #         seed_params = SR.linear_seed_params(A0=.1, aff0=1e-5)
-        # #         pwm_opt.pwm0 = SR.psam_lin
+            run.logger.info("STAGE2: footprint parameter estimation")
+            params = run.calibrate_footprint()
 
-        # #     if options.mdl_pwm_init:
-        # #         seed_params = pwm.kmer_affinity_table(aff0=1e-5)
-        # #         pwm_opt.pwm0 = pwm
+            run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
+            params = run.PSAM_gradient_descent('opt_full')
 
-        # #     if options.meanfield:
-        # #         betas = PGD.descent.params.betas
-        # #         seed_params = np.concatenate( (pwm.kmer_affinity_table(aff0=1e-5), betas) )
-        # #         pwm_opt.pwm0 = pwm
-        # #     try:
-        # #         pwm_opt.optimize(seed_params=seed_params)
-        # #     except KeyboardInterrupt:
-        # #         opt.logger.warning("Keyboard interrupt while in:")
-        # #         exc = traceback.format_exc()
-        # #         logger.error(exc)
-                
-        # #     opt.reporter.close()
-        # #     pwm_opt.store_params()
+    except SystemExit:
+        # This is alright
+        pass
 
-        # #     opt.logger.info("converged/interrupted after {0} steps.".format(opt.t))
-        
-
-        ###rbns.compare_k()
-        ##rbns.run_ROC()
-        
-        ## screen for multi-part motifs
-        #if options.interactions:
-            #tensors = rbns.get_cooccurrence_tensor(2)
-            #rbns.cooccurrence_tensor_analysis(*tensors)
-            
-            #tensors = rbns.get_cooccurrence_tensor(3)
-            #rbns.cooccurrence_tensor_analysis(*tensors)
-
-            #tensors = rbns.get_cooccurrence_tensor(4)
-            #rbns.cooccurrence_tensor_analysis(*tensors)
-
-            #tensors = rbns.get_cooccurrence_tensor(5)
-            #rbns.cooccurrence_tensor_analysis(*tensors)
-
-            #tensors = rbns.get_cooccurrence_tensor(6)
-            #rbns.cooccurrence_tensor_analysis(*tensors)
-
-            ##rbns.find_interactors(5, k_flank_max=3, n_top=2)
-    except:        
-        logger.error("Caught exception. Gathering traceback")
+    except:
+        run.logger.error("Caught exception. Gathering traceback")
         exc = traceback.format_exc()
-        logger.error(exc)
+        run.logger.error(exc)
         sys.stderr.write(exc)
         
         # in case we have child processes, try to end them gracefully
         import cska.fold
         fold.interrupt()
-        
-        sys.exit(1)
     else:
         logger.info("run completed.")
         sys.exit(0)
-
-Zs = []
 
 if __name__ == '__main__':
     main()

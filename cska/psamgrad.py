@@ -8,22 +8,17 @@ import time
 from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, pwm, ref=None, k_fit=6, mdl_name='partfunc', **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, eps=1e-5, **kwargs):
         self.rbns = rbns
         self.ref = ref
-        self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "meanfield/"))
+        self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
         self.track_file = file(os.path.join(self.out_path, "descent.tsv"),'w',0)
-        self.k = pwm.n
+        self.k = params.k
         self.k_fit = k_fit
         self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
         self.logR = np.log2(self.R)
         self.logger = logging.getLogger('opt.PSAMGradientDescent')
-        print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
-        params = cska.gradient.ModelParametrization(self.k, len(rbns.reads) - 1, psam=pwm.psam)
-
-        # TODO: instead of hard-coded, determine this automatically from the data!
-        params.acc_k = 7
-        params.acc_shift = 1
+        # print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         # params.betas[:] = .0001
         # initial guess
         # params.betas[:] = [.013,.023,.062,.18,.19]
@@ -34,12 +29,14 @@ class PSAMGradientDescent(object):
         # model = InvMeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         mdl = {
             'partfunc' : PartFuncModel,
+            '' : PartFuncModel,
             'meanfield' : MeanFieldModel,
             'invmeanfield' : InvMeanFieldModel,
         } [mdl_name]
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
         # print self.descent.params.acc_k, self.descent.model.acc_k
-        self.descent = cska.gradient.GradientDescent(model, params)
+
+        self.descent = cska.gradient.GradientDescent(model, params, maxiter=maxiter, eps=eps)
         self.model = model
         self.params = params
     
@@ -50,8 +47,6 @@ class PSAMGradientDescent(object):
         # print "optimal parameters from quantile fit"
         # params.A0 = res[0]
         # params.betas[:] = res[1:]
-
-        from cska.comparison import RefComparison
         from cska.report import GradientDescentReport, LiteratureComparisonReport
 
         lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
@@ -94,7 +89,7 @@ class PSAMGradientDescent(object):
             self.track_file.write('\n')
 
         self.t0 = time.time()
-        self.descent.optimize(self.params, maxiter=1000, debug=True, callback=callback)
+        self.descent.optimize(self.params, debug=True, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()
