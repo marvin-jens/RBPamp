@@ -311,7 +311,6 @@ class Run(object):
             rbns.add_reads(reads)
         
         self.rbns = rbns
-        self.n_samples = len(self.rbns.reads) - 1 # first is input control
         return rbns
 
 
@@ -386,7 +385,7 @@ class Run(object):
         from cska.gradient import ModelParametrization
         if self.options.mdl_psam_init:
             self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
-            self.params = ModelParametrization.load(self.options.mdl_psam_init, self.n_samples)
+            self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
 
         elif self.options.seed_analysis:
             from cska.seed import SeedRefinement
