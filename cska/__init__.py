@@ -47,18 +47,21 @@ def parse_cmdline():
     
     # RBNS metrics
     parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
-    parser.add_option("-k","--min-k",dest="min_k",default=3,type=int,help="min kmer size (default=3)")
-    parser.add_option("-K","--max-k",dest="max_k",default=8,type=int,help="max kmer size (default=8)")
-    parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
+    parser.add_option("","--metrics-k", dest="metrics_k", default="3-8", help="range of kmer sizes for which to compute the desired metrics (default: --metrics-k=3-8)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
     parser.add_option("","--ska-convergence",dest="convergence",default=0.5,type=float,help="convergence is reached when max. change in absolute weight is below this value (default=0.5)")
+    parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
     parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
 
+    # accessibility footprint analysis
+    parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
+    
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
+    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
     parser.add_option("","--grad-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
     parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
@@ -314,7 +317,8 @@ class Run(object):
 
     def compute_metrics(self, metrics):
         self.logger.info("computing RBNS metrics '{0}'".format(metrics))
-        for k in range(self.options.min_k, self.options.max_k + 1):
+        kmin, kmax = self.options.metrics_k.split('_')
+        for k in range(int(kmin), int(kmax) + 1):
             self.rbns.compute_results(k, self.options, results=metrics)
             self.rbns.flush()
 
@@ -386,7 +390,7 @@ class Run(object):
 
         elif self.options.seed_analysis:
             from cska.seed import SeedRefinement
-            SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_k)
+            SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
             self.params = SR.seeded_params(self.rbns.n_samples)
 
             # clean up memory usage
@@ -400,9 +404,10 @@ class Run(object):
 
 
     def calibrate_footprint(self):
-        from cska.punpcal import PunpairedCalibrate
-        cal = PunpairedCalibrate(self.rbns, self.params)
-        self.params = cal.calibrate(k_core_range=[self.options.min_k, self.options.max_k])
+        from cska.footprint import FootprintCalibration
+        cal = FootprintCalibration(self.rbns, self.params)
+        kmin, kmax = self.options.footprint.split('-')
+        self.params = cal.calibrate(k_core_range = [int(kmin), int(kmax)])
         self.logger.info("optimal parameters after footprint calibration: acc_k={self.params.acc_k} acc_shift={self.params.acc_shift} acc_scale={self.params.acc_scale}".format(self=self))
         return self.params
 
