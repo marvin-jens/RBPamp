@@ -67,7 +67,9 @@ class PSAMGradientDescent(object):
                 name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
                 pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
                 pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
-            
+                
+                descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
+
                 state = descent.model.predict(descent.params)
                 self.store_affinities(state)
                 self.store_residuals(state)

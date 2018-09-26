@@ -203,6 +203,8 @@ class PartFuncModel(object):
         self.k_mdl = self.params.k
         self.acc_k = self.params.acc_k
         self.acc_shift = self.params.acc_shift
+        self.acc_scale = self.params.acc_scale
+
         self.Z_thresh = Z_thresh
 
         self.n_samples, self.nA = R0.shape
@@ -223,6 +225,10 @@ class PartFuncModel(object):
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
         self.openen = self.reads.acc_storage.get_raw(self.acc_k) # corresponding accessibilities
         self.acc = self.openen.acc
+        if self.params.acc_scale != 1.:
+            self.logger.debug("scaling accessibilities by {}".format(self.params.acc_scale))
+            self.acc = np.array(self.acc, dtype=np.float32) # make a scaled *copy*
+            cyska.pow_scale(self.acc, self.params.acc_scale)
 
         # in case a mask is set, this can be a subset
         self.indices = []

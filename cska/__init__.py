@@ -38,10 +38,10 @@ def parse_cmdline():
     parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
 
     # RNA folding
-    parser.add_option("","--fold", dest="folding",default=False, action="store_true",help="SWITCH: instead of a normal run, fold all reads and record accessibilities/open-energies")
+    parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
     parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
     parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
-    parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
+    # parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
     parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
     parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
@@ -126,7 +126,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
         hits = list(glob(pattern))
         files.extend(hits)
     
-    rbp_names = defaultdict(int)
+    rbp_names = defaultdict(list)
     rbp_conc = []
     
     for f in files:
@@ -137,15 +137,17 @@ def auto_detect(path='.', exts=["reads","txt"]):
         except ValueError:
             continue
 
-        rbp_names[name] += 1
-        rbp_conc.append(conc)
+        rbp_names[name].append( (conc, f) )
     
-    assert len(rbp_names) == 1
-    rbp_conc = np.array(rbp_conc)
-    files = np.array(files)
-    I = rbp_conc.argsort()
-    
-    return rbp_names.keys()[0], files[I], rbp_conc[I]
+    hits = sorted([(len(rbp_names[name]), name) for name in rbp_names.keys()])[::-1]
+    print "RBP name auto-detect", hits
+    rbp_name = hits[0][1]
+
+    results = sorted(rbp_names[hits[0][1]])
+    files = np.array([f for conc, f in results])
+    rbp_conc = np.array([conc for conc, f in results], dtype=np.float32)
+
+    return rbp_name, files, rbp_conc
 
 
 def vector_stats(v):
@@ -262,7 +264,7 @@ class Run(object):
             T=self.options.temp, 
             disc_mode='linear', 
             dummy=self.options.no_structure, 
-            acc_scale=self.options.acc_scale
+            # acc_scale=self.options.acc_scale
         )
         if int(self.options.openen_discretize):
             dtype = getattr(np, "uint{0}".format(self.options.openen_discretize))
@@ -330,6 +332,8 @@ class Run(object):
         if not os.path.exists(self.fold_path):
             os.makedirs(self.fold_path)
 
+        kmin, kmax = self.options.folding.split('-')
+
         # fold the reads
         for reads in self.rbns.reads:
             if self.options.skip_folded:
@@ -344,8 +348,8 @@ class Run(object):
                 temp = reads.temp,
                 adap5 = self.options.adap5,
                 adap3 = self.options.adap3,
-                k_min = self.options.min_k,
-                k_max = self.options.max_k,
+                k_min = int(kmin),
+                k_max = int(kmax),
                 n_max = self.options.n_max,
                 l_insert = self.rbns.reads[0].L,
                 skip_adap = self.options.skip_adap,
@@ -399,7 +403,8 @@ class Run(object):
         from cska.punpcal import PunpairedCalibrate
         cal = PunpairedCalibrate(self.rbns, self.params)
         self.params = cal.calibrate(k_core_range=[self.options.min_k, self.options.max_k])
-
+        self.logger.info("optimal parameters after footprint calibration: acc_k={self.params.acc_k} acc_shift={self.params.acc_shift} acc_scale={self.params.acc_scale}".format(self=self))
+        return self.params
 
     def PSAM_gradient_descent(self, name="opt"):
         if self.options.compare:
@@ -472,8 +477,7 @@ def main():
         import cska.fold
         fold.interrupt()
     else:
-        logger.info("run completed.")
-        sys.exit(0)
+        run.logger.info("run completed.")
 
 if __name__ == '__main__':
     main()

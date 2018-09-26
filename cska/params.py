@@ -137,7 +137,7 @@ class ModelParametrization(object):
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
-        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_shift=self.acc_shift)
+        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_shift=self.acc_shift, acc_scale=self.acc_scale)
         if not np.allclose(new.data, self.data):
             d = np.fabs(new.data - self.data)
             i = d.argmax()
