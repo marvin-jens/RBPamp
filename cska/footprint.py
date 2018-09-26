@@ -23,7 +23,7 @@ def dump_garbage():
         print type(x),"\n  ", s
 
 
-class PunpairedCalibrate(object):
+class FootprintCalibration(object):
     def __init__(self, rbns, params, pad=5, thresh=1e-3):
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
         self.params = params.copy()
@@ -35,7 +35,7 @@ class PunpairedCalibrate(object):
         self.pad = pad
         self.params.acc_scale = 0
         self.params.non_specific = 0
-        self.logger = logging.getLogger('opt.PunpairedCalibrate')
+        self.logger = logging.getLogger('opt.FootprintCalibration')
 
         Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.Z1_in_noacc = Z1[0]
@@ -90,11 +90,8 @@ class PunpairedCalibrate(object):
             pass
 
         results = sorted(results)
-        for opt in results:
-            err, k, s, res, punp_predict = opt
-            print k, s, '->', err, "a,A0", res.x
-        
         self.results = results
+        self.store_footprints()
         if plot:
             self.matrix_plots(results)
 
@@ -107,6 +104,16 @@ class PunpairedCalibrate(object):
         file(os.path.join(self.path, 'calibrated.tsv'), 'w').write(str(self.params) + '\n')
         return self.params
     
+
+    def store_footprints(self):
+        with file(os.path.join(self.path, 'footprints.tsv'), 'w') as f:
+            f.write('acc_k\tacc_shift\tacc_scale\tA0\terror')
+            for opt in self.results:
+                err, k, s, res, punp_predict = opt
+                out = [k, s, res.x[0], res.x[1], err]
+                f.write("\t".join([str(o) for o in out]) + "\n")
+
+
     def plot_profiles(self, punp_expect, acc_k, acc_shift, res):
         import seaborn as sns
         import matplotlib.pyplot as plt
