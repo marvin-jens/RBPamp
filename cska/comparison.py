@@ -87,15 +87,66 @@ class RefComparison(object):
         return len(self.seqs)
     
     def predict_affinities(self, mdl):
+        import cska.cyska as cyska
         a = []
         # if hasattr(mdl, "parameters"):
         #     aff = mdl.parameters.affinities
         # else:
         #     aff = mdl.affinities
 
-        from cska.seed import Alignment
-        A = Alignment()
-        A.matrix = mdl.params.psam_matrix
+        # from cska.seed import Alignment
+        # A = Alignment()
+        matrix = mdl.params.psam_matrix
+        missing = []
+        core_start = mdl.params.acc_shift
+        core_end = core_start + mdl.params.acc_k
+        if core_end == core_start:
+            # handle nostruct runs with acc_k=0
+            core_end = len(matrix)
+
+        for i in range(len(matrix)):
+
+            if i < core_start:
+                missing.append( matrix[i].max() )
+            elif i < core_end:
+                missing.append( matrix[i].min() )
+            else:
+                missing.append( matrix[i].max() )
+
+        def align(seq, min_overlap=2):
+            l = len(seq)
+            n = len(matrix)
+            bits = cyska.seq_to_bits(seq)
+
+            ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
+            alignments = []
+            for ofs in ofs_range:
+                m_start = max(0, ofs)
+                m_end = min(n,ofs+l)
+                
+                n_cols = m_end - m_start
+
+                s_start = max(-ofs, 0)
+                s_end = s_start + n_cols
+                
+                score = 1.
+                for i in range(m_start):
+                    score *= missing[i]
+                
+                for i in range(m_end, n):
+                    score *= missing[i]
+
+                for i in range(n_cols):
+                    if bits[i+s_start] > 3:
+                        continue # skip gaps
+                    
+                    S = matrix[i+m_start, bits[i+s_start]]
+                    score = score * S
+                
+                alignments.append( (score, ofs) )
+
+            best = sorted(alignments)[-1]
+            return best
 
         for seq in self.seqs:
             l = len(seq)
@@ -105,7 +156,7 @@ class RefComparison(object):
             #     a.append(aff[I].sum())
             # else:
             #     # the seq is shorter than our motifs/model
-            ofs, score = A.align(seq, multiply=True, min_overlap=7, end_weight=False, core_k=mdl.acc_k, core_start=mdl.acc_shift)
+            score, ofs = align(seq)
             # print seq, ofs, score
             a.append(mdl.params.A0 * score)
 
