@@ -364,7 +364,7 @@ class RBNSAnalysis(CachedBase):
         self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
         self.reads = []
-        
+        self.logger.info("keeping samples with RBP concentrations {}".format([r.rbp_conc for r in reads]))
         rbns = RBNSAnalysis(rbp_name = self.rbp_name, out_path=self.out_path, ska_runner=self.ska_runner, known_kd=self.known_kd, n_pure_samples = self.n_pure_samples)
         for r in reads:
             rbns.add_reads(r)
