@@ -23,7 +23,7 @@ import matplotlib.patches as patches
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path
 from matplotlib import ticker
-import seaborn.apionly as sns
+import seaborn as sns
 import matplotlib.pyplot as plt
 
 import numpy as np
