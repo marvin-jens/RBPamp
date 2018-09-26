@@ -140,7 +140,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
         rbp_names[name].append( (conc, f) )
     
     hits = sorted([(len(rbp_names[name]), name) for name in rbp_names.keys()])[::-1]
-    print "RBP name auto-detect", hits
+    # print "RBP name auto-detect", hits
     rbp_name = hits[0][1]
 
     results = sorted(rbp_names[hits[0][1]])
@@ -435,6 +435,21 @@ def main():
             run.compute_metrics(metrics)
            
         rbns = run.keep_best()
+        if options.multi_stage:
+            run.logger.info("STAGE0: initialize PSAM")
+            params = run.init_model_parameters()
+
+            run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
+            run.params.acc_k = 0 # disable accessibility
+            params = run.PSAM_gradient_descent('opt_nostruct')
+
+            run.logger.info("STAGE2: footprint parameter estimation")
+            params = run.calibrate_footprint()
+
+            run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
+            params = run.PSAM_gradient_descent('opt_full')
+            sys.exit(0)
+
         if options.folding:
             run.fold_reads()
             sys.exit(0)
@@ -449,19 +464,6 @@ def main():
             run.PSAM_gradient_descent()
             sys.exit(0)
 
-        if options.multi_stage:
-            run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
-            params = run.init_model_parameters()
-
-            run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
-            run.params.acc_k = 0 # disable accessibility
-            params = run.PSAM_gradient_descent('opt_nostruct')
-
-            run.logger.info("STAGE2: footprint parameter estimation")
-            params = run.calibrate_footprint()
-
-            run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
-            params = run.PSAM_gradient_descent('opt_full')
 
     except SystemExit:
         # This is alright
