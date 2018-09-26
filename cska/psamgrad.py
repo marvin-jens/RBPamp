@@ -52,15 +52,13 @@ class PSAMGradientDescent(object):
         lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
         def make_plots(descent, dt=None):
             rep = GradientDescentReport(descent, path=self.out_path)
-            if (descent.t % 10) == 0 or dt is None:
-                rep.plot_scatter()
-
+            reset = False
             if dt > 5 or dt is None:
+                lrep.plot_scatter(debug=False)
                 rep.plot_report()
                 rep.plot_param_hist()
                 # rep.plot_line_search()
                 # rep.plot_A0_fit()
-                lrep.plot_scatter()
                 pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
                 logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
                 name = 'motif'.format(descent.params.k)
@@ -71,7 +69,12 @@ class PSAMGradientDescent(object):
                 # state = descent.model.predict(descent.params)
                 # self.store_affinities(state)
                 self.store_residuals(descent.last_state)
-                return True
+                reset = True
+
+            if (descent.t % 10) == 0 or dt is None:
+                rep.plot_scatter()
+
+            return reset
 
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
