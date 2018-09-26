@@ -96,7 +96,7 @@ class PSAMGradientDescent(object):
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()
         
-        state = self.model.predict(self.descent.params)
+        state = self.descent.last_state
         # import matplotlib.pyplot as pp
         # pp.figure()
         # pp.loglog(self.R[0],state.R[0],'x')
@@ -107,7 +107,7 @@ class PSAMGradientDescent(object):
         # pp.close()
 
         make_plots(self.descent)
-        self.store_affinities(state)
+        # self.store_affinities(state)
         self.store_residuals(state)
 
         return state
