@@ -106,11 +106,11 @@ class RefComparison(object):
             # else:
             #     # the seq is shorter than our motifs/model
             ofs, score = A.align(seq, multiply=True, min_overlap=7, end_weight=False, core_k=mdl.acc_k, core_start=mdl.acc_shift)
-            print seq, ofs, score
+            # print seq, ofs, score
             a.append(mdl.params.A0 * score)
 
         a = np.array(a)
-        print a.min(), a.max(), a.mean()
+        # print a.min(), a.max(), a.mean()
         return a
 
 if __name__ == "__main__":

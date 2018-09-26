@@ -308,7 +308,7 @@ class GradientDescent(object):
                 descent = self.RMSprop( - local_grad ).unity()
                 # descent = self.momentum_grad( - local_grad).unity()
                 # descent = - local_grad.unity()
-                print descent
+                # print descent
 
                 s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=False)
                 if s == 0:
@@ -346,18 +346,18 @@ class GradientDescent(object):
                 self.last_state = state
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
-                    print descent
+                    # print descent
                     self.print_state(state)
 
                 if callback:
                     callback(self)
 
-                print "n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
+                self.logger.debug("n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
                     self=self,
                     t_aff = 1000. * self.model.t_aff/self.model.n_fev,
                     t_fev = 1000. * self.model.t_fev/self.model.n_fev,
                     t_grad = 1000. * self.model.t_grad/self.model.n_grad,
-                )
+                ))
 
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:
@@ -368,7 +368,7 @@ class GradientDescent(object):
         else:
             self.status = "MAX_ITER"
 
-        print "optimization ended with status {self.status} after {self.t} iterations".format(self=self)
+        self.logger.info("optimization ended with status {self.status} after {self.t} iterations".format(self=self))
         # print "last gradient"
         # print self.past_grad
         # print "squared"

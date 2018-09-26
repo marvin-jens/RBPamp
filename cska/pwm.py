@@ -91,7 +91,7 @@ def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
 def afflogo_save(psam, fname="psam.pdf", title="", scale_width=True, **kwargs):
     import matplotlib.pyplot as plt
     from cska.affinitylogo import plot_afflogo
-    fig = plt.figure(figsize=(8,6))
+    fig = plt.figure(figsize=(6, 3))
     ax = fig.add_subplot(111)
     plot_afflogo(ax, psam, title=title)
     plt.savefig(fname)

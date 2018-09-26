@@ -361,7 +361,7 @@ class RBNSAnalysis(CachedBase):
         R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
         sample_ranks = R.argsort()[::-1]
         cut_off = R[sample_ranks][n-1]
-        print R, sample_ranks
+        self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
         self.reads = []
         

@@ -422,8 +422,8 @@ def PSAM_partition_function_gradient(state):
         grad[y] *= norm
 
     t3 = time()
-    print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
-        1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
+    # print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
+    #    1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
 
     state.skipped = skipped.base[0]
     state.gradi = gradi

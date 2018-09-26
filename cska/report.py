@@ -136,7 +136,7 @@ def density_scatter_plot(
 
             z_min = np.nanmin(zi)
             z_max = np.nanmax(zi)
-            print "zmin/max", z_min, z_max
+            # print "zmin/max", z_min, z_max
             # pca().set_facecolor('w')
             pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
             pm.set_rasterized(True)
@@ -818,6 +818,7 @@ class EnrichmentBarPlot(object):
 class GradientDescentReport(object):
     def __init__(self, descent, path='.'):
         self.descent = descent
+        self.logger = logging.getLogger('plot.GradientDescentReport')
         self.path = path
 
     def plot_report(self):
@@ -826,12 +827,12 @@ class GradientDescentReport(object):
         R_values = np.array([state.R for state in self.descent.history])
         R0 = self.descent.model.R0
         residuals = np.log2(R_values / R0[np.newaxis,:,:])
-        print R_values.shape
-        print residuals.shape
+        # print R_values.shape
+        # print residuals.shape
         data = np.mean(residuals, axis=1) # mean across samples
         I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
-        print data.shape
-        print I.shape
+        # print data.shape
+        # print I.shape
         pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
         pp.ylabel('kmer index')
         t = [-1,0,+1]
@@ -963,21 +964,23 @@ class GradientDescentReport(object):
 
         a0 = state._A0_data.a0
         rerr = state._A0_data.rerr
-        asem = state._A0_data.asem
+        asem = getattr(state._A0_data, "asem", None)
         rcorr = state._A0_data.rcorr
 
         import matplotlib.pyplot as plt
         plt.figure()
         plot = plt.loglog
         plt.subplot(311)
+
         plot(a0, rerr, '.b', label='MSE')
         plot(a0, rerr, '-b')
         plt.legend(loc='upper left')
 
         plt.subplot(312)
-        plot(a0, asem, '.r', label='SEM')
-        plot(a0, asem, '-r')
-        plt.legend(loc='upper left')
+        if not asem is None:
+            plot(a0, asem, '.r', label='SEM')
+            plot(a0, asem, '-r')
+            plt.legend(loc='upper left')
 
         plt.subplot(313)
         plt.plot(a0, rcorr, '.k', label='best correlation')
@@ -1045,7 +1048,7 @@ class LiteratureComparisonReport(object):
         self.comp = comp
         self.path = path
 
-    def plot_scatter(self):
+    def plot_scatter(self, debug=False):
         if not self.comp:
             return
 
@@ -1059,17 +1062,19 @@ class LiteratureComparisonReport(object):
         M = max(x.max(), y.max())
         pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
-        print "seq\tknown\tpredict\tlog-ratio"
-        lfc = np.log2(y/x)
-        I = lfc.argsort()
-        for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
-            print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
+        if debug:
+            print "seq\tknown\tpredict\tlog-ratio"
+            lfc = np.log2(y/x)
+            I = lfc.argsort()
+            for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
+                print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
 
         from scipy.stats import pearsonr, spearmanr
         rho, p_spearman = spearmanr(np.log(x), np.log(y))
         R, p_pearson = pearsonr(np.log(x), np.log(y))
-        print ">>> R={R} P-value < {p_pearson}".format(**locals())
-        print ">>> rho={rho} P-value < {p_spearman}".format(**locals())
+        if debug:
+            print ">>> R={R} P-value < {p_pearson}".format(**locals())
+            print ">>> rho={rho} P-value < {p_spearman}".format(**locals())
 
         # pp.loglog(x, y, '.', label=r"$R={R:.2f}$ ($P < {p_pearson:.2e}$) $\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals()))
         label="$R={R:.2f}$ ($P < {p_pearson:.2e}$)\n$\\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals())

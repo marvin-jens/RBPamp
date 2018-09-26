@@ -40,7 +40,7 @@ class PSAMGradientDescent(object):
         self.model = model
         self.params = params
     
-    def optimize(self):
+    def optimize(self, debug=False):
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
@@ -58,23 +58,21 @@ class PSAMGradientDescent(object):
             if dt > 5 or dt is None:
                 rep.plot_report()
                 rep.plot_param_hist()
-                rep.plot_line_search()
-                rep.plot_A0_fit()
+                # rep.plot_line_search()
+                # rep.plot_A0_fit()
                 lrep.plot_scatter()
-
                 pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
                 logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
-                name = 'mean_field_{0}mer_PSAM'.format(descent.params.k)
-                pwm.save_logo(os.path.join(self.out_path, name + '.eps' ), title=logo_title)
-                pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
+                name = 'motif'.format(descent.params.k)
+                pwm.save_logo(os.path.join(self.out_path, name + '.pdf' ), title=logo_title)
+                # pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
                 
                 descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
-
-                state = descent.model.predict(descent.params)
-                self.store_affinities(state)
-                self.store_residuals(state)
+                # state = descent.model.predict(descent.params)
+                # self.store_affinities(state)
+                self.store_residuals(descent.last_state)
                 return True
-        
+
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
@@ -87,11 +85,13 @@ class PSAMGradientDescent(object):
             pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
             out = [descent.t, descent.last_state.params.A0, descent.errors[-1],] + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR)
 
-            self.track_file.write("\t".join([str(o) for o in out]))
+            line = "\t".join([str(o) for o in out])
+            print line
+            self.track_file.write(line)
             self.track_file.write('\n')
 
         self.t0 = time.time()
-        self.descent.optimize(self.params, debug=True, callback=callback)
+        self.descent.optimize(self.params, debug=debug, callback=callback)
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
         self.track_file.close()

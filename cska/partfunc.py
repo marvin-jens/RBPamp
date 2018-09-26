@@ -196,7 +196,7 @@ class PartFuncModel(object):
     being used to estimate agreement with the experiment.
     """
     def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, **kwargs):
-        self.logger = logging.getLogger('opt.PartFuncModel')
+        self.logger = logging.getLogger('model.PartFuncModel')
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
         self.params = params0
@@ -256,30 +256,19 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis,:] * (1 - self.R0)
 
-    def tune(self, state, A0_plot="", debug=True, maxiter=5):
+    def tune(self, state, debug=False, maxiter=5):
         params = state.params
         A00 = params.A0
-        # state2 = self.predict(params)
-        # print "TUNE STATE"
-        # print state
-        # print state.Z1_read
-
         from scipy.optimize import minimize_scalar
         from scipy.stats import sem
         from cska.gradient import minimize_logspaced
+
         sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
         kmer_weights = state.kmer_affinity_weights(cutoff=.1)
         e0 = state.error
-        # mask = np.fabs(state.mdl.R0 - 1) > .001
-        # mask = np.logical_or(state.mdl.R0 > 1.1, state.mdl.R0 < .9)
-        mask = state.mdl.R0 > 1.1
-        print "estimators used", mask.sum() 
 
         a0s = []
-        # beta0s = []
         R_err = {}
-        A0_est = {}
-        A0_sem = {}
         R_corr = {}
 
         def err(A0):
@@ -292,27 +281,18 @@ class PartFuncModel(object):
             state._update_betas(betas)
 
             a0s.append(A0)
-            # beta0s.append(betas[0])
 
             if debug:
                 top = kmer_weights.argmax()
                 topmer = cyska.index_to_seq(top, self.k)
                 print "R({0})={1} [R0={2}]".format(topmer, state.R[:,top], self.R0[:,top])
-
-            est = state.A0_estimators
-            
-            err = sem(est[mask], axis=None)
-            if debug:
                 print A0, "->", err, state.error
             
-            A0_sem[A0] = err
             R_err[A0] = state.error
             R_corr[A0] = np.array(state.correlations).max()
-            A0_est[A0] = est
 
-            return state.error #err + state.error * self.nA
+            return state.error
 
-        # res = minimize_scalar(err, bounds=(1e-3, 100), method='Bounded')
         res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter))
 
         if debug:
@@ -329,11 +309,13 @@ class PartFuncModel(object):
         a0 = sorted(a0s)
         rerr = np.array([R_err[a] for a in a0])
         rcorr = np.array([R_corr[a] for a in a0])
-        asem = np.array([A0_sem[a] for a in a0])
+        # asem = np.array([A0_sem[a] for a in a0])
         
-        self.logger.info("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()) )
+        if debug:
+            self.logger.debug("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()) )
+
         from gradient import Tracked
-        state._A0_data = Tracked(a0=a0, rerr=rerr, asem=asem, rcorr=rcorr)
+        state._A0_data = Tracked(a0=a0, rerr=rerr, rcorr=rcorr) # asem=asem, 
         return state
 
     def set_mask(self, indices=[]):
