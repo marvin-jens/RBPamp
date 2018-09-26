@@ -274,7 +274,7 @@ def reverse_complement(matrix):
 # print(pfm.head())
 
 if __name__ == "__main__":
-    fig = plt.figure(figsize=(8,6))
+    fig = plt.figure(figsize=(6, 3))
     ax = fig.add_subplot(111)
     # plot_seqlogo(ax, reverse_complement(pfm), info=True)
     m = np.array([ [.8,.6,.2,1],[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,.5,0,1], [0,0,1,0]])
