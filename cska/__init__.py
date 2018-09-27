@@ -26,6 +26,7 @@ def parse_cmdline():
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
     parser.add_option("","--multi-stage",dest="multi_stage",default=False, action="store_true",help="SWITCH: perform multiple stages of optimization")
+    parser.add_option("","--resume", dest="resume",default="", choices=['opt_nostruct', 'footprint', 'opt_full', ''], help="at which stage to resume [opt_nostruct, footprint, opt_full] default is the latest stage that is found")
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
@@ -69,7 +70,7 @@ def parse_cmdline():
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
-    parser.add_option("","--resume",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file for further optimization")
+    parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
 
     # TODO: update
@@ -388,6 +389,15 @@ class Run(object):
             self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
             self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
 
+        elif self.options.resume:
+            self.logger.info("resuming from stage '{}'".format(self.options.resume))
+            param_file = {
+                'opt_nostruct' : 'parameters.tsv',
+                'footprint' : 'calibrated.tsv',
+                'opt_full'  : 'parameters.tsv'
+            }[self.options.resume]
+            self.params = ModelParametrization.load(os.path.join(self.run_path, self.options.resume, param_file), self.rbns.n_samples)
+
         elif self.options.seed_analysis:
             from cska.seed import SeedRefinement
             SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
@@ -439,17 +449,34 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
            
+
+        tasks = (True, True)
+        if options.resume:
+            tasks = {
+                'opt_nostruct' : (True, True),
+                'footprint' : (False, True),
+                'opt_full' : (False, False),
+            }[options.resume]
+
+        opt_nostruct, footprint = tasks
+
         rbns = run.keep_best() # unless --best is specified this does nothing
         if options.multi_stage:
             run.logger.info("STAGE0: initialize PSAM")
             params = run.init_model_parameters()
 
             run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
-            run.params.acc_k = 0 # disable accessibility
-            params = run.PSAM_gradient_descent('opt_nostruct')
+            if not opt_nostruct:
+                run.logger.info("skipped because we resume from {}".format(options.resume))
+            else:
+                run.params.acc_k = 0 # disable accessibility
+                params = run.PSAM_gradient_descent('opt_nostruct')
 
             run.logger.info("STAGE2: footprint parameter estimation")
-            params = run.calibrate_footprint()
+            if not footprint:
+                run.logger.info("skipped because we resume from {}".format(options.resume))
+            else:
+                params = run.calibrate_footprint()
 
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
             params = run.PSAM_gradient_descent('opt_full')
