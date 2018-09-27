@@ -15,7 +15,6 @@ class PartFuncModelState(object):
         self.rbp_conc = mdl.rbp_conc
         self.threshold = mdl.Z_thresh # TODO: cleanup! experimental
         # self.threshold = 1e-6 # TODO: cleanup! experimental
-    
         # self.A, self.I = cyska.params_from_pwm(params.psam_matrix, A0=params.A0, aff0=mdl.aff0)
         t1 = time.time()
         # print "number of relevant kmers", len(self.I)
@@ -229,6 +228,8 @@ class PartFuncModel(object):
             self.logger.debug("scaling accessibilities by {}".format(self.params.acc_scale))
             self.acc = np.array(self.acc, dtype=np.float32) # make a scaled *copy*
             cyska.pow_scale(self.acc, self.params.acc_scale)
+
+        assert np.isfinite(self.acc).all()
 
         # in case a mask is set, this can be a subset
         self.indices = []
