@@ -66,7 +66,7 @@ class FootprintCalibration(object):
         self.logger.debug("subsetting to {} reads with Z1 > {}".format(N, thresh) )
         self.Z1 = self.Z1_in_noacc[self.I,:]
 
-    def calibrate(self, k_core_range=[3, None], plot=True):
+    def calibrate(self, k_core_range=[3, None], plot=True, pad=5):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
         if kmax is None:
@@ -77,7 +77,7 @@ class FootprintCalibration(object):
         try:
             for k in range(kmin, kmax+1):
                 d = self.params.k - k
-                for s in range( 2 - k , d + 2):
+                for s in range( -pad , d + pad):
                     self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
                     res, punp_predict = self.optimize(k, s)
                     results.append( (res.fun, k, s, res, punp_predict)  )
@@ -191,8 +191,8 @@ class FootprintCalibration(object):
         import cska.cyska as cyska
         from cska.sc import SelfConsistency
         from time import time
-        from pympler.tracker import SummaryTracker
-        tracker = SummaryTracker()
+        # from pympler.tracker import SummaryTracker
+        # tracker = SummaryTracker()
 
         openen = self.input_reads.acc_storage.get_raw(acc_k)
         openen_punp = self.input_reads.acc_storage.get_raw(1)

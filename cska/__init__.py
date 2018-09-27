@@ -46,7 +46,7 @@ def parse_cmdline():
     parser.add_option("","--parallel", dest="parallel", default=8,type=int,help="number of parallel threads (currently only used for folding. default=8)")
     
     # RBNS metrics
-    parser.add_option("","--metrics",dest="results",default="R_value,F_ratio",help="list of RBNS metrics to compute and store (options='*R_value,SKA_weight,F_ratio' *=default)")
+    parser.add_option("","--metrics",dest="results",default="",help="list of RBNS metrics to compute and store (options='R_value,SKA_weight,F_ratio' default='')")
     parser.add_option("","--metrics-k", dest="metrics_k", default="3-8", help="range of kmer sizes for which to compute the desired metrics (default: --metrics-k=3-8)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
@@ -166,8 +166,9 @@ def vector_stats(v):
 
 
 class Run(object):
-    def __init__(self, options):
+    def __init__(self, options, args):
         self.options = options
+        self.args = args
         if options.auto:
             self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
         else:
@@ -316,7 +317,7 @@ class Run(object):
 
     def compute_metrics(self, metrics):
         self.logger.info("computing RBNS metrics '{0}'".format(metrics))
-        kmin, kmax = self.options.metrics_k.split('_')
+        kmin, kmax = self.options.metrics_k.split('-')
         for k in range(int(kmin), int(kmax) + 1):
             self.rbns.compute_results(k, self.options, results=metrics)
             self.rbns.flush()
@@ -429,7 +430,7 @@ class Run(object):
 
 def main():
     options, args = parse_cmdline()
-    run = Run(options)
+    run = Run(options, args)
 
     try:
         rbns = run.select_reads()
@@ -438,7 +439,7 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
            
-        rbns = run.keep_best()
+        rbns = run.keep_best() # unless --best is specified this does nothing
         if options.multi_stage:
             run.logger.info("STAGE0: initialize PSAM")
             params = run.init_model_parameters()
