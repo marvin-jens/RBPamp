@@ -97,7 +97,7 @@ class ModelParametrization(object):
         return params
 
     @classmethod
-    def load(cls, fname, n_samples):
+    def load(cls, fname, n_samples, beta0=1e-6, mina=1e-6):
         aff = []
         attrs = {}
         with file(fname) as f:
@@ -119,11 +119,12 @@ class ModelParametrization(object):
                     aff.append(parts[:4])
 
         psam = np.array(aff, dtype=np.float32)
+        psam = np.where(psam > 0, psam, mina)
         params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
         params.acc_k = int(attrs.get('acc_k', len(psam)))
         params.acc_shift = int(attrs.get('acc_shift', 0))
         params.acc_scale = attrs.get('acc_scale', 1)
-
+        params.betas[:] = beta0
         return params
 
     def save(self, fname):
@@ -203,7 +204,7 @@ class ModelParametrization(object):
         buf.append("#\tA\t\tC\t\tG\t\tU\tcons")
         
         for row in self.psam_matrix:
-            buf.append("\t".join(["{0:>10.3f}".format(x) for x in row] + [project_column(row)]))
+            buf.append("\t".join(["{0:>10.5f}".format(x) for x in row] + [project_column(row)]))
 
         # buf.append("BACKGROUND")
         # for i, beta in enumerate(self.betas):
