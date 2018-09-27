@@ -2,7 +2,7 @@ import numpy as np
 import gc, os, sys
 import logging
 from cska import ensure_path
-import cska.caching
+from cska.caching import pickled, cached, CachedBase
 
 # gc.enable()
 # gc.set_debug(gc.DEBUG_LEAK)
@@ -23,8 +23,11 @@ def dump_garbage():
         print type(x),"\n  ", s
 
 
-class FootprintCalibration(object):
+class FootprintCalibration(CachedBase):
     def __init__(self, rbns, params, pad=5, thresh=1e-3):
+         
+        CachedBase.__init__(self)
+
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
         self.params = params.copy()
         self.params.acc_k = 0
@@ -66,6 +69,11 @@ class FootprintCalibration(object):
         self.logger.debug("subsetting to {} reads with Z1 > {}".format(N, thresh) )
         self.Z1 = self.Z1_in_noacc[self.I,:]
 
+    @property
+    def cache_key(self):
+        return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}".format(self=self)
+
+    @pickled
     def calibrate(self, k_core_range=[3, None], plot=True, pad=5):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
