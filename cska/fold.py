@@ -115,41 +115,56 @@ class RBNSOpenen(CachedBase):
         l = self.rbns_reads.L - self.k + 1
         l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
 
+        oem = None
         if not os.path.exists(self.fname):
             self.logger.warning("file not found. Assuming accessibility = 1".format(self.fname))
             oem = np.zeros(N*l_adap, dtype=self.dtype)
-        else:
-            oem = np.memmap(self.fname, dtype=self.dtype, mode='c') # FIXME: should be read only but Cython MemoryViews currently don't support that! :(
+            self.l_row = l_adap
+            self.include_adapters = True
+            self.ofs = self.rbns_reads.l5
+            return oem
 
-        L = len(oem)/float(N)
+        # we need to load from disk
+        itemsize = np.dtype(self.dtype).itemsize
+        N_items = os.path.getsize(self.fname) / itemsize
+        L = N_items / float(N)
+
         self.logger.debug("open-energy row l={0}".format(L))
-        
         if L == l:
             self.logger.info("data excludes adapters L={0}".format(L))
+            self.l_row = l
             self.include_adapters = False
             self.ofs = 0
         
         elif L == l_adap:
             self.logger.info("data covers adapters L={0}".format(L))
+            self.l_row = l_adap
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
+
         elif L > l_adap:
-            n_file = float(len(oem)) / l_adap
+            n_file = N_items / l_adap
             self.logger.warning("file contains {n_file} rows (assuming it includes adapters) but only {self.rbns_reads.N} reads are loaded. Truncating!".format(**locals()) )
             self.ofs = self.rbns_reads.l5
             self.include_adapters = True
-            oem = oem[:l_adap*self.rbns_reads.N]
-            L = l_adap
+            self.l_row = l_adap
         else:
             delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
             raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
         
-        L = int(L)
-        oem = oem.reshape( (N,L) )
-        if self.rbns_reads.n_max:
-            self.logger.debug("truncating to reads.n_max={0}".format(self.rbns_reads.n_max) )
-            oem = oem[:self.rbns_reads.n_max]
+        # read the actual data. Only as much as needed!
+        import time
+        import mmap
+        from contextlib import closing
+        N_bytes = self.l_row * N * itemsize
+        t0 = time.time()
+        with open(self.fname, 'rb') as f:
+            with closing(mmap.mmap(f.fileno(), length=N_bytes, access=mmap.ACCESS_READ)) as m:
+                oem = np.fromstring(m, dtype=self.dtype)
 
+        dt = 1000. * (time.time() - t0)
+        self.logger.debug("loading {N} rows of accessibility from {self.fname} took {dt:.2f} ms.".format(**locals()))
+        oem = oem.reshape( (N, self.l_row) )
         return oem
     
     @property
