@@ -7,6 +7,8 @@ import time
 
 from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 
+from cska.affinitylogo import nice_conc
+
 class PSAMGradientDescent(object):
     def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, eps=1e-5, **kwargs):
         self.rbns = rbns
@@ -60,7 +62,7 @@ class PSAMGradientDescent(object):
                 # rep.plot_line_search()
                 # rep.plot_A0_fit()
                 pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
-                logo_title = 'Kd={pwm.Kd:.2e} nM'.format(pwm = pwm)
+                logo_title = u"$K_d$ = {}".format(nice_conc(pwm.Kd))
                 name = 'motif'.format(descent.params.k)
                 pwm.save_logo(os.path.join(self.out_path, name + '.pdf' ), title=logo_title)
                 # pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
