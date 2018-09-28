@@ -8,8 +8,10 @@ class SelfConsistency(object):
         self.logger = logging.getLogger("model.SelfConsistency")
         self.Z1 = Z1[Z1 > 0]
         self.last_error = -1
+        self.all_free = False
+        
         if not len(self.Z1):
-            self.free_rbp = self.all_free
+            self.all_free = True
             return
 
         # # HACK! Just to mask annoying issues that arent important right now
@@ -34,6 +36,10 @@ class SelfConsistency(object):
         return rbp_total
 
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
+        if self.all_free:
+            self.logger.warning("returning all RBP as free because Z1 was not usable!")
+            return rbp_total
+
         if self.bins is None:
             raise ValueError("fast_free_rbp called without binning!")
 
