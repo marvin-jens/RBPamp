@@ -118,11 +118,11 @@ class RBNSOpenen(CachedBase):
         oem = None
         if not os.path.exists(self.fname):
             self.logger.warning("file not found. Assuming accessibility = 1".format(self.fname))
-            oem = np.zeros(N*l_adap, dtype=self.dtype)
             self.l_row = l_adap
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
-            return oem
+            
+            return np.zeros( (N, self.l_row), dtype=self.dtype)
 
         # we need to load from disk
         itemsize = np.dtype(self.dtype).itemsize
