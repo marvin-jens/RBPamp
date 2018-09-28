@@ -160,11 +160,8 @@ def nice_conc(kd, digits=3):
         val = kd
         unit = "nM"
     else:
-        dec = int(np.round(np.log10(kd)))
-        u = (dec /3) * 3
-        # print kd, np.log10(kd), dec, u, dec % 3
-        # bounds
-
+        dec = np.log10(kd)
+        u = int(np.floor(dec /3)) * 3
         u = max(-3, u)
         u = min(6, u)
         units = {
@@ -173,10 +170,12 @@ def nice_conc(kd, digits=3):
             3 : u"μM",
             6 : u"mM",
         }
+        unit = units[u]
+
         def round_sig(f, p):
             return float(('%.' + str(p) + 'e') % f)
+
         val = round_sig(kd / 10**u, digits)
-        unit = units[u]
 
     return u"{:g} {}".format(val, unit)
 
@@ -302,9 +301,14 @@ def reverse_complement(matrix):
 # print(pfm.head())
 
 if __name__ == "__main__":
-    fig = plt.figure(figsize=(6, 3))
-    ax = fig.add_subplot(111)
-    # plot_seqlogo(ax, reverse_complement(pfm), info=True)
-    m = np.array([ [.8,.6,.2,1],[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,.5,0,1], [0,0,1,0]])
-    plot_afflogo(ax, m+1e-3, title="test")
-    plt.show()
+    print(nice_conc(.011))
+    print(nice_conc(.11))
+    print(nice_conc(11))
+    print(nice_conc(646))
+    print(nice_conc(6460))
+    # fig = plt.figure(figsize=(6, 3))
+    # ax = fig.add_subplot(111)
+    # # plot_seqlogo(ax, reverse_complement(pfm), info=True)
+    # m = np.array([ [.8,.6,.2,1],[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,.5,0,1], [0,0,1,0]])
+    # plot_afflogo(ax, m+1e-3, title="test")
+    # plt.show()
