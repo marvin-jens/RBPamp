@@ -170,7 +170,7 @@ def nice_conc(kd, digits=3):
             3 : u"μM",
             6 : u"mM",
         }
-        unit = units[u]
+        unit = units.get(u, 'UNDEFINED')
 
         def round_sig(f, p):
             return float(('%.' + str(p) + 'e') % f)
@@ -301,11 +301,11 @@ def reverse_complement(matrix):
 # print(pfm.head())
 
 if __name__ == "__main__":
-    print(nice_conc(.011))
-    print(nice_conc(.11))
-    print(nice_conc(11))
-    print(nice_conc(646))
-    print(nice_conc(6460))
+    for x in np.random.random(1000):
+        y = np.random.randint(-5, high=8)
+        x *= 10**y
+        print(x, nice_conc(x))
+
     # fig = plt.figure(figsize=(6, 3))
     # ax = fig.add_subplot(111)
     # # plot_seqlogo(ax, reverse_complement(pfm), info=True)
