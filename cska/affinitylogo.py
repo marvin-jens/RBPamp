@@ -152,6 +152,34 @@ Q 352,12 301,12
 Z
 """
 
+def nice_conc(kd, digits=3):
+    if not np.isfinite(kd):
+        return str(kd)
+
+    if kd <= 0:
+        val = kd
+        unit = "nM"
+    else:
+        dec = int(np.round(np.log10(kd)))
+        u = (dec /3) * 3
+        # print kd, np.log10(kd), dec, u, dec % 3
+        # bounds
+
+        u = max(-3, u)
+        u = min(6, u)
+        units = {
+            -3 : u"pM",
+            0 : u"nM",
+            3 : u"μM",
+            6 : u"mM",
+        }
+        def round_sig(f, p):
+            return float(('%.' + str(p) + 'e') % f)
+        val = round_sig(kd / 10**u, digits)
+        unit = units[u]
+
+    return u"{:g} {}".format(val, unit)
+
 def _get_glyph(path_data, color, x, y, dx, dy, **kwargs):
     kwargs.setdefault('facecolor', color)
     kwargs.setdefault('edgecolor', 'none')
@@ -220,7 +248,7 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
                 patch = _get_glyph(glyphs[letter], colors[letter],
                                i*charwidth, bottom, charwidth, a)
                 bottom += a
-            ax.add_artist(patch)
+                ax.add_artist(patch)
 
     ax.set_xlim([0, seqlen * charwidth])
     ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
