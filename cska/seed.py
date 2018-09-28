@@ -179,30 +179,30 @@ class Alignment(object):
 
                 best[l] = (f, i, j)
 
-        # print best
-        bylength = sorted(best)
-        for l in bylength:
-            f,i,j = best[l]
-            if f >= keep_weight:
-                break
+        bylength = sorted(best.keys())
+        def find_best():
+            for l in bylength:
+                if n_max and l > n_max:
+                    # we exhausted all motifs of allowed length
+                    break
+                
+                f,i,j = best[l]
+                if f >= keep_weight:
+                    # found the shortest motif that satisfies keep_weight
+                    return f, i, j 
 
-        if not n_max or j-i <= n_max:
-            m = self.matrix[i:j] + pseudo
-        else:
-            if n_max <= n:
-                f, i, j = best[n_max]
-                m = self.matrix[i:j] + pseudo
-            else:
-                # need to pad
-                s = n_max - n
-                m = self.matrix
-                left = s/2
-                right = s - left
-                if left:
-                    m = np.concatenate((np.zeros((left,4), m)))
-                if right:
-                    m = np.concatenate((m, np.zeros((right,4))))
+            # no allowed length satisfies keep_weight cutoff.
+            # select the shortest motif that is as good as the longest allowed motif
+            f_cut = best[n_max][0]
+            for l in bylength:
+                f,i,j = best[l]
+                if f >= f_cut:
+                    # found the shortest motif that satisfies keep_weight
+                    return f, i, j 
 
+        f, i, j = find_best()
+
+        m = self.matrix[i:j] + pseudo
         if col_scale:
             # add pseudo-scores to columns 
             # with fewer observations/lower score
@@ -317,6 +317,7 @@ class DependentKmerAnalysis(CachedBase):
         self.A_score = S_A
         self.B_score = S_B
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
+        # print self.linear
 
     # @property
     def topR_PSAM_seed(self, k, keep_weight=.9, n_max=7, thresh = .6, z_cut=4):
