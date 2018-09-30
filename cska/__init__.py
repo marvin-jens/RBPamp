@@ -12,6 +12,8 @@ import os
 import logging
 import collections
 import traceback
+import matplotlib
+matplotlib.use('agg')
 
 def parse_cmdline():
     from optparse import OptionParser
