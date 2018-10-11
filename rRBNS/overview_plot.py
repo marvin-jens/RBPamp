@@ -6,11 +6,12 @@ import sys
 
 domains = pd.read_table('domains.txt', header=None, names=['rbp','domains'])
 linscore = pd.read_table('scores.txt', header=None, names=['rbp','linscore'])
+fp_params = pd.read_table('opt_a.txt', header=None, names=['rbp', 'acc_scale'])
 topR = pd.read_table('topR.txt', header=None, names=['rbp','top_R'])
-linscore.set_index('rbp')
-domains.set_index('rbp')
-topR.set_index('rbp')
 
+# print fp_params.describe()
+# print fp_params
+# sys.exit(0)
 # df = linscore.join(descent, on='rbp', rsuffix='_lin')
 
 def _linearity(v):
@@ -34,6 +35,18 @@ def _topR(v):
         return '1-2'
     else:
         return 'NA'
+
+def _scale(v):
+    if v > .5:
+        return '0.5+'
+    elif v > .2:
+        return '0.2-0.5'
+    elif v > .1:
+        return '0.1-0.2'
+    elif v > 0.05:
+        return '0.05-0.1'
+    else:
+        return '< 0.05'
 
 def _domain(dom):
     if type(dom) == float:
@@ -65,18 +78,19 @@ def load_descent_run(fname, run='full'):
 # descent = pd.read_table('descent2.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
 # descent = pd.read_table('descent_bugfix_noopt.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
     descent = pd.read_table(fname, header=None, names=['rbp','rerr','ferr','corr','steps'])
-    descent.set_index('rbp')
-    df = descent.merge(linscore, how='left')
-    df = df.merge(domains, how='left')
-    df = df.merge(topR, how='left')
+    df = descent.merge(linscore, how='left', on='rbp')
+    df = df.merge(domains, how='left', on='rbp')
+    df = df.merge(topR, how='left', on='rbp')
+    df = df.merge(fp_params, how='left', on='rbp')
     df['motif_linearity'] = df['linscore'].apply(_linearity)
     df['domain'] = df['domains'].apply(_domain)
     df['n_dom'] = df['domains'].apply(_domain_count)
     df['max_R'] = df['top_R'].apply(_topR)
+    df['opt_a'] = df['acc_scale'].apply(_scale)
     df['run'] = run
-    df.set_index('rbp')
 
-    return df
+    return df.set_index('rbp')
+    # return df
 
 def label_point(row):
     x,y,val = row
@@ -86,6 +100,10 @@ df = load_descent_run(sys.argv[1])
 df_nostruct = load_descent_run(sys.argv[2], run='nostruct')
 combined = df.append(df_nostruct)
 
+intersect = df.join(df_nostruct, lsuffix="_full", rsuffix='_nostruct', how='inner')
+# print intersect.describe()
+# print intersect[['corr_full', 'corr_nostruct']]
+# sys.exit(0)
 # print df
 def by_R_value_plot(df):
     order = ['20+','5-20','2-5','1-2']
@@ -122,12 +140,15 @@ def by_domain_plot(df):
 
 
 def corr_scatter(full, nostruct):
-    df = full.join(nostruct, lsuffix="_full", rsuffix='_nostruct')
-
+    df = intersect
+    # print df[['rbp_full', 'rbp_nostruct', 'corr_full', 'corr_nostruct']]
     order = ['20+','5-20','2-5','1-2'][::-1]
+    order = ['0.5+', '0.2-0.5', '0.1-0.2', '0.05-0.1', '<0.05'][::-1]
     # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
     # order = ['1+', '0.7-1', '0.7-', "NA"]
-    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=False, palette='viridis')
+    # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=False, palette='viridis')
+    print df.describe()
+    lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='opt_a_full', hue_order=order[::-1], legend=False, palette='viridis')
 
     df['delta'] = df['corr_full'] - df['corr_nostruct']
     # df.set_index(['rbp','delta', 'corr_full','corr_nostruct'])
@@ -136,20 +157,25 @@ def corr_scatter(full, nostruct):
 
     def label_point(row, ax):
         print row
-        ax.text(row.corr_nostruct+.02, row.corr_full, str(row.rbp_full))
+        print row.Index
+
+        ax.text(row.corr_nostruct+.02, row.corr_full, str(row.Index))
 
     # print by_delta[['rbp_full', 'delta']][:5]
     # print by_delta
-    for row in by_delta[['rbp_full','corr_full','corr_nostruct']][:5].itertuples():
+    for row in by_delta[['corr_full','corr_nostruct']][:3].itertuples():
         label_point(row, plt.gca())
 
-    for row in by_delta[['rbp_full','corr_full','corr_nostruct']][-5:].itertuples():
-        label_point(row, plt.gca())
+    # for row in by_delta[['corr_full','corr_nostruct']][-5:].itertuples():
+    #     label_point(row, plt.gca())
 
     by_corr = df.sort_values('corr_nostruct', ascending=False)
     # print by_corr.iloc[0]
-    label_point(by_corr.iloc[0], plt.gca())
-    label_point(by_corr.iloc[-1], plt.gca())
+    for row in by_corr[['corr_full', 'corr_nostruct']][:1].itertuples():
+        label_point(row, plt.gca())
+
+    for row in by_corr[['corr_full', 'corr_nostruct']][-5:].itertuples():
+        label_point(row, plt.gca())
 
     # print by_delta[['rbp_full', 'delta']][-5:]
     # for row in by_delta.iloc[-5:, :].iterrows():
@@ -157,12 +183,13 @@ def corr_scatter(full, nostruct):
 
 
     plt.xlabel('max. Pearson-R nostruct model')
-    plt.xlim(0.4,1.1)
-    plt.ylim(0.4,1.1)
+    plt.xlim(0.3,1.1)
+    plt.ylim(0.3,1.1)
     plt.plot([0,1],[0,1],'-k', linewidth=.1)
     plt.ylabel('max. Pearson-R full model')
     # tolabel.apply(label_point, axis=1)
-    plt.legend(loc='upper left', title="max. R-value")
+    # plt.legend(loc='upper left', title="max. 6-mer enrichment")
+    plt.legend(loc='upper left', title="accessibility scale")
     plt.savefig('overview_scatter.pdf')
     plt.close()
 
@@ -182,7 +209,8 @@ def quality(df):
     corr = df['corr']
     qrange = np.percentile(corr,[25,75])
     corrmean = np.mean(corr)
-    print "final best R-value correlation quartile range and mean", qrange, corrmean
+    corrmedian = np.median(corr)
+    print "final best R-value correlation quartile range, mean, median", qrange, corrmean, corrmedian
 
 print "no structure"
 quality(df_nostruct)

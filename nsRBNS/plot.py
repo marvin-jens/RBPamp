@@ -315,17 +315,19 @@ class nsRBNSModel(object):
         return state        
 
     def evaluate_PSAM(self, fname, seq_only = False):
-        from cska.pwm import PSAM
-        psam = PSAM.load(fname)
-        seqm = self.ns.reads.get_padded_seqm(psam.n)
-        openen = self.ns.reads.acc_storage.get_raw(psam.n)
-        acc = openen.acc
+
+        from cska.gradient import ModelParametrization
+        params = ModelParametrization.load(fname, 1)
+        # seqm = self.ns.reads.get_padded_seqm(psam.n)
+        # openen = self.ns.reads.acc_storage.get_raw(psam.n)
+        # acc = openen.acc
 
         if seq_only:
-            acc = np.ones(acc.shape, dtype=acc.dtype)
+            params.acc_k = 0 
+        # Z1 = cyska.PSAM_partition_function(seqm, acc, psam.psam, openen_ofs = openen.ofs - psam.n + 1)
 
-        import cska.cyska as cyska
-        Z1 = cyska.PSAM_partition_function(seqm, acc, psam.psam, openen_ofs = openen.ofs - psam.n + 1)
+        # import cska.cyska as cyska
+        Z1 = self.ns.reads.PSAM_partition_function(params)
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
 
         class State(object):
@@ -713,25 +715,25 @@ def rbfox2_analysis(lp=0, z_cut=4):
 
     # lm = nsRBNSModel(exp, 'SPA_na', 'rbfox3_psam_spa_grad_7mers.tsv', seq_only=True, low_perc=10)
     # psam_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/meanfield/7mer_affinities.tsv'
-    psam_model = 'RBFOX2_nostruct_9mer_PSAM.tsv'
+    psam_model = 'RBFOX3_nostruct.tsv'
     lm = nsRBNSModel(exp, 'SPA_psam_na', psam_model, seq_only=True, low_perc=lp, mdl_type='PSAM')
     fits_psam_na = lm.regression_analysis(**kw)
 
-    psam_model = 'RBFOX2_9mer_PSAM.tsv'
+    psam_model = 'RBFOX3_full.tsv'
     lm = nsRBNSModel(exp, 'SPA_psam', psam_model, seq_only=False, low_perc=lp, mdl_type='PSAM')
     fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
     exp.heatmap_plot(lm)
 
-    kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities.tsv'
-    # kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv'
-    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
-    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=lp)
-    fits_kmer_na = lm.regression_analysis(**kw)
+    # kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities.tsv'
+    # # kmer_model = '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv'
+    # # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=True, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=lp)
+    # fits_kmer_na = lm.regression_analysis(**kw)
 
-    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
-    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=lp)
-    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
-    exp.heatmap_plot(lm)
+    # # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/RBFOX3/cska/test_mfa2/affinity/7mer_affinities__UGCAUGC_Kd=3.368e-01_t=11.tsv', seq_only=False, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=lp)
+    # fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    # exp.heatmap_plot(lm)
 
     def pos_control_data(lm):
         data = np.array([
@@ -745,20 +747,20 @@ def rbfox2_analysis(lp=0, z_cut=4):
     # lm = nsRBNSModel(exp, 'mean_nsRBNS', 'RBFOX1.rnacompete', seq_only=False, low_perc=10, prepare_data=pos_control_data)
     # fits_m = lm.regression_analysis(**kw)
 
-    x = np.arange(len(exp.rbp_conc))*.9
+    x = np.arange(len(exp.rbp_conc))*.6
     pp.figure(figsize=(5,3))
     w = .09
     colors= ['#80FFC3','#98E86D','#FFF384','#E8B668','#FF8912','#FF886A','#D552FF','#B069FF']
     pp.bar(x + 0, get_r2(fits_rc), w, label='RNAcompete', facecolor=colors[2])
     pp.bar(x + .1, get_r2(fits_r_na), w, label='top RBNS R-values (w/o structure)', facecolor=colors[0])
     pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
-    pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
-    pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
-    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
-    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
+    pp.bar(x + .3, get_r2(fits_psam_na), w, label='PSAM sequence only', facecolor=colors[3])
+    pp.bar(x + .4, get_r2(fits_psam), w, label='PSAM + footprint', facecolor=colors[4])
+    # pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    # pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
     # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
 
-    pp.xticks(x+.3, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
+    pp.xticks(x+.2, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
     pp.legend(loc='upper left')
     pp.xlabel('RBFOX2 concentration [nM]')
     pp.ylabel(r'$R^2$ (variance explained)')
@@ -790,28 +792,28 @@ def msi1_analysis(lp=0, z_cut=4):
     fits_r = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=lp)
-    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MSI1_nostruct_12mer_PSAM.tsv', seq_only=True, mdl_type='MSI1')
+    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MSI1_nostruct.tsv', seq_only=True, mdl_type='MSI1')
     # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
     fits_psam_na = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=lp)
-    lm = nsRBNSModel(exp, 'SPA_psam', 'MSI1_12mer_PSAM.tsv', seq_only=False, low_perc=lp, mdl_type="PSAM")
+    lm = nsRBNSModel(exp, 'SPA_psam', 'MSI1_full_1M.tsv', seq_only=False, low_perc=lp, mdl_type="PSAM")
     # lm = nsRBNSModel(exp, 'SPA_psam', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
     fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
     exp.heatmap_plot(lm)
 
-    kmer_model = '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv'
-    # kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded3/affinity/8mer_affinities.tsv'
-    kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv'
-    # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=True, low_perc=10)
-    lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10, k=7)
-    fits_kmer_na = lm.regression_analysis(**kw)
+    # kmer_model = '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv'
+    # # kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded3/affinity/8mer_affinities.tsv'
+    # kmer_model = '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv'
+    # # lm = nsRBNSModel(exp, 'SPA_kmer_na', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=True, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_kmer_na', kmer_model, seq_only=True, low_perc=10, k=7)
+    # fits_kmer_na = lm.regression_analysis(**kw)
 
-    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
-    # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=False, low_perc=10)
-    lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10, k=7)
-    fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
-    exp.heatmap_plot(lm)
+    # # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/combined_7mer_affinities.tsv', seq_only=False, low_perc=10, scale=1e-5)
+    # # lm = nsRBNSModel(exp, 'SPA_kmer', '/scratch/data/RBNS/MSI1/cska/test_seeded2/affinity/7mer_affinities.tsv', seq_only=False, low_perc=10)
+    # lm = nsRBNSModel(exp, 'SPA_kmer', kmer_model, seq_only=False, low_perc=10, k=7)
+    # fits_kmer = lm.regression_analysis(scatter_plots=True, res_plots=False)
+    # exp.heatmap_plot(lm)
 
     x = np.arange(len(exp.rbp_conc))*.9
     pp.figure(figsize=(5,3))
@@ -822,11 +824,11 @@ def msi1_analysis(lp=0, z_cut=4):
     pp.bar(x + .2, get_r2(fits_r), w, label='top RBNS R-values', facecolor=colors[1])
     pp.bar(x + .3, get_r2(fits_psam_na), w, label='our model (PSAM w/o structure)', facecolor=colors[3])
     pp.bar(x + .4, get_r2(fits_psam), w, label='our model (PSAM)', facecolor=colors[4])
-    pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
-    pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
+    # pp.bar(x + .5, get_r2(fits_kmer_na), w, label='our model (kmer w/o structure)', facecolor=colors[5])
+    # pp.bar(x + .6, get_r2(fits_kmer), w, label='our model (kmer)', facecolor=colors[6])
     # pp.bar(x + .5, get_r2(fits_m), w, label='mean nsRBNS (pos. control)', facecolor=colors[5])
 
-    pp.xticks(x+.2, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
+    pp.xticks(x+.25, ['{0:.0f}'.format(conc) for conc in exp.rbp_conc])
     pp.legend(loc='upper left')
     pp.xlabel('MSI1 concentration [nM]')
     pp.ylabel(r'$R^2$ (variance explained)')
@@ -905,9 +907,9 @@ def mbnl1_analysis(lp=0, z_cut=4):
     pp.savefig('performance_MBNL1.pdf')
     pp.close()
 
-rbfox2_analysis()
-# msi1_analysis()
-mbnl1_analysis()
+# rbfox2_analysis()
+msi1_analysis()
+# mbnl1_analysis()
 sys.exit(0)
 
 nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
