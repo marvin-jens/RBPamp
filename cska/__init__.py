@@ -365,7 +365,7 @@ class Run(object):
                 l_insert = self.rbns.reads[0].L,
                 skip_adap = self.options.skip_adap,
                 n_parallel= self.options.parallel,
-                fold_missing = options.fold_missing,
+                fold_missing = self.options.fold_missing,
             )
 
 
