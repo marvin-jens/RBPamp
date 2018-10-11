@@ -103,6 +103,22 @@ class RBNSOpenen(CachedBase):
         N, L = self.oem.shape
         return L
    
+    def check_data(self, with_adapter=True):
+        if not os.path.exists(self.fname):
+            return False
+
+        N = self.rbns_reads.N
+        l = self.rbns_reads.L - self.k + 1
+        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
+        itemsize = np.dtype(self.dtype).itemsize
+        N_items = os.path.getsize(self.fname) / itemsize
+        L = int(N_items / float(N))
+
+        if with_adapter:
+            return L == l_adap
+        else:
+            return L == l
+
     @property
     @cached
     def oem(self):
@@ -337,6 +353,9 @@ class ViennaOpenen(object):
         ex = self.p.wait()
         self.logger.debug('close(): {0} exited with code {1} after folding {2} sequences'.format(self.cmd, ex, self.n_total) )
     
+class DummySink(object):
+    def write(*argcs, **kwargs):
+        pass
 
 class OpenenStorage(CachedBase):
     def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22., **kwargs):
@@ -414,10 +433,19 @@ class OpenenStorage(CachedBase):
         
             self.cache_flush()
             
-    def has_data(self, k):
+    def has_data(self, k, with_adapter=True):
         fname = self._make_filename(k)
-        print "CHECKING FOR", fname
-        return os.path.exists(fname)
+        openen = self.get_raw(k, _do_not_cache=True)
+        return openen.check_data(with_adapter=with_adapter)
+
+    def has_data_range(self, kmin, kmax):
+        yes = True
+        for k in range(kmin, kmax+1):
+            if not self.has_data(k):
+                yes = False
+                break
+
+        return yes
 
     @cached
     def get_raw(self, k):
@@ -457,8 +485,13 @@ class OpenenStorage(CachedBase):
     def get_or_create(self, k):
         if not k in self.k_sinks:
             fname = self._make_filename(k)
-            if os.path.exists(fname) and not self.overwrite:
+            if self.has_data(k):
+                self.logger.info("data for '{}' already in place. Will leave '{}' untouched.".format(k, fname))
+                self.k_sinks[k] = DummySink()
+
+            elif os.path.exists(fname) and not self.overwrite:
                 raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
+
             else:
                 self.k_sinks[k] = file(fname,'wb')
                 self.logger.info("created '{0}'".format(fname))

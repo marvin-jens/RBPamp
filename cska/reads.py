@@ -39,11 +39,18 @@ class RBNSReads(CachedBase):
         if len(seqm):
             self.is_subsample = True
             self.cache_preload("seqm", seqm)
-            N, L = seqm.shape
-            self.cache_preload("N", N)
-            self.cache_preload("L", L)
+            # N, L = seqm.shape
+            # self.cache_preload("N", N)
+            # self.cache_preload("L", L)
+            self.N, self.L = seqm.shape
+            self.N_total = self.N
         else:
             self.is_subsample = False
+            self.N_total, self.L = self.get_dimensions(fname)
+            if n_max:
+                self.N = n_max
+            else:
+                self.N = self.N_total
 
         # TODO: rel-path
         self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
@@ -64,6 +71,26 @@ class RBNSReads(CachedBase):
                     yield seq
             return readsrc()
 
+    def get_dimensions(self, fname):
+        if self.format == 'fasta':
+            raise ValueError("FASTA not supported for now")
+
+        if hasattr(fname, "read"):
+            # already file-like
+            f = fname
+        else:
+            f = file(fname)
+
+        # get the first line
+        line = next(f.__iter__())
+        llen = len(line)
+        L = len(line.rstrip()) # len w/o terminal white spaces
+        size = os.path.getsize(fname)
+        N = size/llen # number of reads
+        # rewind, in case this was already file-like
+        f.seek(0)
+        return N, L
+
 
     @classmethod
     def from_seqs(cls, seqs, fname = "", **kwargs):
@@ -74,8 +101,11 @@ class RBNSReads(CachedBase):
         seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
         N, L = seqm.shape
         reads.cache_preload("seqm", seqm)
-        reads.cache_preload("N", N)
-        reads.cache_preload("L", L)
+        self.N = N
+        self.N_total = N
+        self.L = L
+        # reads.cache_preload("N", N)
+        # reads.cache_preload("L", L)
         
         return reads
 
@@ -244,19 +274,19 @@ class RBNSReads(CachedBase):
         counts, openen = cyska.kmer_acc_counts(self, k)
         return counts, openen.acc_lookup
         
-    @property
-    @cached
-    @pickled
-    def N(self):
-        N, L = self.seqm.shape
-        return N
+    # @property
+    # @cached
+    # @pickled
+    # def N(self):
+    #     N, L = self.seqm.shape
+    #     return N
 
-    @property
-    @cached
-    @pickled
-    def L(self):
-        N, L = self.seqm.shape
-        return L
+    # @property
+    # @cached
+    # @pickled
+    # def L(self):
+    #     N, L = self.seqm.shape
+    #     return L
 
     @cached
     @pickled

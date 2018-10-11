@@ -42,7 +42,7 @@ def parse_cmdline():
 
     # RNA folding
     parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
-    parser.add_option("","--skip-folded", dest="skip_folded", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
+    parser.add_option("","--fold-missing", dest="fold_missing", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
     parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
     # parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
     parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
@@ -340,13 +340,17 @@ class Run(object):
             os.makedirs(self.fold_path)
 
         kmin, kmax = self.options.folding.split('-')
+        kmin = int(kmin)
+        kmax = int(kmax)
 
         # fold the reads
         for reads in self.rbns.reads:
-            if self.options.skip_folded:
-                if reads.acc_storage.has_data(self.options.max_k):
-                    self.logger.info("skipping {} because accessibilities have already been computed and stored.".format(reads.name))
-                    continue
+            # if self.options.fold_missing:
+            #     if reads.acc_storage.has_data(self.options.max_k):
+                        #         continue
+            if reads.acc_storage.has_data_range(kmin, kmax):
+                self.logger.info("skipping {} because accessibilities from k={}..{} have already been computed and stored.".format(reads.name, kmin, kmax))
+                continue
 
             self.logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
             parallel_fold(
@@ -361,6 +365,7 @@ class Run(object):
                 l_insert = self.rbns.reads[0].L,
                 skip_adap = self.options.skip_adap,
                 n_parallel= self.options.parallel,
+                fold_missing = options.fold_missing,
             )
 
 
