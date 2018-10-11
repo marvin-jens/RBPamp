@@ -39,6 +39,13 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = 0
         self.params.non_specific = 0
         self.logger = logging.getLogger('opt.FootprintCalibration')
+        self.results = {}
+        fp = os.path.join(self.path, 'footprints.tsv')
+        if os.path.exists(fp):
+            self.load_footprints(fp)
+
+        self.fp_file = file(fp, 'w')
+        self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
 
         Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.Z1_in_noacc = Z1[0]
@@ -80,46 +87,60 @@ class FootprintCalibration(CachedBase):
         if kmax is None:
             kmax = self.params.k + 2
 
-        results = []
         self.logger.debug("scanning acc_k = {} .. {}".format(kmin, kmax) )
         try:
             for k in range(kmin, kmax+1):
                 d = self.params.k - k
                 for s in range( -pad , d + pad):
-                    self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
-                    res, punp_predict = self.optimize(k, s)
-                    results.append( (res.fun, k, s, res, punp_predict)  )
-                    self.logger.debug("a={res.x[0]} A0={res.x[1]} err={res.fun}".format(res = res) )
+                    if not (k, s) in self.results:
+                        self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
+                        res, punp_predict = self.optimize(k, s)
+                        err = res.fun
+                        a = res.x[0]
+                        A0 = res.x[1]
+                        opt = (err, k, s, a, A0)
+                        
+                        self.results[(k, s)] = opt
+                        self.store_footprint(opt)
+                        self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
 
-                    if plot:
-                        self.plot_profiles(punp_predict, k, s, res)
+                        if plot:
+                            self.plot_profiles(punp_predict, k, s, res)
         
         except KeyboardInterrupt:
-            pass
+            self.logger.warning("received KeyboardInterrupt")
 
-        results = sorted(results)
-        self.results = results
-        self.store_footprints()
+        results = sorted(self.results.values())
+        # self.store_footprints()
         if plot:
             self.matrix_plots(results)
 
-        err, k, s, res, punp_predict = results[0]
+        err, k, s, a, A0 = results[0]
         self.params.acc_k = k
         self.params.acc_shift = s
-        self.params.acc_scale = res.x[0]
-        self.params.A0 = res.x[1]
+        self.params.acc_scale = a
+        self.params.A0 = A0
 
-        file(os.path.join(self.path, 'calibrated.tsv'), 'w').write(str(self.params) + '\n')
+        path = os.path.join(self.path, 'calibrated.tsv')
+        self.logger.info("storing footprinted model in '{}'".format(path))
+        file(path, 'w').write(str(self.params) + '\n')
         return self.params
     
 
-    def store_footprints(self):
-        with file(os.path.join(self.path, 'footprints.tsv'), 'w') as f:
-            f.write('acc_k\tacc_shift\tacc_scale\tA0\terror')
-            for opt in self.results:
-                err, k, s, res, punp_predict = opt
-                out = [k, s, res.x[0], res.x[1], err]
-                f.write("\t".join([str(o) for o in out]) + "\n")
+    def load_footprints(self, fp):
+        for line in file(fp).readlines()[1:]:
+            k, s, a, A0, err = line.split('\t')
+            k = int(k)
+            s = int(s)
+            self.results[(k, s)] = ( float(err), k, s, float(a), float(A0) )
+
+        self.logger.debug("loaded {} footprint records from '{}'".format(len(self.results),fp))
+
+
+    def store_footprint(self, opt):
+        err, k, s, a, A0 = opt
+        out = [k, s, a, A0, err]
+        self.fp_file.write("\t".join([str(o) for o in out]) + "\n")
 
 
     def plot_profiles(self, punp_expect, acc_k, acc_shift, res):
@@ -151,11 +172,10 @@ class FootprintCalibration(CachedBase):
         plt.close()
 
     def matrix_plots(self, results):
+        self.logger.debug("matrix plot")
         import seaborn as sns
         import matplotlib.pyplot as plt
-
-        results = [(acc_k, acc_shift, res.fun, res.x[0]) for err, acc_k, acc_shift, res, punp in results]
-        acc_k, acc_shift, err, a = np.array(results).T
+        err, acc_k, acc_shift, a, A0 = np.array(results).T
         k_base = int(acc_k.min())
         n_k = int(acc_k.max()) - k_base + 1
         shift = int(np.fabs(acc_shift).max())
@@ -164,7 +184,7 @@ class FootprintCalibration(CachedBase):
 
         mat_a = np.zeros((n_k, n_shift), dtype=float) + np.NaN
         mat_err = np.zeros((n_k, n_shift), dtype=float) + np.NaN
-        for acc_k, acc_shift, err, a in results:
+        for err, acc_k, acc_shift, a, A0 in results:
             mat_a[acc_k - k_base, acc_shift + mid_shift] = a
             mat_err[acc_k - k_base, acc_shift + mid_shift] = np.log10(err)
 
