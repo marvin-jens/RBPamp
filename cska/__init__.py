@@ -392,32 +392,57 @@ class Run(object):
     def init_model_parameters(self):
         ## prime the optimization from dependent-kmer analysis or load PSAM
         from cska.gradient import ModelParametrization
+        i = 0
+        self.params = None
+
         if self.options.mdl_psam_init:
             self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
             self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
 
         elif self.options.resume:
             self.logger.info("resuming from stage '{}'".format(self.options.resume))
-            param_file = {
-                'opt_nostruct' : 'parameters.tsv',
-                'footprint' : 'calibrated.tsv',
-                'opt_full'  : 'parameters.tsv'
-            }[self.options.resume]
-            self.params = ModelParametrization.load(os.path.join(self.run_path, self.options.resume, param_file), self.rbns.n_samples)
+            stages = [
+                'seed/initial.tsv', # TODO: make sure that is made
+                'opt_nostruct/parameters.tsv',
+                'footprint/calibrated.tsv',
+                'opt_full/parameters.tsv',
+            ]
 
-        elif self.options.seed_analysis:
+            i = {
+                'opt_nostruct' : 1,
+                'footprint' : 2,
+                'opt_full'  : 3
+            }[self.options.resume]
+
+            # find last parameter set that had been made
+            while i >= 0:
+                path = stages[i]
+                try:
+                    self.logger.info("attempting to resume parameters from '{}'".format(path))
+                    self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
+                except OSError:
+                    self.logger.debug("not found")
+                    self.params = None
+                else:
+                    self.logger.debug("success")
+                    break
+                i -= 1
+
+        if i <= 0 and self.params is None:
             from cska.seed import SeedRefinement
             SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
             self.params = SR.seeded_params(self.rbns.n_samples)
+            self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
 
             # clean up memory usage
             for reads in self.rbns.reads:
                 reads.cache_flush()
-        else:
+
+        if self.params is None:
             raise ValueError("need to either load a PSAM using --psam-resume or build one using --seed-analysis")
             sys.exit(1)
 
-        return params
+        return self.params
 
 
     def calibrate_footprint(self):

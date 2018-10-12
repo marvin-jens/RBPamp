@@ -39,18 +39,18 @@ class RBNSReads(CachedBase):
         if len(seqm):
             self.is_subsample = True
             self.cache_preload("seqm", seqm)
-            # N, L = seqm.shape
-            # self.cache_preload("N", N)
-            # self.cache_preload("L", L)
-            self.N, self.L = seqm.shape
-            self.N_total = self.N
+            N, L = seqm.shape
+            self.cache_preload("N", N)
+            self.cache_preload("L", L)
+            # self.N, self.L = seqm.shape
+            # self.N_total = self.N
         else:
             self.is_subsample = False
-            self.N_total, self.L = self.get_dimensions(fname)
-            if n_max:
-                self.N = n_max
-            else:
-                self.N = self.N_total
+            # self.N_total, self.L = self.get_dimensions(fname)
+            # if n_max:
+            #     self.N = n_max
+            # else:
+            #     self.N = self.N_total
 
         # TODO: rel-path
         self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
@@ -274,19 +274,19 @@ class RBNSReads(CachedBase):
         counts, openen = cyska.kmer_acc_counts(self, k)
         return counts, openen.acc_lookup
         
-    # @property
-    # @cached
-    # @pickled
-    # def N(self):
-    #     N, L = self.seqm.shape
-    #     return N
+    @property
+    @cached
+    @pickled
+    def N(self):
+        N, L = self.seqm.shape
+        return N
 
-    # @property
-    # @cached
-    # @pickled
-    # def L(self):
-    #     N, L = self.seqm.shape
-    #     return L
+    @property
+    @cached
+    @pickled
+    def L(self):
+        N, L = self.seqm.shape
+        return L
 
     @cached
     @pickled
