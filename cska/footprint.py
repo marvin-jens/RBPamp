@@ -3,6 +3,8 @@ import gc, os, sys
 import logging
 from cska import ensure_path
 from cska.caching import pickled, cached, CachedBase
+import cska.cyska as cyska
+from cska.sc import SelfConsistency
 
 # gc.enable()
 # gc.set_debug(gc.DEBUG_LEAK)
@@ -34,12 +36,14 @@ class FootprintCalibration(CachedBase):
         self.punp_profiles = []
         self.Z1_in_noacc = None
         self.input_reads = rbns.reads[0]
+        self.pd_names = [reads.name for reads in rbns.reads[1:]]
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
         self.params.acc_scale = 0
         self.params.non_specific = 0
         self.logger = logging.getLogger('opt.FootprintCalibration')
         self.results = {}
+        
         fp = os.path.join(self.path, 'footprints.tsv')
         if os.path.exists(fp):
             self.load_footprints(fp)
@@ -53,23 +57,34 @@ class FootprintCalibration(CachedBase):
             reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
             for reads, z in zip(rbns.reads, Z1)])
 
-        self.logger.debug("plotting punp profiles")
-        
-        import matplotlib.pyplot as plt
-        plt.figure()
-        for reads, profile in zip(rbns.reads, self.punp_profiles):
-            plt.plot(profile, label=reads.name)
+        # predict profiles w/o accessibility footprint
+        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
+        sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
+        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
+        psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
 
-        plt.legend()
-        plt.savefig(os.path.join(self.path, 'punp_noacc.pdf'))
-        plt.close()
+        # from cska import vector_stats
+        # print "Z_read"
+        # vector_stats(Z1_read)
+        # print "rbp_free * A0", rbp_free*self.params.A0
+        # print "PSIs"
+        # [vector_stats(p) for p in psi]
+
+        openen_punp = self.input_reads.acc_storage.get_raw(1)
+        self.naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+        self.logger.debug("plotting naive punp profiles")
+        self.plot_profiles(self.naive_profiles, 0, 0, None)
+        self.err0 = np.sum((self.naive_profiles - self.punp_profiles[1:])**2)
+        self.logger.debug("naive error: {}".format(self.err0))
+
+        un_opt = (self.err0, 0, 0, 0, self.params.A0)
+        self.results[(0, 0)] = un_opt
+        self.store_footprint(un_opt)
 
         self.logger.debug("done, freeing some memory")
         for reads in rbns.reads[1:]:
             reads.cache_flush()
             reads.acc_storage.cache_flush()
-        
-        self.pd_names = [reads.name for reads in rbns.reads[1:]]
 
         self.I = (self.Z1_in_noacc > thresh).any(axis=1)
         N = self.I.sum()
@@ -80,7 +95,7 @@ class FootprintCalibration(CachedBase):
     def cache_key(self):
         return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}".format(self=self)
 
-    @pickled
+    # @pickled
     def calibrate(self, k_core_range=[3, None], plot=True, pad=5):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
@@ -150,13 +165,26 @@ class FootprintCalibration(CachedBase):
         x = np.arange(-self.pad, pwm.n + self.pad )
 
         plt.figure()
-        plt.title("acc_k = {acc_k} acc_shift = {acc_shift}".format(**locals()))
+        if acc_k:
+            plt.title("acc_k = {acc_k} acc_shift = {acc_shift}".format(**locals()))
+        else:
+            plt.title("expectation w/o acc. footprint".format(**locals()))
+
         colors = sns.color_palette("husl", 8)
+        plt.plot(x, self.punp_profiles[0], '-k', label='input w/o protein')
         for pred, obs, name, color in zip(punp_expect, self.punp_profiles[1:], self.pd_names, colors):
             plt.plot(x, obs, '-', color=color, label=name)
-            plt.plot(x, pred, ':', color=color, label="fit a={res.x[0]:.2f} A0={res.x[1]:.2f} err={res.fun:.2e}".format(res=res))
+            if res is None:
+                lbl = "expected"
+            else:
+                lbl = "a={res.x[0]:.2f} A0={res.x[1]:.2f} err={rerr:.2e}".format(res=res, rerr = res.fun / self.err0)
 
-        plt.legend()
+            plt.plot(x, pred, ':', color=color, label=lbl)
+
+        plt.legend(
+            bbox_to_anchor=(0., 1.02, 1., .202), 
+            loc=3, ncol=2, mode="expand", borderaxespad=0.
+        )
 
         cons = pwm.consensus
         plt.xticks(x, [str(p) for p in range(-self.pad,0)] + list(cons) + [str(p) for p in range(1, self.pad+1)])
@@ -167,6 +195,7 @@ class FootprintCalibration(CachedBase):
         plt.xlabel('pos. rel to motif (consensus) [nt]')
 
         fname = os.path.join(self.path, '{acc_k}_{acc_shift}.pdf'.format(**locals()))
+        plt.tight_layout()
         self.logger.debug("saving plot: '{}'".format(fname))
         plt.savefig(fname)
         plt.close()
@@ -186,19 +215,20 @@ class FootprintCalibration(CachedBase):
         mat_err = np.zeros((n_k, n_shift), dtype=float) + np.NaN
         for err, acc_k, acc_shift, a, A0 in results:
             mat_a[acc_k - k_base, acc_shift + mid_shift] = a
-            mat_err[acc_k - k_base, acc_shift + mid_shift] = np.log10(err)
+            mat_err[acc_k - k_base, acc_shift + mid_shift] = np.log10(err/self.err0)
 
         fig = plt.figure(figsize=(6,6))
         # fig.suptitle("accessibility footprint analysis")
         plt.subplot(211)
         plt.pcolor(mat_err, cmap="viridis")
-        plt.colorbar(label=r'accessibility error [$\log_{10}$]', fraction=.05)
+        plt.colorbar(label=r'relative error [$\log_{10}$]', fraction=.05)
 
         plt.ylabel("size [nt]")
         plt.xlabel("shift [nt]")
 
         plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
         plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
+        plt.ylim(3, k_base+n_k)
 
         plt.subplot(212)
         plt.pcolor(mat_a, cmap="inferno")
@@ -209,15 +239,15 @@ class FootprintCalibration(CachedBase):
 
         plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
         plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
+        plt.ylim(3, k_base+n_k)
 
         plt.tight_layout()
         plt.savefig(os.path.join(self.path, 'footprint.pdf'))
 
 
 
+    @pickled
     def optimize(self, acc_k, acc_shift):
-        import cska.cyska as cyska
-        from cska.sc import SelfConsistency
         from time import time
         # from pympler.tracker import SummaryTracker
         # tracker = SummaryTracker()
@@ -235,7 +265,6 @@ class FootprintCalibration(CachedBase):
 
         self.params.acc_k = acc_k
         self.params.acc_shift = acc_shift
-        self.params.non_specific = 0.
 
         def predict_profiles(a, A0):
             t0 = time()
