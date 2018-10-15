@@ -420,7 +420,7 @@ class Run(object):
                 try:
                     self.logger.info("attempting to resume parameters from '{}'".format(path))
                     self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
-                except OSError:
+                except IOError:
                     self.logger.debug("not found")
                     self.params = None
                 else:
