@@ -211,35 +211,6 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     if n_max:
         N = min(N, n_max)
 
-    # ## pre-compute all k-mer relative affinities
-    # cdef UINT64_t Na = 4**k
-    # # store parameters here
-    # cdef FLOAT32_t [:] affinity = np.empty(Na, dtype = np.float32)
-    # cdef FLOAT32_t A=0
-
-    # t0 = time.time()
-    # with nogil, parallel():
-    #     for i in prange(Na, schedule='static'):
-    #         A = 1
-    #         d = k-1
-    #         ind = i
-    #         for j in range(k):
-    #             n = ind & 3
-    #             A = A * psam[d, n]
-    #             ind = ind >> 2
-    #             d = d - 1
-
-    #         affinity[i] = A
-    # t1 = time.time()
-
-    ## evaluate partition function
-    # with nogil, parallel():
-    #     for j in prange(N, schedule='static'):
-    #         # iterate over all PSAM start positions
-    #         for i in range(l):
-    #             Z[j,i] = acc_matrix[j, i + openen_ofs] + affinity[im[j, i]]
-    # t2 = time.time()
-
     with nogil, parallel():
         for j in prange(N, schedule='static'):
             # iterate over all PSAM start positions
@@ -247,8 +218,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                 # specific binding: product of per-site affinities
                 z = 1.
                 for d in range(k):
-                    n = seqm[j,i+d]
-                    z = z * psam[d,n]
+                    n = seqm[j, i + d]
+                    z = z * psam[d, n]
                 # add non-specific component (still reacts to accessbility)
                 z = z + non_specific
                 Z[j,i] = z * acc_matrix[j, i + openen_ofs]

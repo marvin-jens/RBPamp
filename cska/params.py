@@ -207,8 +207,8 @@ class ModelParametrization(object):
             buf.append("\t".join(["{0:>10.5f}".format(x) for x in row] + [project_column(row)]))
 
         # buf.append("BACKGROUND")
-        # for i, beta in enumerate(self.betas):
-        #     buf.append('beta{0}\t{1:.3e}'.format(i, beta))
+        for i, beta in enumerate(self.betas):
+            buf.append('# beta{0}={1:.3e}'.format(i, beta))
         
         return '\n'.join(buf)
 

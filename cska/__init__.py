@@ -90,6 +90,7 @@ def parse_cmdline():
     
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
     parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+    parser.add_option("","--log-dest",dest="log_dest",default="",help="replicate all logging output to this file (useful to collect output from multiple runs in parallel)")
 
     # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
@@ -221,14 +222,21 @@ class Run(object):
         # set up logging
         self.log_path = os.path.join(self.run_path,"run.log")
 
-        FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t{self.rbp_name}\t%(name)s\t%(message)s'.format(self=self)
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
         root = logging.getLogger('')
-        fh = logging.FileHandler(filename=self.log_path, mode='a')
-        fh.setFormatter(logging.Formatter(FORMAT))
-        root.addHandler(fh)
+
+        def make_log(fname):
+            fh = logging.FileHandler(filename=fname, mode='a')
+            fh.setFormatter(logging.Formatter(FORMAT))
+            root.addHandler(fh)
         
+        make_log(self.log_path)
+        if self.options.log_dest:
+            # replicate all log-output in this file, as requested by the user
+            make_log(self.options.log_dest)
+
         self.logger = logging.getLogger('CSKA')
         self.logger.setLevel(logging.INFO)
         import subprocess

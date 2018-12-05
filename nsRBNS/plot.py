@@ -321,7 +321,7 @@ class nsRBNSModel(object):
         # seqm = self.ns.reads.get_padded_seqm(psam.n)
         # openen = self.ns.reads.acc_storage.get_raw(psam.n)
         # acc = openen.acc
-
+        print params
         if seq_only:
             params.acc_k = 0 
         # Z1 = cyska.PSAM_partition_function(seqm, acc, psam.psam, openen_ofs = openen.ofs - psam.n + 1)
@@ -907,8 +907,8 @@ def mbnl1_analysis(lp=0, z_cut=4):
     pp.savefig('performance_MBNL1.pdf')
     pp.close()
 
-# rbfox2_analysis()
-msi1_analysis()
+rbfox2_analysis()
+# msi1_analysis()
 # mbnl1_analysis()
 sys.exit(0)
 

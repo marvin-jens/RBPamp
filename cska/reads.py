@@ -101,11 +101,11 @@ class RBNSReads(CachedBase):
         seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
         N, L = seqm.shape
         reads.cache_preload("seqm", seqm)
-        self.N = N
-        self.N_total = N
-        self.L = L
-        # reads.cache_preload("N", N)
-        # reads.cache_preload("L", L)
+        # self.N = N
+        # self.N_total = N
+        # self.L = L
+        reads.cache_preload("N", N)
+        reads.cache_preload("L", L)
         
         return reads
 

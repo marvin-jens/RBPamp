@@ -138,6 +138,29 @@ def by_domain_plot(df):
     plt.savefig('fit_by_domain_num.pdf')
     plt.close()
 
+def scale_by_domain(df):
+    order = ['RRM', 'KH', 'ZNF', 'other', 'mixed']
+    ax = sns.boxplot(x='domain', y="acc_scale", data=df, order=order, whis=np.inf, width=.5)
+    ax = sns.swarmplot(x='domain', y="acc_scale", data=df, order=order, color=".2", dodge=True)
+
+    # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
+    plt.xlabel('RBD type')
+    plt.ylabel('accessibility scale')
+    plt.savefig('scale_by_domain_type.pdf')
+    plt.close()
+
+    # order = ['1', '2', '3', '4+']
+    # ax = sns.boxplot(x='n_dom', y="corr", data=df, order=order, whis=np.inf, width=.5, hue='run', hue_order=['nostruct', 'full'])
+    # ax = sns.swarmplot(x='n_dom', y="corr", data=df, order=order, color=".2", hue='run', dodge=True, hue_order=['nostruct', 'full'])
+
+    # # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
+    # plt.xlabel('RBD number')
+    # plt.ylabel('final 6mer correlation')
+    # plt.savefig('fit_by_domain_num.pdf')
+    # plt.close()
+
+
+scale_by_domain(df)
 
 def corr_scatter(full, nostruct):
     df = intersect

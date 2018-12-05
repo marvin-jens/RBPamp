@@ -326,6 +326,10 @@ class PSAM(object):
 
     def save_logo(self, fname='pwm.eps', title=""):
         counts = self.psam
+        if not title:
+            from cska.affinitylogo import nice_conc
+            title = u"$K_d$ = {}".format(nice_conc(self.Kd))
+
         afflogo_save(self.psam, fname=fname, title=title, scale_width=False)
 
     def shrink(self, thresh = .75, n=0):

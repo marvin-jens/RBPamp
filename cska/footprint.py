@@ -45,8 +45,9 @@ class FootprintCalibration(CachedBase):
         self.results = {}
         
         fp = os.path.join(self.path, 'footprints.tsv')
-        if os.path.exists(fp):
-            self.load_footprints(fp)
+        # if os.path.exists(fp):
+        #     self.load_footprints(fp)
+        # no need to load these, as we now keep pickled results from optimize()
 
         self.fp_file = file(fp, 'w')
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
@@ -107,21 +108,21 @@ class FootprintCalibration(CachedBase):
             for k in range(kmin, kmax+1):
                 d = self.params.k - k
                 for s in range( -pad , d + pad):
-                    if not (k, s) in self.results:
-                        self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
-                        res, punp_predict = self.optimize(k, s)
-                        err = res.fun
-                        a = res.x[0]
-                        A0 = res.x[1]
-                        opt = (err, k, s, a, A0)
-                        
-                        self.results[(k, s)] = opt
-                        self.store_footprint(opt)
-                        self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
+                    # if not (k, s) in self.results:
+                    self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
+                    res, punp_predict = self.optimize(k, s)
+                    err = res.fun
+                    a = res.x[0]
+                    A0 = res.x[1]
+                    opt = (err, k, s, a, A0)
+                    
+                    self.results[(k, s)] = opt
+                    self.store_footprint(opt)
+                    self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
 
-                        if plot:
-                            self.plot_profiles(punp_predict, k, s, res)
-        
+                    if plot:
+                        self.plot_profiles(punp_predict, k, s, res)
+    
         except KeyboardInterrupt:
             self.logger.warning("received KeyboardInterrupt")
 
