@@ -22,6 +22,7 @@ def make_handler(address="tcp://127.0.0.1:8888", formatter=None):
     log_socket = context.socket(zmq.PUSH)
     log_socket.connect(address)
     handler = PUSHHandler(log_socket)
+    handler.setLevel(logging.DEBUG)
     if formatter:
         handler.setFormatter(formatter)
 
@@ -46,8 +47,13 @@ if __name__ == "__main__":
     formatter = logging.Formatter(FORMAT)
 
     if len(sys.argv) > 1:
-        logger = getLogger('pushy', formatter=formatter)
+        logger = getLogger('', formatter=formatter)
+        logger.setLevel(logging.DEBUG)
+        l2 = logging.getLogger('meep')
+        # l2.setLevel(logging.DEBUG)
         logger.warn(sys.argv[1])
+        logger.debug(sys.argv[1])
+        l2.debug('blup')
     else:
         import argparse
         parser = argparse.ArgumentParser(description='Collect log messages from cska jobs on the cluster')
