@@ -59,7 +59,7 @@ setup(
     ],
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
 
-    install_requires=['cython','numpy','matplotlib', 'weblogo', 'adjustText'],
+    install_requires=['cython','numpy','matplotlib', 'adjustText', 'zmq'],
     scripts=['bin/cska'],
     package_dir='',
     packages=['cska'],

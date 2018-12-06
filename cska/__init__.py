@@ -90,7 +90,7 @@ def parse_cmdline():
     
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
     parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
-    parser.add_option("","--log-dest",dest="log_dest",default="",help="replicate all logging output to this file (useful to collect output from multiple runs in parallel)")
+    parser.add_option("","--log-remote",dest="log_remote", default="", help="replicate all logging output to this remote server (useful to collect output from multiple runs in parallel)")
 
     # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
@@ -191,6 +191,7 @@ class Run(object):
 
         self._init_paths()
         self._init_logging()
+        self._init_signal_handler()
 
 
     def _init_paths(self):
@@ -221,29 +222,31 @@ class Run(object):
     def _init_logging(self):
         # set up logging
         self.log_path = os.path.join(self.run_path,"run.log")
+        import socket
+        hostname = socket.gethostname()
+        import subprocess
+        path = os.path.dirname(os.path.realpath(__file__))
+        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
 
-        FORMAT = '%(asctime)-20s\t%(levelname)s\t{self.rbp_name}\t%(name)s\t%(message)s'.format(self=self)
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t%(name)s\t%(message)s'.format(**locals())
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
         root = logging.getLogger('')
 
-        def make_log(fname):
-            fh = logging.FileHandler(filename=fname, mode='a')
-            fh.setFormatter(logging.Formatter(FORMAT))
-            root.addHandler(fh)
+        fh = logging.FileHandler(filename=self.log_path, mode='a')
+        fh.setFormatter(logging.Formatter(FORMAT))
+        root.addHandler(fh)
         
-        make_log(self.log_path)
-        if self.options.log_dest:
-            # replicate all log-output in this file, as requested by the user
-            make_log(self.options.log_dest)
+        if self.options.log_remote:
+            # replicate all log-output to the remote log-server
+            import zmq_logging
+            rh = zmq_logging.make_handler(address=self.options.log_remote, formatter=formatter)
+            root.addHandler(rh)
 
         self.logger = logging.getLogger('CSKA')
         self.logger.setLevel(logging.INFO)
-        import subprocess
-        path = os.path.dirname(os.path.realpath(__file__))
-        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0]
-        self.logger.info("version {0} [git {1}]".format(__version__, git.rstrip()))
-        self.logger.info("invoked as '{0}'".format(" ".join(sys.argv)) )
+        self.logger.info("version {}".format(__version__))
+        self.logger.info("invoked as '{}'".format(" ".join(sys.argv)) )
 
         # set info level for specific sub-systems
         for sub in self.options.info.split(','):
@@ -261,6 +264,17 @@ class Run(object):
             if sub == 'cache':
                 from cska.caching import CachedBase
                 CachedBase.debug_caching = True
+
+
+    def _init_signal_handler(self):
+        import signal
+        import inspect
+
+        def sigterm_handler(signal, frame):
+            self.logger.error("Received signal {} while executing {}.".format(signal, inspect.getframeinfo(frame)))
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, sigterm_handler)
 
 
     def make_SKA(self):
@@ -520,20 +534,24 @@ def main():
 
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
             params = run.PSAM_gradient_descent('opt_full')
+            run.logger.info("Multi-step run completed.")
             sys.exit(0)
 
         if options.folding:
             run.fold_reads()
+            run.logger.info("folding completed.")
             sys.exit(0)
 
         run.init_model_parameters()
 
         if options.acc_scan:
             run.calibrate_footprint()
+            run.logger.info("footprint scan completed.")
             sys.exit(0)
 
         if options.grad_mdl:
             run.PSAM_gradient_descent()
+            run.logger.info("Gradient descent completed.")
             sys.exit(0)
 
 
