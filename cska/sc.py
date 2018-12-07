@@ -13,6 +13,7 @@ class SelfConsistency(object):
         
         if not len(self.Z1):
             self.all_free = True
+            self.logger.warning("returning all RBP as free because Z1 was not usable!")
             return
 
         # # HACK! Just to mask annoying issues that arent important right now
@@ -33,8 +34,8 @@ class SelfConsistency(object):
             # midpoint integration
             self.x = (self.bins[1:] + self.bins[:-1])/2.
             
-    def all_free(self, rbp_total, Z_scale=1.):
-        return rbp_total
+    # def all_free(self, rbp_total, Z_scale=1.):
+    #     return rbp_total
 
     def occupancies(self, rbp_free, Z_scale=1.):
 
@@ -46,7 +47,6 @@ class SelfConsistency(object):
 
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
         if self.all_free:
-            self.logger.warning("returning all RBP as free because Z1 was not usable!")
             return rbp_total
 
         if self.bins is None:
