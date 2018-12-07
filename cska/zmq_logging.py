@@ -28,6 +28,20 @@ def make_handler(address="tcp://127.0.0.1:8888", formatter=None):
 
     return handler
 
+class LoggerFactory(object):
+    def __init__(self, address="", format_str='%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'):
+        self.format_str = format_str
+        self.address = address
+
+    def getLogger(self, name):
+        logger = logging.getLogger(name)
+        formatter = logging.Formatter(self.format_str)
+        
+        if self.address:
+            logger.addHandler(make_handler(address=self.address, formatter=formatter))
+        
+        return logger
+
 def getLogger(name, address="tcp://127.0.0.1:8888", formatter=None):
     logger = logging.getLogger(name)
     logger.addHandler(make_handler(address=address, formatter=formatter))

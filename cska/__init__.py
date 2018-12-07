@@ -229,6 +229,7 @@ class Run(object):
         git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
 
         FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t%(name)s\t%(message)s'.format(**locals())
+        self.log_format = FORMAT
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
         root = logging.getLogger('')
@@ -237,6 +238,7 @@ class Run(object):
         fh.setFormatter(logging.Formatter(FORMAT))
         root.addHandler(fh)
         
+
         if self.options.log_remote:
             # replicate all log-output to the remote log-server
             import zmq_logging
@@ -264,7 +266,6 @@ class Run(object):
             if sub == 'cache':
                 from cska.caching import CachedBase
                 CachedBase.debug_caching = True
-
 
     def _init_signal_handler(self):
         import signal
@@ -388,6 +389,8 @@ class Run(object):
                 skip_adap = self.options.skip_adap,
                 n_parallel= self.options.parallel,
                 fold_missing = self.options.fold_missing,
+                log_address = self.options.log_remote,
+                log_format = self.log_format,
             )
 
 

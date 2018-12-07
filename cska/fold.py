@@ -771,7 +771,7 @@ def fold_worker(seq_queue, data_queue, interrupt_event=interrupt_folding, **vien
     vienna.close()
 
 
-def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
+def result_collector(storage, res_queue, interrupt_event = interrupt_folding, log_address="", log_format="", **kwargs):
     """
     Pops (n_chunk, results) from res_queue and inserts them into a heap
     (sorted on n_chunk). Keeping track of how many chunks were already passed on
@@ -785,7 +785,10 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
     t1 = t0
     n_rec = 0
 
-    logger = logging.getLogger('fold.result_collector')
+    from cska.zmq_logging import LoggerFactory
+    zmq_logging = LoggerFactory(address=log_address, format_str=log_format)
+    logger = zmq_logging.getLogger('fold.result_collector')
+    # logger = logging.getLogger('fold.result_collector')
     for n_chunk, results in queue_iter(res_queue, interrupt_event=interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         
@@ -880,7 +883,8 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     collector = multiprocessing.Process(
         target = result_collector,
         name = 'result_collector',
-        args = (storage, res_queue)
+        args = (storage, res_queue),
+        kwargs = kwargs,
     )
     collector.daemon = True
     collector.start()
