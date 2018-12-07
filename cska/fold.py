@@ -28,7 +28,7 @@ class RBNSOpenen(CachedBase):
     should be used to encapsulate transparent access to the underlying 
     files.
     """
-    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, dummy=False, **kwargs):
+    def __init__(self, fname, rbns_reads, k, oem=[], disc=None, dummy=False, acc_scale=1., **kwargs):
 
         CachedBase.__init__(self, **kwargs)
 
@@ -39,7 +39,8 @@ class RBNSOpenen(CachedBase):
         self.discretized = ("discretized" in self.fname)
         self.T = rbns_reads.temp
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
-        self.logger = logging.getLogger('fold.RBNSOpenen({self.fname} T={self.T}C)'.format(self=self))
+        self.acc_scale = acc_scale
+        self.logger = logging.getLogger('fold.RBNSOpenen')
 
         
         # to be initialized upon first access to oem
@@ -66,7 +67,7 @@ class RBNSOpenen(CachedBase):
         else:
             self.is_subsample = False
 
-        self.logger.info("initialized")
+        self.logger.info("initialized for data from '{self.fname}' @{self.T} C".format(self=self))
     
     @classmethod
     def from_array(cls, reads, k, oem, dtype=np.uint8, mode='gamma', **kwargs):
@@ -86,7 +87,7 @@ class RBNSOpenen(CachedBase):
         
     @property
     def cache_key(self):
-        return "{self.rbns_reads.cache_key} k={self.k} disc={self.disc} nmax={self.rbns_reads.n_max}".format(self=self)
+        return "RBNSOpenen({self.rbns_reads.cache_key}) k={self.k} disc={self.disc} nmax={self.rbns_reads.n_max}".format(self=self)
 
     @property
     @cached
@@ -102,6 +103,22 @@ class RBNSOpenen(CachedBase):
         N, L = self.oem.shape
         return L
    
+    def check_data(self, with_adapter=True):
+        if not os.path.exists(self.fname):
+            return False
+
+        N = self.rbns_reads.N
+        l = self.rbns_reads.L - self.k + 1
+        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
+        itemsize = np.dtype(self.dtype).itemsize
+        N_items = os.path.getsize(self.fname) / itemsize
+        L = int(N_items / float(N))
+
+        if with_adapter:
+            return L == l_adap
+        else:
+            return L == l
+
     @property
     @cached
     def oem(self):
@@ -110,39 +127,60 @@ class RBNSOpenen(CachedBase):
         """
         self.logger.debug("loading open energies from {self.fname}".format(self=self) )
         #oem = np.fromfile(self.fname, dtype=self.dtype)
-        oem = np.memmap(self.fname, dtype=self.dtype, mode='c') # FIXME: should be read only but Cython MemoryViews currently don't support that! :(
         N = self.rbns_reads.N
-        L = len(oem)/float(N)
-        self.logger.debug("open-energy row l={0}".format(L))
-        
         l = self.rbns_reads.L - self.k + 1
         l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
+
+        oem = None
+        if not os.path.exists(self.fname):
+            self.logger.warning("file not found. Assuming accessibility = 1".format(self.fname))
+            self.l_row = l_adap
+            self.include_adapters = True
+            self.ofs = self.rbns_reads.l5
+            
+            return np.zeros( (N, self.l_row), dtype=self.dtype)
+
+        # we need to load from disk
+        itemsize = np.dtype(self.dtype).itemsize
+        N_items = os.path.getsize(self.fname) / itemsize
+        L = N_items / float(N)
+
+        self.logger.debug("open-energy row l={0}".format(L))
         if L == l:
             self.logger.info("data excludes adapters L={0}".format(L))
+            self.l_row = l
             self.include_adapters = False
             self.ofs = 0
         
         elif L == l_adap:
             self.logger.info("data covers adapters L={0}".format(L))
+            self.l_row = l_adap
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
+
         elif L > l_adap:
-            n_file = float(len(oem)) / l_adap
+            n_file = N_items / l_adap
             self.logger.warning("file contains {n_file} rows (assuming it includes adapters) but only {self.rbns_reads.N} reads are loaded. Truncating!".format(**locals()) )
             self.ofs = self.rbns_reads.l5
             self.include_adapters = True
-            oem = oem[:l_adap*self.rbns_reads.N]
-            L = l_adap
+            self.l_row = l_adap
         else:
             delta = L - ( l + self.rbns_reads.l5 + self.rbns_reads.l3 )
             raise ValueError("size of open energy matrix {L} does not match the reads {self.rbns_reads.L} even when accounting for 5' {self.rbns_reads.l5} and 3' {self.rbns_reads.l3} adapters. Delta = {delta}!".format(**locals()) )
         
-        L = int(L)
-        oem = oem.reshape( (N,L) )
-        if self.rbns_reads.n_max:
-            self.logger.debug("truncating to reads.n_max={0}".format(self.rbns_reads.n_max) )
-            oem = oem[:self.rbns_reads.n_max]
+        # read the actual data. Only as much as needed!
+        import time
+        import mmap
+        from contextlib import closing
+        N_bytes = self.l_row * N * itemsize
+        t0 = time.time()
+        with open(self.fname, 'rb') as f:
+            with closing(mmap.mmap(f.fileno(), length=N_bytes, access=mmap.ACCESS_READ)) as m:
+                oem = np.fromstring(m, dtype=self.dtype)
 
+        dt = 1000. * (time.time() - t0)
+        self.logger.debug("loading {N} rows of accessibility from {self.fname} took {dt:.2f} ms.".format(**locals()))
+        oem = oem.reshape( (N, self.l_row) )
         return oem
     
     @property
@@ -154,7 +192,7 @@ class RBNSOpenen(CachedBase):
             return np.ones(self.oem.shape, dtype=np.float32)
 
         if not self.discretized:
-            return np.exp(-self.oem/self.RT)
+            return np.exp(-self.oem*self.acc_scale/self.RT)
         else:
             return self.acc_lookup[self.oem]
         
@@ -315,9 +353,12 @@ class ViennaOpenen(object):
         ex = self.p.wait()
         self.logger.debug('close(): {0} exited with code {1} after folding {2} sequences'.format(self.cmd, ex, self.n_total) )
     
+class DummySink(object):
+    def write(*argcs, **kwargs):
+        pass
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22.):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22., **kwargs):
         
         CachedBase.__init__(self)
         
@@ -334,8 +375,13 @@ class OpenenStorage(CachedBase):
         self.n_sets = 0
         self.discretize = discretize
         self.dummy = dummy
+        self.kwargs = kwargs
         if dummy:
             self.write = self.dummy_write
+
+    @property
+    def cache_key(self):
+        return "OpenenStorage({})".format(self.reads.cache_key)
 
     def fix_skipped_reads(self, krange):
         keep = []
@@ -387,9 +433,23 @@ class OpenenStorage(CachedBase):
         
             self.cache_flush()
             
+    def has_data(self, k, with_adapter=True):
+        fname = self._make_filename(k)
+        openen = self.get_raw(k, _do_not_cache=True)
+        return openen.check_data(with_adapter=with_adapter)
+
+    def has_data_range(self, kmin, kmax):
+        yes = True
+        for k in range(kmin, kmax+1):
+            if not self.has_data(k):
+                yes = False
+                break
+
+        return yes
+
     @cached
     def get_raw(self, k):
-        return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy)
+        return RBNSOpenen(self._make_filename(k), self.reads, k, dummy=self.dummy, **self.kwargs)
         
     @cached
     def get_discretized(self, k, disc_mode = ''):
@@ -425,8 +485,13 @@ class OpenenStorage(CachedBase):
     def get_or_create(self, k):
         if not k in self.k_sinks:
             fname = self._make_filename(k)
-            if os.path.exists(fname) and not self.overwrite:
+            if self.has_data(k):
+                self.logger.info("data for '{}' already in place. Will leave '{}' untouched.".format(k, fname))
+                self.k_sinks[k] = DummySink()
+
+            elif os.path.exists(fname) and not self.overwrite:
                 raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
+
             else:
                 self.k_sinks[k] = file(fname,'wb')
                 self.logger.info("created '{0}'".format(fname))
@@ -706,7 +771,7 @@ def fold_worker(seq_queue, data_queue, interrupt_event=interrupt_folding, **vien
     vienna.close()
 
 
-def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
+def result_collector(storage, res_queue, interrupt_event = interrupt_folding, log_address="", log_format="", **kwargs):
     """
     Pops (n_chunk, results) from res_queue and inserts them into a heap
     (sorted on n_chunk). Keeping track of how many chunks were already passed on
@@ -720,7 +785,10 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding):
     t1 = t0
     n_rec = 0
 
-    logger = logging.getLogger('fold.result_collector')
+    from cska.zmq_logging import LoggerFactory
+    zmq_logging = LoggerFactory(address=log_address, format_str=log_format)
+    logger = zmq_logging.getLogger('fold.result_collector')
+    # logger = logging.getLogger('fold.result_collector')
     for n_chunk, results in queue_iter(res_queue, interrupt_event=interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         
@@ -815,7 +883,8 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     collector = multiprocessing.Process(
         target = result_collector,
         name = 'result_collector',
-        args = (storage, res_queue)
+        args = (storage, res_queue),
+        kwargs = kwargs,
     )
     collector.daemon = True
     collector.start()

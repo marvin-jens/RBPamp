@@ -521,8 +521,8 @@ class SPAModel(object):
         rbp_free = [sc.free_rbp(total) for total in rbp_conc]
         return np.array(rbp_free, dtype= np.float32)
 
-    def _spa_p_rna_bound(self, Z1, rbp_free, betas):
-        return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32), np.array(betas, dtype=np.float32))
+    def _spa_p_rna_bound(self, Z1, rbp_free):
+        return cyska.p_bound(Z1, np.array(rbp_free, dtype=np.float32))
     
     def _spa_kmer_pi(self, p_bound, im):
         n_conc, n = p_bound.shape
@@ -577,10 +577,10 @@ class SPAModel(object):
             Z1 = self._spa_partition_function(im, acc, kmer_invkd)
             rbp_free = self._spa_free_protein(Z1, rbp_conc)
             betas = params[self.nA:]
-            p_bound, pi = self._spa_p_rna_bound(Z1, rbp_free, betas)
+            p_bound = self._spa_p_rna_bound(Z1, rbp_free)
             pi_kmer = self._spa_kmer_pi(p_bound, im)
 
-            state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free)
+            state = SPAState(self, params, Z1, p_bound, pi_kmer, rbp_free) # TODO: remove or add beta again
 
         else:
             # skip thermodynamic model. 

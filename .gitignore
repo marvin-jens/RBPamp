@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+cska/cython/*.c
 # Distribution / packaging
 .Python
 env/
@@ -40,6 +40,8 @@ var/
 *.fa
 *.csv
 *.reads
+*.counts
+*.rnacompete
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

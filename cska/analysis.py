@@ -62,6 +62,8 @@ class RBNSSample(CachedBase):
         print MI
 
 
+from cska.partfunc import PartFuncModel
+
 class RBNSComparison(CachedBase):
     def __init__(self, in_reads, pd_reads, ska_runner = None):
         
@@ -91,7 +93,7 @@ class RBNSComparison(CachedBase):
             for sample in self.pd_reads.subsamples
         ])
         errors = sampled.std(axis=0)
-
+        assert res.shape == errors.shape
         return res, errors
         
     @cached
@@ -221,6 +223,7 @@ class RBNSAnalysis(CachedBase):
         CachedBase.__init__(self)
         
         self.reads = []
+        self.n_samples = 0
         self.acc_storages = []
         self.rbp_name = rbp_name
         self.out_path = out_path
@@ -262,7 +265,15 @@ class RBNSAnalysis(CachedBase):
         if len(self.reads) > 1:
             self.comparisons.append(RBNSComparison(self.reads[0], rbns_reads, self.ska_runner) )
             self.rbp_conc.append(rbns_reads.rbp_conc)
+
+        self.n_samples = len(self.reads) - 1
     
+    @property
+    def input_reads(self):
+        # return reads with lowest concentration (should be 0)
+        i = np.array(self.rbp_conc).argsort()[0]
+        return self.reads[i]
+
     def _make_matrices(self, comp_attr, *argc, **kwargs):
         self.logger.debug("gathering data matrices for {0}".format(comp_attr) )
 
@@ -350,10 +361,10 @@ class RBNSAnalysis(CachedBase):
         R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
         sample_ranks = R.argsort()[::-1]
         cut_off = R[sample_ranks][n-1]
-        print R, sample_ranks
+        self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
         self.reads = []
-        
+        self.logger.info("keeping samples with RBP concentrations {}".format([r.rbp_conc for r in reads]))
         rbns = RBNSAnalysis(rbp_name = self.rbp_name, out_path=self.out_path, ska_runner=self.ska_runner, known_kd=self.known_kd, n_pure_samples = self.n_pure_samples)
         for r in reads:
             rbns.add_reads(r)
@@ -482,3 +493,26 @@ class RBNSAnalysis(CachedBase):
                 of.write("\t".join(cols) + '\n')
             of.close()
  
+
+def read_kmer_matrix(path):
+    import re
+    kmers = []
+    data = []
+    for line in file(path):
+        if line.startswith('#'):
+            head = re.split('\s+', line.rstrip())
+            rbp_conc = [float(h.replace('nM','')) for h in head[2::2]]
+        else:
+            parts = line.split('\t')
+            kmers.append(parts[0])
+            data.append(np.array(parts[1:], dtype=np.float32))
+    
+    kmers = np.array(kmers)
+    I = kmers.argsort()
+    data = np.array(data)[I,:].T
+    values = data[::2,:]
+    errors = data[1::2,:]
+
+    return rbp_conc, values, errors
+
+

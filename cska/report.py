@@ -98,6 +98,20 @@ def density_scatter_plot(
     xmax = x.max()
     ymin = y.min()
     ymax = y.max()
+
+    if N > dens_thresh and x_ref:
+        # use experiment as reference
+        m = xmin  
+        M = xmax
+    else:
+        # show full range
+        m = min(xmin, ymin)
+        M = max(xmax, ymax)
+    
+    # add margin in log-space
+    m += np.log10(3./4.)
+    M += np.log(4./3.)
+
     nbins = density_kw['nbins']
     t1 = time.time()
     #Z = zi.reshape((len(yi), len(xi)))
@@ -116,15 +130,16 @@ def density_scatter_plot(
 
         if N > dens_thresh:
             k = kde.gaussian_kde([x,y])
-            xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
+            xi, yi = np.mgrid[m:M:nbins*1j, m:M:nbins*1j]
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
             zi[zi < 1e-3] = np.nan
-            print "nans", np.isnan(zi).sum()
-            print zi.min(), zi.max()
 
+            z_min = np.nanmin(zi)
+            z_max = np.nanmax(zi)
+            # print "zmin/max", z_min, z_max
             # pca().set_facecolor('w')
-            m = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0)
-            m.set_rasterized(True)
+            pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
+            pm.set_rasterized(True)
             cb = pp.colorbar(label='density', shrink=.5, ticks = matplotlib.ticker.MaxNLocator(nbins=3, )) #orientation='horizontal', fraction=.05)
             cb.ax.tick_params(axis='y', direction='out')
             # cb.ax.yaxis.set_major_locator(matplotlib.ticker.AutoLocator())
@@ -152,18 +167,6 @@ def density_scatter_plot(
             out_y = y[out]
             pp.plot(out_x, out_y, plot_kw['style'], color=plot_kw['color'], markersize=3, label=label, rasterized=True)
 
-        if N > dens_thresh and x_ref:
-            # use experiment as reference
-            m = xmin  
-            M = xmax
-        else:
-            # show full range
-            m = min(xmin, ymin)
-            M = max(xmax, ymax)
-        
-        # add margin in log-space
-        m += np.log10(3./4.)
-        M += np.log(4./3.)
 
         t3 = time.time()
         
@@ -815,6 +818,7 @@ class EnrichmentBarPlot(object):
 class GradientDescentReport(object):
     def __init__(self, descent, path='.'):
         self.descent = descent
+        self.logger = logging.getLogger('plot.GradientDescentReport')
         self.path = path
 
     def plot_report(self):
@@ -823,12 +827,12 @@ class GradientDescentReport(object):
         R_values = np.array([state.R for state in self.descent.history])
         R0 = self.descent.model.R0
         residuals = np.log2(R_values / R0[np.newaxis,:,:])
-        print R_values.shape
-        print residuals.shape
+        # print R_values.shape
+        # print residuals.shape
         data = np.mean(residuals, axis=1) # mean across samples
         I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
-        print data.shape
-        print I.shape
+        # print data.shape
+        # print I.shape
         pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
         pp.ylabel('kmer index')
         t = [-1,0,+1]
@@ -847,8 +851,7 @@ class GradientDescentReport(object):
         from scipy.stats import pearsonr
         corr = []
         for state in self.descent.history:
-            Rs = [pearsonr(r, r0)[0] for r, r0 in zip(np.log2(state.R), np.log2(R0))]
-            corr.append(Rs)
+            corr.append(state.correlations[0])
         
         corr = np.array(corr).T
         pp.subplot(413)
@@ -907,21 +910,113 @@ class GradientDescentReport(object):
         pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
 
-    def plot_scatter(self):
-        for i in range(self.descent.last_state.params.n_samples):
+    def plot_param_ref_comparison(self):
+        """ 
+        used in unit-testing/gradient debugging, where true values are known to track progress of
+        the optimization.
+        """
+        last_state = self.descent.history[-1]
+
+        values = np.array([state.params.data for state in self.descent.history]).T
+        ref_values = self.descent.ref_state.params.data
+        dev = (values - ref_values[:,np.newaxis])
+        print "plotting {} steps of history".format(len(self.descent.history))
+        pp.figure()
+        for d,n in zip(dev, last_state.params.names):
+            pp.plot(d, label=n)
+
+        pp.ylim(-100.,100.)
+        pp.yscale('symlog', linthreshy=.05)
+        pp.legend(bbox_to_anchor=(1.04,1), loc="upper left", ncol=2)
+        pp.xlabel('step')
+        pp.ylabel('deviation from reference value')
+        pp.tight_layout()
+
+        pp.savefig(os.path.join(self.path,"descent_params_to_ref_{0}mer.pdf".format(self.descent.params.k)))
+        pp.close()
+
+    def plot_scatter(self, t=-1):
+        state = self.descent.history[t]
+        for i in range(state.params.n_samples):
             pp.figure()
             title = "{0}mer R-value scatter plot".format(self.descent.model.k)
             pp.title(title)
 
             x = self.descent.model.lR0[i]
-            y = np.log2(self.descent.last_state.R[i])
+            y = np.log2(state.R[i])
             corr, pval = pearsonr(x,y)
             label = "sample_{0} R={1:.3f} (P < {2:.3e})".format(i, corr, pval)
             # data_labels = self.opt.mdl.parameters.param_name
             density_scatter_plot(x, y, label=label)
             pp.legend(loc='upper left')
-            pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, self.descent.t)))
+            if t == -1:
+                t = self.descent.t
+            pp.savefig(os.path.join(self.path,"scatter_{0}mers_sample{1}_t{2}.pdf".format(self.descent.model.k, i, t)))
             pp.close()
+
+    def plot_A0_fit(self, t=-1):
+        state = self.descent.history[t]
+        if t == -1:
+            t = self.descent.t
+
+        if not hasattr(state, "_A0_data"):
+            return
+
+        a0 = state._A0_data.a0
+        rerr = state._A0_data.rerr
+        asem = getattr(state._A0_data, "asem", None)
+        rcorr = state._A0_data.rcorr
+
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plot = plt.loglog
+        plt.subplot(311)
+
+        plot(a0, rerr, '.b', label='MSE')
+        plot(a0, rerr, '-b')
+        plt.legend(loc='upper left')
+
+        plt.subplot(312)
+        if not asem is None:
+            plot(a0, asem, '.r', label='SEM')
+            plot(a0, asem, '-r')
+            plt.legend(loc='upper left')
+
+        plt.subplot(313)
+        plt.plot(a0, rcorr, '.k', label='best correlation')
+        plt.plot(a0, rcorr, '-k')
+        plt.legend(loc='upper left')
+
+        a_opt = a0[rerr.argmin()]
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.path,"A0_fit_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
+        plt.close()
+
+    def plot_line_search(self, t=-1):
+        state = self.descent.history[t]
+        if t == -1:
+            t = self.descent.t
+
+        if not hasattr(state, "_ls_data"):
+            return
+
+        x = state._ls_data.scales
+        y = state._ls_data.errors
+        err0 = state._ls_data.err0
+        s_opt = state._ls_data.s_opt
+
+        pp.axhline(err0, color='gray')
+        pp.loglog(x, y)
+        pp.loglog(x, y, 'xr')
+        pp.axvline(s_opt, color='red')
+
+        pp.xlabel('variable')
+        pp.ylabel('mean squared error')
+        
+        pp.tight_layout()
+        pp.savefig(os.path.join(self.path, "line_search_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
+        pp.close()
 
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
@@ -940,7 +1035,6 @@ class GradientDescentReport(object):
         pp.subplot(133)
         self.plot_psam(unity_matrix(grad),'RMSprop')
 
-        
     def plot_psam(self, psam, title):
         pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
         pp.xlabel(title)
@@ -954,29 +1048,44 @@ class LiteratureComparisonReport(object):
         self.comp = comp
         self.path = path
 
-    def plot_scatter(self):
+    def plot_scatter(self, debug=False):
         if not self.comp:
             return
 
         pp.figure(figsize=(6,6))
-        pp.title(self.comp.rbp_name)
-        x = 1/self.comp.observed_affinities
+        pp.title("comparison to {} literature affinities".format(self.comp.n))
+        x = self.comp.observed_Kd
+        x_err = self.comp.observed_Kd_err
         y = 1/self.comp.predict_affinities(self.descent.model)
 
         m = min(x.min(), y.min())
         M = max(x.max(), y.max())
         pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
-        print "seq\tknown\tpredict\tlog-ratio"
-        for _x, _y, seq in zip(x, y, self.comp.seqs):
-            print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
+        if debug:
+            print "seq\tknown\tpredict\tlog-ratio"
+            lfc = np.log2(y/x)
+            I = lfc.argsort()
+            for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
+                print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
 
         from scipy.stats import pearsonr, spearmanr
-        corr, p_value = spearmanr(np.log(x), np.log(y))
-        pp.loglog(x, y, '.', label=r"$\rho={0:.2f}$ ($P < {1:.2e}$)".format(corr, p_value))
-        pp.legend(loc='upper left')
-        pp.ylabel(r"predicted $K_d$ [nM]")
-        pp.xlabel(r"measured $K_d$ [nM]")
+        rho, p_spearman = spearmanr(np.log(x), np.log(y))
+        R, p_pearson = pearsonr(np.log(x), np.log(y))
+        if debug:
+            print ">>> R={R} P-value < {p_pearson}".format(**locals())
+            print ">>> rho={rho} P-value < {p_spearman}".format(**locals())
+
+        # pp.loglog(x, y, '.', label=r"$R={R:.2f}$ ($P < {p_pearson:.2e}$) $\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals()))
+        label="$R={R:.2f}$ ($P < {p_pearson:.2e}$)\n$\\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals())
+        pp.errorbar(x, y, xerr=x_err, fmt='.', ecolor='k', elinewidth=.5, capsize=3, capthick=.5, label=label)
+        ax = pp.gca()
+        ax.set_xscale("log", nonposx='clip')
+        ax.set_yscale("log", nonposy='clip')
+
+        pp.legend(loc='upper left', shadow=False, fancybox=False)
+        pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
+        pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
         pp.tight_layout()
 
         pp.savefig(os.path.join(self.path,"literature_comparison_{0}mer.pdf".format(self.descent.params.k)))
