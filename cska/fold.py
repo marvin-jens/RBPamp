@@ -67,7 +67,7 @@ class RBNSOpenen(CachedBase):
         else:
             self.is_subsample = False
 
-        self.logger.info("initialized for data from '{self.fname}' @{self.T} C".format(self=self))
+        self.logger.debug("initialized for data from '{self.fname}' @{self.T} C".format(self=self))
     
     @classmethod
     def from_array(cls, reads, k, oem, dtype=np.uint8, mode='gamma', **kwargs):
@@ -160,7 +160,12 @@ class RBNSOpenen(CachedBase):
 
         elif L > l_adap:
             n_file = N_items / l_adap
-            self.logger.warning("file contains {n_file} rows (assuming it includes adapters) but only {self.rbns_reads.N} reads are loaded. Truncating!".format(**locals()) )
+            if self.rbns_reads.n_max:
+                pass
+                # it's okay that we truncate!
+            else:
+                self.logger.warning("file contains {n_file} rows (assuming it includes adapters) but only {self.rbns_reads.N} reads are loaded. Truncating!".format(**locals()) )
+
             self.ofs = self.rbns_reads.l5
             self.include_adapters = True
             self.l_row = l_adap
