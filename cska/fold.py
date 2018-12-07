@@ -133,7 +133,7 @@ class RBNSOpenen(CachedBase):
 
         oem = None
         if not os.path.exists(self.fname):
-            self.logger.warning("file not found. Assuming accessibility = 1".format(self.fname))
+            self.logger.warning("file '{}' not found. Assuming accessibility = 1".format(self.fname))
             self.l_row = l_adap
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
