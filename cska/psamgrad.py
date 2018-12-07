@@ -20,6 +20,7 @@ class PSAMGradientDescent(object):
         self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
         self.logR = np.log2(self.R)
         self.logger = logging.getLogger('opt.PSAMGradientDescent')
+        self.results = logging.getLogger('results.PSAMGradientDescent')
         # print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         # params.betas[:] = .0001
         # initial guess
@@ -96,8 +97,20 @@ class PSAMGradientDescent(object):
 
         self.t0 = time.time()
         self.descent.optimize(self.params, debug=debug, callback=callback)
+
+        state_first = self.descent.history[0]
+        state_last = self.descent.history[-1]
+        err_reduction = state_first.error / state_last.error # x-fold reduced
+
+        corr_first = state_first.correlations[0].max()
+        corr_last = state_last.correlations[1].max()
+        
+        Kd_first = 1/state_first.params.A0
+        Kd_last = 1/state_last.params.A0
+
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
+        self.results.critical("GRAD err={state_first.error:.2e} -> {state_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps".format(**locals()))
         self.track_file.close()
         
         state = self.descent.last_state

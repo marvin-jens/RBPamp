@@ -1047,6 +1047,7 @@ class LiteratureComparisonReport(object):
         self.descent = descent
         self.comp = comp
         self.path = path
+        self.results = logging.getLogger("results.literaturecomparison")
 
     def plot_scatter(self, debug=False):
         if not self.comp:
@@ -1072,6 +1073,7 @@ class LiteratureComparisonReport(object):
         from scipy.stats import pearsonr, spearmanr
         rho, p_spearman = spearmanr(np.log(x), np.log(y))
         R, p_pearson = pearsonr(np.log(x), np.log(y))
+        self.results.info("R={R:.3f} P < {p_pearson:.3e} rho={rho:.3f} P-value < {p_spearman:.3e}".format(**locals()))
         if debug:
             print ">>> R={R} P-value < {p_pearson}".format(**locals())
             print ">>> rho={rho} P-value < {p_spearman}".format(**locals())

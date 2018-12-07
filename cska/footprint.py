@@ -42,6 +42,8 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = 0
         self.params.non_specific = 0
         self.logger = logging.getLogger('opt.FootprintCalibration')
+        self.result_log = logging.getLogger('results.footprint')
+
         self.results = {}
         
         fp = os.path.join(self.path, 'footprints.tsv')
@@ -112,13 +114,15 @@ class FootprintCalibration(CachedBase):
                     self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
                     res, punp_predict = self.optimize(k, s)
                     err = res.fun
+                    rel_err = err / self.err0
                     a = res.x[0]
                     A0 = res.x[1]
                     opt = (err, k, s, a, A0)
                     
                     self.results[(k, s)] = opt
                     self.store_footprint(opt)
-                    self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
+                    # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
+                    self.result_log.info("k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
 
                     if plot:
                         self.plot_profiles(punp_predict, k, s, res)
@@ -132,6 +136,8 @@ class FootprintCalibration(CachedBase):
             self.matrix_plots(results)
 
         err, k, s, a, A0 = results[0]
+        rel_err = err/self.err0
+        self.result_log.critical("OPTIMUM k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
         self.params.acc_k = k
         self.params.acc_shift = s
         self.params.acc_scale = a
