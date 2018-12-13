@@ -516,7 +516,9 @@ def main():
         metrics = [m.strip() for m in options.results.strip().split(',') if m.strip()]
         if metrics:
             run.compute_metrics(metrics)
-           
+
+        rbns = run.keep_best() # unless --best is specified this does nothing
+
         if options.folding:
             run.fold_reads()
             run.logger.info("folding completed.")
@@ -533,7 +535,7 @@ def main():
 
         opt_nostruct, footprint = tasks
 
-        rbns = run.keep_best() # unless --best is specified this does nothing
+
         if options.multi_stage:
             run.logger.info("STAGE0: initialize PSAM")
             params = run.init_model_parameters()
