@@ -256,6 +256,7 @@ class FootprintCalibration(CachedBase):
     @pickled
     def optimize(self, acc_k, acc_shift):
         from time import time
+        self.logger.info("performing calibration for k={} s={}".format(acc_k, acc_shift))
         # from pympler.tracker import SummaryTracker
         # tracker = SummaryTracker()
 

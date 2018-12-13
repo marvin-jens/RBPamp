@@ -103,21 +103,23 @@ class RBNSOpenen(CachedBase):
         N, L = self.oem.shape
         return L
    
-    def check_data(self, with_adapter=True):
+    def count_records(self, with_adapter=True):
+        """return the number of complete records based on file-size"""
         if not os.path.exists(self.fname):
-            return False
+            return 0
 
-        N = self.rbns_reads.N
         l = self.rbns_reads.L - self.k + 1
-        l_adap = l + self.rbns_reads.l5 + self.rbns_reads.l3
+        if with_adapter:
+            l += self.rbns_reads.l5 + self.rbns_reads.l3
+
         itemsize = np.dtype(self.dtype).itemsize
         N_items = os.path.getsize(self.fname) / itemsize
-        L = int(N_items / float(N))
+        
+        return int(np.floor(N_items / l))
 
-        if with_adapter:
-            return L == l_adap
-        else:
-            return L == l
+    def check_data(self, with_adapter=True):
+        if self.count_records(with_adapter=with_adapter) == self.rbns_reads.N:
+            return True
 
     @property
     @cached
@@ -272,7 +274,7 @@ class ViennaOpenen(object):
     """
     Wrapper around an RNAplfold_cska (modified RNAplfold) subprocess.
     """
-    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", l_insert=20, skip_adap=True, **kwargs):
+    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", l_insert=20, skip_adap=False, **kwargs):
         
         L = len(adap5) + l_insert + len(adap3)
         
@@ -359,8 +361,39 @@ class ViennaOpenen(object):
         self.logger.debug('close(): {0} exited with code {1} after folding {2} sequences'.format(self.cmd, ex, self.n_total) )
     
 class DummySink(object):
-    def write(*argcs, **kwargs):
+    def __init__(self, fname):
+        self.fname = fname
+        self.bytes_written = 0
+        self.bytes_found = 0
+
+    def write(self, *argcs, **kwargs):
         pass
+
+    def close(self):
+        pass
+
+class FileSink(object):
+    def __init__(self, fname, bytes_keep=0):
+        self.fname = fname
+        self.f = file(fname, 'ab+')
+
+        if bytes_keep:
+            # print "keeping {} bytes".format(bytes_keep)
+            self.f.seek(bytes_keep)
+            self.f.truncate()
+
+        self.bytes_written = 0
+        self.bytes_found = bytes_keep
+        
+    def write(self, *argcs, **kwargs):
+        self.f.write(*argcs, **kwargs)
+        self.bytes_written += len(argcs[0])
+
+    def close(self):
+        self.f.flush()
+        self.f.close()
+        # print "expected file-size", self.fname, self.bytes_written + self.bytes_found, os.path.getsize(self.fname)
+        
 
 class OpenenStorage(CachedBase):
     def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22., **kwargs):
@@ -387,70 +420,6 @@ class OpenenStorage(CachedBase):
     @property
     def cache_key(self):
         return "OpenenStorage({})".format(self.reads.cache_key)
-
-    def fix_skipped_reads(self, krange):
-        keep = []
-        for i, line in enumerate(file(self.reads.fname,'r')):
-            if 'N' in line.upper():
-                keep.append(False)
-            else:
-                keep.append(True)
-        
-        keep = np.array(keep, dtype=bool)
-
-        n_skip = (keep == False).sum()
-        print "rows to drop", n_skip
-        
-        n_reads = self.reads.N
-        
-        def fixit(openen):
-            openen._do_not_unpickle = True
-            print "checking", openen.fname
-            if openen.N - n_skip == n_reads:
-                print "removing extra rows!"
-                oem = openen.oem[keep]
-                assert len(oem) == n_reads
-                
-                new = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc)
-                new.debug_caching = True
-                new._do_not_unpickle = True
-                assert len(new.oem) == n_reads
-                assert new.N == n_reads
-                new.store()
-                
-                check = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc, _do_not_unpickle=True)
-                assert len(check.oem) == n_reads
-                assert check.N == n_reads
-                
-            else:
-                print "File is already correct!"
-        
-        for k in krange:
-            try:
-                fixit(self.get_raw(k))
-            except IOError:
-                pass
-            
-            try:
-                fixit(self.get_discretized(k))
-            except IOError:
-                pass
-        
-            self.cache_flush()
-            
-    def has_data(self, k, with_adapter=True):
-        fname = self._make_filename(k)
-        openen = self.get_raw(k, _do_not_cache=True)
-        return openen.check_data(with_adapter=with_adapter)
-
-    def has_data_range(self, kmin, kmax):
-        yes = True
-        for k in range(kmin, kmax+1):
-            if not self.has_data(k):
-                yes = False
-                break
-
-        return yes
 
     @cached
     def get_raw(self, k):
@@ -486,23 +455,66 @@ class OpenenStorage(CachedBase):
         fname = os.path.join(self.path, "{0}.{1}.bin".format(base, fmt) )
         
         return fname
+
+    def _record_raw_bytes(self, k, with_adapter=True):
+        itemsize = np.dtype(self.raw_dtype).itemsize
+        l = self.reads.L - k + 1
+        if with_adapter:
+            l += self.reads.l5 + self.reads.l3
+
+        return l * itemsize
+
+    def has_data(self, k, with_adapter=True):
+        fname = self._make_filename(k)
+        openen = self.get_raw(k, _do_not_cache=True)
+        return openen.check_data(with_adapter=with_adapter)
+
+    def has_data_range(self, kmin, kmax):
+        yes = True
+        for k in range(kmin, kmax+1):
+            if not self.has_data(k):
+                yes = False
+                break
+
+        return yes
+
+    def count_complete_records_range(self, kmin, kmax, with_adapter=True):
+        n = self.reads.N
+        for k in range(kmin, kmax+1):
+            fname = self._make_filename(k)
+            openen = self.get_raw(k, _do_not_cache=True)
+            nk = openen.count_records(with_adapter=with_adapter)
+            # print fname, nk
+            n = min(n, nk)
         
-    def get_or_create(self, k):
+        return n
+
+
+    def get_or_create(self, k, records_present=0):
+        ### TODO: Add resume suppport by giving expected total number of records nd number of
+        ### records to be skipped (both need to be determined prior to folding)
         if not k in self.k_sinks:
             fname = self._make_filename(k)
             if self.has_data(k):
                 self.logger.info("data for '{}' already in place. Will leave '{}' untouched.".format(k, fname))
-                self.k_sinks[k] = DummySink()
+                self.k_sinks[k] = DummySink(fname)
 
-            elif os.path.exists(fname) and not self.overwrite:
-                raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
+            # elif os.path.exists(fname) and not self.overwrite:
+            #     raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
 
             else:
-                self.k_sinks[k] = file(fname,'wb')
-                self.logger.info("created '{0}'".format(fname))
+                bytes_keep = self._record_raw_bytes(k) * records_present
+                sink = FileSink(fname, bytes_keep = bytes_keep)
+                self.k_sinks[k] = sink
+                self.logger.info("prepared '{0}'".format(fname))
     
         return self.k_sinks[k]
     
+    def prepare_sinks(self, kmin, kmax, n_complete=0):
+        self.logger.info("preparing sinks to resume after {} records".format(n_complete))
+        for k in range(kmin, kmax+1):
+            sink = self.get_or_create(k, n_complete)
+
     def write(self, k, vec):
         sink = self.get_or_create(k)
         if self.discretize:
@@ -521,8 +533,58 @@ class OpenenStorage(CachedBase):
     def close(self):
         for sink in self.k_sinks.values():
             sink.close()
+            
         self.logger.info("closed all files after writing {0} data sets".format(self.n_sets) )
 
+    # def fix_skipped_reads(self, krange):
+    #     keep = []
+    #     for i, line in enumerate(file(self.reads.fname,'r')):
+    #         if 'N' in line.upper():
+    #             keep.append(False)
+    #         else:
+    #             keep.append(True)
+        
+    #     keep = np.array(keep, dtype=bool)
+
+    #     n_skip = (keep == False).sum()
+    #     print "rows to drop", n_skip
+        
+    #     n_reads = self.reads.N
+        
+    #     def fixit(openen):
+    #         openen._do_not_unpickle = True
+    #         print "checking", openen.fname
+    #         if openen.N - n_skip == n_reads:
+    #             print "removing extra rows!"
+    #             oem = openen.oem[keep]
+    #             assert len(oem) == n_reads
+                
+    #             new = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc)
+    #             new.debug_caching = True
+    #             new._do_not_unpickle = True
+    #             assert len(new.oem) == n_reads
+    #             assert new.N == n_reads
+    #             new.store()
+                
+    #             check = RBNSOpenen(openen.fname, self.reads, k, oem = oem, disc=openen.disc, _do_not_unpickle=True)
+    #             assert len(check.oem) == n_reads
+    #             assert check.N == n_reads
+                
+    #         else:
+    #             print "File is already correct!"
+        
+    #     for k in krange:
+    #         try:
+    #             fixit(self.get_raw(k))
+    #         except IOError:
+    #             pass
+            
+    #         try:
+    #             fixit(self.get_discretized(k))
+    #         except IOError:
+    #             pass
+        
+    #         self.cache_flush()
 
 class OpenenDiscretization(object):
     """
@@ -776,7 +838,7 @@ def fold_worker(seq_queue, data_queue, interrupt_event=interrupt_folding, **vien
     vienna.close()
 
 
-def result_collector(storage, res_queue, interrupt_event = interrupt_folding, log_address="", log_format="", **kwargs):
+def result_collector(storage, res_queue, n_complete=0, n_left=-1, k_min=1, k_max=12, interrupt_event = interrupt_folding, log_address="", log_format="", **kwargs):
     """
     Pops (n_chunk, results) from res_queue and inserts them into a heap
     (sorted on n_chunk). Keeping track of how many chunks were already passed on
@@ -793,7 +855,10 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding, lo
     from cska.zmq_logging import LoggerFactory
     zmq_logging = LoggerFactory(address=log_address, format_str=log_format)
     logger = zmq_logging.getLogger('fold.result_collector')
-    # logger = logging.getLogger('fold.result_collector')
+
+    if n_complete:
+        storage.prepare_sinks(k_min, k_max, n_complete=n_complete)
+
     for n_chunk, results in queue_iter(res_queue, interrupt_event=interrupt_event):
         heapq.heappush(heap, (n_chunk, results) )
         
@@ -813,7 +878,7 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding, lo
             dT = t2 - t0
             rate = n_rec/dT
             
-            n_remain = storage.reads.N - n_rec
+            n_remain = n_left - n_rec
             eta = n_remain / rate / 60 / 60
             logger.debug("processed {0} records in {1:.0f} seconds (average {2:.3f} records/second). ETA={3:.2f} hours".format(n_rec, dT, rate, eta) )
             t1 = t2
@@ -829,13 +894,12 @@ def result_collector(storage, res_queue, interrupt_event = interrupt_folding, lo
     logger.debug("finished processing {0} records in {1:.0f} seconds (average {2:.3f} records/second)".format(n_rec, dT, n_rec/dT) )
     
 
-def parallel_fold(src, storage, n_parallel=8, **kwargs):
+def parallel_fold(reads, n_complete=0, n_parallel=8, skip_records=0, k_min=1, k_max=12, **kwargs):
     """
     Top-level function for parallel folding. Constructs all the subprocesses
     and ensures proper shutdown. kwargs are passed to ViennaRNA instances, 
     as well as the dispatcher.
     """
-    
     # This global variable is used by the keyboard interrupt 
     # handler to decide if we need to flush stuff to disk
     global folding_in_progress
@@ -852,10 +916,21 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     #  seq_queue
     #
     kwargs['interrupt_event'] = interrupt_folding
+    kwargs['temp'] = reads.temp
+    kwargs['adap5'] = reads.adap5
+    kwargs['adap3'] = reads.adap3
+    kwargs['l_insert'] = reads.L
+    kwargs['k_min'] = k_min
+    kwargs['k_max'] = k_max
+    
+    n_left = reads.N - n_complete
+    kwargs['n_left'] = n_left
+    kwargs['n_complete'] = n_complete
+
     dispatcher = multiprocessing.Process(
         target = seq_dispatcher, 
         name='seq_dispatcher', 
-        args=(src, seq_queue), 
+        args=(reads.iter_reads(n_skip=n_complete), seq_queue),
         kwargs=kwargs 
     )
     dispatcher.daemon = True
@@ -888,7 +963,7 @@ def parallel_fold(src, storage, n_parallel=8, **kwargs):
     collector = multiprocessing.Process(
         target = result_collector,
         name = 'result_collector',
-        args = (storage, res_queue),
+        args = (reads.acc_storage, res_queue),
         kwargs = kwargs,
     )
     collector.daemon = True

@@ -28,7 +28,7 @@ def parse_cmdline():
     parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
     parser.add_option("","--multi-stage",dest="multi_stage",default=False, action="store_true",help="SWITCH: perform multiple stages of optimization")
-    parser.add_option("","--resume", dest="resume",default="", choices=['opt_nostruct', 'footprint', 'opt_full', ''], help="at which stage to resume [opt_nostruct, footprint, opt_full] default is the latest stage that is found")
+    parser.add_option("","--resume", dest="resume",default="", choices=['opt_nostruct', 'footprint', 'opt_full', 'fold', ''], help="at which stage to resume [opt_nostruct, footprint, opt_full, fold] default is the latest stage that is found")
     
     parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
     parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
@@ -68,6 +68,8 @@ def parse_cmdline():
     parser.add_option("","--grad-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
     parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
+    parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
+
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
@@ -371,26 +373,35 @@ class Run(object):
             # if self.options.fold_missing:
             #     if reads.acc_storage.has_data(self.options.max_k):
                         #         continue
-            if reads.acc_storage.has_data_range(kmin, kmax):
+
+            n_complete = 0
+            n_left = reads.N
+            if self.options.resume:
+                n_complete = reads.acc_storage.count_complete_records_range(kmin, kmax)
+
+            if n_complete == reads.N:
                 self.logger.info("skipping {} because accessibilities from k={}..{} have already been computed and stored.".format(reads.name, kmin, kmax))
                 continue
 
+            else:
+                perc = 100. * n_complete / reads.N
+                n_left = reads.N - n_complete
+                self.logger.info("{n_complete}/{reads.N} reads already folded ({perc:.2f}%). Folding remaining {n_left} reads".format(**locals()))
+
             self.logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
             parallel_fold(
-                reads.iter_reads(), 
-                reads.acc_storage,
-                temp = reads.temp,
-                adap5 = self.options.adap5,
-                adap3 = self.options.adap3,
+                reads,
+                n_complete = n_complete,
+                # reads.iter_reads(n_skip=n_complete), 
+                # reads.acc_storage,
+                # temp = reads.temp,
+                # adap5 = self.options.adap5,
+                # adap3 = self.options.adap3,
                 k_min = int(kmin),
                 k_max = int(kmax),
-                n_max = self.options.n_max,
-                l_insert = self.rbns.reads[0].L,
-                skip_adap = self.options.skip_adap,
                 n_parallel= self.options.parallel,
-                fold_missing = self.options.fold_missing,
                 log_address = self.options.log_remote,
-                log_format = self.log_format,
+                log_format = self.log_format, 
             )
 
 
@@ -475,7 +486,7 @@ class Run(object):
         cal = FootprintCalibration(self.rbns, self.params)
         kmin, kmax = self.options.footprint.split('-')
         self.params = cal.calibrate(k_core_range = [int(kmin), int(kmax)])
-        self.logger.info("optimal parameters after footprint calibration: acc_k={self.params.acc_k} acc_shift={self.params.acc_shift} acc_scale={self.params.acc_scale}".format(self=self))
+        # self.logger.info("optimal parameters after footprint calibration: acc_k={self.params.acc_k} acc_shift={self.params.acc_shift} acc_scale={self.params.acc_scale}".format(self=self))
         return self.params
 
     def PSAM_gradient_descent(self, name="opt"):
@@ -488,7 +499,7 @@ class Run(object):
         ref = RefComparison(compare, ref_file=self.options.ref_file)
 
         from cska.psamgrad import PSAMGradientDescent
-        PGD = PSAMGradientDescent(self.rbns, self.params, ref=ref, k_fit=self.options.grad_k, mdl_name=self.options.grad_mdl, Z_thresh=self.options.Z_thresh, run_name=name, maxiter=self.options.grad_maxiter, eps=self.options.mdl_epsilon)
+        PGD = PSAMGradientDescent(self.rbns, self.params, ref=ref, k_fit=self.options.grad_k, mdl_name=self.options.grad_mdl, Z_thresh=self.options.Z_thresh, run_name=name, maxiter=self.options.grad_maxiter, maxtime=self.options.grad_maxtime, eps=self.options.mdl_epsilon)
         PGD.optimize()
         self.params = PGD.descent.params
 
@@ -506,10 +517,15 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
            
+        if options.folding:
+            run.fold_reads()
+            run.logger.info("folding completed.")
+            sys.exit(0)
 
         tasks = (True, True)
         if options.resume:
             tasks = {
+                'fold' : (True, True),
                 'opt_nostruct' : (True, True),
                 'footprint' : (False, True),
                 'opt_full' : (False, False),
@@ -540,10 +556,6 @@ def main():
             run.logger.info("Multi-step run completed.")
             sys.exit(0)
 
-        if options.folding:
-            run.fold_reads()
-            run.logger.info("folding completed.")
-            sys.exit(0)
 
         run.init_model_parameters()
 

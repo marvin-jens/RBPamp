@@ -131,7 +131,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True)):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True)):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -156,6 +156,7 @@ class GradientDescent(object):
         # optimization result/status
         self.status = None
         self.maxiter = maxiter
+        self.maxtime = maxtime
         self.eps = eps
         
     @staticmethod
@@ -296,8 +297,11 @@ class GradientDescent(object):
         if callback:
             callback(self)
 
+        t0 = time.time()
+        dt = 0
+
         try:
-            while not self.converged() and self.t < self.maxiter:
+            while not self.converged() and self.t < self.maxiter and dt < self.maxtime:
                 local_grad = state.grad #.unity()
                 if debug:
                     print "LOCAL GRAD"
@@ -358,13 +362,17 @@ class GradientDescent(object):
                     t_fev = 1000. * self.model.t_fev/self.model.n_fev,
                     t_grad = 1000. * self.model.t_grad/self.model.n_grad,
                 ))
+                dt = time.time() - t0
 
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
         
         if self.t < self.maxiter:
-            self.status = self.converged()
+            if dt < self.maxtime:
+                self.status = self.converged()
+            else:
+                self.status = "MAX_TIME"
         else:
             self.status = "MAX_ITER"
 

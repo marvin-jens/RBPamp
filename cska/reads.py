@@ -55,21 +55,26 @@ class RBNSReads(CachedBase):
         # TODO: rel-path
         self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
-    def iter_reads(self):
+    def iter_reads(self, n_skip=0):
         if hasattr(self.fname, "read"):
             # already file-like
             return self.fname
 
         f = file(self.fname,'r')
         if self.format == 'raw':
-            return f
+            I = f
 
         elif self.format == 'fasta':
             import byo.io
             def readsrc():
                 for fa_id, seq in byo.io.fasta_chunks(f):
                     yield seq
-            return readsrc()
+            I = readsrc()
+        
+        for n in xrange(n_skip):
+            I.next()
+        
+        return I
 
     def get_dimensions(self, fname):
         if self.format == 'fasta':
