@@ -98,7 +98,7 @@ class FootprintCalibration(CachedBase):
     def cache_key(self):
         return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}".format(self=self)
 
-    def calibrate(self, k_core_range=[3, None], plot=True, pad=5):
+    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=True):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
         if kmax is None:
@@ -106,13 +106,20 @@ class FootprintCalibration(CachedBase):
 
         self.logger.debug("scanning acc_k = {} .. {}".format(kmin, kmax) )
         try:
+            if from_scratch:
+                for k in range(kmin, kmax+1):
+                    d = self.params.k - k
+                    for s in range( -pad , d + pad):
+                        self.drop_pickle("optimize", k, s)
+
             for k in range(kmin, kmax+1):
                 d = self.params.k - k
+
+
                 for s in range( -pad , d + pad):
                     # if not (k, s) in self.results:
                     self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
-                    # HACK, make sure we are starting from scratch here
-                    res, punp_predict = self.optimize(k, s, _do_not_unpickle=True) 
+                    res, punp_predict = self.optimize(k, s)
                     err = res.fun
                     rel_err = err / self.err0
                     a = res.x[0]

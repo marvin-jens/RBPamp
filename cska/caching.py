@@ -132,6 +132,18 @@ class CachedBase(object):
             for k,v in sorted(getattr(self, name).items()):
                 print "  '{0}' : '{1}'".format(k,v)
     
+    def drop_pickle(self, func_name, *argc, **kwargs):
+        func = getattr(self, func_name)
+        pkl_key, kw = args_to_key(argc, kwargs, self, func.__name__)
+        pkl_name = getattr(func, "pkl_name", "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key)))
+        self.cache_logger.warning("dropping pickle {} for {}(argc={},kw={})".format(pkl_name, func_name, str(argc), str(kw)))
+        fname = os.path.join(self.pkl_path, pkl_name)
+        if os.path.exists(fname):
+            self.cache_logger.warning("deleting {}".format(fname))
+            os.remove(fname)
+        else:
+            self.cache_logger.warning("not found")
+
     def __del__(self):
         self.cache_flush()
 
