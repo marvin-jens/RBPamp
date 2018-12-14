@@ -266,9 +266,12 @@ class RBNSReads(CachedBase):
         """
         from time import time
         # t0 = time()
-        acc = self.acc_storage.get_raw(k_acc)
+        openen = self.acc_storage.get_raw(k_acc)
+        acc = openen.acc  # trigger access to raw data
+        if openen.missing_data and k_acc > 0:
+            raise ValueError("missing accessibility data for {} k_acc={}".format(self.fname, k_acc))
         # t1 = time()
-        fp = cyska.acc_footprints(Z1, acc.acc, k_motif, k_acc, acc.ofs - k_motif + 1, pad=pad, row_w = row_w)
+        fp = cyska.acc_footprints(Z1, acc, k_motif, k_acc, openen.ofs - k_motif + 1, pad=pad, row_w = row_w)
         # t2 = time()
         # print "t_get={:.2f} t_fp={:.2f}".format(1000. * (t1-t0), 1000. * (t2-t1))
         

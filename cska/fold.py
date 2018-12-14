@@ -41,7 +41,7 @@ class RBNSOpenen(CachedBase):
         self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.acc_scale = acc_scale
         self.logger = logging.getLogger('fold.RBNSOpenen')
-
+        self.missing_data = False
         
         # to be initialized upon first access to oem
         self.include_adapters = None
@@ -139,7 +139,7 @@ class RBNSOpenen(CachedBase):
             self.l_row = l_adap
             self.include_adapters = True
             self.ofs = self.rbns_reads.l5
-            
+            self.missing_data = True
             return np.zeros( (N, self.l_row), dtype=self.dtype)
 
         # we need to load from disk
