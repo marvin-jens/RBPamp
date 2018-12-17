@@ -52,8 +52,13 @@ def server_loop(address="tcp://*:8888", stream=sys.stdout):
     recv_socket = context.socket(zmq.PULL)
     recv_socket.bind(address)
     while True:
-        lvl, msg = recv_socket.recv_multipart()
-        stream.write(msg + '\n')
+        rec = recv_socket.recv_multipart()
+        if len(rec) != 2:
+            stream.write('received malformed message "{}" \n'.format(rec))
+        else:
+            lvl, msg = rec
+            stream.write(msg + '\n')
+
         stream.flush()
 
 if __name__ == "__main__":

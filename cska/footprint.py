@@ -98,7 +98,7 @@ class FootprintCalibration(CachedBase):
     def cache_key(self):
         return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}".format(self=self)
 
-    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=True):
+    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
         if kmax is None:

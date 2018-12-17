@@ -214,7 +214,7 @@ class Alignment(object):
             m += inc[:,np.newaxis]
 
         psam = m / m.max(axis=1)[:,np.newaxis]
-        # print m
+        print m
         # print psam
         A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
