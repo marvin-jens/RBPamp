@@ -396,7 +396,7 @@ class FileSink(object):
         
 
 class OpenenStorage(CachedBase):
-    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', overwrite=False, dummy=False, T=22., **kwargs):
+    def __init__(self, reads, path='./', discretize=False, raw_dtype=np.float32, disc_dtype=np.uint8, disc_mode='gamma', dummy=False, T=22., **kwargs):
         
         CachedBase.__init__(self)
         
@@ -405,7 +405,6 @@ class OpenenStorage(CachedBase):
         self.raw_dtype = raw_dtype
         self.disc_dtype = disc_dtype
         self.disc_mode = disc_mode
-        self.overwrite = overwrite
         self.T = T
         self.k_sinks = {}
         self.k_disc = {}
@@ -498,9 +497,6 @@ class OpenenStorage(CachedBase):
             if self.has_data(k):
                 self.logger.info("data for '{}' already in place. Will leave '{}' untouched.".format(k, fname))
                 self.k_sinks[k] = DummySink(fname)
-
-            # elif os.path.exists(fname) and not self.overwrite:
-            #     raise OSError("File exists '{0}' and --overwrite not specified!".format(fname))
 
             else:
                 bytes_keep = self._record_raw_bytes(k) * records_present
