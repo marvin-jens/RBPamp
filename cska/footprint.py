@@ -170,6 +170,7 @@ class FootprintCalibration(CachedBase):
         err, k, s, a, A0 = opt
         out = [k, s, a, A0, err]
         self.fp_file.write("\t".join([str(o) for o in out]) + "\n")
+        self.fp_file.flush()
 
 
     def plot_profiles(self, punp_expect, acc_k, acc_shift, res):
