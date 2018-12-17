@@ -214,11 +214,10 @@ class Alignment(object):
             m += inc[:,np.newaxis]
 
         psam = m / m.max(axis=1)[:,np.newaxis]
-        print m
-        # print psam
         A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
-        return PSAM(psam, A0=A0)
+        P = PSAM(psam, A0=A0)
+        return P
         
 
 class DependentKmerAnalysis(CachedBase):
@@ -492,7 +491,7 @@ class SeedRefinement(object):
             L = len(self.spacings)
             self.dist_cost = self.spacings[L/2:]
             self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
-
+        
         self.store_logos()
 
     def seeded_params(self, n_samples, **kwargs):

@@ -232,7 +232,7 @@ def plot_seqlogo(ax, pfm, info=False, charwidth=1.0, **kwargs):
 
 
 def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="title", **kwargs):
-    
+    matrix = np.array(matrix)   # work on local copy!
     d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75
     matrix *= d[:, np.newaxis]
     # print(matrix)
