@@ -21,28 +21,25 @@ def parse_cmdline():
 
     parser = OptionParser(usage=usage)
     # basic options
-    parser.add_option("","--version",dest="version",default=False, action="store_true",help="show version information and quit")
-    parser.add_option("","--name",dest="name",default="RBP",help="name of the protein assayed (default=RBP)")
-    parser.add_option("-o","--output",dest="output",default="cska",help="path where results are to be stored (default='cska')")
-    parser.add_option("","--run-path",dest="run",default="run_{datestr}",help="pattern for run-folder name (default='run_{datestr}')")
-    parser.add_option("-a","--auto",dest="auto",default=False, action="store_true",help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
-    parser.add_option("-b","--best",dest="best",default=0, type=int,help="keep only the best n samples (by top R-value) default=0 [off]")
-    parser.add_option("","--multi-stage",dest="multi_stage",default=False, action="store_true",help="SWITCH: perform multiple stages of optimization")
-    parser.add_option("","--resume", dest="resume",default="", choices=['opt_nostruct', 'footprint', 'opt_full', 'fold', ''], help="at which stage to resume [opt_nostruct, footprint, opt_full, fold] default is the latest stage that is found")
+    parser.add_option("","--version", dest="version", default=False, action="store_true", help="show version information and quit")
+    parser.add_option("","--name", dest="name", default="RBP", help="name of the protein assayed (default=RBP)")
+    parser.add_option("-o","--output", dest="output", default="cska", help="path where results are to be stored (default='cska')")
+    parser.add_option("","--run-path", dest="run", default="run_{datestr}", help="pattern for run-folder name (default='run_{datestr}')")
+    parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
+    parser.add_option("-b","--best", dest="best", default=0, type=int, help="keep only the best n samples (by top R-value) default=0 [off]")
+    parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
+    parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
-    parser.add_option("-r","--rna-concentration",dest="rna_conc",default=1000.,type=float,help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
-    parser.add_option("-p","--rbp-concentration",dest="rbp_conc",default="0,320",help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
-    parser.add_option("-T","--temperature",dest="temp",default=4.,type=float,help="temperature of the experiment in degrees Celsius (default=4.0)")
-    parser.add_option("","--format",dest="format",default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
-    parser.add_option("","--adap5",dest="adap5",default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--adap3",dest="adap3",default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("","--skip-adapters",dest="skip_adap",default=False, action="store_true",help="ignore adapter sequences (default=False)")
-    parser.add_option("-n","--n-max",dest="n_max",default=0, type=int,help="TESTING: read at most N reads")
-    parser.add_option("","--overwrite",dest="overwrite",default=False, action="store_true",help="SWITCH: overwrite existing files (default=exit with an error)")
+    parser.add_option("-r","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
+    parser.add_option("-p","--rbp-concentration", dest="rbp_conc", default="0,320", help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-T","--temperature", dest="temp", default=4., type=float, help="temperature of the experiment in degrees Celsius (default=4.0)")
+    parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
+    parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
+    parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
+    parser.add_option("-n","--n-max", dest="n_max", default=0, type=int, help="TESTING: read at most N reads")
 
     # RNA folding
     parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
-    parser.add_option("","--fold-missing", dest="fold_missing", default=False, action="store_true",help="SWITCH: if files are already in place, do not re-fold")
     parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
     # parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
     parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
@@ -57,7 +54,7 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
-    parser.add_option("-s","--seed-analysis",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
+    parser.add_option("-s","--seed-analysis-k",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
@@ -70,6 +67,11 @@ def parse_cmdline():
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
 
+    parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
+    parser.add_option("", "--opt-no-struct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
+    parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
+    parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
+    parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
@@ -169,6 +171,12 @@ def vector_stats(v):
     print "non-finite values", (~np.isfinite(v)).sum()
     print "min max", v.min(), v.max()
     print "mean median", np.mean(v), np.median(v)
+
+
+def touch(fname, times=None):
+    print "touching", fname
+    with open(fname, 'a'):
+        os.utime(fname, times)
 
 
 class Run(object):
@@ -292,7 +300,7 @@ class Run(object):
 
     def get_storage_kwargs(self):
         storage_kw = dict(
-            overwrite = self.options.overwrite, 
+            # overwrite = self.options.overwrite, 
             T=self.options.temp, 
             disc_mode='linear', 
             dummy=self.options.no_structure, 
@@ -425,69 +433,116 @@ class Run(object):
         #             occ = gen.predict_occupancies(P=P, store="occ_{0}.tsv".format(P))
 
     
-    def init_model_parameters(self):
-        ## prime the optimization from dependent-kmer analysis or load PSAM
-        from cska.gradient import ModelParametrization
-        i = 0
-        self.params = None
-
-        if self.options.mdl_psam_init:
-            self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
-            self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
-
-        elif self.options.resume:
-            self.logger.info("resuming from stage '{}'".format(self.options.resume))
-            stages = [
-                'seed/initial.tsv', # TODO: make sure that is made
-                'opt_nostruct/parameters.tsv',
-                'footprint/calibrated.tsv',
-                'opt_full/parameters.tsv',
-            ]
-
-            i = {
-                'opt_nostruct' : 1,
-                'footprint' : 2,
-                'opt_full'  : 3
-            }[self.options.resume]
-
-            # find last parameter set that had been made
-            while i >= 0:
-                path = stages[i]
-                try:
-                    self.logger.info("attempting to resume parameters from '{}'".format(path))
-                    self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
-                except IOError:
-                    self.logger.debug("not found")
-                    self.params = None
-                else:
-                    self.logger.debug("success")
-                    break
-                i -= 1
-
-        if i <= 0 and self.params is None:
-            from cska.seed import SeedRefinement
-            SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
-            self.params = SR.seeded_params(self.rbns.n_samples)
-            self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
-
-            # clean up memory usage
-            for reads in self.rbns.reads:
-                reads.cache_flush()
-
-        if self.params is None:
-            raise ValueError("need to either load a PSAM using --psam-resume or build one using --seed-analysis")
-            sys.exit(1)
-
+    def probe_params(self, *locations):
+        from cska.params import ModelParametrization
+        for path in locations:
+            if not path:
+                continue
+            try:
+                self.logger.info("attempting to resume parameters from '{}'".format(path))
+                self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
+            except IOError:
+                self.logger.info("not found")
+                self.params = None
+            else:
+                self.logger.info("success")
+                break
+        
         return self.params
+        
+
+    def completed(self, stage):
+        comp = os.path.exists(os.path.join(self.run_path,'completed.{}'.format(stage)))
+        if comp:
+            self.logger.info("found that {} was already completed".format(stage))
+            if self.options.redo:
+                self.logger.warning("but ignored because --redo was specified!")
+                return False
+
+        return comp
+
+    def mark_complete(self, stage):
+        touch(os.path.join(self.run_path,'completed.{}'.format(stage)))
+
+    def seed_stage(self):
+        from cska.seed import SeedRefinement
+        SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
+        self.params = SR.seeded_params(self.rbns.n_samples)
+        self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        
+        return self.params
+
+    def flush_reads(self):
+        # clean up memory usage
+        for reads in self.rbns.reads:
+            reads.cache_flush()
+
+    # def init_model_parameters(self):
+    #     ## prime the optimization from dependent-kmer analysis or load PSAM
+    #     from cska.gradient import ModelParametrization
+    #     i = 0
+    #     self.params = None
+
+    #     if self.options.mdl_psam_init:
+    #         self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
+    #         self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
+
+    #     elif self.options.resume:
+    #         self.logger.info("resuming from stage '{}'".format(self.options.resume))
+    #         stages = [
+    #             'seed/initial.tsv', # TODO: make sure that is made
+    #             'opt_nostruct/parameters.tsv',
+    #             'footprint/calibrated.tsv',
+    #             'opt_full/parameters.tsv',
+    #         ]
+
+    #         i = {
+    #             'opt_nostruct' : 1,
+    #             'footprint' : 2,
+    #             'opt_full'  : 3
+    #         }[self.options.resume]
+
+    #         # find last parameter set that had been made
+    #         while i >= 0:
+    #             path = stages[i]
+    #             try:
+    #                 self.logger.info("attempting to resume parameters from '{}'".format(path))
+    #                 self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
+    #             except IOError:
+    #                 self.logger.debug("not found")
+    #                 self.params = None
+    #             else:
+    #                 self.logger.debug("success")
+    #                 break
+    #             i -= 1
+
+    #     if i <= 0 and self.params is None:
+    #         from cska.seed import SeedRefinement
+    #         SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
+    #         self.params = SR.seeded_params(self.rbns.n_samples)
+    #         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+
+    #         # clean up memory usage
+    #         for reads in self.rbns.reads:
+    #             reads.cache_flush()
+
+    #     if self.params is None:
+    #         raise ValueError("need to either load a PSAM using --psam-resume or build one using --seed-analysis")
+    #         sys.exit(1)
+
+    #     return self.params
 
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
         cal = FootprintCalibration(self.rbns, self.params)
         kmin, kmax = self.options.footprint.split('-')
-        self.params = cal.calibrate(k_core_range = [int(kmin), int(kmax)])
-        # self.logger.info("optimal parameters after footprint calibration: acc_k={self.params.acc_k} acc_shift={self.params.acc_shift} acc_scale={self.params.acc_scale}".format(self=self))
-        return self.params
+        res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
+        if res:
+            self.params = res
+
+        return res
+
 
     def PSAM_gradient_descent(self, name="opt"):
         if self.options.compare:
@@ -503,8 +558,7 @@ class Run(object):
         PGD.optimize()
         self.params = PGD.descent.params
 
-        return self.params
-
+        return PGD.descent.status.startswith('CONVERGED')
 
 def main():
     options, args = parse_cmdline()
@@ -518,59 +572,46 @@ def main():
             run.compute_metrics(metrics)
 
         rbns = run.keep_best() # unless --best is specified this does nothing
+        run.flush_reads()
 
         if options.folding:
             run.fold_reads()
             run.logger.info("folding completed.")
-            sys.exit(0)
 
-        tasks = (True, True)
-        if options.resume:
-            tasks = {
-                'fold' : (True, True),
-                'opt_nostruct' : (True, True),
-                'footprint' : (False, True),
-                'opt_full' : (False, False),
-            }[options.resume]
-
-        opt_nostruct, footprint = tasks
-
-
-        if options.multi_stage:
+        if (options.opt_full or options.opt_seed) and not run.completed("seed"):
             run.logger.info("STAGE0: initialize PSAM")
-            params = run.init_model_parameters()
+            run.seed_stage()
+            run.mark_complete("seed")
 
+        param_sources = [run.options.mdl_psam_init, 'seed/initial.tsv']
+        if (options.opt_full or options.opt_nostruct) and not run.completed('nostruct'):
             run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
-            if not opt_nostruct:
-                run.logger.info("skipped because we resume from {}".format(options.resume))
-            else:
-                run.params.acc_k = 0 # disable accessibility
-                params = run.PSAM_gradient_descent('opt_nostruct')
 
+            if options.resume:
+                param_sources.insert(1, 'opt_nostruct/parameters.tsv')
+            run.probe_params(*param_sources)
+
+            run.params.acc_k = 0  # disable accessibility
+            if run.PSAM_gradient_descent('opt_nostruct'):
+                run.mark_complete("nostruct")
+
+        if (options.opt_full or options.opt_footprint) and not run.completed('footprint'):
             run.logger.info("STAGE2: footprint parameter estimation")
-            if not footprint:
-                run.logger.info("skipped because we resume from {}".format(options.resume))
-            else:
-                params = run.calibrate_footprint()
+            run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
+            if run.calibrate_footprint():
+                run.mark_complete("footprint")
 
+            run.flush_reads()
+
+        if (options.opt_full or options.opt_struct) and not run.completed('struct'):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
-            params = run.PSAM_gradient_descent('opt_full')
-            run.logger.info("Multi-step run completed.")
-            sys.exit(0)
+            param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
+            if options.resume:
+                param_sources.insert(1, 'opt_full/parameters.tsv')
+            run.probe_params(*param_sources)
 
-
-        run.init_model_parameters()
-
-        if options.acc_scan:
-            run.calibrate_footprint()
-            run.logger.info("footprint scan completed.")
-            sys.exit(0)
-
-        if options.grad_mdl:
-            run.PSAM_gradient_descent()
-            run.logger.info("Gradient descent completed.")
-            sys.exit(0)
-
+            if run.PSAM_gradient_descent('opt_full'):
+                run.mark_complete("struct")
 
     except SystemExit:
         # This is alright

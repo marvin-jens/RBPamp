@@ -115,7 +115,6 @@ class FootprintCalibration(CachedBase):
             for k in range(kmin, kmax+1):
                 d = self.params.k - k
 
-
                 for s in range( -pad , d + pad):
                     # if not (k, s) in self.results:
                     self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
@@ -136,6 +135,8 @@ class FootprintCalibration(CachedBase):
     
         except KeyboardInterrupt:
             self.logger.warning("received KeyboardInterrupt")
+            raise
+            return False
 
         results = sorted(self.results.values())
         # self.store_footprints()
