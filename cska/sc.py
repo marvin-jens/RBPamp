@@ -69,7 +69,7 @@ class SelfConsistency(object):
         perc = 100. * res.x / rbp_total
         complex = rbp_total - res.x
         if not np.allclose(res.fun, 0, atol=1e-3):
-            self.logger.warning("could not satisfy RBP conservation. error={}".format(res.fun))
+            self.logger.debug("could not satisfy RBP conservation. error={}".format(res.fun))
 
         self.logger.debug("total RBP={0:.1f} free={1:.1f} ({2:.2f}%) complex={4:.2e} nM in {3:.2f} ms".format(rbp_total, res.x, perc, 1000*(t1-t0), complex))
         self.last_error = res.fun

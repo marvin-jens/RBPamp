@@ -298,7 +298,7 @@ class PartFuncModel(object):
         if 5e-3 < res.x < 500:
             state.params.A0 = res.x
         else:
-            self.logger.warning("fit would push A0 to boundaries. Letting drift through gradient-only instead.")
+            self.logger.debug("fit would push A0 to boundaries. Letting drift through gradient-only instead.")
             state.params.A0 = A00
         
         state = state.mdl.predict(state.params, beta_fixed=False)
