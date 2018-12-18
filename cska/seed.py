@@ -158,7 +158,7 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True):
+    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=100.):
         # print self
         # print "to PSAM"
         # print self.matrix
@@ -214,7 +214,7 @@ class Alignment(object):
             m += inc[:,np.newaxis]
 
         psam = m / m.max(axis=1)[:,np.newaxis]
-        A0 = m.max(axis=1).sum()
+        # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
         P = PSAM(psam, A0=A0)
         return P
