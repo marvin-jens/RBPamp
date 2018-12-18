@@ -103,7 +103,7 @@ class PSAMGradientDescent(object):
         err_reduction = state_first.error / state_last.error # x-fold reduced
 
         corr_first = state_first.correlations[0].max()
-        corr_last = state_last.correlations[1].max()
+        corr_last = state_last.correlations[0].max()
         
         Kd_first = 1/state_first.params.A0
         Kd_last = 1/state_last.params.A0
