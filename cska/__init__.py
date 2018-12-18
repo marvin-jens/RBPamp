@@ -259,6 +259,9 @@ class Run(object):
         self.logger.setLevel(logging.INFO)
         self.logger.info("version {}".format(__version__))
         self.logger.info("invoked as '{}'".format(" ".join(sys.argv)) )
+        slurmid = os.getenv('SLURM_JOB_ID')
+        if slurmid:
+            self.logger.info("SLURM_JOB_ID={}".format(slurmid))
 
         # set info level for specific sub-systems
         for sub in self.options.info.split(','):
@@ -378,10 +381,6 @@ class Run(object):
 
         # fold the reads
         for reads in self.rbns.reads:
-            # if self.options.fold_missing:
-            #     if reads.acc_storage.has_data(self.options.max_k):
-                        #         continue
-
             n_complete = 0
             n_left = reads.N
             if self.options.resume:
@@ -400,11 +399,6 @@ class Run(object):
             parallel_fold(
                 reads,
                 n_complete = n_complete,
-                # reads.iter_reads(n_skip=n_complete), 
-                # reads.acc_storage,
-                # temp = reads.temp,
-                # adap5 = self.options.adap5,
-                # adap3 = self.options.adap3,
                 k_min = int(kmin),
                 k_max = int(kmax),
                 n_parallel= self.options.parallel,
@@ -477,61 +471,6 @@ class Run(object):
         for reads in self.rbns.reads:
             reads.cache_flush()
 
-    # def init_model_parameters(self):
-    #     ## prime the optimization from dependent-kmer analysis or load PSAM
-    #     from cska.gradient import ModelParametrization
-    #     i = 0
-    #     self.params = None
-
-    #     if self.options.mdl_psam_init:
-    #         self.logger.info("loading params from: '{0}'".format(self.options.mdl_psam_init))
-    #         self.params = ModelParametrization.load(self.options.mdl_psam_init, self.rbns.n_samples)
-
-    #     elif self.options.resume:
-    #         self.logger.info("resuming from stage '{}'".format(self.options.resume))
-    #         stages = [
-    #             'seed/initial.tsv', # TODO: make sure that is made
-    #             'opt_nostruct/parameters.tsv',
-    #             'footprint/calibrated.tsv',
-    #             'opt_full/parameters.tsv',
-    #         ]
-
-    #         i = {
-    #             'opt_nostruct' : 1,
-    #             'footprint' : 2,
-    #             'opt_full'  : 3
-    #         }[self.options.resume]
-
-    #         # find last parameter set that had been made
-    #         while i >= 0:
-    #             path = stages[i]
-    #             try:
-    #                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-    #                 self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
-    #             except IOError:
-    #                 self.logger.debug("not found")
-    #                 self.params = None
-    #             else:
-    #                 self.logger.debug("success")
-    #                 break
-    #             i -= 1
-
-    #     if i <= 0 and self.params is None:
-    #         from cska.seed import SeedRefinement
-    #         SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
-    #         self.params = SR.seeded_params(self.rbns.n_samples)
-    #         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
-
-    #         # clean up memory usage
-    #         for reads in self.rbns.reads:
-    #             reads.cache_flush()
-
-    #     if self.params is None:
-    #         raise ValueError("need to either load a PSAM using --psam-resume or build one using --seed-analysis")
-    #         sys.exit(1)
-
-    #     return self.params
-
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
@@ -559,6 +498,7 @@ class Run(object):
         self.params = PGD.descent.params
 
         return PGD.descent.status.startswith('CONVERGED')
+
 
 def main():
     options, args = parse_cmdline()
