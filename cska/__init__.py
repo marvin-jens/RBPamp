@@ -432,9 +432,10 @@ class Run(object):
         for path in locations:
             if not path:
                 continue
+            path = os.path.abspath(os.path.join(self.run_path, path))
             try:
                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-                self.params = ModelParametrization.load(os.path.join(self.run_path, path), self.rbns.n_samples)
+                self.params = ModelParametrization.load(path, self.rbns.n_samples)
             except IOError:
                 self.logger.info("not found")
                 self.params = None

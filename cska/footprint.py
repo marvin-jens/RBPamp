@@ -2,7 +2,7 @@ import numpy as np
 import gc, os, sys
 import logging
 from cska import ensure_path
-from cska.caching import pickled, cached, CachedBase
+from cska.caching import pickled, cached, monitored, CachedBase
 import cska.cyska as cyska
 from cska.sc import SelfConsistency
 
@@ -261,7 +261,7 @@ class FootprintCalibration(CachedBase):
         plt.savefig(os.path.join(self.path, 'footprint.pdf'))
 
 
-
+    # @monitored
     @pickled
     def optimize(self, acc_k, acc_shift):
         from time import time
@@ -280,13 +280,15 @@ class FootprintCalibration(CachedBase):
         zw = self.Z1.shape[1]
         lacc0 = np.log(acc0)
 
-        self.params.acc_k = acc_k
-        self.params.acc_shift = acc_shift
+        from copy import deepcopy
+        params = deepcopy(self.params)
+        params.acc_k = acc_k
+        params.acc_shift = acc_shift
 
         def predict_profiles(a, A0):
             t0 = time()
             acc1 = np.exp(lacc0 * a) # scale accessibilities
-            ofs = openen.ofs - self.params.k + 1 + acc_shift
+            ofs = openen.ofs - params.k + 1 + acc_shift
             Z1_acc = self.Z1 * acc1[:, ofs:ofs + zw]
             t1 = time()
             Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6) # aggregate to read-level
@@ -300,7 +302,7 @@ class FootprintCalibration(CachedBase):
             # print psi.shape
             t4 = time()
             # punp_expect = self.input_reads.weighted_accessibility_profile(self.Z1, self.params.k, pad=self.pad, row_w=psi)
-            punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+            punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
             t_prof = time() - t4
 
             times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
@@ -317,7 +319,7 @@ class FootprintCalibration(CachedBase):
         from scipy.optimize import minimize
         res = minimize(
             to_opt, 
-            (0, self.params.A0),  # start with no secondary structure data A0
+            (0, params.A0),  # start with no secondary structure data A0
             bounds= [ (0, 1.), (1e-3, 1000.)], 
             options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
         )
@@ -325,13 +327,3 @@ class FootprintCalibration(CachedBase):
         punp_expect = predict_profiles(a, A0)
         gc.collect()
         return res, punp_expect
-
-        
-
-
-        
-        
-
-        
-
-

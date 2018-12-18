@@ -194,6 +194,36 @@ def cached(func):
     cached_func.__name__ = func.__name__
     return cached_func
   
+def monitored(func):
+    
+    def monitored_func(self, *argc, **kwargs):
+        res = None
+        new = False
+
+        pkl_key, kw = args_to_key(argc, kwargs, self, func.__name__)
+
+        # allow override
+        pkl_name = getattr(func, "pkl_name", "{pkl_hash}.pkl".format(pkl_hash = key_to_hash(pkl_key)))
+        
+        # get the result from call or un-pickle
+        fname = os.path.join(self.pkl_path, pkl_name)
+        found = os.path.exists(fname)
+
+        def shortstr(x):
+            s = str(x)
+            if len(s) > 8:
+                s = s[:8] + "_" + hashlib.md5(s).hexdigest()[:6]
+            return s
+
+        argc_short = ", ".join([shortstr(a) for a in argc])
+        kw_short = ", ".join(["{k}={s}".format(k=k, s=shortstr(v)) for k,v in sorted(kwargs.items())])
+        short_self = shortstr(self.cache_key)
+        self.cache_logger.warning('monitored call to {func.__name__} with self.cache_key={short_self} argc={argc_short} kw={kw_short} -> {pkl_name} pickle exists={found}'.format(**locals()))
+        return func(self, *argc, **kwargs)
+
+    monitored_func.__name__ = func.__name__
+    return monitored_func
+
 def pickled(func):
     """
     Decorator for class methods that returns an un-pickled result if it exists. 
