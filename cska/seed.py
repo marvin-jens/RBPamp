@@ -158,7 +158,7 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=100.):
+    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=.01):
         # print self
         # print "to PSAM"
         # print self.matrix
