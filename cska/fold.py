@@ -122,7 +122,7 @@ class RBNSOpenen(CachedBase):
             return True
 
     @property
-    @cached
+    # @cached
     def oem(self):
         """
         load and keep all open-energies in memory (optionally discretized)
@@ -191,11 +191,9 @@ class RBNSOpenen(CachedBase):
         return oem
     
     @property
-    @cached
+    # @cached
     def acc(self):
         if self.dummy:
-            # WARNING self.N and self.L seem to *not* always coincide with
-            # oem.shape. Specifically L can be smaller than oem axis 1 WTF?
             return np.ones(self.oem.shape, dtype=np.float32)
 
         if not self.discretized:

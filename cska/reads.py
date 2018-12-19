@@ -231,7 +231,7 @@ class RBNSReads(CachedBase):
        
         acc_k = getattr(params, "acc_k", None)
         if not acc_k:
-            print "acc_k=0 pretending everything is accessible"
+            self.logger.debug("acc_k=0 pretending everything is accessible")
             acc1 = np.ones( (self.N, w), dtype=np.float32)
             ofs = self.l5
         else:

@@ -2,7 +2,7 @@ import numpy as np
 import gc, os, sys
 import logging
 from cska import ensure_path
-from cska.caching import pickled, cached, monitored, CachedBase
+from cska.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
 import cska.cyska as cyska
 from cska.sc import SelfConsistency
 
@@ -25,11 +25,17 @@ def dump_garbage():
         print type(x),"\n  ", s
 
 
+def dump_caches():
+    for size, cache in get_cache_sizes():
+        print cache, size/1024.
+
 class FootprintCalibration(CachedBase):
     def __init__(self, rbns, params, pad=5, thresh=1e-3):
          
         CachedBase.__init__(self)
 
+        # print ">>> before initialization"
+        # dump_caches()
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
         self.params = params.copy()
         self.params.acc_k = 0
@@ -56,8 +62,13 @@ class FootprintCalibration(CachedBase):
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
 
         # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
+        self.logger.debug("evaluating partition function")
         self.Z1_full = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
+        for reads in rbns.reads[1:]:
+            reads.cache_flush()
+            reads.acc_storage.cache_flush()
+
         # self.punp_profiles = np.array([
         #     reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
         #     for reads, z in zip(rbns.reads, Z1)])
@@ -79,6 +90,9 @@ class FootprintCalibration(CachedBase):
         # self.naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
 
         self.punp_profiles, self.naive_profiles = self.compute_initial_profiles(_do_not_unpickle=True)
+        # print ">>> after initial profiles"
+        # dump_caches()
+
         self.logger.debug("plotting naive punp profiles")
         self.plot_profiles(self.naive_profiles, 0, 0, None)
         self.err0 = np.sum((self.naive_profiles - self.punp_profiles[1:])**2)
