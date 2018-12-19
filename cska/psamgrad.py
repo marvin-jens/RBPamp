@@ -6,7 +6,6 @@ import numpy as np
 import time
 
 from cska.meanfield import MeanFieldModel, InvMeanFieldModel
-
 from cska.affinitylogo import nice_conc
 
 class PSAMGradientDescent(object):
@@ -14,7 +13,22 @@ class PSAMGradientDescent(object):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
-        self.track_file = file(os.path.join(self.out_path, "descent.tsv"),'w',0)
+
+        fname = os.path.join(self.out_path, "descent.tsv")
+        self.t_ofs = 0
+        if not os.path.exists(fname):
+            self.track_file = file(fname, 'w', 0)
+            MSE_samples = ["MSE{}".format(i) for i in range(params.n_samples)]
+            corr_samples = ["corr{}".format(i) for i in range(params.n_samples)]
+            self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples, "\t".join(corr_samples))))
+        else:
+            lines = file(fname).readlines()
+            try:
+                self.t_ofs = int(lines[-1].split('\t')[0]) + 1
+            except IndexError, ValueError:
+                pass
+            self.track_file = file(fname, 'a', 0)
+
         self.k = params.k
         self.k_fit = k_fit
         self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
@@ -88,7 +102,9 @@ class PSAMGradientDescent(object):
             # collect and write data on the gradient descent progress
             from scipy.stats import pearsonr
             pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
-            out = [descent.t, descent.last_state.params.A0, descent.errors[-1],] + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR)
+            out = [descent.t + self.t_ofs, descent.last_state.params.A0, descent.errors[-1],] \
+                + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR) \
+                + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
             line = "\t".join([str(o) for o in out])
             print line

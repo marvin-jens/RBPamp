@@ -443,6 +443,9 @@ class Run(object):
                 self.logger.info("success")
                 break
         
+        if not self.params:
+            self.logger.error("unable to initiate model parameters. Did you skip a stage?")
+
         return self.params
         
 

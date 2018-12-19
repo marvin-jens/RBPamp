@@ -148,8 +148,8 @@ class GradientDescent(object):
         # records
         self.errors = []
         self.history = []
-        self.ls_nfev = []
-        self.ls_step = []
+        self.ls_nfev = [0,]
+        self.ls_step = [0,]
         self.t = 0
         self.last_quantile = 0
 
