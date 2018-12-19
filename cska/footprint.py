@@ -330,7 +330,7 @@ class FootprintCalibration(CachedBase):
         # tracker = SummaryTracker()
         lacc0, punp = self.get_lacc_punp_cached(acc_k)
 
-        openen_punp = self.input_reads.acc_storage.get_raw(1)
+        openen_punp = self.get_input_openen_cached(1)
         openen = self.get_input_openen_cached(acc_k)
         ofs = openen.ofs - self.params.k + 1
         zw = self.Z1.shape[1]
