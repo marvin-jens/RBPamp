@@ -33,19 +33,20 @@ class FootprintCalibration(CachedBase):
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
         self.params = params.copy()
         self.params.acc_k = 0
-        self.punp_profiles = []
-        self.Z1_in_noacc = None
+        self.params.acc_scale = 0
+        self.params.non_specific = 0
+        self.rbns = rbns
         self.input_reads = rbns.reads[0]
         self.pd_names = [reads.name for reads in rbns.reads[1:]]
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
-        self.params.acc_scale = 0
-        self.params.non_specific = 0
         self.logger = logging.getLogger('opt.FootprintCalibration')
         self.result_log = logging.getLogger('results.footprint')
 
         self.results = {}
-        
+        self._openen_cache = {}
+        self._lacc_cache = {}
+
         fp = os.path.join(self.path, 'footprints.tsv')
         # if os.path.exists(fp):
         #     self.load_footprints(fp)
@@ -54,27 +55,30 @@ class FootprintCalibration(CachedBase):
         self.fp_file = file(fp, 'w')
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
 
-        Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
-        self.Z1_in_noacc = Z1[0]
-        self.punp_profiles = np.array([
-            reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
-            for reads, z in zip(rbns.reads, Z1)])
+        # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
+        self.Z1_full = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
+        self.Z1_in_noacc = self.Z1_full[0]
+        # self.punp_profiles = np.array([
+        #     reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
+        #     for reads, z in zip(rbns.reads, Z1)])
 
-        # predict profiles w/o accessibility footprint
-        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
-        sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
-        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
-        psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
+        # # predict profiles w/o accessibility footprint
+        # Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
+        # sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
+        # rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
+        # psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
 
-        # from cska import vector_stats
-        # print "Z_read"
-        # vector_stats(Z1_read)
-        # print "rbp_free * A0", rbp_free*self.params.A0
-        # print "PSIs"
-        # [vector_stats(p) for p in psi]
+        # # from cska import vector_stats
+        # # print "Z_read"
+        # # vector_stats(Z1_read)
+        # # print "rbp_free * A0", rbp_free*self.params.A0
+        # # print "PSIs"
+        # # [vector_stats(p) for p in psi]
 
-        openen_punp = self.input_reads.acc_storage.get_raw(1)
-        self.naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+        # openen_punp = self.input_reads.acc_storage.get_raw(1)
+        # self.naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+
+        self.punp_profiles, self.naive_profiles = self.compute_initial_profiles(_do_not_unpickle=True)
         self.logger.debug("plotting naive punp profiles")
         self.plot_profiles(self.naive_profiles, 0, 0, None)
         self.err0 = np.sum((self.naive_profiles - self.punp_profiles[1:])**2)
@@ -216,6 +220,7 @@ class FootprintCalibration(CachedBase):
         plt.savefig(fname)
         plt.close()
 
+
     def matrix_plots(self, results):
         self.logger.debug("matrix plot")
         import seaborn as sns
@@ -231,13 +236,13 @@ class FootprintCalibration(CachedBase):
         mat_err = np.zeros((n_k, n_shift), dtype=float) + np.NaN
         for err, acc_k, acc_shift, a, A0 in results:
             mat_a[acc_k - k_base, acc_shift + mid_shift] = a
-            mat_err[acc_k - k_base, acc_shift + mid_shift] = np.log10(err/self.err0)
+            mat_err[acc_k - k_base, acc_shift + mid_shift] = self.err0/err
 
         fig = plt.figure(figsize=(6,6))
         # fig.suptitle("accessibility footprint analysis")
         plt.subplot(211)
         plt.pcolor(mat_err, cmap="viridis")
-        plt.colorbar(label=r'relative error [$\log_{10}$]', fraction=.05)
+        plt.colorbar(label=r'fold error reduction', fraction=.05)
 
         plt.ylabel("size [nt]")
         plt.xlabel("shift [nt]")
@@ -260,6 +265,61 @@ class FootprintCalibration(CachedBase):
         plt.tight_layout()
         plt.savefig(os.path.join(self.path, 'footprint.pdf'))
 
+    # @monitored
+    @pickled
+    def compute_initial_profiles(self):
+        
+        punp_profiles = np.array([
+            reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
+            for reads, z in zip(self.rbns.reads, self.Z1_full)])
+        
+        # predict profiles w/o accessibility footprint
+        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
+        sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
+        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
+        psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
+
+        # from cska import vector_stats
+        # print "Z_read"
+        # vector_stats(Z1_read)
+        # print "rbp_free * A0", rbp_free*self.params.A0
+        # print "PSIs"
+        # [vector_stats(p) for p in psi]
+
+        # openen_punp = self.input_reads.acc_storage.get_raw(1)
+        openen_punp = self.get_input_openen_cached(1)
+        naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+
+        return punp_profiles, naive_profiles
+
+    def get_input_openen_cached(self, k):
+        if not k in self._openen_cache:
+            self.logger.debug("get_input_openen_cached({}) not found".format(k))
+            self._openen_cache[k] = self.input_reads.acc_storage.get_raw(k, _do_not_cache=True)
+            # self.input_reads.acc_storage.cache_flush() # free up memory
+        
+        for x in self._openen_cache.keys():
+            # drop everything that's not p-unpaired or current k
+            if x > 1 and x != k and k > 1:
+                self.logger.debug("get_input_openen_cached({}) dropping {}".format(k, x))
+                self._openen_cache[x].cache_flush()
+                del self._openen_cache[x]
+
+        return self._openen_cache[k]
+
+    def get_lacc_punp_cached(self, k):
+        if not k in self._lacc_cache:
+            self.logger.debug("get_lacc_punp_cached({}) not found".format(k))
+            openen = self.get_input_openen_cached(k)
+            openen_punp = self.get_input_openen_cached(1)
+
+            acc0 = openen.acc[self.I, :]
+            punp = openen_punp.acc[self.I, :]
+
+            lacc0 = np.log(acc0)
+            self._lacc_cache = { k : (lacc0, punp) }  # always keep only one item!
+        
+        return self._lacc_cache[k]
 
     # @monitored
     @pickled
@@ -268,17 +328,12 @@ class FootprintCalibration(CachedBase):
         self.logger.info("performing calibration for k={} s={}".format(acc_k, acc_shift))
         # from pympler.tracker import SummaryTracker
         # tracker = SummaryTracker()
+        lacc0, punp = self.get_lacc_punp_cached(acc_k)
 
-        openen = self.input_reads.acc_storage.get_raw(acc_k)
         openen_punp = self.input_reads.acc_storage.get_raw(1)
-
-        self.input_reads.acc_storage.cache_flush() # free up memory
-        acc0 = openen.acc[self.I, :]
-        punp = openen_punp.acc[self.I, :]
-        # print "log"
+        openen = self.get_input_openen_cached(acc_k)
         ofs = openen.ofs - self.params.k + 1
         zw = self.Z1.shape[1]
-        lacc0 = np.log(acc0)
 
         from copy import deepcopy
         params = deepcopy(self.params)
@@ -305,7 +360,7 @@ class FootprintCalibration(CachedBase):
             punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
             t_prof = time() - t4
 
-            times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
+            # times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
             # print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
             return np.array(punp_expect)
 
