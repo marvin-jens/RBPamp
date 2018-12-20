@@ -20,7 +20,7 @@ class PSAMGradientDescent(object):
             self.track_file = file(fname, 'w', 0)
             MSE_samples = ["MSE{}".format(i) for i in range(params.n_samples)]
             corr_samples = ["corr{}".format(i) for i in range(params.n_samples)]
-            self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples, "\t".join(corr_samples))))
+            self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples), "\t".join(corr_samples)))
         else:
             lines = file(fname).readlines()
             try:
