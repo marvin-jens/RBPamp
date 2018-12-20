@@ -38,17 +38,19 @@ class Proxy(object):
 
 
 class ModelParametrization(object):
-    def __init__(self, k, n_samples, psam=[], A0=1., betas = [], data = [], dtype=np.float32, acc_shift=0, acc_k=None, acc_scale=1.):
+    def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):
         self.k = k
+        self.nt = nt
+        self.depth = 4**nt
         self.n_samples = n_samples
-        self.n = 4*k + 1 + n_samples
-        self.n_psam = 4*k+1
+        self.n = self.depth * k + 1 + n_samples
+        self.n_psam = self.depth * k+1
         self.Nk = 4**k
         self.psam_start = 0
-        self.psam_end = 4*k + 1
+        self.psam_end = self.depth * k + 1
         self.betas_start = self.psam_end
         self.betas_end = self.n
-        self.dtype = dtype
+        self.dtype = np.float32
         
         # accessibility might be selected in a shifted region of size != k
         self.acc_shift = acc_shift
@@ -64,7 +66,7 @@ class ModelParametrization(object):
         # self.psam_matrix = Proxy(self.data, self.psam_start+1, self.psam_end, shape=(k,4))
         self.attrs = {
             'psam_vec' : Proxy(self.data, self.psam_start, self.psam_end),
-            'psam_matrix' : Proxy(self.data, self.psam_start+1, self.psam_end, shape=(k,4)),
+            'psam_matrix' : Proxy(self.data, self.psam_start+1, self.psam_end, shape=(k, self.depth)),
             'A0' : Proxy(self.data, 0, 1),
             'beta' : Proxy(self.data, self.betas_start, self.betas_start + 1),
             'betas' : Proxy(self.data, self.betas_start, self.betas_end, unpack=False)
@@ -138,7 +140,7 @@ class ModelParametrization(object):
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
-        new = ModelParametrization(self.k, self.n_samples, dtype=self.dtype, data=self.data, acc_k=self.acc_k, acc_shift=self.acc_shift, acc_scale=self.acc_scale)
+        new = ModelParametrization(self.k, self.n_samples, data=self.data, acc_k=self.acc_k, acc_shift=self.acc_shift, acc_scale=self.acc_scale, nt=self.nt)
         if not np.allclose(new.data, self.data):
             d = np.fabs(new.data - self.data)
             i = d.argmax()
@@ -199,9 +201,10 @@ class ModelParametrization(object):
 
     def __str__(self):
         from cska.pwm import project_column
+        import cska.cyska as cyska
         buf = []
         buf.append("PSAM A0={self.A0} n={self.k} acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}".format(self=self))
-        buf.append("#\tA\t\tC\t\tG\t\tU\tcons")
+        buf.append("#\t{}\tcons".format("\t".join(cyska.yield_kmers(self.nt))))
         
         for row in self.psam_matrix:
             buf.append("\t".join(["{0:>10.5f}".format(x) for x in row] + [project_column(row)]))

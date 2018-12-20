@@ -4,11 +4,7 @@ import time
 import numpy as np
 import logging
 logging.basicConfig(level=logging.INFO)
-from cska import auto_detect
-from cska.reads import RBNSReads
-import cska.cyska as cyska
-from cska.pwm import PSAM
-from cska.params import Proxy, ModelParametrization
+
 
 class Tracked(object):
     """
@@ -391,6 +387,6 @@ if __name__ == '__main__':
     # import gzip
     # path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
     # TODO: include small amount of raw data in git repo for testing!
-
+    from cska.reads import RBNSReads
     reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
     unittest.main(verbosity=2)

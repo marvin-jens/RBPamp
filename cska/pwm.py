@@ -14,8 +14,8 @@ base_idx = {
     'U' : 3 
 }
 
-ambig = "-NMRWSYKVHDBACGUT"
-ambig_index = dict([(code, n) for n,code in enumerate(ambig)])
+ambig_codes = "-NMRWSYKVHDBACGUT"
+ambig_index = dict([(code, n) for n,code in enumerate(ambig_codes)])
 ambig_vectors = np.array([
     # A    C    G    U
     [0.0, 0.0, 0.0, 0.0],
@@ -37,12 +37,23 @@ ambig_vectors = np.array([
     [0.0, 0.0, 0.0, 1.0],
 ])
 
+import itertools
+ambig_codes16 = list(itertools.product("-NMRWSYKVHDBACGUT", "-NMRWSYKVHDBACGUT"))
+ambig_vectors16 = np.array([np.concatenate( (ambig_vectors[ambig_index[a[0]]], ambig_vectors[ambig_index[a[1]]]) ) for a in ambig_codes16])
+
 def project_column(col):
+    if len(col) == 4:
+        ambig = ambig_vectors
+        codes = ambig_codes
+    else:
+        ambig = ambig_vectors16
+        codes = ambig_codes16
+
     n = col.sum()
     if n:
         col = col / n
-    i = (col[np.newaxis,:] * ambig_vectors).sum(axis=1).argmax()
-    return ambig[i]
+    i = (col[np.newaxis,:] * ambig).sum(axis=1).argmax()
+    return codes[i]
     
 def hull(kmer):
     """
