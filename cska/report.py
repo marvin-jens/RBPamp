@@ -815,6 +815,51 @@ class EnrichmentBarPlot(object):
         path = os.path.join(dest, "{0}.{1}".format(fname, fmt) )
         pp.savefig(path)
 
+
+class Container(object):
+    pass
+
+class RunReport(object):
+    def __init__(self, path):
+        self.path = path
+
+    def load_descent(self, fname):
+        data = []
+        for line in file(os.path.join(self.path, fname)):
+            if line.startswith("#"):
+                continue
+            row = line.split('\t')
+            data.append([float(col) for col in row])
+
+        data = np.array(data).T
+        n_samples = (data.shape[0] - 5) / 2
+
+        A0 = data[0]
+        errors = data[3:3+n_samples]
+        correlations = data[3+n_samples:3+2*n_samples]
+        nfev, step = data[-2:]
+
+        print data.shape, errors.shape
+        descent = Container()
+        # descent.history = history
+        descent.ls_nfev = nfev
+        descent.ls_step = step
+        descent.history = []
+        for err, corr in zip(errors.T, correlations.T):
+            state = Container()
+            print err, corr
+            state.sample_errors = err
+            state.correlations = (corr, 0)
+            descent.history.append(state)
+        
+
+        fparams = os.path.join(self.path, os.path.dirname(fname), 'parameters.tsv')
+        from cska.params import ModelParametrization
+        descent.params = ModelParametrization.load(fparams, n_samples)
+
+        return descent 
+
+
 class GradientDescentReport(object):
     def __init__(self, descent, path='.'):
         self.descent = descent
@@ -823,28 +868,32 @@ class GradientDescentReport(object):
 
     def plot_report(self):
         pp.figure(figsize=(6,12))
-        pp.subplot(411)
-        R_values = np.array([state.R for state in self.descent.history])
-        R0 = self.descent.model.R0
-        residuals = np.log2(R_values / R0[np.newaxis,:,:])
-        # print R_values.shape
-        # print residuals.shape
-        data = np.mean(residuals, axis=1) # mean across samples
-        I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
-        # print data.shape
-        # print I.shape
-        pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
-        pp.ylabel('kmer index')
-        t = [-1,0,+1]
-        pp.colorbar(label=r'sample-mean R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
+        # pp.subplot(411)
+        # R_values = np.array([state.R for state in self.descent.history])
+        # R0 = self.descent.model.R0
+        # residuals = np.log2(R_values / R0[np.newaxis,:,:])
+        # # print R_values.shape
+        # # print residuals.shape
+        # data = np.mean(residuals, axis=1) # mean across samples
+        # I = R0.mean(axis=0).argsort() # ordered by sample-mean R-value
+        # # print data.shape
+        # # print I.shape
+        # pp.imshow(data[:,I].T, cmap='bwr', interpolation='nearest', vmin=-1, vmax=1, aspect='auto')
+        # pp.ylabel('kmer index')
+        # t = [-1,0,+1]
+        # pp.colorbar(label=r'sample-mean R-value error ($\log_2$)', orientation='horizontal', shrink=.5, ticks=t)
 
-        pp.subplot(412)
-        errors = ((R_values - R0[np.newaxis,:,:])**2).mean(axis=2)
+        pp.subplot(311)
+        # errors = ((R_values - R0[np.newaxis,:,:])**2).mean(axis=2)
+        # m_err = errors.mean(axis=1)
+
+        errors = np.array([state.sample_errors for state in self.descent.history])
         m_err = errors.mean(axis=1)
-        
+
         pp.semilogy(m_err, 'k-', label='total')
         for i, err in enumerate(errors.T):
             pp.semilogy(err, label='sample{0}'.format(i))
+
         pp.legend(loc='upper right')
         pp.ylabel("mean squared R-value error")
 
@@ -854,14 +903,14 @@ class GradientDescentReport(object):
             corr.append(state.correlations[0])
         
         corr = np.array(corr).T
-        pp.subplot(413)
+        pp.subplot(312)
         for i, c in enumerate(corr):
             pp.plot(c, label='sample{0}'.format(i))
 
         pp.legend(loc='upper right')
         pp.ylabel("R-value correlation")
 
-        pp.subplot(414)
+        pp.subplot(313)
         pp.semilogy(self.descent.ls_nfev, label='no. function evaluations during line-search')
         pp.legend(loc='upper right')
         pp.semilogy(np.array(self.descent.ls_step), label='step size')
@@ -1095,11 +1144,17 @@ class LiteratureComparisonReport(object):
 
 
 if __name__ == "__main__":
-    N = 4**6
-    x = np.array(np.random.random(N))
-    y = np.array(x + np.random.random(N) * .1)
-    mers = np.array([str(i) for i in y])
-    logging.basicConfig(level=logging.DEBUG)
-    logging.getLogger('matplotlib').setLevel(logging.INFO)
-    density_scatter_plot(x,y, data_labels=mers)
-    pp.show()
+    rep = RunReport('/scratch/data/RBNS/MBNL1/cska/1M')
+    descent = rep.load_descent('opt_nostruct/descent.tsv')
+    print descent.params
+    print descent.history
+    grep = GradientDescentReport(descent)
+    grep.plot_report()
+    # N = 4**6
+    # x = np.array(np.random.random(N))
+    # y = np.array(x + np.random.random(N) * .1)
+    # mers = np.array([str(i) for i in y])
+    # logging.basicConfig(level=logging.DEBUG)
+    # logging.getLogger('matplotlib').setLevel(logging.INFO)
+    # density_scatter_plot(x,y, data_labels=mers)
+    # pp.show()
