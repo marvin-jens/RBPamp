@@ -142,6 +142,10 @@ class Alignment(object):
             return 1.
 
     @property
+    def max_weight(self):
+        return np.array(self.weights).max()
+
+    @property
     def wlen(self):
         colw = self.matrix.max(axis=1) / self.matrix.max()
         return colw.sum()
@@ -218,13 +222,13 @@ class Alignment(object):
         psam = m / m.max(axis=1)[:,np.newaxis]
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
-        max_weight = np.array(self.weights).max()
+        
         if A0 is None:
-            A0 = max_weight
+            A0 = self.max_weight
 
         P = PSAM(psam, A0=A0)
         P._n_seqs = len(self.seqs)
-        P._max_weight = max_weight
+        P._max_weight = self.max_weight
         return P
         
 
@@ -326,7 +330,7 @@ class DependentKmerAnalysis(CachedBase):
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
         # print self.linear
 
-    def motifs_from_R(self, k, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=.05): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=.05, A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -334,7 +338,7 @@ class DependentKmerAnalysis(CachedBase):
         R, R_err = self.rbns.R_value_matrix(k)
         R = R.mean(axis=0)
         Rns = np.quantile(R, q_ns)
-        print "non-specific quantile", Rns
+        # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
 
         R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
@@ -377,7 +381,7 @@ class DependentKmerAnalysis(CachedBase):
             # align all remaining enriched kmers to all motifs
             scores = []
             ofs = []
-            print "re-aligning"
+            # print "re-aligning"
             for kmer, r in kmer_set:
                 o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
                 ofs.append(o)
@@ -388,7 +392,7 @@ class DependentKmerAnalysis(CachedBase):
 
             if (scores < thresh).all():
                 kmer, r = kmer_set[0]
-                print "starting NEW MOTIF", kmer, r, scores[0]
+                # print "starting NEW MOTIF", kmer, r, scores[0]
                 kmer_set.pop(0)
                 aln = Alignment()
                 aln.blend(kmer, 0, r, normalize=False)
@@ -406,14 +410,21 @@ class DependentKmerAnalysis(CachedBase):
 
                 alns[j].blend(kmer, int(o), r, normalize=False)
                 cons = alns[j].to_PSAM(pseudo=0).consensus
-                print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+                # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
                 # if cons == 'AUAGCAU':
                 #     print alns[j].matrix
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
-
         print "done assembling {0} motifs from {1} kmers with z > {2}".format(len(alns), n, z_cut)
-        return [aln.to_PSAM(pseudo=0, keep_weight=keep_weight, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        psams = []
+        for aln in alns:
+            if len(aln.seqs) < n_min:
+                continue
+            
+            p = aln.to_PSAM(pseudo=0, keep_weight=keep_weight, n_max=n_max, A0=aln.max_weight/r0 * A0)
+            psams.append(p)
+
+        return psams
 
 
 
@@ -597,6 +608,15 @@ class SeedRefinement(object):
     def seeded_params(self, n_samples, **kwargs):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
+
+    def seeded_multi_params(self, n_samples, **kwargs):
+        from cska.params import ModelParametrization
+        params = []
+        for psam in self.analysis.motifs_from_R(**kwargs):
+            params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
+        
+        return params
+
 
     def distance_xcorr_plot(self, fname="xcorr.pdf"):
         self.logger.debug("generating xcorr plot")

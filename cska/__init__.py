@@ -469,8 +469,12 @@ class Run(object):
             print m
             m.save_logo(fname=m.consensus + '.svg')
 
-        self.params = SR.seeded_params(self.rbns.n_samples)
-        self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        # self.params = SR.seeded_params(self.rbns.n_samples)
+        # self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        self.params = SR.seeded_multi_params(self.rbns.n_samples)
+        for i, params in enumerate(self.params):
+            params.save(os.path.join(self.run_path, 'seed/initial.tsv'), append=(i > 0) )
+
         return self.params
 
     def flush_reads(self):

@@ -100,12 +100,28 @@ class ModelParametrization(object):
 
     @classmethod
     def load(cls, fname, n_samples, beta0=1e-6, mina=1e-6):
+
         aff = []
         attrs = {}
+        def make_params():
+            psam = np.array(aff, dtype=np.float32)
+            psam = np.where(psam > 0, psam, mina)
+            params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
+            params.acc_k = int(attrs.get('acc_k', len(psam)))
+            params.acc_shift = int(attrs.get('acc_shift', 0))
+            params.acc_scale = attrs.get('acc_scale', 1)
+            params.betas[:] = beta0
+            return params
+
         with file(fname) as f:
             for line in f:
                 if line.startswith('#'):
+                    if aff:
+                        yield make_params
+                        aff = []
+                        attrs = {}
                     continue
+
                 if line.startswith('PSAM'):
                     # parse attributes
                     for kw in line.split()[1:]:
@@ -115,22 +131,20 @@ class ModelParametrization(object):
                         attrs[k] = float(v)
 
                 elif line.startswith('seeded'):
-                    break
+                    continue
                 else:
                     parts = line.split('\t')
                     aff.append(parts[:4])
 
-        psam = np.array(aff, dtype=np.float32)
-        psam = np.where(psam > 0, psam, mina)
-        params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
-        params.acc_k = int(attrs.get('acc_k', len(psam)))
-        params.acc_shift = int(attrs.get('acc_shift', 0))
-        params.acc_scale = attrs.get('acc_scale', 1)
-        params.betas[:] = beta0
-        return params
+        if aff:
+            yield make_params()
 
-    def save(self, fname):
-        file(fname, 'w').write(str(self) + '\n')
+    def save(self, fname, append=False):
+        if append:
+            mode = 'a'
+        else:
+            mode = 'w'
+        file(fname, mode).write(str(self) + '\n')
 
     def as_vector(self, dtype=np.float32):
         return self.data
