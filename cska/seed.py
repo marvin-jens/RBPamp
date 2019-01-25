@@ -21,7 +21,7 @@ class Alignment(object):
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
@@ -84,7 +84,9 @@ class Alignment(object):
                     score = score * S if multiply else score + S
                 
                 scores.append(score)
-                # print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
+                if debug:
+                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
+
             x = np.array(scores).argmax()
             S = scores[x]
             if normalize:
@@ -158,7 +160,7 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=.01):
+    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=None):
         # print self
         # print "to PSAM"
         # print self.matrix
@@ -216,7 +218,13 @@ class Alignment(object):
         psam = m / m.max(axis=1)[:,np.newaxis]
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
+        max_weight = np.array(self.weights).max()
+        if A0 is None:
+            A0 = max_weight
+
         P = PSAM(psam, A0=A0)
+        P._n_seqs = len(self.seqs)
+        P._max_weight = max_weight
         return P
         
 
@@ -317,6 +325,98 @@ class DependentKmerAnalysis(CachedBase):
         self.B_score = S_B
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
         # print self.linear
+
+    def motifs_from_R(self, k, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=.05): # UNDO HERE!!!
+        from cska.seed import Alignment
+        import cska.cyska as cyska
+
+        alns = []
+        R, R_err = self.rbns.R_value_matrix(k)
+        R = R.mean(axis=0)
+        Rns = np.quantile(R, q_ns)
+        print "non-specific quantile", Rns
+        R_err = R_err.mean(axis=0)
+
+        R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+
+        I = R.argsort()[::-1]
+        R_sort = R[I]
+        z = (R_sort - R_sort.mean())/R_sort.std()
+        # print R_sort[:10]
+        # print "z-scores", z.min(), z.max(), z.mean()
+        i_cut = (z < z_cut).argmax()
+        # print i_cut
+        R_cut = max(1, R[I[i_cut]])
+        # print i_cut, "R_values above z-cut", R_cut
+        
+        r0 = R[I[0]]
+        # print "maxR", r0
+        n = 0
+        kmer_set = []
+
+        for i in I[:100]:
+            kmer = cyska.index_to_seq(i, k)
+            n += 1
+            r = R[i] 
+            # print i, kmer, r, "+/-", R_err[i], R_cut
+            if r - R_err[i] < R_cut:
+                break
+            
+            kmer_set.append( (kmer, r) )
+        
+        n_enriched = len(kmer_set)
+        n_min = int(min_mer * n_enriched)
+
+        kmer, r = kmer_set.pop(0)
+        print "STARTING from", kmer, r
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        alns.append(aln)
+
+        while kmer_set:
+            # align all remaining enriched kmers to all motifs
+            scores = []
+            ofs = []
+            print "re-aligning"
+            for kmer, r in kmer_set:
+                o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+                ofs.append(o)
+                scores.append(s)
+
+            scores = np.array(scores)
+            ofs = np.array(ofs)
+
+            if (scores < thresh).all():
+                kmer, r = kmer_set[0]
+                print "starting NEW MOTIF", kmer, r, scores[0]
+                kmer_set.pop(0)
+                aln = Alignment()
+                aln.blend(kmer, 0, r, normalize=False)
+                alns.append(aln)
+            else:
+                # find best aligning kmer and add to best matching motif
+                mer_scores = scores.max(axis=1)
+                best_i = mer_scores.argmax()
+                # print "best matching kmer is", kmer_set[best_i]
+
+                kmer, r = kmer_set.pop(best_i)
+                j = scores[best_i].argmax()
+                s = scores[best_i, j]
+                o = ofs[best_i, j]
+
+                alns[j].blend(kmer, int(o), r, normalize=False)
+                cons = alns[j].to_PSAM(pseudo=0).consensus
+                print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+                # if cons == 'AUAGCAU':
+                #     print alns[j].matrix
+                #     print alns[j].align(kmer, normalize=True, debug=True)
+    
+
+        print "done assembling {0} motifs from {1} kmers with z > {2}".format(len(alns), n, z_cut)
+        return [aln.to_PSAM(pseudo=0, keep_weight=keep_weight, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+
+
+
 
     # @property
     def topR_PSAM_seed(self, k, keep_weight=.9, n_max=7, thresh = .6, z_cut=4):
@@ -487,10 +587,10 @@ class SeedRefinement(object):
         
         if self.analysis.linear_motif_score < .9:
             self.logger.info("bipartite motifs are potentially a better match for this RBP")
-            self.spacings = self.analysis.bipartite_PSAM_spacings(psam_A=self.psam_A, psam_B=self.psam_B)
-            L = len(self.spacings)
-            self.dist_cost = self.spacings[L/2:]
-            self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
+            # self.spacings = self.analysis.bipartite_PSAM_spacings(psam_A=self.psam_A, psam_B=self.psam_B)
+            # L = len(self.spacings)
+            # self.dist_cost = self.spacings[L/2:]
+            # self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
         
         self.store_logos()
 

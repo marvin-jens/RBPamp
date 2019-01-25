@@ -214,10 +214,9 @@ class Run(object):
         recent_path = os.path.join(self.options.output, "recent")
         try:
             os.remove(recent_path)
+            os.symlink(self.run_folder, recent_path)
         except OSError:
             pass
-
-        os.symlink(self.run_folder, recent_path)
         
         # where to put/find transparent pickle/unpickle objects
         from cska.caching import CachedBase
@@ -465,9 +464,13 @@ class Run(object):
     def seed_stage(self):
         from cska.seed import SeedRefinement
         SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
+        print "enriched MOTIFs in this library"
+        for m in SR.analysis.motifs_from_R(7):
+            print m
+            m.save_logo(fname=m.consensus + '.svg')
+
         self.params = SR.seeded_params(self.rbns.n_samples)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
-        
         return self.params
 
     def flush_reads(self):

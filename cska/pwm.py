@@ -290,7 +290,7 @@ class PSAM(object):
         return cls(psam, A0=A0)
 
 
-    def save_logo(self, fname='pwm.eps', title=""):
+    def save_logo(self, fname='pwm.svg', title=""):
         counts = self.psam
         if not title:
             from cska.affinitylogo import nice_conc
