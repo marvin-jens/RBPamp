@@ -77,7 +77,9 @@ class PartFuncModelState(object):
         # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
 
         self.R_errors = np.array(self.R, dtype=np.float64) - self.mdl.R0
-        self.error = (self.R_errors**2).mean()
+        self.sample_errors = (self.R_errors**2).mean(axis=1)
+        self.error = self.sample_errors.mean()
+
 
     @property
     def beta_estimators(self):

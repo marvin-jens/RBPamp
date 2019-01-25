@@ -171,6 +171,19 @@ class RBNSReads(CachedBase):
         padded = cyska.seqm_pad_adapters(self.seqm, adap5, adap3, k)
         return padded
 
+    def get_full_seqm(self):
+        adap5 = cyska.seq_to_bits(self.adap5)
+        adap3 = cyska.seq_to_bits(self.adap3)
+        N = self.N
+
+        return np.concatenate( 
+            (
+                np.tile(adap5, N).reshape(N, self.l5),
+                self.seqm,
+                np.tile(adap3, N).reshape(N, self.l3),
+            ), axis=1
+        )
+
     @cached
     def get_index_matrix(self, k, indices=[]):
         """
@@ -220,24 +233,28 @@ class RBNSReads(CachedBase):
 
         return prof
 
-    def PSAM_partition_function(self, params):
+    def PSAM_partition_function(self, params, full_reads=False):
         """
         Note: it is more efficient to request the necessary ingredients once and re-use them, as
         PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
         this should do the trick! Set params.acc_k=0 to disable accessibility scoring.
         """
-        seqm = self.get_padded_seqm(params.k)
+        if full_reads:
+            seqm = self.get_full_seqm()
+        else:
+            seqm = self.get_padded_seqm(params.k)
+
         w = self.L - params.k + 1 + self.l5 + self.l3
        
         acc_k = getattr(params, "acc_k", None)
         if not acc_k:
             self.logger.debug("acc_k=0 pretending everything is accessible")
             acc1 = np.ones( (self.N, w), dtype=np.float32)
-            ofs = self.l5
+            ofs = self.l5 - params.k + 1 + params.acc_shift
         else:
             openen = self.acc_storage.get_raw(acc_k)
             acc1 = np.array(openen.acc)
-            ofs = openen.ofs
+            ofs = openen.ofs - params.k + 1 + params.acc_shift
             acc_scale = getattr(params, "acc_scale", 1.)
             if acc_scale != 1.:
                 # print "power"
@@ -248,13 +265,17 @@ class RBNSReads(CachedBase):
                 cyska.pow_scale(acc1, acc_scale)
                 # t2 = time.time()
                 # print "got it", t1-t0, t2-t1
-    
+
+        if full_reads:
+            ofs = params.acc_shift
+
+        print ofs, acc1.shape, seqm.shape
         non_specific = getattr(params, "non_specific", 0.)
         Z1 = cyska.PSAM_partition_function(
             seqm, 
             acc1,
             np.array(params.psam_matrix, dtype=np.float32),
-            openen_ofs=ofs - params.k + 1 + params.acc_shift, non_specific = non_specific
+            openen_ofs=ofs, non_specific = non_specific
         )
         
         return Z1 # relative affinities of all motif instances everywhere

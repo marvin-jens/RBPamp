@@ -195,8 +195,9 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
     cdef UINT64_t l = L - k + 1
+    cdef UINT64_t L_acc = acc_matrix.base.shape[1]
     # print "part_func L-k+1", l, k
-    assert acc_matrix.base.shape[1] - openen_ofs >= l 
+    # assert L_acc - openen_ofs >= l 
     assert openen_ofs >= 0
     # result will be stored here (Z = 'Zustandssumme' sum of states)
     cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
@@ -204,6 +205,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     # helper variables to tell cython the types
     # cdef FLOAT32_t a=0
     cdef UINT64_t i=0, j=0, d=0, n=0, ind=0
+    cdef int acc_i=0
     # cdef UINT32_t index=0
     # cdef FLOAT32_t w=0
     cdef FLOAT32_t z=0 # Single protein partition function
@@ -222,7 +224,11 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     z = z * psam[d, n]
                 # add non-specific component (still reacts to accessbility)
                 z = z + non_specific
-                Z[j,i] = z * acc_matrix[j, i + openen_ofs]
+                acc_i = i + openen_ofs
+                if 0 <= acc_i < L_acc:
+                    Z[j, i] = z * acc_matrix[j, i + openen_ofs]
+                else:
+                    Z[j, i] = 0 # no valid accessibility footprint
 
     return Z.base
 
