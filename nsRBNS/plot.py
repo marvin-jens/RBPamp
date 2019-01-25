@@ -134,7 +134,7 @@ class nsRBNSOligos(object):
 
         self.xtalk, self.xtalk_score = self.xtalk_from_blast(fname=xtalk_file)
         from cska.reads import RBNSReads
-        self.reads = RBNSReads.from_seqs(self.SEQ, fname=self.fa_name, rbp_name='nsRBNS', rna_conc=rna_conc, acc_storage_path='cska/acc', adap5=self.adap5, adap3=self.adap3)
+        self.reads = RBNSReads.from_seqs(self.SEQ, fname=self.fa_name, rbp_name='nsRBNS', rna_conc=rna_conc, acc_storage_path='cska/acc', adap5=self.adap5, adap3=self.adap3, temp=22.5)
 
     def xtalk_from_blast(self, fname='blast/results.out'):
         N = self.N
@@ -227,6 +227,166 @@ def default_lm_data(lm):
     return df
 
 
+class RBPBindModel(object):
+    def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1,k=7, mdl_type='SPA'):
+        self.ns_exp = ns_exp
+        self.ns = ns_exp.ns
+        self.name = self.ns_exp.name + "_" + name
+        self.param_file = param_file
+        self.rbp_conc = ns_exp.rbp_conc
+        self.z_cut = z_cut
+        if not prepare_data:
+            self.prepare_data = default_lm_data
+        else:
+            self.prepare_data = prepare_data
+
+        self.state = self.evaluate_PSAM(param_file, seq_only=seq_only)
+
+    def evaluate_PSAM(self, fname, seq_only = False):
+        from cska.params import ModelParametrization
+        params = ModelParametrization.load(fname, 1)
+        # seqm = self.ns.reads.get_padded_seqm(psam.n)
+        # openen = self.ns.reads.acc_storage.get_raw(psam.n)
+        # acc = openen.acc
+        print params
+        if seq_only:
+            params.acc_k = 0 
+        # Z1 = cyska.PSAM_partition_function(seqm, acc, psam.psam, openen_ofs = openen.ofs - psam.n + 1)
+
+        params.acc_scale = 1.
+        # import cska.cyska as cyska
+        Z1 = self.ns.reads.PSAM_partition_function(params, full_reads=True)
+        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
+
+        params0 = params.copy()
+        params0.acc_k = 0
+        Z1_0 = self.ns.reads.PSAM_partition_function(params0, full_reads=True)
+        class State(object):
+            pass
+        
+        s = State()
+        s.Z1 = Z1_read[self.ns_exp.indices]
+        s.params = params
+        s.invkd_bare = Z1_0  # ignore accessibility. primary sequence only
+        s.invkd_SPA = Z1  # expected affinity if single-protein approx. were correct
+        s.invkd_SPA_read = Z1_read 
+
+        return s # return a fake "state" object. Only thing needed is per-read partition function
+
+    def run_rbpbind(self, j):
+        import rbpbind as rb
+        params = self.state.params
+        def bits_to_seq(v):
+            return "".join(["ACGU"[i] for i in v])
+    
+        # print self.ns.reads.adap5, "...", self.ns.reads.adap3
+        seqm = self.ns.reads.get_full_seqm()
+        acc = self.ns.reads.acc_storage.get_raw(params.acc_k).acc
+
+        # print "{0}mer PSAM, {1}mer footprint starting at {2}".format(params.k, params.acc_k, params.acc_shift)
+        # print "full sequence length", seqm.shape[1]
+        # print "accessibilities per row", acc.shape[1]
+
+        # print seqm.shape
+        shift = params.acc_shift
+        sbits = seqm[j]
+        seq = bits_to_seq(sbits)
+        # ofs = self.ns.reads.l5 - params.k + params.acc_k + params.acc_shift
+        ofs = params.acc_shift
+        invkd = np.zeros(len(sbits), dtype=np.float32)
+        indep = np.zeros(len(sbits), dtype=np.float32)
+        buffer = np.zeros(len(sbits), dtype=np.float32)
+
+        bare = self.state.invkd_bare[j]
+        aff = self.state.invkd_SPA_read[j] * params.A0
+        Kd = 1./aff
+        # print bare.max(), "max rel. affinity", bare.argmax()
+        # print "expected Kd_eff", Kd
+        l = len(bare)
+        # print len(sbits), l, ofs
+        invkd[ofs:l + ofs] = self.state.invkd_bare[j] * params.A0
+        indep[ofs:l + ofs] = self.state.invkd_SPA[j] * params.A0
+
+        # print "aff_motif", self.state.invkd_bare[j].shape
+        # print "7-mer accessibility", 
+        # print (invkd[:147] * acc[j])[:30]
+        # print indep[:30]
+        
+        # print "initializing RBPbind"
+        buffer[params.acc_k-1:] = invkd[:-params.acc_k+1]
+        # buffer[46+7] = 0.15594828
+        rb.init(T=self.ns.reads.temp)
+        rb.set_invkd_vector(buffer, params.acc_k)
+        # rb.dump_invkd(seq)
+
+        # a = acc[j]
+        # print "accessibilities"
+        # for i in range(len(seq)-7):
+        #     print i, seq[i:i+7], a[i]
+
+        # rb.dump_invkd(seq)
+        # fold w/o protein
+        pf0 = rb.compute_Z(seq, 0, update_seq=False)
+        # print "no RBP", pf0
+
+
+        p_bound = []
+        rbp_conc = np.array([Kd/100, Kd/10, Kd/2, Kd, 2*Kd, 10*Kd, 100*Kd])
+        k_i = 3
+        rbp_conc = 10**np.linspace(-2, 2, 21) * Kd
+        k_i = 11
+
+        # rb.dump_invkd(seq)
+
+        for conc in rbp_conc:
+            pfc = rb.compute_Z(seq, conc, update_seq=False)
+            p = 1. - np.exp(-(pf0-pfc))
+            # print "with {0} nM {1} -> pbound ={2}".format(conc, pfc, p)
+            p_bound.append( p )                
+
+        p_bound = np.array(p_bound)
+        p_exp = rbp_conc / (rbp_conc + 1./aff)
+        print p_bound
+        print p_exp
+
+        RMSE = np.sqrt(((p_bound - p_exp)**2).mean())
+        print "RMSE", RMSE, p_bound
+        if RMSE > .0 and p_bound[k_i] > .0:
+            print ">>>>>", j, Kd
+            print seq
+
+            pp.figure()
+            pp.loglog(rbp_conc, p_bound, label="RBPbind")
+            pp.loglog(rbp_conc, p_exp, label="SPA")
+            pp.legend()
+            pp.xlabel("RBP conc [nM]")
+            pp.ylabel("p_bound")
+            pp.savefig("p_bound_{}.pdf".format(j))
+            pp.close()
+            # fold at expected Kd
+            z0 = rb.compute_Z(seq, Kd, update_seq=False)
+            print "at Kd_expect", z0, "->p_bound=", 1. - np.exp(-(pf0-z0))
+            # get occupancies from derivative
+
+            pp.figure()
+            occ = rb.occ_vector_z0(z0, len(seq) - params.acc_k + 1, seq, Kd)
+            occ_naive = Kd / (Kd + 1/indep)
+            pp.plot(occ, "x", label="RBPbind")
+            pp.plot(occ_naive, ".", label="SPA")
+            pp.ylabel("occupancy")
+            pp.xlabel("footprint pos [nt]")
+            pp.legend()
+            pp.savefig('occ_{}.pdf'.format(j))
+            pp.close()
+
+            i = indep.argmax()
+            a = acc[j, i]
+            keff = 1./(invkd[i] * acc[j, i])
+            oexp = Kd / (Kd + keff)
+            print "at position {0} we have acc={1} aff={2} -> Keff={3} occ={4}".format(i, acc[j, i], invkd[i], keff, oexp)
+
+            for i, o in enumerate(occ):
+                print i, seq[i:i+params.acc_k], invkd[i], indep[i], "RBPbind_occ=",o, "SPA_occ=", Kd / (Kd + 1/indep[i])
 
 class nsRBNSModel(object):
     def __init__(self, ns_exp, name, param_file, seq_only=False, low_perc=10, z_cut=0, prepare_data=None, scale=1,k=7, mdl_type='SPA'):
@@ -316,7 +476,7 @@ class nsRBNSModel(object):
 
     def evaluate_PSAM(self, fname, seq_only = False):
 
-        from cska.gradient import ModelParametrization
+        from cska.params import ModelParametrization
         params = ModelParametrization.load(fname, 1)
         # seqm = self.ns.reads.get_padded_seqm(psam.n)
         # openen = self.ns.reads.acc_storage.get_raw(psam.n)
@@ -907,7 +1067,27 @@ def mbnl1_analysis(lp=0, z_cut=4):
     pp.savefig('performance_MBNL1.pdf')
     pp.close()
 
-rbfox2_analysis()
+def rbpbind_analysis(lp=0, z_cut=4):
+    nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')
+    # nsrbns = nsRBNSOligos(fa_name = '3utrOligoPool_final_T7.fa', adap5='GGGAGTTCTACAGTCCGACGATC', adap3='TGGAATTCTCGGGTGCCAAG', xtalk_file='blast/bridget_results.out')
+    exp = nsRBNSExperiment(nsrbns, 'rbfox2_matrix.csv', skip_xtalk=True, seq_only=False)
+    # exp.noaffinity_analysis(nsrbns.GC, 'GC content')
+    # exp.noaffinity_analysis(nsrbns.entropy, 'entropy')
+    # kw = dict(scatter_plots=True, res_plots=False)
+    kw = dict(scatter_plots=False, res_plots=False)
+
+    lm = RBPBindModel(exp, 'RBPBind', 'RBFOX3_full.tsv', seq_only=False, low_perc=lp)
+    I = lm.state.invkd_SPA_read.argsort()[::-1][:100]
+    I = [7833,] # candidate for cooperativity?
+    for j in I:
+        # print j, lm.state.invkd_SPA_read[j]
+        lm.run_rbpbind(j)
+
+    # lm.run_rbpbind(884)
+    # fits_rc = lm.regression_analysis(**kw)
+
+rbpbind_analysis()
+# rbfox2_analysis()
 # msi1_analysis()
 # mbnl1_analysis()
 sys.exit(0)
