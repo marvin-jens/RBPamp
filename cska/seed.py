@@ -603,19 +603,23 @@ class SeedRefinement(object):
             # self.dist_cost = self.spacings[L/2:]
             # self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
         
-        self.store_logos()
+        # self.store_logos()
 
     def seeded_params(self, n_samples, **kwargs):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
+
     def seeded_multi_params(self, n_samples, **kwargs):
-        from cska.params import ModelParametrization
+        from cska.params import ModelSetParams, ModelParametrization
         params = []
-        for psam in self.analysis.motifs_from_R(**kwargs):
+
+        for i, psam in enumerate(self.analysis.motifs_from_R(**kwargs)):
             params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
-        
-        return params
+
+        param_set = ModelSetParams(params)
+        self.store_logos(param_set) 
+        return param_set
 
 
     def distance_xcorr_plot(self, fname="xcorr.pdf"):
@@ -640,14 +644,19 @@ class SeedRefinement(object):
         pp.savefig(fname)
         pp.close()
 
-    def store_logos(self):
+    def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
         path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
-        self.psam_lin.save_logo(os.path.join(path, '{0}_linear.eps'.format(rbp_name)))
-        self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.eps'.format(rbp_name)))
-        self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.eps'.format(rbp_name)))
+        if not param_set is None:
+            for i, param in enumerate(params.param_set):
+                psam = param.to_PSAM()
+                psam.save_logo(os.path.join(path, '{rbp_name}_rank_{i}_{psam.consensus}.svg'.format(**locals())))
+        else:
+            self.psam_lin.save_logo(os.path.join(path, '{0}_linear.svg'.format(rbp_name)))
+            self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.svg'.format(rbp_name)))
+            self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.svg'.format(rbp_name)))
         # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
 
 

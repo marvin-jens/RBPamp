@@ -36,6 +36,44 @@ class Proxy(object):
 
         return d
 
+class ModelSetParams(object):
+    def __init__(self, param_set):
+        self.param_set = param_set
+    
+    def copy(self):
+        return ModelSetParams([p.copy() for p in self.param_set])
+
+    def get_data(self):
+        "return one np.ndarray containing all model parameters"
+        all_data = (p.data for p in self.param_set)
+        return np.concatenate(all_data)
+
+    def set_data(self, data):
+        "broadcast raw data write across all model parameters"
+        i = 0
+        for p in self.param_set:
+            l = len(p.data)
+            p.data[:] = data[i:i+l]
+            i += l
+
+        assert i == len(data)
+    
+    def save(self, fname):
+        for i, params in enumerate(self.param_set):
+            params.save(fname, append=(i > 0) )
+
+    def __str__(self):
+        buf = ["# ModelSetParams with {} PSAMs\n".format(len(self.param_set))]
+        for i, params in self.param_set:
+            buf.append("# PSAM {}".format(i))
+            buf.append(str(params))
+        
+        return "\n".join(buf)
+
+    def __iter__(self):
+        for params in self.param_set:
+            yield params
+    
 
 class ModelParametrization(object):
     def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):

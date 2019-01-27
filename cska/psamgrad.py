@@ -71,17 +71,18 @@ class PSAMGradientDescent(object):
             rep = GradientDescentReport(descent, path=self.out_path)
             reset = False
             if dt > 5 or dt is None:
-                lrep.plot_scatter(debug=False)
-                rep.plot_report()
-                rep.plot_param_hist()
+                # lrep.plot_scatter(debug=False)
+                # rep.plot_report()
+                # rep.plot_param_hist()
                 # rep.plot_line_search()
                 # rep.plot_A0_fit()
-                pwm = PSAM(psam= descent.params.psam_matrix, A0 = descent.params.A0)
-                name = 'motif'.format(descent.params.k)
-                pwm.save_logo(os.path.join(self.out_path, name + '.pdf' ))
+                for i, params in enumerate(descent.params):
+                    pwm = PSAM(psam=params.psam_matrix, A0 = params.A0)
+                    name = 'rank_{i}_{pwm.consensus}.svg'.format(**locals())
+                    pwm.save_logo(os.path.join(self.out_path, name))
                 # pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
                 
-                descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
+                    params.save(os.path.join(self.out_path, 'parameters.tsv'), append=(i > 0))
                 # state = descent.model.predict(descent.params)
                 # self.store_affinities(state)
                 self.store_residuals(descent.last_state)
@@ -102,7 +103,7 @@ class PSAMGradientDescent(object):
             # collect and write data on the gradient descent progress
             from scipy.stats import pearsonr
             pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
-            out = [descent.t + self.t_ofs, descent.last_state.params.A0, descent.errors[-1],] \
+            out = [descent.t + self.t_ofs, descent.last_state.params[0].A0, descent.errors[-1],] \
                 + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR) \
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
@@ -121,8 +122,8 @@ class PSAMGradientDescent(object):
         corr_first = state_first.correlations[0].max()
         corr_last = state_last.correlations[0].max()
         
-        Kd_first = 1/state_first.params.A0
-        Kd_last = 1/state_last.params.A0
+        Kd_first = 1/state_first.params[0].A0
+        Kd_last = 1/state_last.params[0].A0
 
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
@@ -146,11 +147,13 @@ class PSAMGradientDescent(object):
         return state
 
     def store_affinities(self, state):
-        with file(os.path.join(self.out_path, '{0}mer_affinities.tsv'.format(state.params.k)),'w') as f:
-            f.write('#kmer\taffinity[1/nM]\n')
-            for i, aff in enumerate(state.mdl.affinities):
-                kmer = cyska.index_to_seq(i, state.params.k)
-                f.write('{0}\t{1}\n'.format(kmer, aff))
+        pass
+        self.logger.error("store_affinities() deprecated")
+        # with file(os.path.join(self.out_path, '{0}mer_affinities.tsv'.format(state.params.k)),'w') as f:
+        #     f.write('#kmer\taffinity[1/nM]\n')
+        #     for i, aff in enumerate(state.mdl.affinities):
+        #         kmer = cyska.index_to_seq(i, state.params.k)
+        #         f.write('{0}\t{1}\n'.format(kmer, aff))
 
     def store_residuals(self, state):
         with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(self.descent.model.k)),'w') as f:

@@ -318,8 +318,8 @@ class GradientDescent(object):
                     # take local gradient instead
                     local_grad = state.grad
                     # TODO: Clean up my act and handle this gracefully
-                    local_grad.A0 *= 0
-                    local_grad.betas *= 0
+                    # local_grad.A0 *= 0
+                    # local_grad.betas *= 0
 
                     descent = - local_grad.unity()
                     s, data = self.line_search(state, descent, e0=self.errors[-1])

@@ -427,14 +427,14 @@ class Run(object):
 
     
     def probe_params(self, *locations):
-        from cska.params import ModelParametrization
+        from cska.params import ModelParametrization, ModelSetParams
         for path in locations:
             if not path:
                 continue
             path = os.path.abspath(os.path.join(self.run_path, path))
             try:
                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-                self.params = ModelParametrization.load(path, self.rbns.n_samples)
+                self.params = ModelSetParams.load(path, self.rbns.n_samples)
             except IOError:
                 self.logger.info("not found")
                 self.params = None
@@ -464,16 +464,15 @@ class Run(object):
     def seed_stage(self):
         from cska.seed import SeedRefinement
         SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
-        print "enriched MOTIFs in this library"
-        for m in SR.analysis.motifs_from_R(7):
-            print m
-            m.save_logo(fname=m.consensus + '.svg')
+        # print "enriched MOTIFs in this library"
+        # for m in SR.analysis.motifs_from_R(7):
+        #     print m
+        #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
-        # self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         self.params = SR.seeded_multi_params(self.rbns.n_samples)
-        for i, params in enumerate(self.params):
-            params.save(os.path.join(self.run_path, 'seed/initial.tsv'), append=(i > 0) )
+        self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        
 
         return self.params
 
