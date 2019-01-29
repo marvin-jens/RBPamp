@@ -233,7 +233,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     return Z.base
 
 
-def PSAM_partition_function_gradient(state):
+def PSAM_partition_function_gradient(state, params):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
@@ -246,7 +246,7 @@ def PSAM_partition_function_gradient(state):
     cdef FLOAT32_t [:,:] psi = state.psi
     cdef UINT32_t [:,:] im = state.mdl.im
     cdef FLOAT32_t [:] W = state.W # normalization factors for each sample
-    cdef FLOAT32_t A0 = state.params.A0
+    cdef FLOAT32_t A0 = params.A0
     cdef FLOAT32_t [:,:] w = state.w # n_samples x 4^k
     cdef FLOAT32_t [:,:] R = state.R # kmer enrichments
     cdef FLOAT64_t [:,:] E = state.R_errors # R - R0
@@ -255,10 +255,10 @@ def PSAM_partition_function_gradient(state):
     ### Important dimensions needed to allocate buffers
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
-    cdef UINT64_t n_psam = len(state.params.psam_vec)
+    cdef UINT64_t n_psam = len(params.psam_vec)
     cdef UINT64_t pad = 16 - (n_psam % 16) # 16 x FLOAT32 = 1 L1 Cache line
     cdef UINT64_t n_psam_padded = n_psam + pad
-    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t n_samples = params.n_samples
     cdef UINT64_t n_params = n_psam + n_samples # affinity + beta values
     cdef UINT64_t k = (n_psam - 1) / 4
     cdef UINT64_t l = L - k + 1 # no. of positions for the PSAM
@@ -276,9 +276,9 @@ def PSAM_partition_function_gradient(state):
 
     ### Static vectors needed during computation
     # mul is faster than div
-    cdef FLOAT32_t [:] psam_inv = 1./state.params.psam_vec
+    cdef FLOAT32_t [:] psam_inv = 1./params.psam_vec
     # self consistent free protein, made dimensionless to fit Z
-    cdef FLOAT32_t [:] rbp_free_inv = 1./ (state.params.A0 * state.rbp_free) 
+    cdef FLOAT32_t [:] rbp_free_inv = 1./ (params.A0 * state.rbp_free) 
 
     ### (Thread-)local buffers
     cdef UINT32_t [:] skipped = np.zeros(n_threads, dtype=np.uint32)
@@ -305,7 +305,7 @@ def PSAM_partition_function_gradient(state):
     cdef FLOAT32_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float32)
 
     # where to store the final gradient
-    gradient = state.params.copy()
+    gradient = params.copy()
     gradient.data[:] = 0
     cdef FLOAT32_t [:] grad = gradient.data
 
