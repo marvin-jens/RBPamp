@@ -649,9 +649,9 @@ class SeedRefinement(object):
         path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
-        if not param_set is None:
+        if not params is None:
             for i, param in enumerate(params.param_set):
-                psam = param.to_PSAM()
+                psam = param.as_PSAM()
                 psam.save_logo(os.path.join(path, '{rbp_name}_rank_{i}_{psam.consensus}.svg'.format(**locals())))
         else:
             self.psam_lin.save_logo(os.path.join(path, '{0}_linear.svg'.format(rbp_name)))

@@ -37,9 +37,48 @@ class Proxy(object):
         return d
 
 class ModelSetParams(object):
-    def __init__(self, param_set):
+    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_k', 'acc_shift', 'acc_scale']):
+        self._forward = set(forward)
         self.param_set = param_set
-    
+        # for name in forward:
+        #     setattr(ModelSetParams, name, property(fget = lambda : getattr(self.param_set[0], name)))
+        
+    def __getattr__(self, attr):
+        fw = object.__getattribute__(self, '_forward')
+        p0 = object.__getattribute__(self, 'param_set')[0]
+        # print p0, attr
+        if attr in fw:
+            return getattr(p0, attr)
+        else:
+            return object.__getattribute__(self, attr)
+
+    # @property
+    # def n_samples(self):
+    #     return self.param_set[0].n_samples
+
+    # @property
+    # def n_samples(self):
+    #     return self.param_set[0].n_samples
+
+    @property
+    def A0(self):
+        return self.param_set[0].A0
+
+    @A0.setter
+    def A0(self, value):
+        # change all motif A0s in proportion
+        ratio = value / self.param_set[0].A0
+        for par in self.param_set:
+            par.A0 *= ratio
+
+    @property
+    def betas(self):
+        return self.param_set[0].betas
+
+    @betas.setter
+    def betas(self, value):
+        self.param_set[0].betas = value
+
     def copy(self):
         return ModelSetParams([p.copy() for p in self.param_set])
 
@@ -58,6 +97,11 @@ class ModelSetParams(object):
 
         assert i == len(data)
     
+    @classmethod
+    def load(cls, fname, n_samples):
+        param_set = list(ModelParametrization.load(fname, n_samples))
+        return cls(param_set)
+
     def save(self, fname):
         for i, params in enumerate(self.param_set):
             params.save(fname, append=(i > 0) )
@@ -72,8 +116,13 @@ class ModelSetParams(object):
 
     def __iter__(self):
         for params in self.param_set:
-            yield params
-    
+            yield params   
+
+    def __getitem__(self, i):
+        return self.param_set[i]
+
+    def __setitem__(self, i, params):
+        self.param_set[i] = params
 
 class ModelParametrization(object):
     def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):
@@ -155,7 +204,7 @@ class ModelParametrization(object):
             for line in f:
                 if line.startswith('#'):
                     if aff:
-                        yield make_params
+                        yield make_params()
                         aff = []
                         attrs = {}
                     continue

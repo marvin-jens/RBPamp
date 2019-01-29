@@ -1,6 +1,6 @@
 #!python
-#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -250,7 +250,7 @@ def PSAM_partition_function_gradient(state, params):
     cdef FLOAT32_t [:,:] w = state.w # n_samples x 4^k
     cdef FLOAT32_t [:,:] R = state.R # kmer enrichments
     cdef FLOAT64_t [:,:] E = state.R_errors # R - R0
-    cdef FLOAT32_t [:] E_weights = state.E_weights # EXPERIMENTAL!
+    # cdef FLOAT32_t [:] E_weights = state.E_weights # EXPERIMENTAL!
 
     ### Important dimensions needed to allocate buffers
     cdef UINT64_t N = seqm.base.shape[0]

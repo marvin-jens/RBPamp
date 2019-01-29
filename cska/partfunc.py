@@ -18,14 +18,34 @@ class PartFuncModelState(object):
         # assert (sorted(self.I) == (self.A > mdl.aff0).nonzero()[0] ).all()
         # TODO: make protein concentration self-consistent
 
-        # evaluate single protein partition function of PSAM over reads
-        self.Z1 = cyska.PSAM_partition_function(
-            self.mdl._seqm,
-            self.mdl._acc,
-            np.array(params.psam_matrix, dtype=np.float32),  # * params.A0,
-            openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1 + self.mdl.acc_shift
-        )
-        self.Z1_read, self.Z1_read_max = cyska.clipped_sum_and_max(self.Z1, clip=1E6)
+        # evaluate single protein partition function of PSAMs over reads
+        self.Z1_motif = []
+        self.Z1_read_motif = []
+        self.Z1_read_max = 0 
+        self.Z1 = None
+        self.Z1_read = None
+        for par in self.params:
+            Z1 = cyska.PSAM_partition_function(
+                self.mdl._seqm,
+                self.mdl._acc,
+                np.array(par.psam_matrix, dtype=np.float32),  # * params.A0,
+                openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1 + self.mdl.acc_shift
+            )
+            Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
+            self.Z1_motif.append(Z1)
+            self.Z1_read_motif.append(Z1_read)
+
+            if self.Z1 is None:
+                self.Z1 = Z1
+                self.Z1_read = Z1_read
+                self.Z1_read_max = Z1_read_max
+            else:
+                A_rel = par.A0/self.params.A0 # additional motif affinities are relative to motif0.A0!
+                self.Z1 += Z1 * A_rel
+                self.Z1_read += Z1_read * A_rel
+                self.Z1_read_max += Z1_read_max * A_rel
+                # TODO: extend clipped_sum_and_max to handle max properly
+
         # vector_stats(self.Z1_read)
         # self.Z1_read_max is used for thresholding
 
@@ -79,6 +99,7 @@ class PartFuncModelState(object):
         self.R_errors = np.array(self.R, dtype=np.float64) - self.mdl.R0
         self.sample_errors = (self.R_errors**2).mean(axis=1)
         self.error = self.sample_errors.mean()
+        print "self.error", self.error
 
 
     @property
@@ -145,9 +166,11 @@ class PartFuncModelState(object):
         # print "state.rbp_free", self.rbp_free
         # print "state.w", self.w.shape
 
-        self.E_weights = np.ones(self.mdl.nA, dtype=np.float32) + 10 * self.kmer_affinity_weights(cutoff=.01)
-        self.E_weights /= self.E_weights.mean()
-        _grad = cyska.PSAM_partition_function_gradient(self)
+        # self.E_weights = np.ones(self.mdl.nA, dtype=np.float32) + 10 * self.kmer_affinity_weights(cutoff=.01)
+        # self.E_weights /= self.E_weights.mean()
+        from cska.params import ModelSetParams
+        grad_set = [cyska.PSAM_partition_function_gradient(self, par) for par in self.params]
+        _grad = ModelSetParams(grad_set)
         # _grad.A0 *= 0
         # _grad.betas *= 0
         # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
@@ -165,18 +188,19 @@ class PartFuncModelState(object):
         self.mdl.t_grad += time.time() - t0
         return _grad
 
-
     def archive(self):
         from copy import copy
         arc = copy(self)
         arc.Z1 = None
         arc.Z1_read = None
-        arc.psi  = None
+        arc.Z1_read_max = None
+        arc.Z1_motif = None
+        arc.Z1_read_motif = None
+        arc.psi = None
         arc.Q = None
         arc.w = None
         arc.R_errors = None
         return arc
-
 
     def __str__(self):
         buf = [str(self.params)]
@@ -200,6 +224,7 @@ class PartFuncModel(object):
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
         self.params = params0
+        # TODO: handle multiple PSAMs
         self.k_mdl = self.params.k
         self.acc_k = self.params.acc_k
         self.acc_shift = self.params.acc_shift
@@ -258,17 +283,20 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis, :] * (1 - self.R0)
 
-    def tune(self, state, debug=False, maxiter=5):
+    def tune(self, state, debug=True, maxiter=5):
         params = state.params
         A00 = params.A0
         from cska.gradient import minimize_logspaced
 
         sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
-        kmer_weights = state.kmer_affinity_weights(cutoff=.1)
+        # kmer_weights = state.kmer_affinity_weights(cutoff=.1)
 
         a0s = []
         R_err = {}
         R_corr = {}
+
+        top = self.R0[0,:].argmax()
+        topmer = cyska.index_to_seq(top, self.k)
 
         def err(A0):
             state.params.A0 = A0
@@ -282,17 +310,15 @@ class PartFuncModel(object):
             a0s.append(A0)
 
             if debug:
-                top = kmer_weights.argmax()
-                topmer = cyska.index_to_seq(top, self.k)
                 print "R({0})={1} [R0={2}]".format(topmer, state.R[:, top], self.R0[:, top])
-                print A0, "->", err, state.error
+                print A0, state.params.A0, "->", state.error, betas
             
             R_err[A0] = state.error
             R_corr[A0] = np.array(state.correlations).max()
 
             return state.error
 
-        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter))
+        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
 
         if debug:
             print res
