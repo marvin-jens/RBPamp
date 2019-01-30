@@ -155,18 +155,18 @@ class GradientDescent(object):
         self.maxtime = maxtime
         self.eps = eps
         
-    @staticmethod
-    def apply_delta(params, delta):
-        new = params.copy()
-        p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
-        M = p.max(axis=1)
-        p /= M[:,np.newaxis]
-        new.psam_matrix = np.clip(p, 1e-6, 1)
-        new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
-        new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
+    # @staticmethod
+    # def apply_delta(params, delta):
+    #     new = params.copy()
+    #     p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
+    #     M = p.max(axis=1)
+    #     p /= M[:,np.newaxis]
+    #     new.psam_matrix = np.clip(p, 1e-6, 1)
+    #     new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+    #     new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
 
-        new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
-        return new
+    #     new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
+    #     return new
 
 
     def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None, plot=""):
@@ -188,7 +188,7 @@ class GradientDescent(object):
         self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
         def err(s):
             # s = np.exp(x)
-            m = self.apply_delta(params0, vec * s)
+            m = params0.apply_delta(vec * s)
             new = self.model.predict(m, **kw)
             N['fev'] += 1
             scales.append(s)
@@ -228,16 +228,16 @@ class GradientDescent(object):
 
     def RMSprop(self, local_grad, delta=.00001):
         if self.past_grad is None:
-            self.past_grad = local_grad.data
+            self.past_grad = local_grad.get_data()
 
-        m = self.dec * self.past_grad + (1 - self.dec) * local_grad.data
-        s = self.dec * self.past_sqg + (1 - self.dec) * local_grad.data**2
+        m = self.dec * self.past_grad + (1 - self.dec) * local_grad.get_data()
+        s = self.dec * self.past_sqg + (1 - self.dec) * local_grad.get_data()**2
 
         self.past_grad = m
         self.past_sqg = s
 
         upd = local_grad.copy()
-        upd.data = m / (np.sqrt(s) + delta)
+        upd.set_data(m / (np.sqrt(s) + delta))
 
         return upd
 
@@ -336,7 +336,7 @@ class GradientDescent(object):
                 self.ls_nfev.append(ls_data.res.nfev)
 
                 upd = descent * s
-                self.params = self.apply_delta(state.params, upd)
+                self.params = state.params.apply_delta(upd)
                 self.model.params = self.params
 
                 state = self.model.predict(self.params, **self.predict_kwargs)

@@ -321,13 +321,13 @@ def PSAM_partition_function_gradient(state, params):
     t0 = time()
     # print "setup2"
     ## main loop over all reads. compute dw_dA. in threads
-    # with nogil, parallel():
-    #     for r in prange(N, schedule='static'):
-    #         tid = openmp.omp_get_thread_num()
+    with nogil, parallel():
+        for r in prange(N, schedule='static'):
+            tid = openmp.omp_get_thread_num()
 
-    # single threaded version for testing
-    for tid in range(1):
-        for r in range(N):
+    # # single threaded version for testing
+    # for tid in range(1):
+    #     for r in range(N):
             # print "0"
             Z1r = Z1_read[r]
             if Z1r < Z1_thresh:

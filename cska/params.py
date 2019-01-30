@@ -84,7 +84,8 @@ class ModelSetParams(object):
 
     def get_data(self):
         "return one np.ndarray containing all model parameters"
-        all_data = (p.data for p in self.param_set)
+        all_data = [p.data for p in self.param_set]
+        # print all_data
         return np.concatenate(all_data)
 
     def set_data(self, data):
@@ -97,6 +98,13 @@ class ModelSetParams(object):
 
         assert i == len(data)
     
+    def unity(self):
+        p = self.copy()
+        n = np.linalg.norm(self.get_data())
+        if n > 0:
+            p /= n
+        return p
+
     @classmethod
     def load(cls, fname, n_samples):
         param_set = list(ModelParametrization.load(fname, n_samples))
@@ -123,6 +131,62 @@ class ModelSetParams(object):
 
     def __setitem__(self, i, params):
         self.param_set[i] = params
+
+    def __add__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() + x.get_data() )
+        else:
+            c.set_data(self.get_data() + x)
+        return c
+    
+    def __sub__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() - x.get_data() )
+        else:
+            c.set_data(self.get_data() - x)
+        return c
+
+    def __mul__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() * x.get_data() )
+        else:
+            c.set_data(self.get_data() * x)
+        return c
+
+    def __div__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() / x.get_data() )
+        else:
+            c.set_data(self.get_data() / x)
+        return c
+
+    def __neg__(self):
+        c = self.copy()
+        c.set_data( - self.get_data())
+        return c
+
+    def apply_delta(self, delta_set):
+        c = self.copy()
+        new = []
+        for params, delta in zip(c.param_set, delta_set):
+            p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
+            M = p.max(axis=1)
+            p /= M[:,np.newaxis]
+            params.psam_matrix = np.clip(p, 1e-6, 1)
+
+            params.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+            params.A0 = max(1e-6, params.A0 + delta.A0) # prevent underflow
+
+            params.betas = np.clip(params.betas + delta.betas, 1e-9, None)
+            new.append(params)
+
+        c.param_set = new
+        return c
+
 
 class ModelParametrization(object):
     def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):
@@ -327,7 +391,7 @@ class ModelParametrization(object):
     def __sub__(self, x):
         c = self.copy()
         if isinstance(x, ModelParametrization):
-            c.data += x.data
+            c.data -= x.data
         else:
             c.data -= x
         return c
