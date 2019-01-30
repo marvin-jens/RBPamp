@@ -1,6 +1,6 @@
 #!python
-###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -286,16 +286,17 @@ def PSAM_partition_function_gradient(state, params):
     # change in partition function (per read, thread-local). Gets zeroed a lot.
     # cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
 
+    # print "setup1", n_samples, n_psam, Z1_thresh
     # get dZr_dA cache aligned
-    cdef FLOAT32_t *ptr = <FLOAT32_t*> malloc(4*n_threads*n_psam_padded+64)
-    if ptr == NULL:
-        raise ValueError('could not allocate cache-line aligned buffer')
-    cdef int base = <int> ptr
-    if base % 64 > 0: # not cache aligned?
-        base = base + 64 - (base % 64) # use the padding
-    # print base, base % 64, <int> ptr
-    cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
-
+    # cdef FLOAT32_t *ptr = <FLOAT32_t*> malloc(4*n_threads*n_psam_padded+64)
+    # if ptr == NULL:
+    #     raise ValueError('could not allocate cache-line aligned buffer')
+    # cdef unsigned int base = <unsigned int> ptr
+    # if base % 64 > 0: # not cache aligned?
+    #     base = base + 64 - (base % 64) # use the padding
+    # # print base, base % 64, <int> ptr
+    # cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
+    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
     cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
@@ -318,25 +319,27 @@ def PSAM_partition_function_gradient(state, params):
     # aggregation from threads is only over 4**k cycles, not number of reads.
     from time import time
     t0 = time()
-
+    # print "setup2"
     ## main loop over all reads. compute dw_dA. in threads
-    with nogil, parallel():
-        for r in prange(N, schedule='static'):
-            tid = openmp.omp_get_thread_num()
+    # with nogil, parallel():
+    #     for r in prange(N, schedule='static'):
+    #         tid = openmp.omp_get_thread_num()
 
-    ## single threaded version for testing
-    # for tid in range(1):
-    #     for r in range(N):
-            
+    # single threaded version for testing
+    for tid in range(1):
+        for r in range(N):
+            # print "0"
             Z1r = Z1_read[r]
             if Z1r < Z1_thresh:
                 # skip early and save time
                 skipped[tid] += 1
                 continue
-
+            # print "0.5", tid, psam_inv, dZr_dA, dZr_dA.base #, "%x" % base, n_psam_padded, psam_inv[0]
+            # print dZr_dA[tid, 0]
             # since A0 is not inside Zr
             dZr_dA[tid, 0] = psam_inv[0]
-            
+            # print "1"
+
             # initialize other elements to 0
             memset(&dZr_dA[tid, 1], 0, zero_bytes)
             for x in range(l):
@@ -345,12 +348,14 @@ def PSAM_partition_function_gradient(state, params):
                     y = (d << 2) + n + 1
                     dZr_dA[tid, y] += Z1[r,x]
 
+            # print "2"
             # compute dPsi/dA. up to the (psi - psi^2) factor 
             Z1r_inv = 1./Z1r
             for y in range(1, n_psam):
                 dZr_dA[tid, y] = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
                 # print r,y,"dZr_dA", dZr_dA[tid, y]
 
+            # print "3"
             # push dpsi_dA. to individual kmer weights dw_dA.
             for j in range(n_samples):
                 p = psi[j,r]
@@ -363,9 +368,9 @@ def PSAM_partition_function_gradient(state, params):
                         dw[tid, j, y, im[r,x]] += to_w
 
                     dW[tid, j, y] += lam * to_w
-
+            # print "4"
     t1 = time()
-  
+    # print "t1"
     ## accumulate data from threads into the 0-th entry
     for tid in range(1, n_threads):
         skipped[0] += skipped[tid]
@@ -376,7 +381,7 @@ def PSAM_partition_function_gradient(state, params):
                     dw[0, j, y, i] += dw[tid, j, y, i]
 
     t2 = time()
-
+    # print "t2"
     ## compute gradient matrix element sum
     for j in range(n_samples):
         for i in range(Nk):
@@ -401,10 +406,10 @@ def PSAM_partition_function_gradient(state, params):
     t3 = time()
     # print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
     #    1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
-
+    # print "done"
     state.skipped = skipped.base[0]
     state.gradi = gradi
-    free(ptr)
+    # free(ptr)
     # state.n_eval = n_eval.base
     return gradient
 

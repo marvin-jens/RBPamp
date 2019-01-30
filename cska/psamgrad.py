@@ -67,6 +67,7 @@ class PSAMGradientDescent(object):
         from cska.report import GradientDescentReport, LiteratureComparisonReport
 
         lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
+
         def make_plots(descent, dt=None):
             rep = GradientDescentReport(descent, path=self.out_path)
             reset = False
@@ -88,8 +89,8 @@ class PSAMGradientDescent(object):
                 self.store_residuals(descent.last_state)
                 reset = True
 
-            if (descent.t % 10) == 0 or dt is None:
-                rep.plot_scatter()
+            # if (descent.t % 10) == 0 or dt is None:
+            #     rep.plot_scatter()
 
             return reset
 

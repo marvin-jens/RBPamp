@@ -275,7 +275,7 @@ class GradientDescent(object):
         print "step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals())
 
 
-    def optimize(self, params, debug=False, callback=None):
+    def optimize(self, params, debug=True, callback=None):
         if debug:
             print "INITIAL PARAMETERS"
             print params
@@ -298,6 +298,7 @@ class GradientDescent(object):
 
         try:
             while not self.converged() and self.t < self.maxiter and dt < self.maxtime:
+                print "computing gradient"
                 local_grad = state.grad #.unity()
                 if debug:
                     print "LOCAL GRAD"
