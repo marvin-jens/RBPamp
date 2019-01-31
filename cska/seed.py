@@ -617,11 +617,13 @@ class SeedRefinement(object):
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
 
-    def seeded_multi_params(self, n_samples, **kwargs):
+    def seeded_multi_params(self, n_samples, max_motifs=4, **kwargs):
         from cska.params import ModelSetParams, ModelParametrization
         params = []
 
         for i, psam in enumerate(self.analysis.motifs_from_R(**kwargs)):
+            if i >= max_motifs:
+                break
             params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
 
         param_set = ModelSetParams(params)

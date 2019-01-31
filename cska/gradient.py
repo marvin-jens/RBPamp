@@ -299,7 +299,7 @@ class GradientDescent(object):
         try:
             while not self.converged() and self.t < self.maxiter and dt < self.maxtime:
                 print "computing gradient"
-                local_grad = state.grad #.unity()
+                local_grad = state.grad.unity()
                 if debug:
                     print "LOCAL GRAD"
                     print local_grad
@@ -311,7 +311,7 @@ class GradientDescent(object):
                 # descent = - local_grad.unity()
                 # print descent
 
-                s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=False)
+                s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
                     # # and tune parameters

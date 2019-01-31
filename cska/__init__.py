@@ -68,6 +68,7 @@ def parse_cmdline():
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
+    parser.add_option("", "--max-motifs", dest="max_motifs", default=4, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=4)")
     parser.add_option("", "--opt-no-struct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
@@ -434,7 +435,7 @@ class Run(object):
             path = os.path.abspath(os.path.join(self.run_path, path))
             try:
                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-                self.params = ModelSetParams.load(path, self.rbns.n_samples)
+                self.params = ModelSetParams.load(path, self.rbns.n_samples, max_motifs=self.options.max_motifs)
             except IOError:
                 self.logger.info("not found")
                 self.params = None

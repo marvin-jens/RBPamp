@@ -233,12 +233,11 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     return Z.base
 
 
-def PSAM_partition_function_gradient(state, params):
+def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
     cdef UINT8_t *seqm_row
-    cdef FLOAT32_t [:,:] Z1 = state.Z1
     cdef FLOAT32_t *Z1_row
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
     # do not even look at reads with Z1_read < this value

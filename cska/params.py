@@ -106,8 +106,10 @@ class ModelSetParams(object):
         return p
 
     @classmethod
-    def load(cls, fname, n_samples):
+    def load(cls, fname, n_samples, max_motifs=4):
         param_set = list(ModelParametrization.load(fname, n_samples))
+        if len(param_set) > max_motifs:
+            param_set = param_set[:max_motifs]
         return cls(param_set)
 
     def save(self, fname):

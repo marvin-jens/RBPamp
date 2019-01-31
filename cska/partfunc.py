@@ -169,7 +169,7 @@ class PartFuncModelState(object):
         # self.E_weights = np.ones(self.mdl.nA, dtype=np.float32) + 10 * self.kmer_affinity_weights(cutoff=.01)
         # self.E_weights /= self.E_weights.mean()
         from cska.params import ModelSetParams
-        grad_set = [cyska.PSAM_partition_function_gradient(self, par) for par in self.params]
+        grad_set = [cyska.PSAM_partition_function_gradient(self, par, Z1) for par, Z1 in zip(self.params, self.Z1_motif)]
         _grad = ModelSetParams(grad_set)
         # _grad.A0 *= 0
         # _grad.betas *= 0
