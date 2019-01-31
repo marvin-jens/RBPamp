@@ -185,8 +185,8 @@ class Alignment(object):
 
                 best[l] = (f, i, j)
 
-        bylength = sorted(best.keys())
         def find_best():
+            bylength = sorted(best.keys())
             for l in bylength:
                 if n_max and l > n_max:
                     # we exhausted all motifs of allowed length
@@ -416,14 +416,21 @@ class DependentKmerAnalysis(CachedBase):
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
         print "done assembling {0} motifs from {1} kmers with z > {2}".format(len(alns), n, z_cut)
-        psams = []
-        for aln in alns:
-            if len(aln.seqs) < n_min:
-                continue
-            
-            p = aln.to_PSAM(pseudo=0, keep_weight=keep_weight, n_max=n_max, A0=aln.max_weight/r0 * A0)
-            psams.append(p)
+        def make_psam(aln, **kwargs):
+            return aln.to_PSAM(
+                pseudo=0, 
+                keep_weight=keep_weight, 
+                A0=aln.max_weight/r0 * A0,
+                **kwargs
+            )
 
+        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        w = np.array([p.n for p in psams])
+        wm = w.max()
+        print "max width", wm
+
+        # second pass -> pad motifs to equal size
+        [p.pad_to_size(wm) for p in psams]
         return psams
 
 
