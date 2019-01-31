@@ -116,7 +116,7 @@ class ModelSetParams(object):
 
     def __str__(self):
         buf = ["# ModelSetParams with {} PSAMs\n".format(len(self.param_set))]
-        for i, params in self.param_set:
+        for i, params in enumerate(self.param_set):
             buf.append("# PSAM {}".format(i))
             buf.append(str(params))
         

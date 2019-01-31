@@ -237,14 +237,18 @@ def PSAM_partition_function_gradient(state, params):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
+    cdef UINT8_t *seqm_row
     cdef FLOAT32_t [:,:] Z1 = state.Z1
+    cdef FLOAT32_t *Z1_row
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
     # do not even look at reads with Z1_read < this value
     cdef FLOAT32_t Z1_thresh = state.threshold * state.Z1_read_max # set to 0 to look at all reads
     cdef UINT32_t [:] F0 = state.mdl.F0 # 4^k kmer frequencies in input
     cdef FLOAT32_t [:] f0 = state.mdl.f0 # 4^k kmer rel. frequencies in input
     cdef FLOAT32_t [:,:] psi = state.psi
+    cdef FLOAT32_t *psi_row
     cdef UINT32_t [:,:] im = state.mdl.im
+    cdef UINT32_t *im_row
     cdef FLOAT32_t [:] W = state.W # normalization factors for each sample
     cdef FLOAT32_t A0 = params.A0
     cdef FLOAT32_t [:,:] w = state.w # n_samples x 4^k
@@ -297,10 +301,13 @@ def PSAM_partition_function_gradient(state, params):
     # # print base, base % 64, <int> ptr
     # cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
     cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+    cdef FLOAT32_t *dZr_dA_row
+
     cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
     cdef FLOAT32_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, n_psam, Nk), dtype=np.float32)
+    cdef FLOAT32_t *dw_row
 
     # change in normalization factor
     cdef FLOAT32_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float32)
@@ -321,53 +328,57 @@ def PSAM_partition_function_gradient(state, params):
     t0 = time()
     # print "setup2"
     ## main loop over all reads. compute dw_dA. in threads
-    with nogil, parallel():
-        for r in prange(N, schedule='static'):
-            tid = openmp.omp_get_thread_num()
+    for r in prange(N, schedule='static', chunksize=20000, nogil=True):
+        tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
     # # single threaded version for testing
-    # for tid in range(1):
-    #     for r in range(N):
-            # print "0"
-            Z1r = Z1_read[r]
-            if Z1r < Z1_thresh:
-                # skip early and save time
-                skipped[tid] += 1
-                continue
-            # print "0.5", tid, psam_inv, dZr_dA, dZr_dA.base #, "%x" % base, n_psam_padded, psam_inv[0]
-            # print dZr_dA[tid, 0]
-            # since A0 is not inside Zr
-            dZr_dA[tid, 0] = psam_inv[0]
-            # print "1"
+    # tid = 0
+    # for r in range(N):
+        # print "0"
+        Z1r = Z1_read[r]
+        if Z1r < Z1_thresh:
+            # skip early and save time
+            skipped[tid] += 1
+            continue
+        # print "0.5", tid, psam_inv, dZr_dA, dZr_dA.base #, "%x" % base, n_psam_padded, psam_inv[0]
+        # print dZr_dA[tid, 0]
+        # since A0 is not inside Zr
+        dZr_dA_row = &dZr_dA[tid, 0]
+        dZr_dA_row[0] = psam_inv[0]
+        # print "1"
 
-            # initialize other elements to 0
-            memset(&dZr_dA[tid, 1], 0, zero_bytes)
-            for x in range(l):
-                for d in range(k):
-                    n = seqm[r, x+d]
-                    y = (d << 2) + n + 1
-                    dZr_dA[tid, y] += Z1[r,x]
+        # initialize other elements to 0
+        memset(&dZr_dA_row[1], 0, zero_bytes)
+        seqm_row = &seqm[r, 0]
+        Z1_row = &Z1[r, 0]
+        for x in range(l):
+            for d in range(k):
+                n = seqm_row[x+d]
+                y = (d << 2) + n + 1
+                dZr_dA_row[y] += Z1_row[x]
 
-            # print "2"
-            # compute dPsi/dA. up to the (psi - psi^2) factor 
-            Z1r_inv = 1./Z1r
-            for y in range(1, n_psam):
-                dZr_dA[tid, y] = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
-                # print r,y,"dZr_dA", dZr_dA[tid, y]
+        # print "2"
+        # compute dPsi/dA. up to the (psi - psi^2) factor 
+        Z1r_inv = 1./Z1r
+        for y in range(1, n_psam):
+            dZr_dA_row[y] = dZr_dA_row[y] * psam_inv[y] * Z1r_inv
+            # print r,y,"dZr_dA", dZr_dA[tid, y]
 
-            # print "3"
-            # push dpsi_dA. to individual kmer weights dw_dA.
-            for j in range(n_samples):
-                p = psi[j,r]
-                # (psi - psi^2) is the only sample/concentration dependent term
-                pp2 = (p - (p * p))
-                for y in range(n_psam):
-                    to_w = dZr_dA[tid, y] * pp2 
-                    # propagate to individual kmers
-                    for x in range(lam):
-                        dw[tid, j, y, im[r,x]] += to_w
+        # print "3"
+        # push dpsi_dA. to individual kmer weights dw_dA.
+        im_row = &im[r, 0]
+        for j in range(n_samples):
+            p = psi[j, r]
+            # (psi - psi^2) is the only sample/concentration dependent term
+            pp2 = (p - (p * p))
+            for y in range(n_psam):
+                to_w = dZr_dA_row[y] * pp2 
+                # propagate to individual kmers
+                dw_row = &dw[tid, j, y, 0]
+                for x in range(lam):
+                    dw_row[im_row[x]] += to_w
 
-                    dW[tid, j, y] += lam * to_w
+                dW[tid, j, y] += lam * to_w
             # print "4"
     t1 = time()
     # print "t1"
@@ -404,8 +415,8 @@ def PSAM_partition_function_gradient(state, params):
         grad[y] *= norm
 
     t3 = time()
-    # print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
-    #    1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
+    print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
+        1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
     # print "done"
     state.skipped = skipped.base[0]
     state.gradi = gradi
