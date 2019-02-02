@@ -17,9 +17,10 @@ class Tracked(object):
 
 
 def emp_grad(state, eps=1e-6):
-    v0 = state.params.as_vector()
+    v0 = state.params.get_data()
+    v = np.array(v0)
     var = state.params.copy()
-    grad = state.params.copy()
+    grad = np.array(v0)
     state0 = state
     # print "err0", err0
     kw = dict()#.predict_kwargs)
@@ -27,19 +28,22 @@ def emp_grad(state, eps=1e-6):
     kw['tune'] = False
     kw['rbp_free'] = state0.rbp_free
 
-    for i in range(state.params.n):
+    for i in range(len(v0)):
         # print ">>> EMP GRAD", state.params.names[i]
         # d = max(v0[i] * eps,1e-6)
         d = eps
-        var.data[i] = v0[i] + d
+        v[i] = v0[i] + d
+        var.set_data(v)
         state = state.mdl.predict(var, **kw)
         derr = state.error - state0.error
-        grad.data[i] = derr/d
+        grad[i] = derr/d
         # print "derr", derr
-        var.data[i] = v0[i]
+        v[i] = v0[i]
+
         # print ">>>GRAD ELEMENT", grad.data[i]
     
-    return grad
+    var.set_data(grad)
+    return var
 
 
 def emp_gradi(state, eps=1e-6):
@@ -299,12 +303,19 @@ class GradientDescent(object):
         try:
             while not self.converged() and self.t < self.maxiter and dt < self.maxtime:
                 print "computing gradient"
-                local_grad = state.grad.unity()
+                local_grad = state.grad #.unity()
                 if debug:
-                    print "LOCAL GRAD"
+                    print "LOCAL GRAD, EMP. GRAD"
                     print local_grad
-                # local_grad.A0 = 0
+                    # for lcl, emp in zip(local_grad, emp_grad(state)):
+                    #     print "LCL"
+                    #     print lcl
+                    #     print "EMP"
+                    #     print emp
+
+
                 local_grad.betas *= 0
+                # local_grad.A0 = 0
                 # local_grad = local_grad.unity()
                 descent = self.RMSprop( - local_grad ).unity()
                 # descent = self.momentum_grad( - local_grad).unity()

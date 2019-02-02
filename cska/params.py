@@ -174,13 +174,20 @@ class ModelSetParams(object):
     def apply_delta(self, delta_set):
         c = self.copy()
         new = []
-        for params, delta in zip(c.param_set, delta_set):
-            p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
-            M = p.max(axis=1)
+        for i, (params, delta) in enumerate(zip(c.param_set, delta_set)):
+            p = params.psam_matrix + delta.psam_matrix
+            # print i, "after applying update of magnitude", np.fabs(delta.data).max(), "min/max", p.min(), p.max()
+            m = p.min(axis=1) # find out if we dropped below zero
+            m = np.where(m < 0, -m + 1e-6, 0)
+            # print "raise", m
+            p += m[:, np.newaxis] # and raise the level in these columns accordingly
+            p = np.clip(p, 1e-6, None)
+            M = p.max(axis=1) # increases above 1 on cognate should increase A0
             p /= M[:,np.newaxis]
             params.psam_matrix = np.clip(p, 1e-6, 1)
 
             params.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+            # print i, "increasing A0 by", M.prod()
             params.A0 = max(1e-6, params.A0 + delta.A0) # prevent underflow
 
             params.betas = np.clip(params.betas + delta.betas, 1e-9, None)

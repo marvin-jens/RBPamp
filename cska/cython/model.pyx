@@ -1,6 +1,6 @@
 #!python
-#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -233,12 +233,14 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     return Z.base
 
 
-def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1):
+def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
     cdef UINT8_t *seqm_row
+    cdef FLOAT32_t [:, :] Z1 = state.Z1 # this is the total partition function, sum of all motif contributions!
     cdef FLOAT32_t *Z1_row
+    cdef FLOAT32_t *Z1m_row # this is used for the motif-specific terms *scaled by rel. affinity*!
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
     # do not even look at reads with Z1_read < this value
     cdef FLOAT32_t Z1_thresh = state.threshold * state.Z1_read_max # set to 0 to look at all reads
@@ -326,14 +328,14 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1):
     from time import time
     t0 = time()
     # print "setup2"
-    ## main loop over all reads. compute dw_dA. in threads
+    # main loop over all reads. compute dw_dA. in threads
     for r in prange(N, schedule='static', chunksize=20000, nogil=True):
         tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
     # # single threaded version for testing
-    # tid = 0
+    # # tid = 0
     # for r in range(N):
-        # print "0"
+
         Z1r = Z1_read[r]
         if Z1r < Z1_thresh:
             # skip early and save time
@@ -344,26 +346,23 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1):
         # since A0 is not inside Zr
         dZr_dA_row = &dZr_dA[tid, 0]
         dZr_dA_row[0] = psam_inv[0]
-        # print "1"
 
         # initialize other elements to 0
         memset(&dZr_dA_row[1], 0, zero_bytes)
         seqm_row = &seqm[r, 0]
         Z1_row = &Z1[r, 0]
+        Z1m_row = &Z1m[r, 0]
         for x in range(l):
             for d in range(k):
                 n = seqm_row[x+d]
                 y = (d << 2) + n + 1
-                dZr_dA_row[y] += Z1_row[x]
+                dZr_dA_row[y] += Z1m_row[x]
 
-        # print "2"
         # compute dPsi/dA. up to the (psi - psi^2) factor 
         Z1r_inv = 1./Z1r
         for y in range(1, n_psam):
-            dZr_dA_row[y] = dZr_dA_row[y] * psam_inv[y] * Z1r_inv
-            # print r,y,"dZr_dA", dZr_dA[tid, y]
+            dZr_dA_row[y] = psam_inv[y] * dZr_dA_row[y] * Z1r_inv
 
-        # print "3"
         # push dpsi_dA. to individual kmer weights dw_dA.
         im_row = &im[r, 0]
         for j in range(n_samples):
@@ -372,13 +371,13 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1):
             pp2 = (p - (p * p))
             for y in range(n_psam):
                 to_w = dZr_dA_row[y] * pp2 
+
                 # propagate to individual kmers
                 dw_row = &dw[tid, j, y, 0]
                 for x in range(lam):
                     dw_row[im_row[x]] += to_w
 
                 dW[tid, j, y] += lam * to_w
-            # print "4"
     t1 = time()
     # print "t1"
     ## accumulate data from threads into the 0-th entry
