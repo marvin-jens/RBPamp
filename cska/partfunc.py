@@ -190,19 +190,32 @@ class PartFuncModelState(object):
         self.mdl.t_grad += time.time() - t0
         return _grad
 
-    def archive(self):
-        from copy import copy
-        arc = copy(self)
-        arc.Z1 = None
-        arc.Z1_read = None
-        arc.Z1_read_max = None
-        arc.Z1_motif = None
-        arc.Z1_read_motif = None
-        arc.psi = None
-        arc.Q = None
-        arc.w = None
-        arc.R_errors = None
-        return arc
+    @property
+    def stats(self):
+        from cska.gradient import Tracked
+        pR, pval = self.correlations
+        s = {
+            'pearsonR' : pR,
+            'pearsonP' : pval,
+            'errors'   : self.R_errors,
+            'error'    : self.error,
+            'rbp_free' : self.rbp_free,
+        }        
+        return Tracked(**s)
+
+    # def archive(self):
+    #     from copy import copy
+    #     arc = copy(self)
+    #     arc.Z1 = None
+    #     arc.Z1_read = None
+    #     arc.Z1_read_max = None
+    #     arc.Z1_motif = None
+    #     arc.Z1_read_motif = None
+    #     arc.psi = None
+    #     arc.Q = None
+    #     arc.w = None
+    #     arc.R_errors = None
+    #     return arc
 
     def __str__(self):
         buf = [str(self.params)]

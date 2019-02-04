@@ -70,12 +70,14 @@ class PSAMGradientDescent(object):
         # print "optimal parameters from quantile fit"
         # params.A0 = res[0]
         # params.betas[:] = res[1:]
-        from cska.report import GradientDescentReport, LiteratureComparisonReport
+        self.shelve["R_exp"] = self.R
+        self.shelve["rbp_conc"] = self.descent.model.rbp_conc
+        # from cska.report import GradientDescentReport, LiteratureComparisonReport
 
-        lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
+        # lrep = LiteratureComparisonReport(self.descent, self.ref, path=self.out_path)
 
         def make_plots(descent, dt=None):
-            rep = GradientDescentReport(descent, path=self.out_path)
+            # rep = GradientDescentReport(descent, path=self.out_path)
             reset = False
             if dt > 5 or dt is None:
                 # lrep.plot_scatter(debug=False)
@@ -88,11 +90,10 @@ class PSAMGradientDescent(object):
                     name = 'rank_{i}_{pwm.consensus}.svg'.format(**locals())
                     pwm.save_logo(os.path.join(self.out_path, name))
                 # pwm.store_params(os.path.join(self.out_path, name + '.tsv'))
-                
-                    params.save(os.path.join(self.out_path, 'parameters.tsv'), append=(i > 0))
+                    # params.save(os.path.join(self.out_path, 'parameters.tsv'), append=(i > 0))
                 # state = descent.model.predict(descent.params)
                 # self.store_affinities(state)
-                self.store_residuals(descent.last_state)
+                # self.store_residuals(descent.last_state)
                 reset = True
 
             # if (descent.t % 10) == 0 or dt is None:
@@ -103,8 +104,13 @@ class PSAMGradientDescent(object):
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
-            self.shelve["params_t{}".format(descent.t)] = descent.last_state.params
+            state = descent.last_state
+            self.shelve["params_t{}".format(descent.t)] = state.params
+            self.shelve["stats_t{}".format(descent.t)] = state.stats
+            self.shelve["R_t{}".format(descent.t)] = state.R
+            self.shelve["linesearch_t{}".format(descent.t)] = (descent.ls_nfev[-1], descent.ls_step[-1])
             self.shelve.sync()
+            descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
 
             dt = time.time() - self.t0
             if make_plots(descent, dt):
@@ -126,19 +132,19 @@ class PSAMGradientDescent(object):
         self.t0 = time.time()
         self.descent.optimize(self.params, debug=debug, callback=callback)
 
-        state_first = self.descent.history[0]
-        state_last = self.descent.history[-1]
-        err_reduction = state_first.error / state_last.error # x-fold reduced
+        stats_first = self.shelve["stats_t0"]
+        stats_last = self.descent.last_state.stats
+        err_reduction = stats_first.error / stats_last.error # x-fold reduced
 
-        corr_first = state_first.correlations[0].max()
-        corr_last = state_last.correlations[0].max()
+        corr_first = stats_first.pearsonR.max()
+        corr_last = stats_last.pearsonR.max()
         
-        Kd_first = 1/state_first.params[0].A0
-        Kd_last = 1/state_last.params[0].A0
+        Kd_first = 1/self.shelve["params_t0"].A0
+        Kd_last = 1/self.descent.last_state.params.A0
 
         self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
         self.logger.info("optimized parameters {0}".format(self.descent.params))        
-        self.results.critical("GRAD err={state_first.error:.2e} -> {state_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps".format(**locals()))
+        self.results.critical("GRAD err={stats_first.error:.2e} -> {stats_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps".format(**locals()))
         self.track_file.close()
         
         state = self.descent.last_state

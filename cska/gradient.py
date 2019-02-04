@@ -147,7 +147,7 @@ class GradientDescent(object):
 
         # records
         self.errors = []
-        self.history = []
+        # self.history = []
         self.ls_nfev = [0,]
         self.ls_step = [0,]
         self.t = 0
@@ -255,10 +255,22 @@ class GradientDescent(object):
            
         last_errs = np.array(self.errors[-tau:])
         mean = last_errs.mean()
-        if (mean - self.errors[-1]) / mean < self.eps:
-            return 'CONVERGED_NO_MORE_DECREASE'
+        mag = np.sqrt((self.past_grad**2).sum())
 
-        return self.status
+        if np.allclose(self.past_grad, 0, atol=atol):
+            return 'CONVERGED_GRAD_NULL'
+
+        elif (mean - self.errors[-1]) / mean < self.eps:
+            return 'CONVERGED_NO_MORE_DECREASE'
+            
+        else:
+            return self.status
+
+    def reached_maxtime(self, dt):
+        return self.maxtime and (dt >= self.maxtime)
+    
+    def reached_maxiter(self, t):
+        return self.maxiter and (t >= self.maxiter)
 
     @property
     def error_reduction(self):
@@ -287,7 +299,7 @@ class GradientDescent(object):
         state = self.model.predict(self.params, **self.predict_kwargs)
 
         self.errors.append(state.error)
-        self.history.append(state.archive())
+        # self.history.append(state.archive())
         self.last_state = state
 
         if debug:
@@ -301,9 +313,7 @@ class GradientDescent(object):
         dt = 0
 
         try:
-            maxtime = self.maxtime and (dt >= self.maxtime)
-            maxiter = self.maxiter and (t >= self.maxiter)
-            while not self.converged() and not maxiter and not maxtime:
+            while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
                 local_grad = state.grad #.unity()
                 if debug:
@@ -356,7 +366,7 @@ class GradientDescent(object):
                 state._ls_data = ls_data
                 self.errors.append(state.error)
                 self.t += 1
-                self.history.append(state.archive())
+                # self.history.append(state.archive())
                 self.last_state = state
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
@@ -378,10 +388,12 @@ class GradientDescent(object):
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
         
-        if maxtime:
+        if self.reached_maxtime(dt):
             self.status = "MAX_TIME"
-        elif maxiter:
+
+        elif self.reached_maxiter(self.t):
             self.status = "MAX_ITER"
+
         else:
             self.status = self.converged()
 
