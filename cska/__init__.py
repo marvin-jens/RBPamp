@@ -504,7 +504,19 @@ class Run(object):
         ref = RefComparison(compare, ref_file=self.options.ref_file)
 
         from cska.psamgrad import PSAMGradientDescent
-        PGD = PSAMGradientDescent(self.rbns, self.params, ref=ref, k_fit=self.options.grad_k, mdl_name=self.options.grad_mdl, Z_thresh=self.options.Z_thresh, run_name=name, maxiter=self.options.grad_maxiter, maxtime=self.options.grad_maxtime, eps=self.options.mdl_epsilon)
+        PGD = PSAMGradientDescent(
+            self.rbns, 
+            self.params, 
+            ref=ref, 
+            k_fit=self.options.grad_k, 
+            mdl_name=self.options.grad_mdl, 
+            Z_thresh=self.options.Z_thresh, 
+            run_name=name, 
+            maxiter=self.options.grad_maxiter, 
+            maxtime=self.options.grad_maxtime, 
+            eps=self.options.mdl_epsilon, 
+            redo=self.options.redo
+        )
         PGD.optimize()
         self.params = PGD.descent.params
 

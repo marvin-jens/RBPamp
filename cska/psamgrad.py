@@ -4,19 +4,25 @@ import cska.cyska as cyska
 from cska.pwm import PSAM
 import numpy as np
 import time
-
+import shelve
 from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 from cska.affinitylogo import nice_conc
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, redo=False, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
 
         fname = os.path.join(self.out_path, "descent.tsv")
+        self.shelve = shelve.open(
+            os.path.join(self.out_path, "history"), 
+            protocol=-1, 
+            flag='n' if redo else 'c'
+        )
+
         self.t_ofs = 0
-        if not os.path.exists(fname):
+        if not os.path.exists(fname) or redo:
             self.track_file = file(fname, 'w', 0)
             MSE_samples = ["MSE{}".format(i) for i in range(params.n_samples)]
             corr_samples = ["corr{}".format(i) for i in range(params.n_samples)]
@@ -97,13 +103,17 @@ class PSAMGradientDescent(object):
         def callback(descent):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
+            self.shelve["params_t{}".format(descent.t)] = descent.last_state.params
+            self.shelve.sync()
+
             dt = time.time() - self.t0
             if make_plots(descent, dt):
                 self.t0 = time.time()
                 
             # collect and write data on the gradient descent progress
-            from scipy.stats import pearsonr
-            pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
+            # from scipy.stats import pearsonr
+            # pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
+            pR, pval = descent.last_state.correlations
             out = [descent.t + self.t_ofs, descent.last_state.params[0].A0, descent.errors[-1],] \
                 + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR) \
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]

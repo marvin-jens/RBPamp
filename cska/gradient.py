@@ -301,8 +301,10 @@ class GradientDescent(object):
         dt = 0
 
         try:
-            while not self.converged() and self.t < self.maxiter and dt < self.maxtime:
-                print "computing gradient"
+            maxtime = self.maxtime and (dt >= self.maxtime)
+            maxiter = self.maxiter and (t >= self.maxiter)
+            while not self.converged() and not maxiter and not maxtime:
+                # print "computing gradient"
                 local_grad = state.grad #.unity()
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
@@ -376,13 +378,12 @@ class GradientDescent(object):
         except KeyboardInterrupt:
             self.status = "KEYBOARD_INTERRUPT"
         
-        if self.t < self.maxiter:
-            if dt < self.maxtime:
-                self.status = self.converged()
-            else:
-                self.status = "MAX_TIME"
-        else:
+        if maxtime:
+            self.status = "MAX_TIME"
+        elif maxiter:
             self.status = "MAX_ITER"
+        else:
+            self.status = self.converged()
 
         self.logger.info("optimization ended with status {self.status} after {self.t} iterations".format(self=self))
         # print "last gradient"
