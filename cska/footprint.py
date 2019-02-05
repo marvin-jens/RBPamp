@@ -173,9 +173,9 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = a
         self.params.A0 = A0
 
-        path = os.path.join(self.path, 'calibrated.tsv')
-        self.logger.info("storing footprinted model in '{}'".format(path))
-        file(path, 'w').write(str(self.params) + '\n')
+        # path = os.path.join(self.path, '{}_calibrated.tsv'.format(self.consensus))
+        # self.logger.info("storing footprinted model in '{}'".format(path))
+        # file(path, 'w').write(str(self.params) + '\n')
         return self.params
     
 

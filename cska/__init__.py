@@ -504,6 +504,9 @@ class Run(object):
 
         from cska.params import ModelSetParams
         self.params = ModelSetParams(calibrated_set)
+        path = os.path.join(cal.path, 'calibrated.tsv')
+        self.logger.info("storing footprint optimized model in '{}'".format(path))
+        self.params.save(path)
         return self.params
 
     def make_plots(self):
