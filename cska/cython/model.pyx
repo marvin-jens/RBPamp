@@ -1,6 +1,6 @@
+#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 #!python
-###cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-#cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -329,7 +329,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m):
     t0 = time()
     # print "setup2"
     # main loop over all reads. compute dw_dA. in threads
-    for r in prange(N, schedule='static', chunksize=20000, nogil=True):
+    for r in prange(N, schedule='dynamic', nogil=True):
         tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
     # # single threaded version for testing
