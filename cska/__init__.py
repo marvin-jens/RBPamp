@@ -73,6 +73,7 @@ def parse_cmdline():
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
+    parser.add_option("", "--plot", dest="plot", default=False, action="store_true", help="plot results")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
@@ -203,6 +204,12 @@ class Run(object):
         self._init_paths()
         self._init_logging()
         self._init_signal_handler()
+
+        from cska.comparison import RefComparison
+        if self.options.compare:
+            self.ref = RefComparison(self.options.compare, ref_file=self.options.ref_file)
+        else:
+            self.ref = RefComparison(self.rbp_name, ref_file=self.options.ref_file)
 
 
     def _init_paths(self):
@@ -493,21 +500,22 @@ class Run(object):
 
         return res
 
+    def make_plots(self):
+        from cska.report import GradientDescentReport
+        plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
+        grep = GradientDescentReport(os.path.join(self.run_path, 'opt_nostruct/history'), path=plot_path, comp=self.ref)
+        grep.plot_literature()
+        grep.plot_report()
+        grep.plot_scatter(t=0)
+        grep.plot_scatter(t=-1)
 
     def PSAM_gradient_descent(self, name="opt"):
-        if self.options.compare:
-            compare = self.options.compare
-        else:
-            compare = self.rbp_name
-        
-        from cska.comparison import RefComparison
-        ref = RefComparison(compare, ref_file=self.options.ref_file)
 
         from cska.psamgrad import PSAMGradientDescent
         PGD = PSAMGradientDescent(
             self.rbns, 
             self.params, 
-            ref=ref, 
+            ref=self.ref, 
             k_fit=self.options.grad_k, 
             mdl_name=self.options.grad_mdl, 
             Z_thresh=self.options.Z_thresh, 
@@ -575,6 +583,9 @@ def main():
 
             if run.PSAM_gradient_descent('opt_full'):
                 run.mark_complete("struct")
+
+        if options.plot:
+            run.make_plots()
 
     except SystemExit:
         # This is alright

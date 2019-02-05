@@ -86,7 +86,17 @@ class RefComparison(object):
     def __len__(self):
         return len(self.seqs)
     
-    def predict_affinities(self, mdl):
+    def predict_affinities_from_paramset(self, paramset):
+        aff = np.zeros(len(self.seqs), dtype=np.float32)
+        for i, params in enumerate(paramset):
+            a = self.predict_affinities(params)
+            if i > 0:
+                a *= paramset.A0
+            aff += a
+        
+        return aff
+
+    def predict_affinities(self, params):
         import cska.cyska as cyska
         a = []
         # if hasattr(mdl, "parameters"):
@@ -96,10 +106,10 @@ class RefComparison(object):
 
         # from cska.seed import Alignment
         # A = Alignment()
-        matrix = mdl.params.psam_matrix
+        matrix = params.psam_matrix
         missing = []
-        core_start = mdl.params.acc_shift
-        core_end = core_start + mdl.params.acc_k
+        core_start = params.acc_shift
+        core_end = core_start + params.acc_k
         if core_end == core_start:
             # handle nostruct runs with acc_k=0
             core_end = len(matrix)
@@ -158,7 +168,7 @@ class RefComparison(object):
             #     # the seq is shorter than our motifs/model
             score, ofs = align(seq)
             # print seq, ofs, score
-            a.append(mdl.params.A0 * score)
+            a.append(params.A0 * score)
 
         a = np.array(a)
         # print a.min(), a.max(), a.mean()
