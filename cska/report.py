@@ -990,13 +990,15 @@ class GradientDescentReport(object):
             pp.close()
 
 
-    def plot_literature(self, debug=True):
+    def plot_literature(self, debug=True, t=-1):
         if self.comp is None:
             return
+        if t == -1:
+            t = self.t[-1]
 
         x = self.comp.observed_Kd
         x_err = self.comp.observed_Kd_err
-        y = 1/self.comp.predict_affinities_from_paramset(self.get('params', -1))
+        y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
         lfc = np.log2(y/x)
         I = lfc.argsort()
 
@@ -1038,7 +1040,7 @@ class GradientDescentReport(object):
             pp.tight_layout()
             sns.despine(trim=False)
 
-            pp.savefig(os.path.join(self.path,"literature_comparison.pdf"))
+            pp.savefig(os.path.join(self.path,"literature_comparison_t{}.pdf".format(t)))
             pp.close()
 
 

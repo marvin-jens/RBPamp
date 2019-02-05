@@ -504,7 +504,8 @@ class Run(object):
         from cska.report import GradientDescentReport
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
         grep = GradientDescentReport(os.path.join(self.run_path, 'opt_nostruct/history'), path=plot_path, comp=self.ref)
-        grep.plot_literature()
+        grep.plot_literature(t=0)
+        grep.plot_literature(t=-1)
         grep.plot_report()
         grep.plot_scatter(t=0)
         grep.plot_scatter(t=-1)
