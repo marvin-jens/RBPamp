@@ -255,10 +255,10 @@ class GradientDescent(object):
            
         last_errs = np.array(self.errors[-tau:])
         mean = last_errs.mean()
-        mag = np.sqrt((self.past_grad**2).sum())
-
-        if np.allclose(self.past_grad, 0, atol=atol):
-            return 'CONVERGED_GRAD_NULL'
+        if not self.past_grad is None:
+            mag = np.sqrt((self.past_grad**2).sum())
+            if np.allclose(self.past_grad, 0, atol=atol):
+                return 'CONVERGED_GRAD_NULL'
 
         elif (mean - self.errors[-1]) / mean < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'

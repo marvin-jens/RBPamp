@@ -1,5 +1,8 @@
 import numpy as np
-import gc, os, sys
+import gc
+import os
+import sys
+import shelve
 import logging
 from cska import ensure_path
 from cska.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
@@ -41,19 +44,20 @@ class FootprintCalibration(CachedBase):
         self.params.acc_k = 0
         self.params.acc_scale = 0
         self.params.non_specific = 0
+        self.consensus = self.params.as_PSAM().consensus
         self.rbns = rbns
         self.input_reads = rbns.reads[0]
         self.pd_names = [reads.name for reads in rbns.reads[1:]]
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
-        self.logger = logging.getLogger('opt.FootprintCalibration')
+        self.logger = logging.getLogger('opt.FootprintCalibration({})'.format(self.consensus))
         self.result_log = logging.getLogger('results.footprint')
 
         self.results = {}
         self._openen_cache = {}
         self._lacc_cache = {}
 
-        fp = os.path.join(self.path, 'footprints.tsv')
+        fp = os.path.join(self.path, 'footprints_{}.tsv'.format(self.consensus))
         # if os.path.exists(fp):
         #     self.load_footprints(fp)
         # no need to load these, as we now keep pickled results from optimize()
@@ -146,7 +150,7 @@ class FootprintCalibration(CachedBase):
                     self.results[(k, s)] = opt
                     self.store_footprint(opt)
                     # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
-                    self.result_log.info("k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+                    self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
 
                     if plot:
                         self.plot_profiles(punp_predict, k, s, res)
@@ -163,7 +167,7 @@ class FootprintCalibration(CachedBase):
 
         err, k, s, a, A0 = results[0]
         rel_err = err/self.err0
-        self.result_log.critical("OPTIMUM k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+        self.result_log.critical("OPTIMUM {self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
         self.params.acc_k = k
         self.params.acc_shift = s
         self.params.acc_scale = a
@@ -228,7 +232,7 @@ class FootprintCalibration(CachedBase):
         plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
         plt.xlabel('pos. rel to motif (consensus) [nt]')
 
-        fname = os.path.join(self.path, '{acc_k}_{acc_shift}.pdf'.format(**locals()))
+        fname = os.path.join(self.path, '{self.consensus}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
         plt.tight_layout()
         self.logger.debug("saving plot: '{}'".format(fname))
         plt.savefig(fname)
@@ -277,7 +281,7 @@ class FootprintCalibration(CachedBase):
         plt.ylim(3, k_base+n_k)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.path, 'footprint.pdf'))
+        plt.savefig(os.path.join(self.path, '{self.consensus}_footprint.pdf'.format(self=self)))
 
     # @monitored
     @pickled
@@ -373,9 +377,9 @@ class FootprintCalibration(CachedBase):
             # punp_expect = self.input_reads.weighted_accessibility_profile(self.Z1, self.params.k, pad=self.pad, row_w=psi)
             punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
             t_prof = time() - t4
-
-            # times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
-            # print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
+            print self.Z1.shape, punp.shape
+            times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
+            print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
             return np.array(punp_expect)
 
         def to_opt(args):

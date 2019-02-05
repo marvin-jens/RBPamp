@@ -428,6 +428,7 @@ class DependentKmerAnalysis(CachedBase):
         w = np.array([p.n for p in psams])
         wm = w.max()
         print "max width", wm
+        print "after min_reads filter", len(psams)
 
         # second pass -> pad motifs to equal size
         [p.pad_to_size(wm) for p in psams]

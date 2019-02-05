@@ -894,7 +894,7 @@ class GradientDescentReport(object):
     def __init__(self, fname, path='.', comp=None):
         import shelve
         self.comp = comp
-        self.shelve = shelve.open(fname)
+        self.shelve = shelve.open(fname, flag='r')
         self.logger = logging.getLogger('plot.GradientDescentReport')
         self.t = np.arange(self.find_max_t())
         self.rbp_conc = self.shelve['rbp_conc']

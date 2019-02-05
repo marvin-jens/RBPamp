@@ -492,13 +492,19 @@ class Run(object):
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
-        cal = FootprintCalibration(self.rbns, self.params)
-        kmin, kmax = self.options.footprint.split('-')
-        res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
-        if res:
-            self.params = res
+        calibrated_set = []
+        for par in self.params:
+            cal = FootprintCalibration(self.rbns, par)
+            kmin, kmax = self.options.footprint.split('-')
+            res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
+            if res:
+                calibrated_set.append(res)
+            else:
+                calibrated_set.append(par)
 
-        return res
+        from cska.params import ModelSetParams
+        self.params = ModelSetParams(calibrated_set)
+        return self.params
 
     def make_plots(self):
         from cska.report import GradientDescentReport
