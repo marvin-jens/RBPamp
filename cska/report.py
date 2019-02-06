@@ -6,8 +6,8 @@ import time
 from collections import defaultdict
 import matplotlib
 matplotlib.use('agg')
-matplotlib.rc('xtick.major', size = .5)
-matplotlib.rc('ytick.major', size = .5)
+# matplotlib.rc('xtick.major', size = .5)
+# matplotlib.rc('ytick.major', size = .5)
 
 sns_style = { 
     'axes.linewidth': .5, 
@@ -52,6 +52,11 @@ def repel_labels(x, y, labels, **kwargs):
         arrowprops=dict(arrowstyle="-", color='k', lw=0.5)
     )
 
+
+def sparse_y(ax, nth=2):
+    for n, label in enumerate(ax.yaxis.get_ticklabels()):
+        if n % nth != 0:
+            label.set_visible(False)
 
 def repel_labels_nx(x, y, labels, k=0.15, ax=None):
     import networkx as nx
@@ -993,15 +998,21 @@ class GradientDescentReport(object):
     def plot_literature(self, debug=True, t=-1):
         if self.comp is None:
             return
+
         if t == -1:
             t = self.t[-1]
 
         x = self.comp.observed_Kd
+        if not len(x):
+            return 
+
         x_err = self.comp.observed_Kd_err
         y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
         lfc = np.log2(y/x)
         I = lfc.argsort()
 
+        print x
+        print y
         from scipy.stats import pearsonr, spearmanr
         rho, p_spearman = spearmanr(np.log(x), np.log(y))
         R, p_pearson = pearsonr(np.log(x), np.log(y))
@@ -1011,8 +1022,8 @@ class GradientDescentReport(object):
 
         # self.results.info("R={R:.3f} {ppstr} rho={rho:.3f} {psstr}".format(**locals()))
         if debug:
-            print ">>> R={R} {ppstr}".format(**locals())
-            print ">>> rho={rho} {psstr}".format(**locals())
+            print u">>> R={R} {ppstr}".format(**locals())
+            print u">>> rho={rho} {psstr}".format(**locals())
             print "seq\tknown\tpredict\tlog-ratio"
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
                 print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
@@ -1137,6 +1148,150 @@ class GradientDescentReport(object):
 
         pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
         pp.close()
+
+
+class FootprintCalibrationReport(object):
+    def __init__(self, fparams, out_path='.'):
+        """
+        fparams is path to calibrated.tsv params file
+        expects database 'history' in same folder to retrieve
+        intermediate results
+        """ 
+        from cska.params import ModelSetParams
+        import shelve
+        self.out_path = out_path
+        self.logger = logging.getLogger('plot.FootprintCalibrationReport')
+        dbfile = os.path.join(os.path.dirname(fparams), 'history')
+        self.shelve = shelve.open(dbfile, flag='r')
+        self.rbp_conc = self.shelve['rbp_conc']
+        
+        self.params = ModelSetParams.load(fparams, len(self.rbp_conc))
+        self.motifs = [par.as_PSAM().consensus for par in self.params]
+        if (self.rbp_conc == np.round(self.rbp_conc)).all():
+            self.rbp_conc = np.array(self.rbp_conc, dtype=int)
+
+    def get_profile_data(self, motif, k, s):
+        opt = self.shelve["{motif}_{k}_{s}".format(**locals())]
+        punp_predict, punp_a_one, res, res_a_one = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
+        punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
+        punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]
+
+        return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
+
+    def read_sample_errors(self):
+        errors = np.array([self.get('stats', t).errors for t in self.t])
+        return errors
+
+    def plot_profile(self, motif, acc_k, acc_shift):
+        res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = self.get_profile_data(motif, acc_k, acc_shift)
+        err0 = np.sum((punp_naive - punp_input[1:])**2)
+
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        # pwm = self.params.as_PSAM()
+        pad = (punp_input.shape[1] - len(motif)) / 2
+        x = np.arange(-pad, len(motif) + pad )
+
+        plt.figure()
+        # if acc_k:
+        #     plt.title("acc_k = {acc_k} acc_shift = {acc_shift}".format(**locals()))
+        # else:
+        #     plt.title("expectation w/o acc. footprint".format(**locals()))
+
+        colors = sns.color_palette("husl", 8)
+        plt.plot(x, punp_input[0], '-k', label='input')
+        for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
+            plt.plot(x, obs, '-', color=color, label="{} nM".format(conc))
+
+        import matplotlib.patches as patches
+        ymin, ymax = plt.gca().get_ylim()
+        height = ymax - ymin
+        h = height * .02
+        rect = patches.Rectangle(
+            (acc_shift, ymin + h), 
+            acc_k, h,
+            linewidth=1,
+            edgecolor='r',
+            facecolor='r',
+            label='footprint'
+        )
+        plt.gca().add_patch(rect)
+
+        for i, (pred, one, conc, color) in enumerate(zip(punp_expect, punp_a_one, self.rbp_conc, colors)):
+            lbl = "RNAfold (a=1) prediction err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
+            plt.plot(x, one, ':', color=color, label=lbl if i == 0 else None)
+            
+            lbl = 'optimized (a={res.x[0]:.2f}) prediction err={rerr:.1f}%'.format(res=res, rerr = 100. * res.fun/err0)
+            plt.plot(x, pred, '--', color=color, label=lbl if i == 0 else None)
+
+        cons = motif
+        plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+        plt.axvline( - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+        plt.axvline(len(motif) - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+
+        plt.legend(
+            bbox_to_anchor=(0., 1.02, 1., .202), 
+            loc=3, ncol=2, mode="expand", borderaxespad=0.,
+            frameon=False
+        )
+
+
+        plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
+        plt.xlabel('pos. rel to motif (consensus) [nt]')
+
+        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
+        plt.tight_layout()
+        sns.despine(trim=True)
+        sparse_y(plt.gca())
+        self.logger.debug("saving plot: '{}'".format(fname))
+        plt.savefig(fname)
+        plt.close()
+
+
+    def matrix_plots(self, results):
+        self.logger.debug("matrix plot")
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        err, acc_k, acc_shift, a, A0 = np.array(results).T
+        k_base = int(acc_k.min())
+        n_k = int(acc_k.max()) - k_base + 1
+        shift = int(np.fabs(acc_shift).max())
+        n_shift = shift * 2 + 1 
+        mid_shift = shift
+
+        mat_a = np.zeros((n_k, n_shift), dtype=float) + np.NaN
+        mat_err = np.zeros((n_k, n_shift), dtype=float) + np.NaN
+        for err, acc_k, acc_shift, a, A0 in results:
+            mat_a[acc_k - k_base, acc_shift + mid_shift] = a
+            mat_err[acc_k - k_base, acc_shift + mid_shift] = self.err0/err
+
+        fig = plt.figure(figsize=(6,6))
+        # fig.suptitle("accessibility footprint analysis")
+        plt.subplot(211)
+        plt.pcolor(mat_err, cmap="viridis")
+        plt.colorbar(label=r'fold error reduction', fraction=.05)
+
+        plt.ylabel("size [nt]")
+        plt.xlabel("shift [nt]")
+
+        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
+        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
+        plt.ylim(3, k_base+n_k)
+
+        plt.subplot(212)
+        plt.pcolor(mat_a, cmap="inferno")
+        plt.colorbar(label=r'accessibility scaling', fraction=.05)
+
+        plt.ylabel("size [nt]")
+        plt.xlabel("shift [nt]")
+
+        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
+        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
+        plt.ylim(3, k_base+n_k)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.path, '{self.consensus}_footprint.pdf'.format(self=self)))
+
 
 if __name__ == "__main__":
     # rep = RunReport('/scratch/data/RBNS/MBNL1/cska/1M')

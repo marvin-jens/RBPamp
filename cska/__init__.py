@@ -501,6 +501,8 @@ class Run(object):
                 calibrated_set.append(res)
             else:
                 calibrated_set.append(par)
+            
+            cal.close()
 
         from cska.params import ModelSetParams
         self.params = ModelSetParams(calibrated_set)
@@ -510,9 +512,15 @@ class Run(object):
         return self.params
 
     def make_plots(self):
-        from cska.report import GradientDescentReport
+        import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
-        grep = GradientDescentReport(os.path.join(self.run_path, 'opt_nostruct/history'), path=plot_path, comp=self.ref)
+        # fprep = report.FootprintCalibrationReport(
+        #     os.path.join(self.run_path, 'footprint/calibrated.tsv'),
+        #     out_path=plot_path
+        # )
+        # fprep.plot_profile("CGCUACGCUC", 11, -1)
+
+        grep = report.GradientDescentReport(os.path.join(self.run_path, 'opt_nostruct/history'), path=plot_path, comp=self.ref)
         grep.plot_literature(t=0)
         grep.plot_literature(t=-1)
         grep.plot_report()

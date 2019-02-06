@@ -25,11 +25,12 @@ class PartFuncModelState(object):
         self.Z1 = None
         self.Z1_read = None
         for par in self.params:
+            key = (par.acc_k, par.acc_scale)
             Z1 = cyska.PSAM_partition_function(
                 self.mdl._seqm,
-                self.mdl._acc,
+                self.mdl._acc[key],
                 np.array(par.psam_matrix, dtype=np.float32),  # * params.A0,
-                openen_ofs=self.mdl.openen.ofs - self.mdl.k_mdl + 1 + self.mdl.acc_shift
+                openen_ofs=self.mdl.openen[key].ofs - par.k + 1 + par.acc_shift
             )
             Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
             self.Z1_read_motif.append(Z1_read)
@@ -241,9 +242,9 @@ class PartFuncModel(object):
         self.params = params0
         # TODO: handle multiple PSAMs
         self.k_mdl = self.params.k
-        self.acc_k = self.params.acc_k
-        self.acc_shift = self.params.acc_shift
-        self.acc_scale = self.params.acc_scale
+        # self.acc_k = self.params.acc_k
+        # self.acc_shift = self.params.acc_shift
+        # self.acc_scale = self.params.acc_scale
 
         self.Z_thresh = Z_thresh
 
@@ -263,19 +264,29 @@ class PartFuncModel(object):
         self.im = self.reads.get_index_matrix(self.k)
         self.seqm = self.reads.get_padded_seqm(self.k_mdl)  #2bit coded read sequences, including flanking adapter overlap
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
-        self.openen = self.reads.acc_storage.get_raw(self.acc_k)  # corresponding accessibilities
-        self.acc = self.openen.acc
-        if self.params.acc_scale != 1.:
-            self.logger.debug("scaling accessibilities by {}".format(self.params.acc_scale))
-            self.acc = np.array(self.acc, dtype=np.float32)  # make a scaled *copy*
-            cyska.pow_scale(self.acc, self.params.acc_scale)
 
-        assert np.isfinite(self.acc).all()
+        self.openen = {}
+        self.acc = {}
+        self._acc = {}
+        for par in self.params:
+            key = (par.acc_k, par.acc_scale)
+            # these parameters don't change over the course of the optimization
+            # load the matching kmer accessibilities and scale them only once!
+            openen = self.reads.acc_storage.get_raw(par.acc_k)  
+            acc = openen.acc
+            if par.acc_scale != 1.:
+                self.logger.debug("scaling accessibilities by {}".format(par.acc_scale))
+                acc = np.array(acc, dtype=np.float32)  # make a scaled *copy*
+                cyska.pow_scale(acc, par.acc_scale)
+            
+            self.openen[key] = openen
+            self.acc[key] = acc
+            self._acc[key] = acc
+            assert np.isfinite(acc).all()
 
         # in case a mask is set, this can be a subset
         self.indices = []
         self._seqm = self.seqm
-        self._acc = self.acc
         self._im = self.im
         self.N = np.float32(len(self._seqm))
 
@@ -362,13 +373,17 @@ class PartFuncModel(object):
         if not len(indices):
             # unset mask
             self._seqm = self.seqm
-            self._acc = self.acc
             self._im = self.im
+            for key in self.acc.keys():
+                self._acc[key] = self.acc[key]
+
             self.logger.debug("set_mask() unset")
         else:
             self._seqm = self.seqm[indices]
-            self._acc = self.acc[indices]
             self._im = self.im[indices]
+            for key in self.acc.keys():
+                self._acc[key] = self.acc[key][indices]
+
             frac = float(len(self._seqm)) / len(self.seqm)
             self.logger.debug("set_mask() to {0:.2f}% of reads".format(100. * frac))
 
@@ -390,7 +405,7 @@ class PartFuncModel(object):
     def predict(self, params, aff0=1e-6, debug=False, tune=False, **kwargs):
         t0 = time.time()
         state = PartFuncModelState(self, params, **kwargs)
-        self.logger.debug("predict(acc_k={} acc_shift={}) took {:.2f} ms".format(self.acc_k, self.acc_shift, 1000. * (time.time() - t0)))
+        self.logger.debug("predict(took {:.2f} ms".format(1000. * (time.time() - t0)))
         if tune:
             state = self.tune(state)
 

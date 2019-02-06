@@ -1417,6 +1417,7 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
 
     # print "n_cols=", n_cols
     cdef FLOAT32_t [:,:,:] footprint = np.zeros((n_threads, n_cols, (l % 64 + 1) * 64), dtype=np.float32)
+    cdef FLOAT32_t fp = 0.
     cdef FLOAT32_t [:,:] Z = np.zeros((n_threads, n_cols), dtype=np.float32)
 
     cdef int j,x
@@ -1462,7 +1463,8 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
                 # footprint[x0] = f3
                 f0 = Z1x * acc_row[d]
                 for col in range(n_cols):
-                    footprint[tid, col, d + pad] += f0 * rw[col, j]
+                    fp = footprint[tid, col, d + pad]
+                    footprint[tid, col, d + pad] = fp + f0 * rw[col, j]
 
     # collect data from all threads
     for tid in range(1, n_threads):
