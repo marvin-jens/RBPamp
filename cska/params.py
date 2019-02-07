@@ -37,7 +37,7 @@ class Proxy(object):
         return d
 
 class ModelSetParams(object):
-    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_k', 'acc_shift', 'acc_scale']):
+    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_shift', 'acc_scale']):
         self._forward = set(forward)
         self.param_set = param_set
         # for name in forward:
@@ -70,6 +70,16 @@ class ModelSetParams(object):
         ratio = value / self.param_set[0].A0
         for par in self.param_set:
             par.A0 *= ratio
+
+    @property
+    def acc_k(self):
+        return self.param_set[0].A0
+
+    @acc_k.setter
+    def acc_k(self, value):
+        # change all motif acc_k's (esp. for acc_k=0)
+        for par in self.param_set:
+            par.acc_k *= acc_k
 
     @property
     def betas(self):
