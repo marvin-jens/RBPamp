@@ -105,11 +105,11 @@ class PSAMGradientDescent(object):
             # ugcacgu = cyska.seq_to_index('ugcacgu')
             # print "UGCACGU", descent.model.affinities[ugcacgu]
             state = descent.last_state
-            self.shelve["params_t{}".format(descent.t)] = state.params
-            self.shelve["grad_t{}".format(descent.t-1)] = descent.past_grad
-            self.shelve["stats_t{}".format(descent.t)] = state.stats
-            self.shelve["R_t{}".format(descent.t)] = state.R
-            self.shelve["linesearch_t{}".format(descent.t)] = (descent.ls_nfev[-1], descent.ls_step[-1])
+            self.shelve["params_t{}".format(descent.t + self.t_ofs)] = state.params
+            self.shelve["grad_t{}".format(descent.t + self.t_ofs - 1)] = descent.past_grad
+            self.shelve["stats_t{}".format(descent.t + self.t_ofs)] = state.stats
+            self.shelve["R_t{}".format(descent.t + self.t_ofs)] = state.R
+            self.shelve["linesearch_t{}".format(descent.t + self.t_ofs)] = (descent.ls_nfev[-1], descent.ls_step[-1])
             self.shelve.sync()
             descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
 
