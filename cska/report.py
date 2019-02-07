@@ -929,23 +929,23 @@ class GradientDescentReport(object):
         self.t_ofs += len(t)
         self.shelf_map.append(self.t_ofs)
         self.epoch_names.append(epoch_name)
-        print "shelfmap", self.shelf_map
+        # print "shelfmap", self.shelf_map
 
     def report(self):
-        print self.epochs
-        print self.epoch_names
+        # print self.epochs
+        # print self.epoch_names
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
-            print "epoch", t0, t, name
+            # print "epoch", t0, t, name
             # self.plot_scatter(t0, title="before {}".format(name))
             # self.plot_scatter(t, title="after {}".format(name))
 
-            print "plotting literature", t0
+            # print "plotting literature", t0
             self.plot_literature(t0, title="before {}".format(name))
-            print "plotting literature", t
+            # print "plotting literature", t
             self.plot_literature(t, title="after {}".format(name))
 
-        # self.plot_report()
+        self.plot_report()
     
     def find_max_t(self, shelf):
         t = -1
@@ -960,7 +960,7 @@ class GradientDescentReport(object):
         from bisect import bisect
         shelf_i = bisect(self.shelf_map, t) - 1
         t_shelf = t - self.shelf_map[shelf_i]
-        print t, "->", shelf_i, t_shelf
+        # print t, "->", shelf_i, t_shelf
         return self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
 
     def read_sample_errors(self):
@@ -1202,7 +1202,12 @@ class FootprintCalibrationReport(object):
         self.out_path = out_path
         self.logger = logging.getLogger('plot.FootprintCalibrationReport')
         dbfile = os.path.join(os.path.dirname(fparams), 'history')
-        self.shelve = shelve.open(dbfile, flag='r')
+        try:
+            self.shelve = shelve.open(dbfile, flag='r')
+        except:
+            self.logger.error("could not open db '{}'. No data to plot!".format(dbfile))
+            self.shelve = {}
+
         self.rbp_conc = self.shelve['rbp_conc']
         
         self.params = ModelSetParams.load(fparams, len(self.rbp_conc))
@@ -1210,21 +1215,54 @@ class FootprintCalibrationReport(object):
         if (self.rbp_conc == np.round(self.rbp_conc)).all():
             self.rbp_conc = np.array(self.rbp_conc, dtype=int)
 
+    def baseline_error(self, motif):
+        punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
+        punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]        
+        err0 = np.sum((punp_naive - punp_input[1:])**2)
+        
+        return err0
+
     def get_profile_data(self, motif, k, s):
-        opt = self.shelve["{motif}_{k}_{s}".format(**locals())]
+        key = "{motif}_{k}_{s}".format(**locals())
+        if not key in self.shelve:
+            return None
+
+        opt = self.shelve[key]
         punp_predict, punp_a_one, res, res_a_one = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
         punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
         punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]
 
         return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
 
-    def read_sample_errors(self):
-        errors = np.array([self.get('stats', t).errors for t in self.t])
-        return errors
+    def get_matrix_data(self, motif, k_range=(5, 11), s_range=(-5, 5)):
+        kmin, kmax = k_range
+        smin, smax = s_range
+
+        scales = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
+        errors = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
+
+        for k in range(kmin, kmax + 1):
+            for s in range(smin, smax + 1):
+                key = "{motif}_{k}_{s}".format(**locals())
+                if key in self.shelve:
+                    err, k, s, a, A0 = self.shelve[key]
+                else:
+                    err = np.nan
+                    a = np.nan
+                
+                scales[s - smin, k - kmin] = a
+                errors[s - smin, k - kmin] = err
+        
+        err0 = self.baseline_error(motif)
+        return scales, errors/err0, k_range, s_range
 
     def plot_profile(self, motif, acc_k, acc_shift):
-        res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = self.get_profile_data(motif, acc_k, acc_shift)
-        err0 = np.sum((punp_naive - punp_input[1:])**2)
+        data = self.get_profile_data(motif, acc_k, acc_shift)
+        if data is None:
+            return
+
+        res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = data
+        err0 = self.baseline_error(motif)
 
         import seaborn as sns
         import matplotlib.pyplot as plt
@@ -1275,7 +1313,6 @@ class FootprintCalibrationReport(object):
             frameon=False
         )
 
-
         plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
         plt.xlabel('pos. rel to motif (consensus) [nt]')
 
@@ -1287,50 +1324,49 @@ class FootprintCalibrationReport(object):
         plt.savefig(fname)
         plt.close()
 
+    def report(self):
+        for motif in self.motifs:
+            print motif
+            self.matrix_plots(motif)
 
-    def matrix_plots(self, results):
+    def matrix_plots(self, motif):
         self.logger.debug("matrix plot")
         import seaborn as sns
         import matplotlib.pyplot as plt
-        err, acc_k, acc_shift, a, A0 = np.array(results).T
-        k_base = int(acc_k.min())
-        n_k = int(acc_k.max()) - k_base + 1
-        shift = int(np.fabs(acc_shift).max())
-        n_shift = shift * 2 + 1 
-        mid_shift = shift
 
-        mat_a = np.zeros((n_k, n_shift), dtype=float) + np.NaN
-        mat_err = np.zeros((n_k, n_shift), dtype=float) + np.NaN
-        for err, acc_k, acc_shift, a, A0 in results:
-            mat_a[acc_k - k_base, acc_shift + mid_shift] = a
-            mat_err[acc_k - k_base, acc_shift + mid_shift] = self.err0/err
+        mat_a, mat_err, k_range, s_range = self.get_matrix_data(motif)
+        kmin, kmax = k_range
+        smin, smax = s_range
+
+        n_shift = smax - smin + 1
+        n_k = kmax - kmin + 1
 
         fig = plt.figure(figsize=(6,6))
         # fig.suptitle("accessibility footprint analysis")
         plt.subplot(211)
-        plt.pcolor(mat_err, cmap="viridis")
+        plt.pcolor(1./mat_err.T, cmap="viridis")
         plt.colorbar(label=r'fold error reduction', fraction=.05)
 
         plt.ylabel("size [nt]")
         plt.xlabel("shift [nt]")
 
-        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
-        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
-        plt.ylim(3, k_base+n_k)
+        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
+        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
+        # plt.ylim(kmin, kmax + 1)
 
         plt.subplot(212)
-        plt.pcolor(mat_a, cmap="inferno")
+        plt.pcolor(mat_a.T, cmap="inferno")
         plt.colorbar(label=r'accessibility scaling', fraction=.05)
 
         plt.ylabel("size [nt]")
         plt.xlabel("shift [nt]")
 
-        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(-shift, shift+1)])
-        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(k_base, k_base + n_k)])
-        plt.ylim(3, k_base+n_k)
+        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
+        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
+        # plt.ylim(kmin, kmax + 1)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.path, '{self.consensus}_footprint.pdf'.format(self=self)))
+        plt.savefig(os.path.join(self.out_path, '{motif}_footprint.pdf'.format(motif=motif)))
 
 
 if __name__ == "__main__":

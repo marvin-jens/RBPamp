@@ -245,7 +245,7 @@ class GradientDescent(object):
 
         return upd
 
-    def converged(self, atol=1e-7, tau=10):
+    def converged(self, atol=1e-7, tau=3):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
@@ -254,13 +254,21 @@ class GradientDescent(object):
             return self.status
            
         last_errs = np.array(self.errors[-tau:])
-        mean = last_errs.mean()
-        if not self.past_grad is None:
-            mag = np.sqrt((self.past_grad**2).sum())
-            if np.allclose(self.past_grad, 0, atol=atol):
-                return 'CONVERGED_GRAD_NULL'
+        rel_error = self.errors[-1] / self.errors[0]
+        rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
 
-        elif (mean - self.errors[-1]) / mean < self.eps:
+        mean = last_errs.mean()
+        rel_decrease = (mean - self.errors[-1]) / mean
+        if self.past_grad is None:
+            mag = np.inf
+        else:
+            mag = np.sqrt((self.past_grad**2).sum())
+
+        self.logger.debug("rel_decrease={rel_decrease}, eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
+        if np.allclose(self.past_grad, 0, atol=atol):
+            return 'CONVERGED_GRAD_NULL'
+
+        elif rel_decrease < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'
             
         else:

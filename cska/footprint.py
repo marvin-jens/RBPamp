@@ -140,8 +140,13 @@ class FootprintCalibration(CachedBase):
                     rel_err = err / self.err0
                     a = res.x[0]
                     A0 = res.x[1]
-                    opt = (err, k, s, a, A0)
+                    if not res.success:
+                        self.logger.warning("unable to optimize footprint k={k}, s={s}.".format(**locals()))
+                        a = 0.
+                        A0 = self.params.A0
+                        err = self.err0
                     
+                    opt = (err, k, s, a, A0)
                     self.results[(k, s)] = opt
                     self.store_footprint(opt)
                     # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
@@ -333,6 +338,7 @@ class FootprintCalibration(CachedBase):
                 options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
             )
             a, A0 = res.x
+
         punp_expect = predict_profiles(a, A0)
         gc.collect()
         return res, punp_expect
@@ -343,3 +349,7 @@ class FootprintCalibration(CachedBase):
             reads.acc_storage.cache_flush()
 
         self.shelve.close()
+        import cska.caching
+        cska.caching._dump_cache_sizes()
+        import gc
+        gc.gc()

@@ -515,11 +515,11 @@ class Run(object):
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
-        # fprep = report.FootprintCalibrationReport(
-        #     os.path.join(self.run_path, 'footprint/calibrated.tsv'),
-        #     out_path=plot_path
-        # )
-        # fprep.report()
+        fprep = report.FootprintCalibrationReport(
+            os.path.join(self.run_path, 'footprint/calibrated.tsv'),
+            out_path=plot_path
+        )
+        fprep.report()
         # fprep.plot_profile("CGCUACGCUC", 11, -1)
 
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
