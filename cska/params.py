@@ -79,7 +79,7 @@ class ModelSetParams(object):
     def acc_k(self, value):
         # change all motif acc_k's (esp. for acc_k=0)
         for par in self.param_set:
-            par.acc_k *= acc_k
+            par.acc_k = value
 
     @property
     def betas(self):
