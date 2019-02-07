@@ -79,7 +79,7 @@ def parse_cmdline():
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
-    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
+    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
 
     # TODO: update
     parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
@@ -514,19 +514,19 @@ class Run(object):
     def make_plots(self):
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
+
         # fprep = report.FootprintCalibrationReport(
         #     os.path.join(self.run_path, 'footprint/calibrated.tsv'),
         #     out_path=plot_path
         # )
+        # fprep.report()
         # fprep.plot_profile("CGCUACGCUC", 11, -1)
 
-        grep = report.GradientDescentReport(os.path.join(self.run_path, 'opt_nostruct/history'), path=plot_path, comp=self.ref)
-        grep.plot_literature(t=0)
-        grep.plot_literature(t=-1)
-        grep.plot_report()
-        grep.plot_scatter(t=0)
-        grep.plot_scatter(t=-1)
-
+        grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
+        grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
+        grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
+        grep.report()
+        
     def PSAM_gradient_descent(self, name="opt"):
 
         from cska.psamgrad import PSAMGradientDescent

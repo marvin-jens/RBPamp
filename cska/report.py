@@ -896,34 +896,72 @@ class RunReport(object):
 
 
 class GradientDescentReport(object):
-    def __init__(self, fname, path='.', comp=None):
-        import shelve
-        self.comp = comp
-        self.shelve = shelve.open(fname, flag='r')
+    def __init__(self, path='.', comp=None):
         self.logger = logging.getLogger('plot.GradientDescentReport')
-        self.t = np.arange(self.find_max_t())
-        self.rbp_conc = self.shelve['rbp_conc']
-        if (self.rbp_conc == np.round(self.rbp_conc)).all():
-            self.rbp_conc = np.array(self.rbp_conc, dtype=int)
-
-        self.R_exp = self.shelve['R_exp']
-        self.logR0 = np.log2(self.R_exp)
-        self.n_samples = self.R_exp.shape[0]
-        self.k_mer = int(np.log2(self.R_exp.shape[1])/2.)
+        self.comp = comp
+        self.shelves = []
+        self.shelf_map = [0]
+        self.t = None
+        self.t_ofs = 0
+        self.epoch_names = []
+        self.epochs = []
         self.path = path
 
-    def find_max_t(self):
+    def load(self, fname, epoch_name):
+        import shelve
+        self.shelves.append(shelve.open(fname, flag='r'))
+        t = np.arange(self.find_max_t(self.shelves[-1])) + self.t_ofs
+
+        if self.t is None:
+            self.rbp_conc = self.shelves[0]['rbp_conc']
+            if (self.rbp_conc == np.round(self.rbp_conc)).all():
+                self.rbp_conc = np.array(self.rbp_conc, dtype=int)
+
+            self.R_exp = self.shelves[0]['R_exp']
+            self.logR0 = np.log2(self.R_exp)
+            self.n_samples = self.R_exp.shape[0]
+            self.k_mer = int(np.log2(self.R_exp.shape[1])/2.)
+            self.t = t
+        else:
+            self.t = np.concatenate((self.t, t))
+
+        self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
+        self.t_ofs += len(t)
+        self.shelf_map.append(self.t_ofs)
+        self.epoch_names.append(epoch_name)
+        print "shelfmap", self.shelf_map
+
+    def report(self):
+        print self.epochs
+        print self.epoch_names
+        for i, name in enumerate(self.epoch_names):
+            t0, t = self.epochs[i]
+            print "epoch", t0, t, name
+            # self.plot_scatter(t0, title="before {}".format(name))
+            # self.plot_scatter(t, title="after {}".format(name))
+
+            print "plotting literature", t0
+            self.plot_literature(t0, title="before {}".format(name))
+            print "plotting literature", t
+            self.plot_literature(t, title="after {}".format(name))
+
+        # self.plot_report()
+    
+    def find_max_t(self, shelf):
         t = -1
-        while self.shelve.has_key("params_t{}".format(t+1)):
+        while shelf.has_key("stats_t{}".format(t+1)):
             t += 1
         return t
 
     def get(self, name, t):
-        # TODO: allow adding more than one history and bisect on t, 
-        # so that we read quasi-consecutively
         if t == -1:
             t = self.t[-1]
-        return self.shelve["{0}_t{1}".format(name, t)]
+
+        from bisect import bisect
+        shelf_i = bisect(self.shelf_map, t) - 1
+        t_shelf = t - self.shelf_map[shelf_i]
+        print t, "->", shelf_i, t_shelf
+        return self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
 
     def read_sample_errors(self):
         errors = np.array([self.get('stats', t).errors for t in self.t])
@@ -936,7 +974,6 @@ class GradientDescentReport(object):
 
     def read_linesearch(self):
         return np.array([self.get('linesearch', t) for t in self.t]).T
-
 
     def plot_report(self):
         pp.figure(figsize=(6,12))
@@ -967,12 +1004,17 @@ class GradientDescentReport(object):
         pp.xlabel('time step')
         pp.legend(loc='upper right')
 
+        if len(self.epoch_names) > 1:
+            for i, name in enumerate(self.epoch_names):
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
+                # TODO: add annotation 'no structure' 'full model'
+
         pp.tight_layout()
         pp.savefig(os.path.join(self.path,"descent_report.pdf"))
         pp.close()
 
 
-    def plot_scatter(self, t=-1):
+    def plot_scatter(self, t=-1, title=""):
         if t == -1:
             t = self.t[-1]
 
@@ -980,7 +1022,7 @@ class GradientDescentReport(object):
         logRt = np.log2(self.get("R", t))
         for i in range(self.n_samples):
             pp.figure()
-            title = "{0}mer R-value scatter plot".format(self.k_mer)
+            title = "{0}mer R-value scatter plot {1}".format(self.k_mer, title)
             pp.title(title)
 
             x = self.logR0[i]
@@ -995,7 +1037,7 @@ class GradientDescentReport(object):
             pp.close()
 
 
-    def plot_literature(self, debug=True, t=-1):
+    def plot_literature(self, t, debug=True, title=""):
         if self.comp is None:
             return
 
@@ -1011,8 +1053,6 @@ class GradientDescentReport(object):
         lfc = np.log2(y/x)
         I = lfc.argsort()
 
-        print x
-        print y
         from scipy.stats import pearsonr, spearmanr
         rho, p_spearman = spearmanr(np.log(x), np.log(y))
         R, p_pearson = pearsonr(np.log(x), np.log(y))
@@ -1037,7 +1077,7 @@ class GradientDescentReport(object):
             matplotlib.rc('ytick.major', width = .1)
 
             pp.figure(figsize=(6,6))
-            pp.title("comparison to {} literature affinities".format(self.comp.n))
+            pp.title("comparison to {0} literature affinities {1}".format(self.comp.n, title))
             pp.errorbar(x, y, xerr=x_err, fmt='.', ecolor='k', elinewidth=.5, capsize=3, capthick=.5, label=label)
             pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
