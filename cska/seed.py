@@ -330,14 +330,14 @@ class DependentKmerAnalysis(CachedBase):
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
         # print self.linear
 
-    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=.05, A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
         alns = []
         R, R_err = self.rbns.R_value_matrix(k)
         R = R.mean(axis=0)
-        Rns = np.quantile(R, q_ns)
+        Rns = np.percentile(R, q_ns)
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
 
