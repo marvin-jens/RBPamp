@@ -362,8 +362,9 @@ class DependentKmerAnalysis(CachedBase):
             kmer = cyska.index_to_seq(i, k)
             n += 1
             r = R[i] 
-            # print i, kmer, r, "+/-", R_err[i], R_cut
-            if r - R_err[i] < R_cut:
+            rerr = R_err[i]
+            self.logger.debug( "{i}, {kmer}, {r}, +/- {rerr}, {R_cut}".format(**locals()))
+            if r - rerr < R_cut:
                 break
             
             kmer_set.append( (kmer, r) )
@@ -372,7 +373,7 @@ class DependentKmerAnalysis(CachedBase):
         n_min = int(min_mer * n_enriched)
 
         kmer, r = kmer_set.pop(0)
-        print "STARTING from", kmer, r
+        # print "STARTING from", kmer, r
         aln = Alignment()
         aln.blend(kmer, 0, r, normalize=False)
         alns.append(aln)
@@ -415,7 +416,6 @@ class DependentKmerAnalysis(CachedBase):
                 #     print alns[j].matrix
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
-        print "done assembling {0} motifs from {1} kmers with z > {2}".format(len(alns), n, z_cut)
         def make_psam(aln, **kwargs):
             return aln.to_PSAM(
                 pseudo=0, 
@@ -425,10 +425,10 @@ class DependentKmerAnalysis(CachedBase):
             )
 
         psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        motifs = ",".join([p.consensus for p in psams])
+        self.logger.info("done assembling {0} motifs from {1} kmers with z > {2}: {3}".format(len(psams), n, z_cut, motifs))
         w = np.array([p.n for p in psams])
         wm = w.max()
-        print "max width", wm
-        print "after min_reads filter", len(psams)
 
         # second pass -> pad motifs to equal size
         [p.pad_to_size(wm) for p in psams]

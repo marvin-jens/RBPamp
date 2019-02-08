@@ -269,7 +269,7 @@ class PSAM(object):
             else:
                 left = i % 2 # alternate
 
-            print "padding",i,'/',w-n, "left=", left
+            # print "padding",i,'/',w-n, "left=", left
             if left:
                 self.psam = np.concatenate( (np.ones((1,d)), self.psam), axis=0 )
             else:
