@@ -520,7 +520,6 @@ class Run(object):
             out_path=plot_path
         )
         fprep.report()
-        # fprep.plot_profile("CGCUACGCUC", 11, -1)
 
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")

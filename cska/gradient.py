@@ -303,7 +303,9 @@ class GradientDescent(object):
         if debug:
             print "INITIAL PARAMETERS"
             print params
-        
+            from cska.caching import _dump_cache_sizes
+            _dump_cache_sizes()
+
         state = self.model.predict(self.params, **self.predict_kwargs)
 
         self.errors.append(state.error)
@@ -391,6 +393,10 @@ class GradientDescent(object):
                     t_grad = 1000. * self.model.t_grad/self.model.n_grad,
                 ))
                 dt = time.time() - t0
+                if debug:
+                    from cska.caching import _dump_cache_sizes
+                    print "caches at the end of loop"
+                    _dump_cache_sizes()
 
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:

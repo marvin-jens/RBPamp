@@ -5,7 +5,7 @@ import logging
 import time
 from collections import defaultdict
 import matplotlib
-matplotlib.use('agg')
+# matplotlib.use('agg')
 # matplotlib.rc('xtick.major', size = .5)
 # matplotlib.rc('ytick.major', size = .5)
 
@@ -909,8 +909,16 @@ class GradientDescentReport(object):
 
     def load(self, fname, epoch_name):
         import shelve
-        self.shelves.append(shelve.open(fname, flag='r'))
+        try:
+            self.shelves.append(shelve.open(fname, flag='r'))
+        except:
+            self.logger.error("could not open '{}'. No data to plot!".format(fname))
+            return
+
         t = np.arange(self.find_max_t(self.shelves[-1])) + self.t_ofs
+        if not len(t):
+            self.logger.error("'{}' contained no data!".format(fname))
+            return
 
         if self.t is None:
             self.rbp_conc = self.shelves[0]['rbp_conc']
@@ -932,6 +940,8 @@ class GradientDescentReport(object):
         # print "shelfmap", self.shelf_map
 
     def report(self):
+        if self.t is None:
+            return
         # print self.epochs
         # print self.epoch_names
         for i, name in enumerate(self.epoch_names):
@@ -1095,99 +1105,99 @@ class GradientDescentReport(object):
             pp.close()
 
 
-    def plot_A0_fit(self, t=-1):
-        state = self.descent.history[t]
-        if t == -1:
-            t = self.descent.t
+    # def plot_A0_fit(self, t=-1):
+    #     state = self.descent.history[t]
+    #     if t == -1:
+    #         t = self.descent.t
 
-        if not hasattr(state, "_A0_data"):
-            return
+    #     if not hasattr(state, "_A0_data"):
+    #         return
 
-        a0 = state._A0_data.a0
-        rerr = state._A0_data.rerr
-        asem = getattr(state._A0_data, "asem", None)
-        rcorr = state._A0_data.rcorr
+    #     a0 = state._A0_data.a0
+    #     rerr = state._A0_data.rerr
+    #     asem = getattr(state._A0_data, "asem", None)
+    #     rcorr = state._A0_data.rcorr
 
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plot = plt.loglog
-        plt.subplot(311)
+    #     import matplotlib.pyplot as plt
+    #     plt.figure()
+    #     plot = plt.loglog
+    #     plt.subplot(311)
 
-        plot(a0, rerr, '.b', label='MSE')
-        plot(a0, rerr, '-b')
-        plt.legend(loc='upper left')
+    #     plot(a0, rerr, '.b', label='MSE')
+    #     plot(a0, rerr, '-b')
+    #     plt.legend(loc='upper left')
 
-        plt.subplot(312)
-        if not asem is None:
-            plot(a0, asem, '.r', label='SEM')
-            plot(a0, asem, '-r')
-            plt.legend(loc='upper left')
+    #     plt.subplot(312)
+    #     if not asem is None:
+    #         plot(a0, asem, '.r', label='SEM')
+    #         plot(a0, asem, '-r')
+    #         plt.legend(loc='upper left')
 
-        plt.subplot(313)
-        plt.plot(a0, rcorr, '.k', label='best correlation')
-        plt.plot(a0, rcorr, '-k')
-        plt.legend(loc='upper left')
+    #     plt.subplot(313)
+    #     plt.plot(a0, rcorr, '.k', label='best correlation')
+    #     plt.plot(a0, rcorr, '-k')
+    #     plt.legend(loc='upper left')
 
-        a_opt = a0[rerr.argmin()]
+    #     a_opt = a0[rerr.argmin()]
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.path,"A0_fit_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
-        plt.close()
+    #     plt.tight_layout()
+    #     plt.savefig(os.path.join(self.path,"A0_fit_{0}mers_t{1}.pdf".format(self.descent.model.k, t)))
+    #     plt.close()
 
-    def plot_psam(self, psam, title):
-        pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
-        pp.xlabel(title)
-        pp.ylabel("base")
-        pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
-        pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
+    # def plot_psam(self, psam, title):
+    #     pp.pcolor(psam.T, cmap='bwr', vmin=-1, vmax=+1)
+    #     pp.xlabel(title)
+    #     pp.ylabel("base")
+    #     pp.yticks(np.arange(0.5,4.5,1), ['A','C','G','U'])
+    #     pp.colorbar(label='weight', shrink=.5, orientation='horizontal')
         
-    def plot_gradients(self, psam_correct, local_grad, grad):
-        print descent
-        pp.figure()
-        pp.subplot(131)
-        self.plot_psam(unity_matrix(psam_correct - self.psam),'actual delta')
-        pp.subplot(132)
-        self.plot_psam(unity_matrix(local_grad),'local gradient')
-        pp.subplot(133)
-        self.plot_psam(unity_matrix(grad),'RMSprop')
+    # def plot_gradients(self, psam_correct, local_grad, grad):
+    #     print descent
+    #     pp.figure()
+    #     pp.subplot(131)
+    #     self.plot_psam(unity_matrix(psam_correct - self.psam),'actual delta')
+    #     pp.subplot(132)
+    #     self.plot_psam(unity_matrix(local_grad),'local gradient')
+    #     pp.subplot(133)
+    #     self.plot_psam(unity_matrix(grad),'RMSprop')
 
-    def plot_param_hist(self):
-        from matplotlib.colors import LogNorm
-        A0 = np.array([state.params.A0 for state in self.descent.history])
-        a = np.array([state.params.psam_vec[1:] for state in self.descent.history])
-        betas = np.array([state.params.betas for state in self.descent.history])
+    # def plot_param_hist(self):
+    #     from matplotlib.colors import LogNorm
+    #     A0 = np.array([state.params.A0 for state in self.descent.history])
+    #     a = np.array([state.params.psam_vec[1:] for state in self.descent.history])
+    #     betas = np.array([state.params.betas for state in self.descent.history])
 
-        pp.figure(figsize=(6,10))
-        pp.subplot(311)
-        pp.plot(A0, label=r'$A_0$')
-        pp.legend(loc='upper right')
-        pp.ylabel("affinity [1/nM]")
+    #     pp.figure(figsize=(6,10))
+    #     pp.subplot(311)
+    #     pp.plot(A0, label=r'$A_0$')
+    #     pp.legend(loc='upper right')
+    #     pp.ylabel("affinity [1/nM]")
 
-        pp.subplot(312)
-        pp.imshow(a.T, interpolation='nearest', cmap='inferno', norm=LogNorm(vmin=1e-6, vmax=1), aspect='auto')
+    #     pp.subplot(312)
+    #     pp.imshow(a.T, interpolation='nearest', cmap='inferno', norm=LogNorm(vmin=1e-6, vmax=1), aspect='auto')
         
-        t = []
-        for i in range(self.descent.params.k):
-            for n in 'ACGU':
-                t.append('{0}{1}'.format(n,i+1))
-        l = len(t)
-        pp.yticks(np.arange(l), t)
+    #     t = []
+    #     for i in range(self.descent.params.k):
+    #         for n in 'ACGU':
+    #             t.append('{0}{1}'.format(n,i+1))
+    #     l = len(t)
+    #     pp.yticks(np.arange(l), t)
 
-        t = [1e-5, 1e-3, 1e-1]
-        pp.colorbar(orientation='horizontal', shrink=.5, ticks=t, label="PSAM values")
-        pp.ylabel("matrix elements")
+    #     t = [1e-5, 1e-3, 1e-1]
+    #     pp.colorbar(orientation='horizontal', shrink=.5, ticks=t, label="PSAM values")
+    #     pp.ylabel("matrix elements")
 
-        pp.subplot(313)
-        for i,b in enumerate(betas.T):
-            pp.semilogy(b, label='beta{0}'.format(i))
+    #     pp.subplot(313)
+    #     for i,b in enumerate(betas.T):
+    #         pp.semilogy(b, label='beta{0}'.format(i))
 
-        pp.legend(loc='upper right')
-        pp.ylabel("background estimate")
-        pp.xlabel("optimization step")
-        pp.tight_layout()
+    #     pp.legend(loc='upper right')
+    #     pp.ylabel("background estimate")
+    #     pp.xlabel("optimization step")
+    #     pp.tight_layout()
 
-        pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
-        pp.close()
+    #     pp.savefig(os.path.join(self.path,"descent_params_{0}mer.pdf".format(self.descent.params.k)))
+    #     pp.close()
 
 
 class FootprintCalibrationReport(object):
@@ -1204,13 +1214,14 @@ class FootprintCalibrationReport(object):
         dbfile = os.path.join(os.path.dirname(fparams), 'history')
         try:
             self.shelve = shelve.open(dbfile, flag='r')
+            self.rbp_conc = self.shelve['rbp_conc']
+            self.params = ModelSetParams.load(fparams, len(self.rbp_conc))
         except:
             self.logger.error("could not open db '{}'. No data to plot!".format(dbfile))
             self.shelve = {}
-
-        self.rbp_conc = self.shelve['rbp_conc']
+            self.rbp_conc = []
+            self.params = []
         
-        self.params = ModelSetParams.load(fparams, len(self.rbp_conc))
         self.motifs = [par.as_PSAM().consensus for par in self.params]
         if (self.rbp_conc == np.round(self.rbp_conc)).all():
             self.rbp_conc = np.array(self.rbp_conc, dtype=int)
@@ -1234,28 +1245,6 @@ class FootprintCalibrationReport(object):
 
         return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
 
-    def get_matrix_data(self, motif, k_range=(5, 11), s_range=(-5, 5)):
-        kmin, kmax = k_range
-        smin, smax = s_range
-
-        scales = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
-        errors = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
-
-        for k in range(kmin, kmax + 1):
-            for s in range(smin, smax + 1):
-                key = "{motif}_{k}_{s}".format(**locals())
-                if key in self.shelve:
-                    err, k, s, a, A0 = self.shelve[key]
-                else:
-                    err = np.nan
-                    a = np.nan
-                
-                scales[s - smin, k - kmin] = a
-                errors[s - smin, k - kmin] = err
-        
-        err0 = self.baseline_error(motif)
-        return scales, errors/err0, k_range, s_range
-
     def plot_profile(self, motif, acc_k, acc_shift):
         data = self.get_profile_data(motif, acc_k, acc_shift)
         if data is None:
@@ -1270,66 +1259,130 @@ class FootprintCalibrationReport(object):
         pad = (punp_input.shape[1] - len(motif)) / 2
         x = np.arange(-pad, len(motif) + pad )
 
-        plt.figure()
-        # if acc_k:
-        #     plt.title("acc_k = {acc_k} acc_shift = {acc_shift}".format(**locals()))
-        # else:
-        #     plt.title("expectation w/o acc. footprint".format(**locals()))
+        def make_rect():
+            import matplotlib.patches as patches
+            ymin, ymax = plt.gca().get_ylim()
+            height = ymax - ymin
+            h = height * .02
+            rect = patches.Rectangle(
+                (acc_shift-.5, ymin + h), 
+                acc_k, h,
+                linewidth=1,
+                edgecolor='r',
+                facecolor='r',
+                # label='footprint'
+            )
+            plt.gca().add_patch(rect)
+
+        def finalize_plot(fp=True):
+            if fp:
+                make_rect()
+            cons = motif
+            plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            plt.axvline( - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+            plt.axvline(len(motif) - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+
+            plt.legend(
+                bbox_to_anchor=(0., 1.02, 1., .202), 
+                loc=3, ncol=4, mode="expand", borderaxespad=0.,
+                frameon=False
+            )
+
+            plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
+            plt.xlabel('pos. rel to motif (consensus) [nt]')
+
+        def plot_exp(with_label=False, with_input=False):
+            if with_input:
+                plt.plot(x, punp_input[0], '.', color='.75', label='input' if with_label else None)
+                plt.plot(x, punp_input[0], '-', color='.75', linewidth=.5)
+
+            for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
+                plt.plot(x, obs, '.', color=color, label="{} nM".format(conc) if with_label else None)
+                plt.plot(x, obs, '-', color=color, linewidth=.5)
 
         colors = sns.color_palette("husl", 8)
-        plt.plot(x, punp_input[0], '-k', label='input')
-        for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
-            plt.plot(x, obs, '-', color=color, label="{} nM".format(conc))
+        
+        
+        plt.figure(figsize=(10,5))
+        # fig1, axes = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
 
-        import matplotlib.patches as patches
-        ymin, ymax = plt.gca().get_ylim()
-        height = ymax - ymin
-        h = height * .02
-        rect = patches.Rectangle(
-            (acc_shift, ymin + h), 
-            acc_k, h,
-            linewidth=1,
-            edgecolor='r',
-            facecolor='r',
-            label='footprint'
-        )
-        plt.gca().add_patch(rect)
+        plt.subplot(221)
+        plot_exp(with_label=True, with_input=True)
+        finalize_plot(fp=False)
 
+        plt.subplot(222)
+        plot_exp(with_input=True)
+        for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, colors)):
+            lbl = "no footprint: err=100%"
+            plt.plot(x, naive, '-', color=color, label=lbl if i == 0 else None)
+        finalize_plot(fp=False)
+
+        plt.subplot(223)
+        plot_exp()
         for i, (pred, one, conc, color) in enumerate(zip(punp_expect, punp_a_one, self.rbp_conc, colors)):
-            lbl = "RNAfold (a=1) prediction err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
-            plt.plot(x, one, ':', color=color, label=lbl if i == 0 else None)
-            
-            lbl = 'optimized (a={res.x[0]:.2f}) prediction err={rerr:.1f}%'.format(res=res, rerr = 100. * res.fun/err0)
-            plt.plot(x, pred, '--', color=color, label=lbl if i == 0 else None)
+            lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
+            plt.plot(x, one, '-', color=color, label=lbl if i == 0 else None)
+        finalize_plot()
 
-        cons = motif
-        plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
-        plt.axvline( - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
-        plt.axvline(len(motif) - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+        plt.subplot(224)
+        plot_exp()
+        for i, (pred, one, conc, color) in enumerate(zip(punp_expect, punp_a_one, self.rbp_conc, colors)):
+            lbl = 'optimized (a={res.x[0]:.2f}):  err={rerr:.1f}%'.format(res=res, rerr = 100. * res.fun/err0)
+            plt.plot(x, pred, '-', color=color, label=lbl if i == 0 else None)
+        finalize_plot()
 
-        plt.legend(
-            bbox_to_anchor=(0., 1.02, 1., .202), 
-            loc=3, ncol=2, mode="expand", borderaxespad=0.,
-            frameon=False
-        )
-
-        plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
-        plt.xlabel('pos. rel to motif (consensus) [nt]')
-
-        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
         plt.tight_layout()
-        sns.despine(trim=True)
-        sparse_y(plt.gca())
+        # sns.despine(trim=True)
+        # sparse_y(plt.gca())
+        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
         self.logger.debug("saving plot: '{}'".format(fname))
+        plt.show()
         plt.savefig(fname)
         plt.close()
 
-    def report(self):
-        for motif in self.motifs:
-            print motif
-            self.matrix_plots(motif)
+        plt.figure()
+        for i, (obs, naive, one, pred) in enumerate(zip(punp_input[1:], punp_naive, punp_a_one, punp_expect)):
+            plt.plot(obs, naive, 'x', color=colors[i], label="no structure footprint" if i==0 else None)
+            plt.plot(obs, one, '^', color=colors[i], label="RNAfold (a=1) footprint" if i==0 else None)
+            plt.plot(obs, pred, '.', color=colors[i], label="optimized footprint" if i==0 else None)
+        
+        ymin, ymax = plt.gca().get_ylim()
+        plt.legend(loc='upper left', frameon=False)
+        plt.plot([ymin, ymax], [ymin, ymax], color='k', linestyle='dashed', linewidth=.5)
+        plt.savefig(fname+"bla.pdf")
+        plt.close()
 
-    def matrix_plots(self, motif):
+    def report(self):
+        for motif, params in zip(self.motifs, self.params):
+            self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
+            self.plot_profile(motif, params.acc_k, params.acc_shift)
+        
+        # fprep.plot_profile("CGCUACGCUC", 11, -1)
+
+    def get_matrix_data(self, motif, k_range=(5, 11), s_range=(-5, 5)):
+        kmin, kmax = k_range
+        smin, smax = s_range
+
+        scales = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
+        errors = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
+
+        err0 = self.baseline_error(motif)
+        for k in range(kmin, kmax + 1):
+            for s in range(smin, smax + 1):
+                key = "{motif}_{k}_{s}".format(**locals())
+                if key in self.shelve:
+                    err, k, s, a, A0 = self.shelve[key]
+                    # print k,s, '->', err/err0, a
+                else:
+                    err = np.nan
+                    a = np.nan
+                
+                scales[s - smin, k - kmin] = a
+                errors[s - smin, k - kmin] = err
+        
+        return scales, errors/err0, k_range, s_range
+
+    def matrix_plots(self, motif, highlight=None):
         self.logger.debug("matrix plot")
         import seaborn as sns
         import matplotlib.pyplot as plt
@@ -1341,25 +1394,46 @@ class FootprintCalibrationReport(object):
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 
-        fig = plt.figure(figsize=(6,6))
+        for i, row in enumerate(1./mat_err.T):
+            print i, row
+
+        def make_rect(k,s):
+            import matplotlib.patches as patches
+            rect = patches.Rectangle(
+                (k-.5, s-.5), 
+                1, 1,
+                linewidth=2,
+                edgecolor='r',
+                facecolor='none',
+                label='optimum'
+            )
+            return rect
+
+        fig = plt.figure(figsize=(5.5,6))
+        if highlight:
+            k, s = highlight
         # fig.suptitle("accessibility footprint analysis")
         plt.subplot(211)
-        plt.pcolor(1./mat_err.T, cmap="viridis")
+        plt.imshow(1./mat_err.T, interpolation='none', cmap="viridis", origin='lower')
+        if highlight:
+            plt.gca().add_patch(make_rect(*highlight))
+
         plt.colorbar(label=r'fold error reduction', fraction=.05)
+        plt.ylabel("footprint size [nt]")
+        plt.xlabel("footprint shift [nt]")
 
-        plt.ylabel("size [nt]")
-        plt.xlabel("shift [nt]")
-
-        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
-        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
+        plt.xticks(np.arange(n_shift), [str(s) for s in range(smin, smax + 1)])
+        plt.yticks(np.arange(n_k), [str(k) for k in range(kmin, kmax + 1)])
         # plt.ylim(kmin, kmax + 1)
 
         plt.subplot(212)
-        plt.pcolor(mat_a.T, cmap="inferno")
-        plt.colorbar(label=r'accessibility scaling', fraction=.05)
+        plt.imshow(mat_a.T, interpolation='none', cmap="inferno", origin='lower')
+        if highlight:
+            plt.gca().add_patch(make_rect(*highlight))
 
-        plt.ylabel("size [nt]")
-        plt.xlabel("shift [nt]")
+        plt.colorbar(label=r'accessibility scaling', fraction=.05)
+        plt.ylabel("footprint size [nt]")
+        plt.xlabel("footprint shift [nt]")
 
         plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
         plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
