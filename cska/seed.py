@@ -330,7 +330,7 @@ class DependentKmerAnalysis(CachedBase):
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
         # print self.linear
 
-    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=5., A0=.01, n_min=10, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -364,7 +364,7 @@ class DependentKmerAnalysis(CachedBase):
             r = R[i] 
             rerr = R_err[i]
             self.logger.debug( "{i}, {kmer}, {r}, +/- {rerr}, {R_cut}".format(**locals()))
-            if r - rerr < R_cut:
+            if r - rerr <= R_cut and len(kmer_set) > n_min:
                 break
             
             kmer_set.append( (kmer, r) )
