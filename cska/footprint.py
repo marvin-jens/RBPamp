@@ -352,4 +352,4 @@ class FootprintCalibration(CachedBase):
         import cska.caching
         cska.caching._dump_cache_sizes()
         import gc
-        gc.gc()
+        gc.collect()
