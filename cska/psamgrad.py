@@ -9,7 +9,7 @@ from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 from cska.affinitylogo import nice_conc
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, redo=False, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, redo=False, debug_grad=False, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
@@ -59,7 +59,7 @@ class PSAMGradientDescent(object):
         model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
         # print self.descent.params.acc_k, self.descent.model.acc_k
 
-        self.descent = cska.gradient.GradientDescent(model, params, maxiter=maxiter, maxtime=maxtime, eps=eps)
+        self.descent = cska.gradient.GradientDescent(model, params, maxiter=maxiter, maxtime=maxtime, eps=eps, debug_grad=debug_grad)
         self.model = model
         self.params = params
     

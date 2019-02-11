@@ -12,8 +12,8 @@ import os
 import logging
 import collections
 import traceback
-import matplotlib
-matplotlib.use('agg')
+# import matplotlib
+# matplotlib.use('agg')
 
 def parse_cmdline():
     from optparse import OptionParser
@@ -69,7 +69,7 @@ def parse_cmdline():
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=4, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=4)")
-    parser.add_option("", "--opt-no-struct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
+    parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
@@ -95,6 +95,7 @@ def parse_cmdline():
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
     
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+    parser.add_option("","--debug-grad",dest="debug_grad",default=False, action="store_true", help="compute empirical gradient alongside analytical (for debugging only)")
     parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
     parser.add_option("","--log-remote",dest="log_remote", default="", help="replicate all logging output to this remote server (useful to collect output from multiple runs in parallel)")
 
@@ -521,10 +522,10 @@ class Run(object):
         )
         fprep.report()
 
-        grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
-        grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
-        grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
-        grep.report()
+        # grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
+        # grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
+        # grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
+        # grep.report()
         
     def PSAM_gradient_descent(self, name="opt"):
 
@@ -540,7 +541,8 @@ class Run(object):
             maxiter=self.options.grad_maxiter, 
             maxtime=self.options.grad_maxtime, 
             eps=self.options.mdl_epsilon, 
-            redo=self.options.redo
+            redo=self.options.redo,
+            debug_grad=self.options.debug_grad
         )
         PGD.optimize()
         self.params = PGD.descent.params

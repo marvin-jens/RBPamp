@@ -43,9 +43,11 @@ class PartFuncModelState(object):
             else:
                 A_rel = par.A0/self.params.A0 # additional motif affinities are relative to motif0.A0!
                 Zscaled = Z1 * A_rel
+                Zrscaled = Z1_read * A_rel
                 self.Z1_motif.append(Zscaled)
                 self.Z1 = self.Z1 + Zscaled
-                self.Z1_read = self.Z1_read + Z1_read * A_rel
+                self.Z1_read = self.Z1_read + Zrscaled
+                self.Z1_read_motif.append(Zrscaled)# * A_rel)
                 self.Z1_read_max = self.Z1_read_max + Z1_read_max * A_rel
                 # TODO: extend clipped_sum_and_max to handle max properly
 
@@ -172,7 +174,13 @@ class PartFuncModelState(object):
         # self.E_weights = np.ones(self.mdl.nA, dtype=np.float32) + 10 * self.kmer_affinity_weights(cutoff=.01)
         # self.E_weights /= self.E_weights.mean()
         from cska.params import ModelSetParams
-        grad_set = [cyska.PSAM_partition_function_gradient(self, par, Z1m) for par, Z1m in zip(self.params, self.Z1_motif)]
+        grad_set = []
+        for i,(par, Z1m, Z1rm) in enumerate(zip(self.params, self.Z1_motif, self.Z1_read_motif)):
+            g = cyska.PSAM_partition_function_gradient(self, par, Z1m, Z1rm)
+            if i > 0:
+                g *= par.A0 / self.params.A0 # scale relative to primary motif
+            grad_set.append(g)
+
         _grad = ModelSetParams(grad_set)
         # _grad.A0 *= 0
         # _grad.betas *= 0

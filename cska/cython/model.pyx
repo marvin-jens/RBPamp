@@ -233,7 +233,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     return Z.base
 
 
-def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m):
+def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32_t [:] Z1rm):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
@@ -345,7 +345,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m):
         # print dZr_dA[tid, 0]
         # since A0 is not inside Zr
         dZr_dA_row = &dZr_dA[tid, 0]
-        dZr_dA_row[0] = psam_inv[0]
+        dZr_dA_row[0] = Z1rm[r] #* psam_inv[0]
 
         # initialize other elements to 0
         memset(&dZr_dA_row[1], 0, zero_bytes)
@@ -360,7 +360,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m):
 
         # compute dPsi/dA. up to the (psi - psi^2) factor 
         Z1r_inv = 1./Z1r
-        for y in range(1, n_psam):
+        for y in range(0, n_psam):
             dZr_dA_row[y] = psam_inv[y] * dZr_dA_row[y] * Z1r_inv
 
         # push dpsi_dA. to individual kmer weights dw_dA.

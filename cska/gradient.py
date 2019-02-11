@@ -16,7 +16,7 @@ class Tracked(object):
             setattr(self, k,v)
 
 
-def emp_grad(state, eps=1e-6):
+def emp_grad(state, eps=1e-5):
     v0 = state.params.get_data()
     v = np.array(v0)
     var = state.params.copy()
@@ -131,12 +131,13 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.75, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True)):
+    def __init__(self, model, params0, dec=.75, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
         self.ref_state = ref_state # used for simulations, where true values are known.
         self.predict_kwargs = predict_kwargs
+        self.debug_grad = debug_grad
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
 
         # momentum smoothing of the gradient
@@ -328,13 +329,16 @@ class GradientDescent(object):
                 local_grad = state.grad #.unity()
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
-                    print local_grad
-                    # for lcl, emp in zip(local_grad, emp_grad(state)):
-                    #     print "LCL"
-                    #     print lcl
-                    #     print "EMP"
-                    #     print emp
+                    if self.debug_grad:
+                        for lcl, emp in zip(local_grad, emp_grad(state)):
+                            print "LCL"
+                            print lcl
+                            print "EMP"
+                            print emp
+                    else:
+                        print local_grad
 
+                local_grad[1].A0 = -0.17
 
                 local_grad.betas *= 0
                 # local_grad.A0 = 0
