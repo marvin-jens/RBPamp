@@ -947,8 +947,8 @@ class GradientDescentReport(object):
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
             # print "epoch", t0, t, name
-            # self.plot_scatter(t0, title="before {}".format(name))
-            # self.plot_scatter(t, title="after {}".format(name))
+            self.plot_scatter(t0, title="before {}".format(name))
+            self.plot_scatter(t, title="after {}".format(name))
 
             # print "plotting literature", t0
             self.plot_literature(t0, title="before {}".format(name))
@@ -1400,7 +1400,7 @@ class FootprintCalibrationReport(object):
         def make_rect(k,s):
             import matplotlib.patches as patches
             rect = patches.Rectangle(
-                (k-.5, s-.5), 
+                (s-.5-smin, k-.5-kmin), 
                 1, 1,
                 linewidth=2,
                 edgecolor='r',
