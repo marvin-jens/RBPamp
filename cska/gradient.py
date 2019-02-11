@@ -338,8 +338,6 @@ class GradientDescent(object):
                     else:
                         print local_grad
 
-                local_grad[1].A0 = -0.17
-
                 local_grad.betas *= 0
                 # local_grad.A0 = 0
                 # local_grad = local_grad.unity()
