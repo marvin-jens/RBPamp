@@ -190,7 +190,7 @@ def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
                 Z[j, i] = exp(a * log(Z[j, i]))
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0):
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, single_thread=False):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
@@ -213,8 +213,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     if n_max:
         N = min(N, n_max)
 
-    with nogil, parallel():
-        for j in prange(N, schedule='static'):
+    if single_thread:
+        for j in range(N):
             # iterate over all PSAM start positions
             for i in range(l):
                 # specific binding: product of per-site affinities
@@ -229,6 +229,23 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     Z[j, i] = z * acc_matrix[j, i + openen_ofs]
                 else:
                     Z[j, i] = 0 # no valid accessibility footprint
+    else:
+        with nogil, parallel():
+            for j in prange(N, schedule='static'):
+                # iterate over all PSAM start positions
+                for i in range(l):
+                    # specific binding: product of per-site affinities
+                    z = 1.
+                    for d in range(k):
+                        n = seqm[j, i + d]
+                        z = z * psam[d, n]
+                    # add non-specific component (still reacts to accessbility)
+                    z = z + non_specific
+                    acc_i = i + openen_ofs
+                    if 0 <= acc_i < L_acc:
+                        Z[j, i] = z * acc_matrix[j, i + openen_ofs]
+                    else:
+                        Z[j, i] = 0 # no valid accessibility footprint
 
     return Z.base
 
