@@ -1,6 +1,6 @@
-#!python
 #cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
 ###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+#!python
 
 __license__ = "MIT"
 __version__ = "0.9.8"
@@ -190,7 +190,7 @@ def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
                 Z[j, i] = exp(a * log(Z[j, i]))
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0):
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, single_thread=False):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
@@ -213,8 +213,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     if n_max:
         N = min(N, n_max)
 
-    with nogil, parallel():
-        for j in prange(N, schedule='static'):
+    if single_thread:
+        for j in range(N):
             # iterate over all PSAM start positions
             for i in range(l):
                 # specific binding: product of per-site affinities
@@ -229,36 +229,58 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     Z[j, i] = z * acc_matrix[j, i + openen_ofs]
                 else:
                     Z[j, i] = 0 # no valid accessibility footprint
+    else:
+        with nogil, parallel():
+            for j in prange(N, schedule='static'):
+                # iterate over all PSAM start positions
+                for i in range(l):
+                    # specific binding: product of per-site affinities
+                    z = 1.
+                    for d in range(k):
+                        n = seqm[j, i + d]
+                        z = z * psam[d, n]
+                    # add non-specific component (still reacts to accessbility)
+                    z = z + non_specific
+                    acc_i = i + openen_ofs
+                    if 0 <= acc_i < L_acc:
+                        Z[j, i] = z * acc_matrix[j, i + openen_ofs]
+                    else:
+                        Z[j, i] = 0 # no valid accessibility footprint
 
     return Z.base
 
 
-def PSAM_partition_function_gradient(state):
+def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32_t [:] Z1rm):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
-    cdef FLOAT32_t [:,:] Z1 = state.Z1
+    cdef UINT8_t *seqm_row
+    cdef FLOAT32_t [:, :] Z1 = state.Z1 # this is the total partition function, sum of all motif contributions!
+    cdef FLOAT32_t *Z1_row
+    cdef FLOAT32_t *Z1m_row # this is used for the motif-specific terms *scaled by rel. affinity*!
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
     # do not even look at reads with Z1_read < this value
     cdef FLOAT32_t Z1_thresh = state.threshold * state.Z1_read_max # set to 0 to look at all reads
     cdef UINT32_t [:] F0 = state.mdl.F0 # 4^k kmer frequencies in input
     cdef FLOAT32_t [:] f0 = state.mdl.f0 # 4^k kmer rel. frequencies in input
     cdef FLOAT32_t [:,:] psi = state.psi
+    cdef FLOAT32_t *psi_row
     cdef UINT32_t [:,:] im = state.mdl.im
+    cdef UINT32_t *im_row
     cdef FLOAT32_t [:] W = state.W # normalization factors for each sample
-    cdef FLOAT32_t A0 = state.params.A0
+    cdef FLOAT32_t A0 = params.A0
     cdef FLOAT32_t [:,:] w = state.w # n_samples x 4^k
     cdef FLOAT32_t [:,:] R = state.R # kmer enrichments
     cdef FLOAT64_t [:,:] E = state.R_errors # R - R0
-    cdef FLOAT32_t [:] E_weights = state.E_weights # EXPERIMENTAL!
+    # cdef FLOAT32_t [:] E_weights = state.E_weights # EXPERIMENTAL!
 
     ### Important dimensions needed to allocate buffers
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
-    cdef UINT64_t n_psam = len(state.params.psam_vec)
+    cdef UINT64_t n_psam = len(params.psam_vec)
     cdef UINT64_t pad = 16 - (n_psam % 16) # 16 x FLOAT32 = 1 L1 Cache line
     cdef UINT64_t n_psam_padded = n_psam + pad
-    cdef UINT64_t n_samples = state.params.n_samples
+    cdef UINT64_t n_samples = params.n_samples
     cdef UINT64_t n_params = n_psam + n_samples # affinity + beta values
     cdef UINT64_t k = (n_psam - 1) / 4
     cdef UINT64_t l = L - k + 1 # no. of positions for the PSAM
@@ -276,9 +298,9 @@ def PSAM_partition_function_gradient(state):
 
     ### Static vectors needed during computation
     # mul is faster than div
-    cdef FLOAT32_t [:] psam_inv = 1./state.params.psam_vec
+    cdef FLOAT32_t [:] psam_inv = 1./params.psam_vec
     # self consistent free protein, made dimensionless to fit Z
-    cdef FLOAT32_t [:] rbp_free_inv = 1./ (state.params.A0 * state.rbp_free) 
+    cdef FLOAT32_t [:] rbp_free_inv = 1./ (params.A0 * state.rbp_free) 
 
     ### (Thread-)local buffers
     cdef UINT32_t [:] skipped = np.zeros(n_threads, dtype=np.uint32)
@@ -286,26 +308,30 @@ def PSAM_partition_function_gradient(state):
     # change in partition function (per read, thread-local). Gets zeroed a lot.
     # cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
 
+    # print "setup1", n_samples, n_psam, Z1_thresh
     # get dZr_dA cache aligned
-    cdef FLOAT32_t *ptr = <FLOAT32_t*> malloc(4*n_threads*n_psam_padded+64)
-    if ptr == NULL:
-        raise ValueError('could not allocate cache-line aligned buffer')
-    cdef int base = <int> ptr
-    if base % 64 > 0: # not cache aligned?
-        base = base + 64 - (base % 64) # use the padding
-    # print base, base % 64, <int> ptr
-    cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
+    # cdef FLOAT32_t *ptr = <FLOAT32_t*> malloc(4*n_threads*n_psam_padded+64)
+    # if ptr == NULL:
+    #     raise ValueError('could not allocate cache-line aligned buffer')
+    # cdef unsigned int base = <unsigned int> ptr
+    # if base % 64 > 0: # not cache aligned?
+    #     base = base + 64 - (base % 64) # use the padding
+    # # print base, base % 64, <int> ptr
+    # cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
+    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+    cdef FLOAT32_t *dZr_dA_row
 
     cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
 
     # change in weight assigned to each kmer in pulldown (thread-local)
     cdef FLOAT32_t [:,:,:,:] dw = np.zeros((n_threads, n_samples, n_psam, Nk), dtype=np.float32)
+    cdef FLOAT32_t *dw_row
 
     # change in normalization factor
     cdef FLOAT32_t [:,:,:] dW = np.zeros((n_threads, n_samples, n_psam_padded), dtype=np.float32)
 
     # where to store the final gradient
-    gradient = state.params.copy()
+    gradient = params.copy()
     gradient.data[:] = 0
     cdef FLOAT32_t [:] grad = gradient.data
 
@@ -318,54 +344,59 @@ def PSAM_partition_function_gradient(state):
     # aggregation from threads is only over 4**k cycles, not number of reads.
     from time import time
     t0 = time()
+    # print "setup2"
+    # main loop over all reads. compute dw_dA. in threads
+    for r in prange(N, schedule='dynamic', nogil=True):
+        tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
-    ## main loop over all reads. compute dw_dA. in threads
-    with nogil, parallel():
-        for r in prange(N, schedule='static'):
-            tid = openmp.omp_get_thread_num()
+    # # single threaded version for testing
+    # # tid = 0
+    # for r in range(N):
 
-    ## single threaded version for testing
-    # for tid in range(1):
-    #     for r in range(N):
-            
-            Z1r = Z1_read[r]
-            if Z1r < Z1_thresh:
-                # skip early and save time
-                skipped[tid] += 1
-                continue
+        Z1r = Z1_read[r]
+        if Z1r < Z1_thresh:
+            # skip early and save time
+            skipped[tid] += 1
+            continue
+        # print "0.5", tid, psam_inv, dZr_dA, dZr_dA.base #, "%x" % base, n_psam_padded, psam_inv[0]
+        # print dZr_dA[tid, 0]
+        # since A0 is not inside Zr
+        dZr_dA_row = &dZr_dA[tid, 0]
+        dZr_dA_row[0] = Z1rm[r] #* psam_inv[0]
 
-            # since A0 is not inside Zr
-            dZr_dA[tid, 0] = psam_inv[0]
-            
-            # initialize other elements to 0
-            memset(&dZr_dA[tid, 1], 0, zero_bytes)
-            for x in range(l):
-                for d in range(k):
-                    n = seqm[r, x+d]
-                    y = (d << 2) + n + 1
-                    dZr_dA[tid, y] += Z1[r,x]
+        # initialize other elements to 0
+        memset(&dZr_dA_row[1], 0, zero_bytes)
+        seqm_row = &seqm[r, 0]
+        Z1_row = &Z1[r, 0]
+        Z1m_row = &Z1m[r, 0]
+        for x in range(l):
+            for d in range(k):
+                n = seqm_row[x+d]
+                y = (d << 2) + n + 1
+                dZr_dA_row[y] += Z1m_row[x]
 
-            # compute dPsi/dA. up to the (psi - psi^2) factor 
-            Z1r_inv = 1./Z1r
-            for y in range(1, n_psam):
-                dZr_dA[tid, y] = dZr_dA[tid, y] * psam_inv[y] * Z1r_inv
-                # print r,y,"dZr_dA", dZr_dA[tid, y]
+        # compute dPsi/dA. up to the (psi - psi^2) factor 
+        Z1r_inv = 1./Z1r
+        for y in range(0, n_psam):
+            dZr_dA_row[y] = psam_inv[y] * dZr_dA_row[y] * Z1r_inv
 
-            # push dpsi_dA. to individual kmer weights dw_dA.
-            for j in range(n_samples):
-                p = psi[j,r]
-                # (psi - psi^2) is the only sample/concentration dependent term
-                pp2 = (p - (p * p))
-                for y in range(n_psam):
-                    to_w = dZr_dA[tid, y] * pp2 
-                    # propagate to individual kmers
-                    for x in range(lam):
-                        dw[tid, j, y, im[r,x]] += to_w
+        # push dpsi_dA. to individual kmer weights dw_dA.
+        im_row = &im[r, 0]
+        for j in range(n_samples):
+            p = psi[j, r]
+            # (psi - psi^2) is the only sample/concentration dependent term
+            pp2 = (p - (p * p))
+            for y in range(n_psam):
+                to_w = dZr_dA_row[y] * pp2 
 
-                    dW[tid, j, y] += lam * to_w
+                # propagate to individual kmers
+                dw_row = &dw[tid, j, y, 0]
+                for x in range(lam):
+                    dw_row[im_row[x]] += to_w
 
+                dW[tid, j, y] += lam * to_w
     t1 = time()
-  
+    # print "t1"
     ## accumulate data from threads into the 0-th entry
     for tid in range(1, n_threads):
         skipped[0] += skipped[tid]
@@ -376,7 +407,7 @@ def PSAM_partition_function_gradient(state):
                     dw[0, j, y, i] += dw[tid, j, y, i]
 
     t2 = time()
-
+    # print "t2"
     ## compute gradient matrix element sum
     for j in range(n_samples):
         for i in range(Nk):
@@ -399,12 +430,12 @@ def PSAM_partition_function_gradient(state):
         grad[y] *= norm
 
     t3 = time()
-    # print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
-    #    1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
-
+    print "dw/dA. over reads {0:.2f}ms, thread-acc {1:.2f}ms, grad-matrix {2:.2f} ms, total {3:.2f}ms".format(
+        1000. * (t1-t0), 1000. * (t2-t1), 1000. * (t3-t2), 1000. * (t3-t0))
+    # print "done"
     state.skipped = skipped.base[0]
     state.gradi = gradi
-    free(ptr)
+    # free(ptr)
     # state.n_eval = n_eval.base
     return gradient
 

@@ -256,6 +256,28 @@ class PSAM(object):
     def discrimination(self):
         return (self.psam.max(axis=1) / self.psam.sum(axis=1) - .25 ) / .75
 
+    def pad_to_size(self, w):
+        n,d = self.psam.shape
+        for i in range(w-n):
+            disc = self.discrimination
+            if disc[0] > disc[-1]:
+                # pad left
+                left = True
+            elif disc[0] < disc[-1]:
+                # pad right
+                left = False
+            else:
+                left = i % 2 # alternate
+
+            # print "padding",i,'/',w-n, "left=", left
+            if left:
+                self.psam = np.concatenate( (np.ones((1,d)), self.psam), axis=0 )
+            else:
+                self.psam = np.concatenate( (self.psam, np.ones((1,d))), axis=0 )
+
+            self.n = len(self.psam)
+
+
     def __str__(self):
         buf = ["PSAM A0={0} n={1}".format(self.A0, self.n)]
         for col,d  in zip(self.psam, self.discrimination):

@@ -36,6 +36,176 @@ class Proxy(object):
 
         return d
 
+class ModelSetParams(object):
+    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_shift', 'acc_scale']):
+        self._forward = set(forward)
+        self.param_set = param_set
+        # for name in forward:
+        #     setattr(ModelSetParams, name, property(fget = lambda : getattr(self.param_set[0], name)))
+        
+    def __getattr__(self, attr):
+        fw = object.__getattribute__(self, '_forward')
+        p0 = object.__getattribute__(self, 'param_set')[0]
+        # print p0, attr
+        if attr in fw:
+            return getattr(p0, attr)
+        else:
+            return object.__getattribute__(self, attr)
+
+    # @property
+    # def n_samples(self):
+    #     return self.param_set[0].n_samples
+
+    # @property
+    # def n_samples(self):
+    #     return self.param_set[0].n_samples
+
+    @property
+    def A0(self):
+        return self.param_set[0].A0
+
+    @A0.setter
+    def A0(self, value):
+        # change all motif A0s in proportion
+        ratio = value / self.param_set[0].A0
+        for par in self.param_set:
+            par.A0 *= ratio
+
+    @property
+    def acc_k(self):
+        return self.param_set[0].A0
+
+    @acc_k.setter
+    def acc_k(self, value):
+        # change all motif acc_k's (esp. for acc_k=0)
+        for par in self.param_set:
+            par.acc_k = value
+
+    @property
+    def betas(self):
+        return self.param_set[0].betas
+
+    @betas.setter
+    def betas(self, value):
+        self.param_set[0].betas = value
+
+    def copy(self):
+        return ModelSetParams([p.copy() for p in self.param_set])
+
+    def get_data(self):
+        "return one np.ndarray containing all model parameters"
+        all_data = [p.data for p in self.param_set]
+        # print all_data
+        return np.concatenate(all_data)
+
+    def set_data(self, data):
+        "broadcast raw data write across all model parameters"
+        i = 0
+        for p in self.param_set:
+            l = len(p.data)
+            p.data[:] = data[i:i+l]
+            i += l
+
+        assert i == len(data)
+    
+    def unity(self):
+        p = self.copy()
+        n = np.linalg.norm(self.get_data())
+        if n > 0:
+            p /= n
+        return p
+
+    @classmethod
+    def load(cls, fname, n_samples, max_motifs=4):
+        param_set = list(ModelParametrization.load(fname, n_samples))
+        if len(param_set) > max_motifs:
+            param_set = param_set[:max_motifs]
+        return cls(param_set)
+
+    def save(self, fname):
+        for i, params in enumerate(self.param_set):
+            params.save(fname, append=(i > 0) )
+
+    def __str__(self):
+        buf = ["# ModelSetParams with {} PSAMs\n".format(len(self.param_set))]
+        for i, params in enumerate(self.param_set):
+            buf.append("# PSAM {}".format(i))
+            buf.append(str(params))
+        
+        return "\n".join(buf)
+
+    def __iter__(self):
+        for params in self.param_set:
+            yield params   
+
+    def __getitem__(self, i):
+        return self.param_set[i]
+
+    def __setitem__(self, i, params):
+        self.param_set[i] = params
+
+    def __add__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() + x.get_data() )
+        else:
+            c.set_data(self.get_data() + x)
+        return c
+    
+    def __sub__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() - x.get_data() )
+        else:
+            c.set_data(self.get_data() - x)
+        return c
+
+    def __mul__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() * x.get_data() )
+        else:
+            c.set_data(self.get_data() * x)
+        return c
+
+    def __div__(self, x):
+        c = self.copy()
+        if isinstance(x, ModelSetParams):
+            c.set_data(self.get_data() / x.get_data() )
+        else:
+            c.set_data(self.get_data() / x)
+        return c
+
+    def __neg__(self):
+        c = self.copy()
+        c.set_data( - self.get_data())
+        return c
+
+    def apply_delta(self, delta_set):
+        c = self.copy()
+        new = []
+        for i, (params, delta) in enumerate(zip(c.param_set, delta_set)):
+            p = params.psam_matrix + delta.psam_matrix
+            # print i, "after applying update of magnitude", np.fabs(delta.data).max(), "min/max", p.min(), p.max()
+            m = p.min(axis=1) # find out if we dropped below zero
+            m = np.where(m < 0, -m + 1e-6, 0)
+            # print "raise", m
+            p += m[:, np.newaxis] # and raise the level in these columns accordingly
+            p = np.clip(p, 1e-6, None)
+            M = p.max(axis=1) # increases above 1 on cognate should increase A0
+            p /= M[:,np.newaxis]
+            params.psam_matrix = np.clip(p, 1e-6, 1)
+
+            params.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
+            # print i, "increasing A0 by", M.prod()
+            params.A0 = max(1e-6, params.A0 + delta.A0) # prevent underflow
+
+            params.betas = np.clip(params.betas + delta.betas, 1e-9, None)
+            new.append(params)
+
+        c.param_set = new
+        return c
+
 
 class ModelParametrization(object):
     def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):
@@ -100,12 +270,28 @@ class ModelParametrization(object):
 
     @classmethod
     def load(cls, fname, n_samples, beta0=1e-6, mina=1e-6):
+
         aff = []
         attrs = {}
+        def make_params():
+            psam = np.array(aff, dtype=np.float32)
+            psam = np.where(psam > 0, psam, mina)
+            params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
+            params.acc_k = int(attrs.get('acc_k', len(psam)))
+            params.acc_shift = int(attrs.get('acc_shift', 0))
+            params.acc_scale = attrs.get('acc_scale', 1)
+            params.betas[:] = beta0
+            return params
+
         with file(fname) as f:
             for line in f:
                 if line.startswith('#'):
+                    if aff:
+                        yield make_params()
+                        aff = []
+                        attrs = {}
                     continue
+
                 if line.startswith('PSAM'):
                     # parse attributes
                     for kw in line.split()[1:]:
@@ -115,22 +301,20 @@ class ModelParametrization(object):
                         attrs[k] = float(v)
 
                 elif line.startswith('seeded'):
-                    break
+                    continue
                 else:
                     parts = line.split('\t')
                     aff.append(parts[:4])
 
-        psam = np.array(aff, dtype=np.float32)
-        psam = np.where(psam > 0, psam, mina)
-        params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
-        params.acc_k = int(attrs.get('acc_k', len(psam)))
-        params.acc_shift = int(attrs.get('acc_shift', 0))
-        params.acc_scale = attrs.get('acc_scale', 1)
-        params.betas[:] = beta0
-        return params
+        if aff:
+            yield make_params()
 
-    def save(self, fname):
-        file(fname, 'w').write(str(self) + '\n')
+    def save(self, fname, append=False):
+        if append:
+            mode = 'a'
+        else:
+            mode = 'w'
+        file(fname, mode).write(str(self) + '\n')
 
     def as_vector(self, dtype=np.float32):
         return self.data
@@ -226,7 +410,7 @@ class ModelParametrization(object):
     def __sub__(self, x):
         c = self.copy()
         if isinstance(x, ModelParametrization):
-            c.data += x.data
+            c.data -= x.data
         else:
             c.data -= x
         return c

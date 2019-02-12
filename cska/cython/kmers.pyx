@@ -1398,6 +1398,8 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
 
 # @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
@@ -1415,46 +1417,60 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
 
     # print "n_cols=", n_cols
     cdef FLOAT32_t [:,:,:] footprint = np.zeros((n_threads, n_cols, (l % 64 + 1) * 64), dtype=np.float32)
+    cdef FLOAT32_t fp = 0.
     cdef FLOAT32_t [:,:] Z = np.zeros((n_threads, n_cols), dtype=np.float32)
 
     cdef int j,x
     cdef int d,x0,x1,x2,x3
     cdef FLOAT32_t f0,f1,f2,f3
+    # cdef FLOAT32_t weight=1.
+    cdef int ofsx = 0
+    cdef FLOAT32_t *Z_row
+    cdef FLOAT32_t *Z1_row
+    cdef FLOAT32_t *acc_row
+    cdef FLOAT32_t Z1x = 0.
     # for j in prange(N, schedule='static')
-    with nogil:
-        for j in prange(N):
-            tid = openmp.omp_get_thread_num()
-
-        # for x in range(pad, L-pad):
-        #     for d in range(-pad, w+pad):
-        #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
-            for x in range(pad, L-pad):
-                for col in range(n_cols):
-                    Z[tid, col] += Z1[j, x] * rw[col, j]
-
-                for d in range(-pad, w + pad):
-                    # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
-                    # x0 = d+pad
-                    # try:
-                    #     x1 = ofs + x + d
-                    # except OverflowError:
-                    #     print ofs, x, d
-                    #     raise
-                    # assert x1 > 0
-                    # f0 = acc[j, x1]
-                    # f1 = Z1[j, x] * acc[j, ofs + x + d]
-                    # f2 = footprint[x0]
-                    # f3 = f2 + f1
-                    # footprint[x0] = f3
-                    f0 = Z1[j, x] * acc[j, ofs + x + d]
-                    for col in range(n_cols):
-                        footprint[tid, col, d + pad] += f0 * rw[col, j]
-
-        # collect data from all threads
-        for tid in range(1, n_threads):
+    for j in prange(N, schedule='dynamic', nogil=True):
+        tid = openmp.omp_get_thread_num()
+    # n_threads = 1
+    # for j in range(N):
+    #     tid = 0
+    # for x in range(pad, L-pad):
+    #     for d in range(-pad, w+pad):
+    #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
+        Z_row = &Z[tid, 0]
+        for x in range(pad, L-pad):
+            ofsx = ofs + x
+            Z1_row = &Z1[j, x]
+            Z1x = Z1_row[0]
             for col in range(n_cols):
-                for d in range(w + 2 * pad):
-                    footprint[0, col, d] += footprint[tid, col, d]
-                Z[0, col] += Z[tid, col]
+                Z_row[col] += Z1x * rw[col, j]
+
+            acc_row = &acc[j, ofsx]
+            for d in range(-pad, w + pad):
+                # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
+                # x0 = d+pad
+                # try:
+                #     x1 = ofs + x + d
+                # except OverflowError:
+                #     print ofs, x, d
+                #     raise
+                # assert x1 > 0
+                # f0 = acc[j, x1]
+                # f1 = Z1[j, x] * acc[j, ofs + x + d]
+                # f2 = footprint[x0]
+                # f3 = f2 + f1
+                # footprint[x0] = f3
+                f0 = Z1x * acc_row[d]
+                for col in range(n_cols):
+                    fp = footprint[tid, col, d + pad]
+                    footprint[tid, col, d + pad] = fp + f0 * rw[col, j]
+
+    # collect data from all threads
+    for tid in range(1, n_threads):
+        for col in range(n_cols):
+            for d in range(w + 2 * pad):
+                footprint[0, col, d] += footprint[tid, col, d]
+            Z[0, col] += Z[tid, col]
 
     return footprint.base[0,:,:l] / Z.base[0, :, np.newaxis]

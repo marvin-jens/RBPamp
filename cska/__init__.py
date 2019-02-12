@@ -68,16 +68,18 @@ def parse_cmdline():
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
-    parser.add_option("", "--opt-no-struct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
+    parser.add_option("", "--max-motifs", dest="max_motifs", default=4, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=4)")
+    parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
+    parser.add_option("", "--plot", dest="plot", default=False, action="store_true", help="plot results")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
-    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-3, type=float, help="convergence threshold for relative error reduction (default=1e-3)")
+    parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
 
     # TODO: update
     parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
@@ -93,6 +95,7 @@ def parse_cmdline():
     parser.add_option("","--disable-pickle",dest="disable_pickle",default=False, action="store_true",help="DEBUG: disable pickling. Will not create or overwrite any pickled data")
     
     parser.add_option("","--debug",dest="debug",default="",help="activate debug output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
+    parser.add_option("","--debug-grad",dest="debug_grad",default=False, action="store_true", help="compute empirical gradient alongside analytical (for debugging only)")
     parser.add_option("","--info",dest="info",default="",help="activate info level output for comma-separated subsystems [root, fold, cache, rbns, opt, model, report]")
     parser.add_option("","--log-remote",dest="log_remote", default="", help="replicate all logging output to this remote server (useful to collect output from multiple runs in parallel)")
 
@@ -202,6 +205,12 @@ class Run(object):
         self._init_paths()
         self._init_logging()
         self._init_signal_handler()
+
+        from cska.comparison import RefComparison
+        if self.options.compare:
+            self.ref = RefComparison(self.options.compare, ref_file=self.options.ref_file)
+        else:
+            self.ref = RefComparison(self.rbp_name, ref_file=self.options.ref_file)
 
 
     def _init_paths(self):
@@ -427,14 +436,14 @@ class Run(object):
 
     
     def probe_params(self, *locations):
-        from cska.params import ModelParametrization
+        from cska.params import ModelParametrization, ModelSetParams
         for path in locations:
             if not path:
                 continue
             path = os.path.abspath(os.path.join(self.run_path, path))
             try:
                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-                self.params = ModelParametrization.load(path, self.rbns.n_samples)
+                self.params = ModelSetParams.load(path, self.rbns.n_samples, max_motifs=self.options.max_motifs)
             except IOError:
                 self.logger.info("not found")
                 self.params = None
@@ -464,13 +473,16 @@ class Run(object):
     def seed_stage(self):
         from cska.seed import SeedRefinement
         SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
-        print "enriched MOTIFs in this library"
-        for m in SR.analysis.motifs_from_R(7):
-            print m
-            m.save_logo(fname=m.consensus + '.svg')
+        # print "enriched MOTIFs in this library"
+        # for m in SR.analysis.motifs_from_R(7):
+        #     print m
+        #     m.save_logo(fname=m.consensus + '.svg')
 
-        self.params = SR.seeded_params(self.rbns.n_samples)
+        # self.params = SR.seeded_params(self.rbns.n_samples)
+        self.params = SR.seeded_multi_params(self.rbns.n_samples)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        
+
         return self.params
 
     def flush_reads(self):
@@ -481,26 +493,57 @@ class Run(object):
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
-        cal = FootprintCalibration(self.rbns, self.params)
-        kmin, kmax = self.options.footprint.split('-')
-        res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
-        if res:
-            self.params = res
+        calibrated_set = []
+        for par in self.params:
+            cal = FootprintCalibration(self.rbns, par)
+            kmin, kmax = self.options.footprint.split('-')
+            res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
+            if res:
+                calibrated_set.append(res)
+            else:
+                calibrated_set.append(par)
+            
+            cal.close()
 
-        return res
+        from cska.params import ModelSetParams
+        self.params = ModelSetParams(calibrated_set)
+        path = os.path.join(cal.path, 'calibrated.tsv')
+        self.logger.info("storing footprint optimized model in '{}'".format(path))
+        self.params.save(path)
+        return self.params
 
+    def make_plots(self):
+        import cska.report as report
+        plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
-    def PSAM_gradient_descent(self, name="opt"):
-        if self.options.compare:
-            compare = self.options.compare
-        else:
-            compare = self.rbp_name
+        fprep = report.FootprintCalibrationReport(
+            os.path.join(self.run_path, 'footprint/calibrated.tsv'),
+            out_path=plot_path
+        )
+        fprep.report()
+
+        grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
+        grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
+        grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
+        grep.report()
         
-        from cska.comparison import RefComparison
-        ref = RefComparison(compare, ref_file=self.options.ref_file)
+    def PSAM_gradient_descent(self, name="opt"):
 
         from cska.psamgrad import PSAMGradientDescent
-        PGD = PSAMGradientDescent(self.rbns, self.params, ref=ref, k_fit=self.options.grad_k, mdl_name=self.options.grad_mdl, Z_thresh=self.options.Z_thresh, run_name=name, maxiter=self.options.grad_maxiter, maxtime=self.options.grad_maxtime, eps=self.options.mdl_epsilon)
+        PGD = PSAMGradientDescent(
+            self.rbns, 
+            self.params, 
+            ref=self.ref, 
+            k_fit=self.options.grad_k, 
+            mdl_name=self.options.grad_mdl, 
+            Z_thresh=self.options.Z_thresh, 
+            run_name=name, 
+            maxiter=self.options.grad_maxiter, 
+            maxtime=self.options.grad_maxtime, 
+            eps=self.options.mdl_epsilon, 
+            redo=self.options.redo,
+            debug_grad=self.options.debug_grad
+        )
         PGD.optimize()
         self.params = PGD.descent.params
 
@@ -559,6 +602,9 @@ def main():
 
             if run.PSAM_gradient_descent('opt_full'):
                 run.mark_complete("struct")
+
+        if options.plot:
+            run.make_plots()
 
     except SystemExit:
         # This is alright

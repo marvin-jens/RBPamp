@@ -46,7 +46,10 @@ def get_cache_sizes():
 
     return sorted(cache_size)[::-1]
 
-    
+def _dump_cache_sizes():
+    for size, name in get_cache_sizes():
+        print "{name}\t{size}".format(**locals())
+
 class CachedBase(object):
     """
     Base class for anything that wants to use transparent caching and/or 

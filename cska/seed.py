@@ -142,6 +142,10 @@ class Alignment(object):
             return 1.
 
     @property
+    def max_weight(self):
+        return np.array(self.weights).max()
+
+    @property
     def wlen(self):
         colw = self.matrix.max(axis=1) / self.matrix.max()
         return colw.sum()
@@ -181,8 +185,8 @@ class Alignment(object):
 
                 best[l] = (f, i, j)
 
-        bylength = sorted(best.keys())
         def find_best():
+            bylength = sorted(best.keys())
             for l in bylength:
                 if n_max and l > n_max:
                     # we exhausted all motifs of allowed length
@@ -218,13 +222,13 @@ class Alignment(object):
         psam = m / m.max(axis=1)[:,np.newaxis]
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
-        max_weight = np.array(self.weights).max()
+        
         if A0 is None:
-            A0 = max_weight
+            A0 = self.max_weight
 
         P = PSAM(psam, A0=A0)
         P._n_seqs = len(self.seqs)
-        P._max_weight = max_weight
+        P._max_weight = self.max_weight
         return P
         
 
@@ -326,15 +330,15 @@ class DependentKmerAnalysis(CachedBase):
         self.logger.debug("build_matrices() done. Aligned {0} kmer pairs".format(n_pairs))
         # print self.linear
 
-    def motifs_from_R(self, k, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=.05): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.99, n_max=11, thresh = .7, z_cut=4, min_mer=.05, q_ns=5., A0=.01, n_min=10, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
         alns = []
         R, R_err = self.rbns.R_value_matrix(k)
         R = R.mean(axis=0)
-        Rns = np.quantile(R, q_ns)
-        print "non-specific quantile", Rns
+        Rns = np.percentile(R, q_ns)
+        # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
 
         R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
@@ -358,8 +362,9 @@ class DependentKmerAnalysis(CachedBase):
             kmer = cyska.index_to_seq(i, k)
             n += 1
             r = R[i] 
-            # print i, kmer, r, "+/-", R_err[i], R_cut
-            if r - R_err[i] < R_cut:
+            rerr = R_err[i]
+            self.logger.debug( "{i}, {kmer}, {r}, +/- {rerr}, {R_cut}".format(**locals()))
+            if r - rerr <= R_cut and len(kmer_set) > n_min:
                 break
             
             kmer_set.append( (kmer, r) )
@@ -368,7 +373,7 @@ class DependentKmerAnalysis(CachedBase):
         n_min = int(min_mer * n_enriched)
 
         kmer, r = kmer_set.pop(0)
-        print "STARTING from", kmer, r
+        # print "STARTING from", kmer, r
         aln = Alignment()
         aln.blend(kmer, 0, r, normalize=False)
         alns.append(aln)
@@ -377,7 +382,7 @@ class DependentKmerAnalysis(CachedBase):
             # align all remaining enriched kmers to all motifs
             scores = []
             ofs = []
-            print "re-aligning"
+            # print "re-aligning"
             for kmer, r in kmer_set:
                 o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
                 ofs.append(o)
@@ -388,7 +393,7 @@ class DependentKmerAnalysis(CachedBase):
 
             if (scores < thresh).all():
                 kmer, r = kmer_set[0]
-                print "starting NEW MOTIF", kmer, r, scores[0]
+                # print "starting NEW MOTIF", kmer, r, scores[0]
                 kmer_set.pop(0)
                 aln = Alignment()
                 aln.blend(kmer, 0, r, normalize=False)
@@ -406,14 +411,28 @@ class DependentKmerAnalysis(CachedBase):
 
                 alns[j].blend(kmer, int(o), r, normalize=False)
                 cons = alns[j].to_PSAM(pseudo=0).consensus
-                print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+                # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
                 # if cons == 'AUAGCAU':
                 #     print alns[j].matrix
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
+        def make_psam(aln, **kwargs):
+            return aln.to_PSAM(
+                pseudo=0, 
+                keep_weight=keep_weight, 
+                A0=aln.max_weight/r0 * A0,
+                **kwargs
+            )
 
-        print "done assembling {0} motifs from {1} kmers with z > {2}".format(len(alns), n, z_cut)
-        return [aln.to_PSAM(pseudo=0, keep_weight=keep_weight, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        motifs = ",".join([p.consensus for p in psams])
+        self.logger.info("done assembling {0} motifs from {1} kmers with z > {2}: {3}".format(len(psams), n, z_cut, motifs))
+        w = np.array([p.n for p in psams])
+        wm = w.max()
+
+        # second pass -> pad motifs to equal size
+        [p.pad_to_size(wm) for p in psams]
+        return psams
 
 
 
@@ -592,11 +611,26 @@ class SeedRefinement(object):
             # self.dist_cost = self.spacings[L/2:]
             # self.logger.debug("bipartite spacing weights: {0}".format(self.dist_cost))
         
-        self.store_logos()
+        # self.store_logos()
 
     def seeded_params(self, n_samples, **kwargs):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
+
+
+    def seeded_multi_params(self, n_samples, max_motifs=4, **kwargs):
+        from cska.params import ModelSetParams, ModelParametrization
+        params = []
+
+        for i, psam in enumerate(self.analysis.motifs_from_R(**kwargs)):
+            if i >= max_motifs:
+                break
+            params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
+
+        param_set = ModelSetParams(params)
+        self.store_logos(param_set) 
+        return param_set
+
 
     def distance_xcorr_plot(self, fname="xcorr.pdf"):
         self.logger.debug("generating xcorr plot")
@@ -620,14 +654,19 @@ class SeedRefinement(object):
         pp.savefig(fname)
         pp.close()
 
-    def store_logos(self):
+    def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
         path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
-        self.psam_lin.save_logo(os.path.join(path, '{0}_linear.eps'.format(rbp_name)))
-        self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.eps'.format(rbp_name)))
-        self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.eps'.format(rbp_name)))
+        if not params is None:
+            for i, param in enumerate(params.param_set):
+                psam = param.as_PSAM()
+                psam.save_logo(os.path.join(path, '{rbp_name}_rank_{i}_{psam.consensus}.svg'.format(**locals())))
+        else:
+            self.psam_lin.save_logo(os.path.join(path, '{0}_linear.svg'.format(rbp_name)))
+            self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.svg'.format(rbp_name)))
+            self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.svg'.format(rbp_name)))
         # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
 
 
