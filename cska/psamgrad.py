@@ -13,16 +13,21 @@ class PSAMGradientDescent(object):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
+        self.logger = logging.getLogger('opt.PSAMGradientDescent')
+        self.results = logging.getLogger('results.PSAMGradientDescent')
 
         fname = os.path.join(self.out_path, "descent.tsv")
+        sname = os.path.join(self.out_path, "history")
         self.shelve = shelve.open(
-            os.path.join(self.out_path, "history"), 
+            sname, 
             protocol=-1, 
             flag='n' if redo else 'c'
         )
+        self.logger.info("storing states in shelve '{}'".format(sname))
 
         self.t_ofs = 0
         if not os.path.exists(fname) or redo:
+            self.logger.info("tracking progress in new file '{}'".format(fname))
             self.track_file = file(fname, 'w', 0)
             MSE_samples = ["MSE{}".format(i) for i in range(params.n_samples)]
             corr_samples = ["corr{}".format(i) for i in range(params.n_samples)]
@@ -33,14 +38,13 @@ class PSAMGradientDescent(object):
                 self.t_ofs = int(lines[-1].split('\t')[0]) + 1
             except IndexError, ValueError:
                 pass
+            self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
             self.track_file = file(fname, 'a', 0)
 
         self.k = params.k
         self.k_fit = k_fit
         self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
         self.logR = np.log2(self.R)
-        self.logger = logging.getLogger('opt.PSAMGradientDescent')
-        self.results = logging.getLogger('results.PSAMGradientDescent')
         # print "k_fit", k_fit, "rbnd.reads", [str(r) for r in rbns.reads]
         # params.betas[:] = .0001
         # initial guess
