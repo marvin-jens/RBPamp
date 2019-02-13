@@ -45,8 +45,8 @@ class PartFuncModelState(object):
                 Zscaled = Z1 * A_rel
                 Zrscaled = Z1_read * A_rel
                 self.Z1_motif.append(Zscaled)
-                self.Z1 = self.Z1 + Zscaled
-                self.Z1_read = self.Z1_read + Zrscaled
+                self.Z1 += Zscaled
+                self.Z1_read += Zrscaled
                 self.Z1_read_motif.append(Zrscaled)# * A_rel)
                 self.Z1_read_max = self.Z1_read_max + Z1_read_max * A_rel
                 # TODO: extend clipped_sum_and_max to handle max properly
