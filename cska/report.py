@@ -911,6 +911,7 @@ class GradientDescentReport(object):
         import shelve
         try:
             self.shelves.append(shelve.open(fname, flag='r'))
+            self.logger.info("reading from shelve '{}'.".format(fname))
         except:
             self.logger.error("could not open '{}'. No data to plot!".format(fname))
             return
@@ -950,11 +951,7 @@ class GradientDescentReport(object):
             self.plot_scatter(t0, title="before {}".format(name))
             self.plot_scatter(t, title="after {}".format(name))
 
-            # print "plotting literature", t0
-            self.plot_literature(t0, title="before {}".format(name))
-            # print "plotting literature", t
-            self.plot_literature(t, title="after {}".format(name))
-
+        self.plot_literature()
         self.plot_report()
     
     def find_max_t(self, shelf):
@@ -986,27 +983,39 @@ class GradientDescentReport(object):
         return np.array([self.get('linesearch', t) for t in self.t]).T
 
     def plot_report(self):
-        pp.figure(figsize=(6,12))
+        pp.figure(figsize=(6, 5))
 
-        pp.subplot(311)
+        pp.subplot(211)
         errors = (self.read_sample_errors()**2).mean(axis=2)
         m_err = errors.mean(axis=1)
         pp.semilogy(m_err, 'k-', label='sample mean')
         for i, err in enumerate(errors.T):
             pp.semilogy(err, label='{0} nM'.format(self.rbp_conc[i]))
 
+        if len(self.epoch_names) > 1:
+            for i, name in enumerate(self.epoch_names):
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
+
         pp.legend(loc='upper right')
         pp.ylabel("mean squared R-value error")
 
-        pp.subplot(312)
+        pp.subplot(212)
         corr, pval = self.read_correlations()
         for i, c in enumerate(corr.T):
             pp.plot(c, label='{0} nM'.format(self.rbp_conc[i]))
 
+        if len(self.epoch_names) > 1:
+            for i, name in enumerate(self.epoch_names):
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
+
         pp.legend(loc='upper right')
         pp.ylabel("R-value correlation")
 
-        pp.subplot(313)
+        pp.tight_layout()
+        pp.savefig(os.path.join(self.path,"descent_report.pdf"))
+        pp.close()
+
+        pp.figure(figsize=(6,3))
         nfev, step = self.read_linesearch()
         pp.semilogy(nfev, label='no. function evaluations during line-search')
         pp.legend(loc='upper right')
@@ -1020,7 +1029,7 @@ class GradientDescentReport(object):
                 # TODO: add annotation 'no structure' 'full model'
 
         pp.tight_layout()
-        pp.savefig(os.path.join(self.path,"descent_report.pdf"))
+        pp.savefig(os.path.join(self.path,"descent_linesearch.pdf"))
         pp.close()
 
 
@@ -1032,8 +1041,7 @@ class GradientDescentReport(object):
         logRt = np.log2(self.get("R", t))
         for i in range(self.n_samples):
             pp.figure()
-            title = "{0}mer R-value scatter plot {1}".format(self.k_mer, title)
-            pp.title(title)
+            pp.title("{0}mer R-value scatter plot {1}".format(self.k_mer, title))
 
             x = self.logR0[i]
             y = logRt[i]
@@ -1047,18 +1055,14 @@ class GradientDescentReport(object):
             pp.close()
 
 
-    def plot_literature(self, t, debug=True, title=""):
-        if self.comp is None:
-            return
-
+    def _get_lit_data(self, t, debug=False):
         if t == -1:
             t = self.t[-1]
 
         x = self.comp.observed_Kd
         if not len(x):
-            return 
+            return None
 
-        x_err = self.comp.observed_Kd_err
         y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
         lfc = np.log2(y/x)
         I = lfc.argsort()
@@ -1078,32 +1082,94 @@ class GradientDescentReport(object):
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
                 print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
 
-        m = min(x.min(), y.min())
-        M = max(x.max(), y.max())
+        class lcomp(object):
+            pass
+
+        res = lcomp()
+        res.x = x
+        res.x_err = self.comp.observed_Kd_err
+        res.y = y
+        res.rho = rho
+        res.p_spearman = p_spearman
+        res.R = R
+        res.p_pearson = p_pearson
+        res.label = label
+        res.lfc = lfc
+        res.min = min(x.min(), y.min())
+        res.max = max(x.max(), y.max())
+
+        return res
+
+    def plot_literature(self, debug=False):
+        if self.comp is None:
+            return
+
+        t0, t = self.epochs[0]
+        times = [t0, t]
+        titles = ["seeded", "opt. PSAM", "+footprint"]
+        if self.t[-1] > t:
+            times.append(self.t[-1])
         
+        data = [self._get_lit_data(t) for t in times]
+        _data = [res for res in data if res is not None]
+        if not _data:
+            return
+
+        m = np.min(np.array([res.min for res in _data]))
+        M = np.max(np.array([res.max for res in _data]))
+        
+
         import seaborn as sns
         with sns.axes_style("ticks", sns_style):
             matplotlib.rc('xtick.major', width = .1)
             matplotlib.rc('ytick.major', width = .1)
 
-            pp.figure(figsize=(6,6))
-            pp.title("comparison to {0} literature affinities {1}".format(self.comp.n, title))
-            pp.errorbar(x, y, xerr=x_err, fmt='.', ecolor='k', elinewidth=.5, capsize=3, capthick=.5, label=label)
-            pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
+            pp.figure(figsize=(6,6))
+            pp.title("comparison to {0} literature affinities".format(self.comp.n))
+
+            errs = []
+            err_cols = []
+            err_titles = []
+            for res, title, color in zip(data, titles, ['gray', 'blue', 'red']):
+                if res == None:
+                    continue
+
+                pp.errorbar(res.x, res.y, xerr=res.x_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
+
+                errs.append(np.fabs(res.lfc))
+                err_cols.append(color)
+                err_titles.append(title)
+            
+            pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
             ax = pp.gca()
             ax.set_xscale("log", nonposx='clip')
             ax.set_yscale("log", nonposy='clip')
 
-            pp.legend(loc='upper left', shadow=False, fancybox=False)
+            pp.legend(loc='lower right', shadow=False, fancybox=False)
             pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
             pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
             pp.tight_layout()
             sns.despine(trim=False)
 
-            pp.savefig(os.path.join(self.path,"literature_comparison_t{}.pdf".format(t)))
+            pp.savefig(os.path.join(self.path,"literature_comparison.pdf".format(t)))
             pp.close()
 
+            import scipy.stats
+            pp.figure(figsize=(6,4))
+            for ei, ej in zip(errs[:-1], errs[1:]):
+                stat, pval = scipy.stats.mannwhitneyu(ei, ej)
+                print stat, pval
+
+            bplot = pp.boxplot(errs, patch_artist=True)
+            for patch, color in zip(bplot['boxes'], err_cols):
+                patch.set_facecolor(color)
+
+            pp.xticks(1 + np.arange(len(errs)), err_titles)
+            pp.ylabel(r"$|\log_2 \frac{K_d\; predicted}{K_d \; measured}|$")
+            pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
+            pp.savefig(os.path.join(self.path,"literature_errors.pdf".format(t)))
+            pp.close()
 
     # def plot_A0_fit(self, t=-1):
     #     state = self.descent.history[t]
