@@ -123,8 +123,8 @@ class PSAMGradientDescent(object):
                 
             # collect and write data on the gradient descent progress
             pR, pval = state.correlations
-            out = [descent.t + self.t_ofs, state.params[0].A0, descent.errors[-1],] \
-                + list((state.R_errors**2).mean(axis=1)) + list(pR) \
+            out = [descent.t + self.t_ofs, state.params[0].A0, state.error] \
+                + list(state.sample_errors) + list(pR) \
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
             line = "\t".join([str(o) for o in out])
