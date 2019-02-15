@@ -131,7 +131,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.75, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -152,6 +152,7 @@ class GradientDescent(object):
         self.ls_nfev = [0,]
         self.ls_step = [0,]
         self.t = 0
+        self.last_subsample_t = 0
         self.last_quantile = 0
 
         # optimization result/status
@@ -246,12 +247,21 @@ class GradientDescent(object):
 
         return upd
 
+    def new_subsample(self):
+        self.logger.debug("drawing new sub-sample at t={}".format(self.t))
+        self.model.init_subsample()
+        self.last_subsample_t = self.t
+        state = self.model.predict(self.params, **self.predict_kwargs)
+
+        return state
+
     def converged(self, atol=1e-7, tau=3):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
 
-        if len(self.errors) < tau:
+        if (self.t - self.last_subsample_t) < tau:
+            self.logger.debug("not enough data to estimate convergence since last (re-)sample at t_ss={0} (t_now={1})".format(self.last_subsample_t, self.t))
             return self.status
            
         last_errs = np.array(self.errors[-tau:])
@@ -300,12 +310,12 @@ class GradientDescent(object):
         print "step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals())
 
 
-    def optimize(self, params, debug=True, callback=None):
-        if debug:
-            print "INITIAL PARAMETERS"
-            print params
-            from cska.caching import _dump_cache_sizes
-            _dump_cache_sizes()
+    def optimize(self, params, debug=False, callback=None):
+        # if debug:
+        #     print "INITIAL PARAMETERS"
+        #     print params
+        #     from cska.caching import _dump_cache_sizes
+        #     _dump_cache_sizes()
 
         state = self.model.predict(self.params, **self.predict_kwargs)
 
@@ -318,7 +328,7 @@ class GradientDescent(object):
             self.print_state(state)
 
         if callback:
-            callback(self)
+            callback(self, state)
 
         t0 = time.time()
         dt = 0
@@ -338,25 +348,14 @@ class GradientDescent(object):
                     else:
                         print local_grad
 
-                local_grad.betas *= 0
-                # local_grad.A0 = 0
-                # local_grad = local_grad.unity()
                 descent = self.RMSprop( - local_grad ).unity()
                 # descent = self.momentum_grad( - local_grad).unity()
-                # descent = - local_grad.unity()
-                # print descent
 
+                # print "ERRORS", self.errors
                 s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
-                    # # and tune parameters
-                    # state = self.model.tune(state.params) # recent addition, needs testing!
                     # take local gradient instead
-                    local_grad = state.grad
-                    # TODO: Clean up my act and handle this gracefully
-                    # local_grad.A0 *= 0
-                    # local_grad.betas *= 0
-
                     descent = - local_grad.unity()
                     s, data = self.line_search(state, descent, e0=self.errors[-1])
                     # and reset RMSProp
@@ -376,17 +375,18 @@ class GradientDescent(object):
 
                 state = self.model.predict(self.params, **self.predict_kwargs)
                 state._ls_data = ls_data
-                self.errors.append(state.error)
                 self.t += 1
                 # self.history.append(state.archive())
-                self.last_state = state
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
                     # print descent
                     self.print_state(state)
 
                 if callback:
-                    callback(self)
+                    state = callback(self, state)
+                
+                self.last_state = state
+                self.errors.append(state.error)
 
                 self.logger.debug("n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
                     self=self,
@@ -395,10 +395,10 @@ class GradientDescent(object):
                     t_grad = 1000. * self.model.t_grad/self.model.n_grad,
                 ))
                 dt = time.time() - t0
-                if debug:
-                    from cska.caching import _dump_cache_sizes
-                    print "caches at the end of loop"
-                    _dump_cache_sizes()
+                # if debug:
+                #     from cska.caching import _dump_cache_sizes
+                #     print "caches at the end of loop"
+                #     _dump_cache_sizes()
 
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:

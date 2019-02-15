@@ -11,9 +11,10 @@ import cska.cyska as cyska
 
 from cska.caching import cached, pickled, CachedBase
 import cska.fold
+from cska.subsampling import SubSampler
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, n_samples=0, replace=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear'), sub_sampler=None, acc_storage=None):
         
         CachedBase.__init__(self)
         
@@ -31,7 +32,7 @@ class RBNSReads(CachedBase):
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
         self.n_max = n_max
-        self.n_subsamples = n_subsamples
+        # self.n_subsamples = n_subsamples
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
         self.format = format
@@ -53,7 +54,16 @@ class RBNSReads(CachedBase):
             #     self.N = self.N_total
 
         # TODO: rel-path
-        self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
+        if self.is_subsample:
+            self._do_not_cache = True
+            self._do_not_pickle = True
+            self.sub_sampler = sub_sampler
+            self.logger.debug("we are a sub-sample and inherit sub-sampler {}".format(self.sub_sampler))
+            self.acc_storage = acc_storage
+        else:
+            self.sub_sampler = SubSampler(self.N, n_samples, replace=replace)
+            self.logger.debug("we are at top-level and created new sub-sampler {}".format(self.sub_sampler))
+            self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
     def iter_reads(self, n_skip=0):
         if hasattr(self.fname, "read"):
@@ -140,6 +150,19 @@ class RBNSReads(CachedBase):
         ss._do_not_cache = True
         return ss
 
+    def get_new_subsample(self):
+        self.sub_sampler.new_indices()
+        ss = RBNSReads(
+            self.fname,
+            seqm = self.sub_sampler.draw(self.seqm),
+            pseudo_count = self.pseudo_count,
+            rbp_name = "{self.rbp_name}_sub-{self.sub_sampler}".format(self=self),
+            rbp_conc = self.rbp_conc,
+            sub_sampler = self.sub_sampler,
+            acc_storage = self.acc_storage
+        )
+        return ss
+
     @property
     @cached
     def subsamples(self):
@@ -161,7 +184,6 @@ class RBNSReads(CachedBase):
         N, L = seqm.shape
         self.logger.info("read {0:.3f}M sequences of length {1}.".format(N/1E6, L) )
         self.time_logger.debug("read {0:.3f}M x {1}nt in {2:.2f}ms.".format(N/1E6, L, 1000. * (t1-t0)) )
-
         return seqm
 
     def get_padded_seqm(self, k):
@@ -588,19 +610,46 @@ class RBNSReads(CachedBase):
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
 
+    def cache_flush(self, *argc, **kwargs):
+        CachedBase.cache_flush(self, *argc, **kwargs)
+        self.acc_storage.cache_flush(deep=True)
+
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
-    CachedBase.debug_caching=True
-    test_reads = [
-        "TAATTTTTGCATGAAAAATCGAT",
-        "AGAGGAGAGAGAGAGTCGCGCGA",
-        "CGCGCGCGTCGCGATAGCGTCGA",
-    ]
+    # CachedBase.debug_caching=True
+    # test_reads = [
+    #     "TAATTTTTGCATGAAAAATCGAT",
+    #     "AGAGGAGAGAGAGAGTCGCGCGA",
+    #     "CGCGCGCGTCGCGATAGCGTCGA",
+    # ]
     
-    reads = RBNSReads.from_seqs(test_reads)
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=1000000)
+    # reads = RBNSReads.from_seqs(test_reads)
+    seed = 471108153
+    np.random.seed(seed)
+    cyska.rand_seed(seed)
+
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=10000, n_samples=10)
+    sub = reads.get_new_subsample()
+    # print sub.get_padded_seqm(1)
+    assert (reads.get_padded_seqm(1)[reads.sub_sampler.ind] == sub.get_padded_seqm(1)).all()
+    
+    acc = reads.acc_storage.get_raw(7).acc
+    accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
+    print acc.shape
+    print accsub.shape
+    
+    sub = reads.get_new_subsample()
+    # acc = reads.acc_storage.get_raw(7).acc
+    accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
+    print acc.shape
+    print accsub.shape
+
+
+    import sys
+    sys.exit(0)
+
     k = 4
     l = 3
     ext, init, transition = reads.extrapolated_kmer_frequencies(k,level=l)

@@ -122,11 +122,16 @@ class CachedBase(object):
         if self.debug_caching:
             self.cache_logger.debug("cache_preload {0} '{1}' to {2}".format(cache_name, key, value) )
     
-    def cache_flush(self, cache_names = []):
+    def cache_flush(self, cache_names = [], deep=False):
         if not cache_names:
             cache_names = self._cache_names
         self.cache_logger.debug("{0} flushing caches '{1}'".format(self.cache_key, cache_names) )
         for cache_name in cache_names:
+            if deep:
+                cache = getattr(self, cache_name, dict())
+                for res in cache.values():
+                    if isinstance(res, CachedBase):
+                        res.cache_flush()
             self._clear(cache_name)
 
     def cache_debug(self):

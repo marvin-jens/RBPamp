@@ -9,7 +9,7 @@ from cska.meanfield import MeanFieldModel, InvMeanFieldModel
 from cska.affinitylogo import nice_conc
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, redo=False, debug_grad=False, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, mdl_name='partfunc', run_name='meanfield', maxiter=1000, maxtime=11.5*3600, eps=1e-5, redo=False, debug_grad=False, resample_int=0, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
@@ -60,14 +60,17 @@ class PSAMGradientDescent(object):
             'meanfield' : MeanFieldModel,
             'invmeanfield' : InvMeanFieldModel,
         } [mdl_name]
-        model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
-        # print self.descent.params.acc_k, self.descent.model.acc_k
+        self.model = mdl(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc, **kwargs)
+        self.model.init_subsample()
+        self.rbns.flush(all=True)
 
-        self.descent = cska.gradient.GradientDescent(model, params, maxiter=maxiter, maxtime=maxtime, eps=eps, debug_grad=debug_grad)
-        self.model = model
+        self.resample_int = resample_int
+        self.last_resample = 0
+
+        self.descent = cska.gradient.GradientDescent(self.model, params, maxiter=maxiter, maxtime=maxtime, eps=eps, debug_grad=debug_grad)
         self.params = params
     
-    def optimize(self, debug=True):
+    def optimize(self, debug=False):
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
@@ -105,10 +108,7 @@ class PSAMGradientDescent(object):
 
             return reset
 
-        def callback(descent):
-            # ugcacgu = cyska.seq_to_index('ugcacgu')
-            # print "UGCACGU", descent.model.affinities[ugcacgu]
-            state = descent.last_state
+        def callback(descent, state):
             self.shelve["params_t{}".format(descent.t + self.t_ofs)] = state.params
             self.shelve["grad_t{}".format(descent.t + self.t_ofs - 1)] = descent.past_grad
             self.shelve["stats_t{}".format(descent.t + self.t_ofs)] = state.stats
@@ -122,17 +122,22 @@ class PSAMGradientDescent(object):
                 self.t0 = time.time()
                 
             # collect and write data on the gradient descent progress
-            # from scipy.stats import pearsonr
-            # pR, pval = np.array([pearsonr(lr0, lr) for lr0, lr in zip(self.logR,np.log2(descent.last_state.R))]).T
-            pR, pval = descent.last_state.correlations
-            out = [descent.t + self.t_ofs, descent.last_state.params[0].A0, descent.errors[-1],] \
-                + list((descent.last_state.R_errors**2).mean(axis=1)) + list(pR) \
+            pR, pval = state.correlations
+            out = [descent.t + self.t_ofs, state.params[0].A0, descent.errors[-1],] \
+                + list((state.R_errors**2).mean(axis=1)) + list(pR) \
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
             line = "\t".join([str(o) for o in out])
             print line
             self.track_file.write(line)
             self.track_file.write('\n')
+
+            if self.resample_int and (descent.t - self.last_resample) >= self.resample_int:
+                # it's time to draw a new sub-sample
+                state = descent.new_subsample()
+                self.last_resample = descent.t
+
+            return state
 
         self.t0 = time.time()
         self.descent.optimize(self.params, debug=debug, callback=callback)

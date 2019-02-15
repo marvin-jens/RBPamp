@@ -245,11 +245,14 @@ class RBNSAnalysis(CachedBase):
     def cache_key(self):
         return ".".join([r.cache_key for r in self.reads])
 
-    def flush(self):
+    def flush(self, all=False):
         for comp in self.comparisons:
             comp.cache_flush()
         for reads in self.reads:
-            reads.cache_flush('get_index_matrix')
+            if all:
+                reads.cache_flush(deep=True)
+            else:
+                reads.cache_flush('get_index_matrix')
 
     def add_reads(self, rbns_reads):
         self.logger.info("adding {0}".format(rbns_reads.name) )

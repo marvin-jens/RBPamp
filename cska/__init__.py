@@ -30,13 +30,16 @@ def parse_cmdline():
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
-    parser.add_option("-r","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
-    parser.add_option("-p","--rbp-concentration", dest="rbp_conc", default="0,320", help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-R","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
+    parser.add_option("-P","--rbp-concentration", dest="rbp_conc", default="0,320", help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature", dest="temp", default=4., type=float, help="temperature of the experiment in degrees Celsius (default=4.0)")
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("-n","--n-max", dest="n_max", default=0, type=int, help="TESTING: read at most N reads")
+    parser.add_option("-N","--n-max", dest="n_max", default=0, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries)")
+    parser.add_option("-n","--n-samples", dest="n_samples", default=1000000, type=int, help="TESTING: sub-sample n reads from N reads")
+    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="TESTING: re-sample every -r iterations of descent (default=5, 0 to disable)")
+    parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
     parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
@@ -353,7 +356,9 @@ class Run(object):
                 n_subsamples = self.options.subsamples,
                 adap3=self.options.adap3,
                 acc_storage_path = self.fold_path,
-                storage_kw=storage_kw
+                storage_kw=storage_kw,
+                n_samples=self.options.n_samples,
+                replace=self.options.replace
             )
             
             rbns.add_reads(reads)
@@ -542,7 +547,8 @@ class Run(object):
             maxtime=self.options.grad_maxtime, 
             eps=self.options.mdl_epsilon, 
             redo=self.options.redo,
-            debug_grad=self.options.debug_grad
+            debug_grad=self.options.debug_grad,
+            resample_int=self.options.resample_int,
         )
         PGD.optimize()
         self.params = PGD.descent.params
@@ -552,6 +558,12 @@ class Run(object):
 
 def main():
     options, args = parse_cmdline()
+    if options.seed:
+        print "seeding", options.seed
+        np.random.seed(options.seed)
+        import cska.cyska
+        cska.cyska.rand_seed(options.seed)
+
     run = Run(options, args)
 
     try:

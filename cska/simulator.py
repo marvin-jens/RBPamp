@@ -24,10 +24,6 @@ class RBNSGenerator(CachedBase):
         self.temp = temp
         self.RT = (temp + 273.15) * 8.314459848 / 4.184E3 # RT in kcal/mol
 
-        if seed: 
-            np.random.seed(seed)
-            cyska.rand_seed(seed)
-
         raw_energies = RBNSGenerator.energy_distribution(min_E=min_E, N=4**k, **kwargs)
         if mode == 'ordered':
             self.kmer_energies = np.array(sorted(raw_energies)[::-1], dtype=np.float32) / self.RT

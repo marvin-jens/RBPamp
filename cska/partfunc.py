@@ -269,11 +269,21 @@ class PartFuncModel(object):
         self.aff0 = aff0
         self.opt = None
 
+        self.n_fev = 0
+        self.t_fev = 0
+        self.n_grad = 0
+        self.t_grad = 0
+        self.t_aff = 0
+
+        self.init_data()
+
+    def init_data(self):
         self.im = self.reads.get_index_matrix(self.k)
         self.seqm = self.reads.get_padded_seqm(self.k_mdl)  #2bit coded read sequences, including flanking adapter overlap
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
 
         self.openen = {}
+        self.full_acc = {}
         self.acc = {}
         self._acc = {}
         for par in self.params:
@@ -281,13 +291,15 @@ class PartFuncModel(object):
             # these parameters don't change over the course of the optimization
             # load the matching kmer accessibilities and scale them only once!
             openen = self.reads.acc_storage.get_raw(par.acc_k)  
+            self.openen[key] = openen
+            
             acc = openen.acc
             if par.acc_scale != 1.:
                 self.logger.debug("scaling accessibilities by {}".format(par.acc_scale))
                 acc = np.array(acc, dtype=np.float32)  # make a scaled *copy*
                 cyska.pow_scale(acc, par.acc_scale)
             
-            self.openen[key] = openen
+            self.full_acc[key] = acc
             self.acc[key] = acc
             self._acc[key] = acc
             assert np.isfinite(acc).all()
@@ -297,12 +309,26 @@ class PartFuncModel(object):
         self._seqm = self.seqm
         self._im = self.im
         self.N = np.float32(len(self._seqm))
+        self.logger.debug("initialized partfunc model on {} reads".format(self.N))
 
-        self.n_fev = 0
-        self.t_fev = 0
-        self.n_grad = 0
-        self.t_grad = 0
-        self.t_aff = 0
+    def init_subsample(self):
+        sub = self.reads.get_new_subsample()
+        self.im = sub.get_index_matrix(self.k)
+        self.seqm = sub.get_padded_seqm(self.k_mdl)
+
+        for par in self.params:
+            key = (par.acc_k, par.acc_scale)
+            acc = sub.sub_sampler.draw(self.full_acc[key])
+            self.acc[key] = acc
+            self._acc[key] = acc
+            assert np.isfinite(acc).all()
+
+        # in case a mask is set, this can be a subset
+        self.indices = []
+        self._seqm = self.seqm
+        self._im = self.im
+        self.N = np.float32(len(self._seqm))
+        self.logger.debug("initialized subsample of {} reads".format(self.N))
 
     def set_R0(self, R0):
         self.R0 = np.array(R0, dtype=np.float32)
@@ -317,7 +343,7 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis, :] * (1 - self.R0)
 
-    def tune(self, state, debug=True, maxiter=5):
+    def tune(self, state, debug=False, maxiter=5):
         params = state.params
         A00 = params.A0
         from cska.gradient import minimize_logspaced

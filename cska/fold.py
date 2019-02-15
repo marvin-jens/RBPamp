@@ -64,6 +64,7 @@ class RBNSOpenen(CachedBase):
             N, L = oem.shape
             self.cache_preload("N", N)
             self.cache_preload("L", L)
+            self.is_subsample = True
         else:
             self.is_subsample = False
 
@@ -529,6 +530,7 @@ class OpenenStorage(CachedBase):
             sink.close()
             
         self.logger.info("closed all files after writing {0} data sets".format(self.n_sets) )
+
 
     # def fix_skipped_reads(self, krange):
     #     keep = []
