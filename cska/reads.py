@@ -37,21 +37,18 @@ class RBNSReads(CachedBase):
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
         self.format = format
 
+        print seqm
         if len(seqm):
-            self.is_subsample = True
             self.cache_preload("seqm", seqm)
             N, L = seqm.shape
             self.cache_preload("N", N)
             self.cache_preload("L", L)
+            print self.N
+            print self.L
             # self.N, self.L = seqm.shape
             # self.N_total = self.N
-        else:
-            self.is_subsample = False
-            # self.N_total, self.L = self.get_dimensions(fname)
-            # if n_max:
-            #     self.N = n_max
-            # else:
-            #     self.N = self.N_total
+
+        self.is_subsample = not (sub_sampler is None)
 
         # TODO: rel-path
         if self.is_subsample:
@@ -110,17 +107,15 @@ class RBNSReads(CachedBase):
     @classmethod
     def from_seqs(cls, seqs, fname = "", **kwargs):
         
-        reads = cls(fname, **kwargs)
+        seqm = cyska.read_raw_seqs_chunked(seqs)
+        reads = cls(fname, seqm=seqm, **kwargs)
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
-        seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
-        N, L = seqm.shape
-        reads.cache_preload("seqm", seqm)
+        # N, L = seqm.shape
+        # reads.cache_preload("seqm", seqm)
         # self.N = N
         # self.N_total = N
         # self.L = L
-        reads.cache_preload("N", N)
-        reads.cache_preload("L", L)
         
         return reads
 
