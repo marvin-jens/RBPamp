@@ -346,13 +346,13 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     t0 = time()
     # print "setup2"
     # main loop over all reads. compute dw_dA. in threads
-    for r in prange(N, schedule='dynamic', nogil=True):
+    for r in prange(N, schedule='dynamic', nogil=True, num_threads=3):
         tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
     # # single threaded version for testing
-    # # tid = 0
+    # tid = 0
+    # n_threads = 1
     # for r in range(N):
-
         Z1r = Z1_read[r]
         if Z1r < Z1_thresh:
             # skip early and save time

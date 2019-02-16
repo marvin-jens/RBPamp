@@ -1430,7 +1430,7 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
     cdef FLOAT32_t *acc_row
     cdef FLOAT32_t Z1x = 0.
     # for j in prange(N, schedule='static')
-    for j in prange(N, schedule='dynamic', nogil=True):
+    for j in prange(N, schedule='dynamic', nogil=True, num_threads=3):
         tid = openmp.omp_get_thread_num()
     # n_threads = 1
     # for j in range(N):
