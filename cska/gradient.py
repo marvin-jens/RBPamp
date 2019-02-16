@@ -185,7 +185,7 @@ class GradientDescent(object):
         t0 = time.time()
         N = {'fev' : 0}
         kw = dict(self.predict_kwargs)
-        kw['beta_fixed'] = True
+        kw['beta_fixed'] = False
         kw['tune'] = False
 
         scales = []
@@ -337,6 +337,7 @@ class GradientDescent(object):
             while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
                 local_grad = state.grad #.unity()
+
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
@@ -348,6 +349,7 @@ class GradientDescent(object):
                     else:
                         print local_grad
 
+                local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
                 descent = self.RMSprop( - local_grad ).unity()
                 # descent = self.momentum_grad( - local_grad).unity()
 

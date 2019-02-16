@@ -318,7 +318,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     #     base = base + 64 - (base % 64) # use the padding
     # # print base, base % 64, <int> ptr
     # cdef FLOAT32_t [:,:] dZr_dA = <FLOAT32_t [:n_threads, :n_psam_padded]> <FLOAT32_t*>base
-    cdef FLOAT32_t [:,:] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
+    cdef FLOAT32_t [:, :] dZr_dA = np.zeros((n_threads, n_psam_padded), dtype=np.float32)
     cdef FLOAT32_t *dZr_dA_row
 
     cdef UINT64_t zero_bytes = (n_psam-1)*4 # 4 = sizeof(FLOAT32_t)
