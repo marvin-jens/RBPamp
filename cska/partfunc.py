@@ -33,20 +33,24 @@ class PartFuncModelState(object):
                 openen_ofs=self.mdl.openen[key].ofs - par.k + 1 + par.acc_shift
             )
             Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
-            self.Z1_read_motif.append(Z1_read)
+            # self.Z1_read_motif.append(Z1_read)
         
             if self.Z1 is None:
-                self.Z1 = Z1
+                self.Z1 = np.array(Z1)
+                self.Z1_read = np.array(Z1_read)
+
                 self.Z1_motif.append(Z1)
-                self.Z1_read = Z1_read
+                self.Z1_read_motif.append(Z1_read)
                 self.Z1_read_max = Z1_read_max
             else:
                 A_rel = par.A0/self.params.A0 # additional motif affinities are relative to motif0.A0!
                 Zscaled = Z1 * A_rel
                 Zrscaled = Z1_read * A_rel
-                self.Z1_motif.append(Zscaled)
+
                 self.Z1 += Zscaled
                 self.Z1_read += Zrscaled
+
+                self.Z1_motif.append(Zscaled)
                 self.Z1_read_motif.append(Zrscaled)# * A_rel)
                 self.Z1_read_max = self.Z1_read_max + Z1_read_max * A_rel
                 # TODO: extend clipped_sum_and_max to handle max properly

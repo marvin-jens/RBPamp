@@ -70,7 +70,7 @@ class PSAMGradientDescent(object):
         self.descent = cska.gradient.GradientDescent(self.model, params, maxiter=maxiter, maxtime=maxtime, eps=eps, debug_grad=debug_grad)
         self.params = params
     
-    def optimize(self, debug=False):
+    def optimize(self, debug=True):
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
