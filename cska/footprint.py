@@ -152,6 +152,7 @@ class FootprintCalibration(CachedBase):
                     # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
                     self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
 
+                    # TODO: Do this only for optimal (k, s)!
                     # if plot:
                     res_a_one, punp_a_one = self.optimize(k, s, a_fixed=True)
                     self.store_shelve("opt_profile_{k}_{s}".format(**locals()), (punp_predict, punp_a_one, res, res_a_one) )
