@@ -161,7 +161,7 @@ class GradientDescent(object):
         self.maxtime = maxtime
         self.eps = eps
 
-    def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None, plot=""):
+    def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1, e0=None, plot=""):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
