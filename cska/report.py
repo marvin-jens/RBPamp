@@ -20,6 +20,7 @@ sns_style = {
 
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.stats import spearmanr, pearsonr
 import cska
 
@@ -905,6 +906,7 @@ class GradientDescentReport(object):
         self.t_ofs = 0
         self.epoch_names = []
         self.epochs = []
+        self.error_estimators = []
         self.path = path
 
     def load(self, fname, epoch_name):
@@ -935,6 +937,9 @@ class GradientDescentReport(object):
             self.t = np.concatenate((self.t, t))
 
         self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
+        from cska.errors import PSAMErrorEstimator
+        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', shelve=self.shelves[-1])
+        self.error_estimators.append(est)
         self.t_ofs += len(t)
         self.shelf_map.append(self.t_ofs)
         self.epoch_names.append(epoch_name)
@@ -943,16 +948,15 @@ class GradientDescentReport(object):
     def report(self):
         if self.t is None:
             return
-        # print self.epochs
-        # print self.epoch_names
-        for i, name in enumerate(self.epoch_names):
-            t0, t = self.epochs[i]
-            # print "epoch", t0, t, name
-            self.plot_scatter(t0, title="before {}".format(name))
-            self.plot_scatter(t, title="after {}".format(name))
+        
+        # for i, name in enumerate(self.epoch_names):
+        #     t0, t = self.epochs[i]
+        #     # print "epoch", t0, t, name
+        #     self.plot_scatter(t0, title="before {}".format(name))
+        #     self.plot_scatter(t, title="after {}".format(name))
 
         self.plot_literature()
-        self.plot_report()
+        # self.plot_report()
     
     def find_max_t(self, shelf):
         t = -1
@@ -960,14 +964,19 @@ class GradientDescentReport(object):
             t += 1
         return t
 
-    def get(self, name, t):
+    def map_t_shelf(self, t):
         if t == -1:
             t = self.t[-1]
 
         from bisect import bisect
         shelf_i = bisect(self.shelf_map, t) - 1
         t_shelf = t - self.shelf_map[shelf_i]
+
+        return shelf_i, t_shelf
+
+    def get(self, name, t):
         # print t, "->", shelf_i, t_shelf
+        shelf_i, t_shelf = self.map_t_shelf(t)
         return self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
 
     def read_sample_errors(self):
@@ -981,6 +990,9 @@ class GradientDescentReport(object):
 
     def read_linesearch(self):
         return np.array([self.get('linesearch', t) for t in self.t]).T
+
+    def read_grad(self):
+        return [self.get('grad', t) for t in self.t]
 
     def plot_report(self):
         pp.figure(figsize=(6, 5))
@@ -996,8 +1008,10 @@ class GradientDescentReport(object):
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
-        pp.legend(loc='upper right')
+        pp.legend(loc='upper right', frameon=False)
         pp.ylabel("mean squared R-value error")
+        pp.xlabel('iteration #')
+        sns.despine()
 
         pp.subplot(212)
         corr, pval = self.read_correlations()
@@ -1008,30 +1022,55 @@ class GradientDescentReport(object):
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
-        pp.legend(loc='upper right')
+        pp.legend(loc='lower right', frameon=False)
         pp.ylabel("R-value correlation")
-
-        pp.tight_layout()
+        plt.xlabel("iteration #")
+        plt.tight_layout()
+        sns.despine()
         pp.savefig(os.path.join(self.path,"descent_report.pdf"))
         pp.close()
 
-        pp.figure(figsize=(6,3))
+
+
         nfev, step = self.read_linesearch()
+
+        pp.figure(figsize=(6, 5))
+        pp.subplot(211)
         pp.semilogy(nfev, label='no. function evaluations during line-search')
-        pp.legend(loc='upper right')
         pp.semilogy(step, label='step size')
-        pp.xlabel('time step')
-        pp.legend(loc='upper right')
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
                 # TODO: add annotation 'no structure' 'full model'
 
-        pp.tight_layout()
+        pp.xlabel('iteration #')
+        pp.legend(loc='upper right', frameon=False)
+        sns.despine()
+
+        params0 = self.get('params', 0).copy()
+        def mag(grad_data):
+            grad = params0.copy().set_data(grad_data)
+            for par in grad:
+                par.betas[:] = 0
+
+            return [np.sqrt((g.data**2).sum()) for g in grad] 
+
+        mags = np.array([mag(grad) for grad in self.read_grad()]).T
+
+        # with sns.axes_style("ticks", sns_style)
+        plt.subplot(212)
+        # plt.semilogy(mags.mean(axis=0), '-k', label="motif mean")
+        for i, mag in enumerate(mags):
+            plt.semilogy(mag, label="motif {}".format(i))
+
+        plt.legend(loc='upper right', ncol=2, frameon=False)
+        plt.ylabel("magnitude of gradient (log-scale)")
+        plt.xlabel("iteration #")
+        plt.tight_layout()
+        sns.despine()
         pp.savefig(os.path.join(self.path,"descent_linesearch.pdf"))
         pp.close()
-
 
     def plot_scatter(self, t=-1, title=""):
         if t == -1:
@@ -1063,7 +1102,15 @@ class GradientDescentReport(object):
         if not len(x):
             return None
 
-        y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
+        # get the PSAM error estimator for this epoch
+        shelf_i, shelf_t = self.map_t_shelf(t)
+        est = self.error_estimators[shelf_i]
+        p_mid = est.estimate(save=False, t_ref=shelf_t)
+        if not p_mid is None:
+            y = 1/self.comp.predict_affinities_from_paramset(p_mid)
+        else:
+            y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
+
         lfc = np.log2(y/x)
         I = lfc.argsort()
 
@@ -1097,6 +1144,15 @@ class GradientDescentReport(object):
         res.lfc = lfc
         res.min = min(x.min(), y.min())
         res.max = max(x.max(), y.max())
+
+        if not p_mid is None:
+            y_hi = 1/self.comp.predict_affinities_from_paramset(p_mid.lo)
+            y_lo = 1/self.comp.predict_affinities_from_paramset(p_mid.hi)
+
+            res.y_err = np.array((y - y_lo, y_hi - y))
+            # print "y_err", res.y_err
+        else:
+            res.y_err = None
 
         return res
 
@@ -1135,7 +1191,7 @@ class GradientDescentReport(object):
                 if res == None:
                     continue
 
-                pp.errorbar(res.x, res.y, xerr=res.x_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
+                pp.errorbar(res.x, res.y, xerr=res.x_err, yerr=res.y_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
 
                 errs.append(np.fabs(res.lfc))
                 err_cols.append(color)

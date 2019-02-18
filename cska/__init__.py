@@ -76,6 +76,7 @@ def parse_cmdline():
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
+    parser.add_option("", "--est-errors", dest="est_errors", default=False, action="store_true", help="perform PSAM error estimation")
     parser.add_option("", "--plot", dest="plot", default=False, action="store_true", help="plot results")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
@@ -555,6 +556,10 @@ class Run(object):
 
         return PGD.descent.status.startswith('CONVERGED')
 
+    def estimate_errors(self):
+        from cska.errors import PSAMErrorEstimator
+        est = PSAMErrorEstimator(os.path.join(self.run_path, 'opt_nostruct/'))
+        est.estimate()
 
 def main():
     options, args = parse_cmdline()
@@ -617,6 +622,9 @@ def main():
 
         if options.plot:
             run.make_plots()
+
+        if options.est_errors:
+            run.estimate_errors()
 
     except SystemExit:
         # This is alright
