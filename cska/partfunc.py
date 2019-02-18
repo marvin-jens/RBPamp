@@ -6,7 +6,7 @@ from cska.sc import SelfConsistency
 
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, **kwargs):
+    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, keep_Z1_motif=True, **kwargs):
         self.mdl = mdl
         self.params = params.copy()
         self.rbp_conc = mdl.rbp_conc
@@ -54,6 +54,13 @@ class PartFuncModelState(object):
                 self.Z1_read_motif.append(Zrscaled)# * A_rel)
                 self.Z1_read_max = self.Z1_read_max + Z1_read_max * A_rel
                 # TODO: extend clipped_sum_and_max to handle max properly
+            
+            if not keep_Z1_motif:
+                # we only need these if we are going to compute gradients.
+                # during line-search a lot of RAM can be saved by dropping
+                # these large arrays right away
+                self.Z1_motif = []
+                self.Z1_read_motif = []
 
         # vector_stats(self.Z1_read)
         # self.Z1_read_max is used for thresholding
@@ -216,19 +223,13 @@ class PartFuncModelState(object):
         }        
         return Tracked(**s)
 
-    # def archive(self):
-    #     from copy import copy
-    #     arc = copy(self)
-    #     arc.Z1 = None
-    #     arc.Z1_read = None
-    #     arc.Z1_read_max = None
-    #     arc.Z1_motif = None
-    #     arc.Z1_read_motif = None
-    #     arc.psi = None
-    #     arc.Q = None
-    #     arc.w = None
-    #     arc.R_errors = None
-    #     return arc
+    def flush(self):
+        self.Z1 = None
+        self.Z1_read = None
+        self.Z1_read_max = None
+        self.Z1_motif = None
+        self.Z1_read_motif = None
+        self.psi = None
 
     def __str__(self):
         buf = [str(self.params)]

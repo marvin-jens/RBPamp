@@ -173,15 +173,21 @@ class GradientDescent(object):
         kw = dict(self.predict_kwargs)
         kw['beta_fixed'] = False
         kw['tune'] = False
+        kw['keep_Z1_motif'] = False
 
         scales = []
         errors = []
 
         self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
+        # throw away large buffers of reference state before 
+        # actual line-search bc we don't need them anymore
+        state.flush()
+
         def err(s):
             # s = np.exp(x)
             m = params0.apply_delta(vec * s)
             new = self.model.predict(m, **kw)
+
             N['fev'] += 1
             scales.append(s)
             new_err = new.error

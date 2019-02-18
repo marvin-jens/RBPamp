@@ -37,16 +37,11 @@ class RBNSReads(CachedBase):
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
         self.format = format
 
-        print seqm
         if len(seqm):
             self.cache_preload("seqm", seqm)
             N, L = seqm.shape
             self.cache_preload("N", N)
             self.cache_preload("L", L)
-            print self.N
-            print self.L
-            # self.N, self.L = seqm.shape
-            # self.N_total = self.N
 
         self.is_subsample = not (sub_sampler is None)
 
@@ -250,7 +245,7 @@ class RBNSReads(CachedBase):
 
         return prof
 
-    def PSAM_partition_function(self, params, full_reads=False):
+    def PSAM_partition_function(self, params, full_reads=False, subsample=False):
         """
         Note: it is more efficient to request the necessary ingredients once and re-use them, as
         PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
@@ -273,20 +268,25 @@ class RBNSReads(CachedBase):
             acc1 = np.array(openen.acc)
             ofs = openen.ofs - params.k + 1 + params.acc_shift
             acc_scale = getattr(params, "acc_scale", 1.)
-            if acc_scale != 1.:
-                # print "power"
-                # import time
-                # t0 = time.time()
-                # np.power(acc1, acc_scale)
-                t1 = time.time()
-                cyska.pow_scale(acc1, acc_scale)
-                # t2 = time.time()
-                # print "got it", t1-t0, t2-t1
+
+        if subsample:
+            self.logger.debug("PSAM_partition_function() subsampling with {}".format(reads.sub_sampler))
+            seqm = reads.sub_sampler.draw(data=seqm)
+            acc1 = reads.sub_sampler.draw(data=acc1)
+
+        if acc_scale != 1. and acc_k:
+            # print "power"
+            # import time
+            # t0 = time.time()
+            # np.power(acc1, acc_scale)
+            t1 = time.time()
+            cyska.pow_scale(acc1, acc_scale)
+            # t2 = time.time()
+            # print "got it", t1-t0, t2-t1
 
         if full_reads:
             ofs = params.acc_shift
 
-        print ofs, acc1.shape, seqm.shape
         non_specific = getattr(params, "non_specific", 0.)
         Z1 = cyska.PSAM_partition_function(
             seqm, 
@@ -358,11 +358,11 @@ class RBNSReads(CachedBase):
         """
         self.seqm # trigger loading, so that timer is correct
         im = self.get_index_matrix(k)
-        print "IM", im.shape
+        # print "IM", im.shape
         openen = self.acc_storage.get_raw(k)
         acc = openen.acc
-        print "acc", acc.shape, acc.min(), acc.max()
-        print "openen_ofs", openen.ofs - k + 1
+        # print "acc", acc.shape, acc.min(), acc.max()
+        # print "openen_ofs", openen.ofs - k + 1
         t0 = time.time()
         weighted = cyska.kmer_counts_acc_weighted(im, acc, k, openen_ofs=openen.ofs - k + 1)
         t = time.time() - t0
