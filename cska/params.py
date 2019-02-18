@@ -107,6 +107,7 @@ class ModelSetParams(object):
             i += l
 
         assert i == len(data)
+        return self
     
     def unity(self):
         p = self.copy()

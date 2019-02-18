@@ -160,20 +160,6 @@ class GradientDescent(object):
         self.maxiter = maxiter
         self.maxtime = maxtime
         self.eps = eps
-        
-    # @staticmethod
-    # def apply_delta(params, delta):
-    #     new = params.copy()
-    #     p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
-    #     M = p.max(axis=1)
-    #     p /= M[:,np.newaxis]
-    #     new.psam_matrix = np.clip(p, 1e-6, 1)
-    #     new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
-    #     new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
-
-    #     new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
-    #     return new
-
 
     def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None, plot=""):
         from scipy.optimize import minimize_scalar
@@ -223,14 +209,6 @@ class GradientDescent(object):
         errors = np.array(errors)
         I = scales.argsort()
         return s, Tracked(scales = scales[I], errors=errors[I], res=res, s_opt=s, err0=e0)
-
-    def momentum_grad(self, local_grad):
-        if self.past_grad is None:
-            self.past_grad = local_grad
-
-        grad = self.past_grad * self.dec + local_grad * (1- self.dec)
-        self.past_grad = grad
-        return grad
 
     def RMSprop(self, local_grad, delta=.00001):
         if self.past_grad is None:
