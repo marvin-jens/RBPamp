@@ -33,7 +33,7 @@ def dump_caches():
         print cache, size/1024.
 
 class FootprintCalibration(CachedBase):
-    def __init__(self, rbns, params, pad=5, thresh=1e-3, redo=False):
+    def __init__(self, rbns, params, pad=5, thresh=1e-3, subsample=False, redo=False):
          
         CachedBase.__init__(self)
 
@@ -47,9 +47,11 @@ class FootprintCalibration(CachedBase):
         self.consensus = self.params.as_PSAM().consensus
         self.rbns = rbns
         self.input_reads = rbns.reads[0]
+        self.subsample = subsample
         self.pd_names = [reads.name for reads in rbns.reads[1:]]
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
+        self.thresh = thresh
         self.logger = logging.getLogger('opt.FootprintCalibration({})'.format(self.consensus))
         self.result_log = logging.getLogger('results.footprint')
 
@@ -74,10 +76,10 @@ class FootprintCalibration(CachedBase):
 
         # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.logger.debug("evaluating partition function")
-        self.Z1_full = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
+        self.Z1_full = np.array([reads.PSAM_partition_function(self.params, subsample=self.subsample) for reads in rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
 
-        self.I = (self.Z1_in_noacc > thresh).any(axis=1)
+        self.I = (self.Z1_in_noacc > self.thresh).any(axis=1)
         N = self.I.sum()
         self.logger.debug("subsetting to {} reads with Z1 > {}".format(N, thresh) )
         self.Z1 = self.Z1_in_noacc[self.I,:]
@@ -86,7 +88,7 @@ class FootprintCalibration(CachedBase):
             reads.cache_flush()
             reads.acc_storage.cache_flush()
 
-        self.punp_profiles, self.naive_profiles = self.compute_initial_profiles(_do_not_unpickle=True)
+        self.punp_profiles, self.naive_profiles = self.compute_initial_profiles()
 
         self.store_shelve("params_initial", params)
         self.store_shelve("punp_profiles", self.punp_profiles)
@@ -113,9 +115,9 @@ class FootprintCalibration(CachedBase):
 
     @property
     def cache_key(self):
-        return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}".format(self=self)
+        return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}".format(self=self)
 
-    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False):
+    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False, heuristic=2):
         # TODO: smarter way to guess footprint size from motif?
         kmin, kmax = k_core_range
         if kmax is None:
@@ -129,11 +131,20 @@ class FootprintCalibration(CachedBase):
                     for s in range( -pad , d + pad):
                         self.drop_pickle("optimize", k, s)
 
+            lowest_err = np.Inf
+            h_map = None
             for k in range(kmax, kmin-1, -1):
-                d = self.params.k - k
-
-                for s in range( -pad , d + pad):
+                d = self.params.k - k + 1
+                l = d + 2*pad + 1
+                k_row = np.zeros(l, dtype=float) + np.Inf
+                for s in range(-pad, d + pad):
                     # if not (k, s) in self.results:
+                    if not h_map is None:
+                        print "testing", s, h_map[s + pad]
+                        if not h_map[s + pad]:
+                            print "skip"
+                            continue
+
                     self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
                     res, punp_predict = self.optimize(k, s)
                     err = res.fun
@@ -147,16 +158,36 @@ class FootprintCalibration(CachedBase):
                         err = self.err0
                     
                     opt = (err, k, s, a, A0)
+
                     self.results[(k, s)] = opt
+                    self.store_shelve("opt_profile_{k}_{s}".format(**locals()), (punp_predict, res))
                     self.store_footprint(opt)
                     # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
                     self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
-
-                    # TODO: Do this only for optimal (k, s)!
-                    # if plot:
-                    res_a_one, punp_a_one = self.optimize(k, s, a_fixed=True)
-                    self.store_shelve("opt_profile_{k}_{s}".format(**locals()), (punp_predict, punp_a_one, res, res_a_one) )
                     #     self.plot_profiles(punp_predict, k, s, res)
+
+                    k_row[s + pad] = err
+                    lowest_err = min(lowest_err, err)
+
+                if heuristic:
+                    print k_row
+                    I = (k_row <= 1.1 * k_row.min()).nonzero()[0]
+                    print I
+                    h_map = np.zeros(l+1, dtype=bool)
+                    for i in I:
+                        # set the optimum and nearest neighbors to True
+                        h_map[i:min(l+2, i + 3)] = True
+                        print "heuristic map: good site at", i - pad, k_row[i]
+
+                    print "heuristic map for k=", k-1
+                    for x in range( -pad , d + pad + 1):
+                        print x, h_map[x + pad]
+
+                # if k_row.min() > lowest_err and heuristic:
+                #     # we went past the optimum. Everything smaller than this is 
+                #     # not interesting
+                #     self.logger.debug("breaking early because optimum was already seen at higher k")
+                #     break
     
         except KeyboardInterrupt:
             self.logger.warning("received KeyboardInterrupt")
@@ -176,6 +207,10 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = a
         self.params.A0 = A0
         self.store_shelve("params_calibrated", self.params)
+
+        # for the optimum, also compute profile for a=1
+        res_a_one, punp_a_one = self.optimize(k, s, a_fixed=True)
+        self.store_shelve("opt_profile_a_one_{k}_{s}".format(**locals()), (punp_a_one, res_a_one))
 
         # path = os.path.join(self.path, '{}_calibrated.tsv'.format(self.consensus))
         # self.logger.info("storing footprinted model in '{}'".format(path))
@@ -206,7 +241,7 @@ class FootprintCalibration(CachedBase):
     def compute_initial_profiles(self):
         
         punp_profiles = np.array([
-            reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad)[0]
+            reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad, subsample=self.subsample)[0]
             for reads, z in zip(self.rbns.reads, self.Z1_full)])
         
         # predict profiles w/o accessibility footprint
@@ -224,7 +259,10 @@ class FootprintCalibration(CachedBase):
 
         # openen_punp = self.input_reads.acc_storage.get_raw(1)
         openen_punp = self.get_input_openen_cached(1)
-        naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, openen_punp.acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+        punp_acc = openen_punp.acc
+        if self.subsample:
+            punp_acc = self.input_reads.sub_sampler.draw(data=punp_acc)
+        naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, punp_acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
 
         return punp_profiles, naive_profiles
 
@@ -249,8 +287,15 @@ class FootprintCalibration(CachedBase):
             openen = self.get_input_openen_cached(k)
             openen_punp = self.get_input_openen_cached(1)
 
-            acc0 = openen.acc[self.I, :]
-            punp = openen_punp.acc[self.I, :]
+            acc0 = openen.acc
+            punp = openen_punp.acc
+
+            if self.subsample:
+                acc0 = self.input_reads.sub_sampler.draw(data=acc0)
+                punp = self.input_reads.sub_sampler.draw(data=punp)
+
+            acc0 = acc0[self.I, :]
+            punp = punp[self.I, :]
 
             lacc0 = np.log(acc0)
             self._lacc_cache = { k : (lacc0, punp) }  # always keep only one item!
@@ -265,8 +310,13 @@ class FootprintCalibration(CachedBase):
         # from pympler.tracker import SummaryTracker
         # tracker = SummaryTracker()
         if a_fixed:
-            acc0 = self.get_input_openen_cached(acc_k).acc[self.I, :]
-            punp = self.get_input_openen_cached(1).acc[self.I, :]
+            acc0 = self.get_input_openen_cached(acc_k).acc
+            punp = self.get_input_openen_cached(1).acc
+            if self.subsample:
+                acc0 = self.input_reads.sub_sampler.draw(data=acc0)
+                punp = self.input_reads.sub_sampler.draw(data=punp)
+            acc0 = acc0[self.I, :]
+            punp = punp[self.I, :]
         else:
             lacc0, punp = self.get_lacc_punp_cached(acc_k)
 

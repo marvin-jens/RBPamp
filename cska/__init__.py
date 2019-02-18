@@ -60,7 +60,7 @@ def parse_cmdline():
     parser.add_option("-s","--seed-analysis-k",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
 
     # accessibility footprint analysis
-    parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
+    parser.add_option("","--footprint-k", dest="footprint", default="3-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=3-11)")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
@@ -501,7 +501,7 @@ class Run(object):
         from cska.footprint import FootprintCalibration
         calibrated_set = []
         for par in self.params:
-            cal = FootprintCalibration(self.rbns, par)
+            cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
             if res:
@@ -526,8 +526,10 @@ class Run(object):
             os.path.join(self.run_path, 'footprint/calibrated.tsv'),
             out_path=plot_path
         )
+        print "footprint report"
         fprep.report()
 
+        print "gradient report"
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")

@@ -1361,9 +1361,15 @@ class FootprintCalibrationReport(object):
             return None
 
         opt = self.shelve[key]
-        punp_predict, punp_a_one, res, res_a_one = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
+        punp_predict, res = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
         punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
         punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]
+        onekey = '{motif}_opt_profile_a_one_{k}_{s}'.format(**locals())
+        if self.shelve.has_key(onekey):
+            punp_a_one, res_a_one = self.shelve[onekey]
+        else:
+            punp_a_one = None
+            res_a_one = None
 
         return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
 
@@ -1481,7 +1487,7 @@ class FootprintCalibrationReport(object):
         
         # fprep.plot_profile("CGCUACGCUC", 11, -1)
 
-    def get_matrix_data(self, motif, k_range=(5, 11), s_range=(-5, 5)):
+    def get_matrix_data(self, motif, k_range=(3, 11), s_range=(-5, 10)):
         kmin, kmax = k_range
         smin, smax = s_range
 
@@ -1513,6 +1519,7 @@ class FootprintCalibrationReport(object):
         kmin, kmax = k_range
         smin, smax = s_range
 
+        print "s_range", s_range
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 

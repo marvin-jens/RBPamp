@@ -263,6 +263,7 @@ class RBNSReads(CachedBase):
             self.logger.debug("acc_k=0 pretending everything is accessible")
             acc1 = np.ones( (self.N, w), dtype=np.float32)
             ofs = self.l5 - params.k + 1 + params.acc_shift
+            acc_scale = 1.
         else:
             openen = self.acc_storage.get_raw(acc_k)
             acc1 = np.array(openen.acc)
@@ -270,9 +271,9 @@ class RBNSReads(CachedBase):
             acc_scale = getattr(params, "acc_scale", 1.)
 
         if subsample:
-            self.logger.debug("PSAM_partition_function() subsampling with {}".format(reads.sub_sampler))
-            seqm = reads.sub_sampler.draw(data=seqm)
-            acc1 = reads.sub_sampler.draw(data=acc1)
+            self.logger.debug("PSAM_partition_function() subsampling with {}".format(self.sub_sampler))
+            seqm = self.sub_sampler.draw(data=seqm)
+            acc1 = self.sub_sampler.draw(data=acc1)
 
         if acc_scale != 1. and acc_k:
             # print "power"
@@ -297,7 +298,7 @@ class RBNSReads(CachedBase):
         
         return Z1 # relative affinities of all motif instances everywhere
 
-    def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, **kwargs):
+    def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, subsample=False, **kwargs):
         """
         Use Boltzmann-weights in Z1 to weigh k-nt accesibility (p-unpaired) profiles across the motifs + <pad> nts 
         on either side.
@@ -306,6 +307,9 @@ class RBNSReads(CachedBase):
         # t0 = time()
         openen = self.acc_storage.get_raw(k_acc)
         acc = openen.acc  # trigger access to raw data
+        if subsample:
+            acc = self.sub_sampler.draw(data=acc)
+
         if openen.missing_data and k_acc > 0:
             raise ValueError("missing accessibility data for {} k_acc={}".format(self.fname, k_acc))
         # t1 = time()
