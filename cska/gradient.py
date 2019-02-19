@@ -262,7 +262,7 @@ class GradientDescent(object):
             mag = np.sqrt((self.past_grad**2).sum())
 
         self.logger.debug("rel_decrease={rel_decrease}, eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
-        if np.allclose(self.past_grad, 0, atol=atol):
+        if mag < atol:
             return 'CONVERGED_GRAD_NULL'
 
         elif rel_decrease < self.eps:
