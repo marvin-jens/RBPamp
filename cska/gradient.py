@@ -24,7 +24,7 @@ def emp_grad(state, eps=1e-5):
     state0 = state
     # print "err0", err0
     kw = dict()#.predict_kwargs)
-    kw['beta_fixed'] = True
+    kw['beta_fixed'] = False #True
     kw['tune'] = False
     kw['rbp_free'] = state0.rbp_free
 

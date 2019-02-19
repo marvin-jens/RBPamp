@@ -494,11 +494,13 @@ class PartFuncModel(object):
                 # print beta, "->", error, "R({})".format(top_mer), R[top_i], self.R0[i,top_i]
                 return error
             
-            res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=7, debug=False)
+            res = minimize_logspaced(to_optimize, bounds=np.array([1e-9, 10]), n_samples=7, debug=False)
             # res = minimize_scalar(to_optimize, opt_betas[i], bounds=np.array([1e-7, 10]), method='Bounded')
             # print "beta",i, res
             if res.success:
                 opt_betas[i] = res.x
+            else:
+                self.logger.warning("optimal_betas() did not converge! res={}".format(res))
 
         # print "final values", opt_betas
         # self.logger.debug("optimal_betas took {0:.2f} ms".format(1000. * (time.time() - t0)))
