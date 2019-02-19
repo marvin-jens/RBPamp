@@ -244,7 +244,7 @@ class GradientDescent(object):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
 
-        if (self.t - self.last_subsample_t) < tau:
+        if (self.t - self.last_subsample_t) <= tau:
             self.logger.debug("not enough data to estimate convergence since last (re-)sample at t_ss={0} (t_now={1})".format(self.last_subsample_t, self.t))
             return self.status
            
@@ -253,7 +253,9 @@ class GradientDescent(object):
         rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
 
         mean = last_errs.mean()
-        rel_decrease = (mean - self.errors[-1]) / mean
+        before = self.errors[-tau - 1]
+        rel_decrease = (before - mean) / before
+
         if self.past_grad is None:
             mag = np.inf
         else:

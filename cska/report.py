@@ -949,14 +949,15 @@ class GradientDescentReport(object):
         if self.t is None:
             return
         
-        # for i, name in enumerate(self.epoch_names):
-        #     t0, t = self.epochs[i]
-        #     # print "epoch", t0, t, name
-        #     self.plot_scatter(t0, title="before {}".format(name))
-        #     self.plot_scatter(t, title="after {}".format(name))
-
         self.plot_literature()
-        # self.plot_report()
+        self.plot_report()
+
+        for i, name in enumerate(self.epoch_names):
+            t0, t = self.epochs[i]
+            # print "epoch", t0, t, name
+            self.plot_scatter(t0, title="before {}".format(name))
+            self.plot_scatter(t, title="after {}".format(name))
+
     
     def find_max_t(self, shelf):
         t = -1
@@ -1050,6 +1051,9 @@ class GradientDescentReport(object):
 
         params0 = self.get('params', 0).copy()
         def mag(grad_data):
+            if grad_data is None:
+                return [np.nan,]
+
             grad = params0.copy().set_data(grad_data)
             for par in grad:
                 par.betas[:] = 0
@@ -1485,8 +1489,6 @@ class FootprintCalibrationReport(object):
             self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
             self.plot_profile(motif, params.acc_k, params.acc_shift)
         
-        # fprep.plot_profile("CGCUACGCUC", 11, -1)
-
     def get_matrix_data(self, motif, k_range=(3, 11), s_range=(-5, 10)):
         kmin, kmax = k_range
         smin, smax = s_range
