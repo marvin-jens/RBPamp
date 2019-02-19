@@ -225,8 +225,8 @@ class PartFuncModelState(object):
 
     def flush(self):
         self.Z1 = None
-        # self.Z1_read = None # needed by line_search to set_mask()
-        self.Z1_read_max = None
+        # self.Z1_read = None  # needed by line_search to set_mask()
+        # self.Z1_read_max = None
         self.Z1_motif = None
         self.Z1_read_motif = None
         self.psi = None

@@ -196,7 +196,7 @@ class GradientDescent(object):
                 print s,"->", new_err - e0
             return new_err - e0
 
-        assert np.fabs(err(0)) < 1e-6
+        # assert np.fabs(err(0)) < 1e-6
 
         res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), options=dict(maxiter=maxiter) )
         # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
