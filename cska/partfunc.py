@@ -348,7 +348,7 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis, :] * (1 - self.R0)
 
-    def tune(self, state, debug=False, maxiter=5):
+    def tune(self, state, debug=False, maxiter=5, min_A0=1e-4, max_A0=1000.):
         params = state.params
         A00 = params.A0
         from cska.gradient import minimize_logspaced
@@ -383,12 +383,12 @@ class PartFuncModel(object):
 
             return state.error
 
-        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
+        res = minimize_logspaced(err, bounds=np.array((min_A0, max_A0)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
 
         if debug:
             print res
     
-        if 5e-3 < res.x < 500:
+        if min_A0 < res.x < max_A0:
             state.params.A0 = res.x
         else:
             self.logger.debug("fit would push A0 to boundaries. Letting drift through gradient-only instead.")
@@ -441,12 +441,12 @@ class PartFuncModel(object):
 
         return w
 
-    def predict(self, params, aff0=1e-6, debug=False, tune=False, **kwargs):
+    def predict(self, params, debug=False, tune=False, **kwargs):
         t0 = time.time()
         state = PartFuncModelState(self, params, **kwargs)
         self.logger.debug("predict(took {:.2f} ms".format(1000. * (time.time() - t0)))
         if tune:
-            state = self.tune(state)
+            state = self.tune(state, debug=debug)
 
         return state
 
