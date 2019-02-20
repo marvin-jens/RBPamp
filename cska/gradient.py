@@ -16,7 +16,7 @@ class Tracked(object):
             setattr(self, k,v)
 
 
-def emp_grad(state, eps=1e-5):
+def emp_grad(state, eps=1e-4):
     v0 = state.params.get_data()
     v = np.array(v0)
     var = state.params.copy()
@@ -46,7 +46,7 @@ def emp_grad(state, eps=1e-5):
     return var
 
 
-def emp_gradi(state, eps=1e-6):
+def emp_gradi(state, eps=1e-4):
     v0 = state.params.as_vector()
     var = state.params.copy()
     Nk = state.mdl.nA
@@ -71,6 +71,70 @@ def emp_gradi(state, eps=1e-6):
         var.data[i] = v0[i]
     
     return gradi
+
+
+def emp_grad_A0(state, eps=1e-4, _dE=True, _dR=False, _dq=False, _dPsi=False, _dZ=False):
+    "useful for debugging"
+    ret = []
+    for i, params in enumerate(state.params.copy()):
+        err0 = state.error
+
+        Z0 = np.array(state.Z1_read_motif[i])
+        params.A0 += eps
+        kw = dict()#.predict_kwargs)
+        kw['beta_fixed'] = False
+        kw['tune'] = False
+        kw['rbp_free'] = state.rbp_free
+
+        paramset = state.params.copy()
+        paramset[i] = params
+        new = state.mdl.predict(paramset, **kw)
+
+        dE = (new.error - err0)/eps
+        dZ = new.Z1_read_motif[i] - Z0
+        dPsi = (new.psi - state.psi)/eps
+        dq = (new.q - state.q)/eps
+        # dQ = (new.Q - state.Q)/eps
+        dR = (new.R - state.R)/eps
+
+        res = {}
+        if _dE: res['dE'] = dE
+        if _dR: res['dR'] = dR
+        if _dq: res['dq'] = dq
+        if _dPsi: res['dPsi'] = dPsi
+        if _dZ: res['dZ'] = dZ
+        
+        ret.append(res)
+
+    return ret
+
+
+def ana_grad_A0(state, eps=1e-3, _dE=True, _dR=False, _dq=False, _dPsi=False, _dZ=False):
+    "useful for debugging"
+    ret = []
+    for i, params in enumerate(state.params):
+        norm = (params.A0/state.params.A0)
+        print "norm", norm
+        Z1m = state.Z1_read_motif[i] 
+        dZ = Z1m / state.Z1_read
+        # print "dZ", dZ.shape, dZ
+        dPsi_dA0 = (state.psi - state.psi**2) * dZ
+        dPsi_dA0 /= state.params.A0
+        dq = state.mdl.PD_kmer_weights(dPsi_dA0)
+        dR = state.R / state.q * (dq - state.mdl.f0[np.newaxis,:] * state.R * dq.sum(axis=1))
+        dE = 2 * ((state.R - state.mdl.R0) * dR).mean()
+
+        res = {}
+        if _dE: res['dE'] = dE
+        if _dR: res['dR'] = dR
+        if _dq: res['dq'] = dq
+        if _dPsi: res['dPsi'] = dPsi
+        if _dZ: res['dZ'] = dZ
+        
+        ret.append(res)
+
+    return ret
+
 
 
 def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, options=None, **kwargs):
@@ -162,7 +226,7 @@ class GradientDescent(object):
         self.eps = eps
         self.tau = tau
 
-    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1, e0=None, plot=""):
+    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
@@ -264,7 +328,8 @@ class GradientDescent(object):
         slope, intercept, r_value, p_value, std_err = stats.linregress(np.arange(self.tau), last_errs)
         rel_decrease = - slope / self.errors[0]
 
-        self.logger.debug("rel_decrease={rel_decrease} (P < {p_value}), eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
+        rel_dec_eps = rel_decrease / self.eps
+        self.logger.debug("rel_decrease={rel_dec_eps} x eps (P < {p_value}), rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
         if rel_decrease < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'
         else:
@@ -322,29 +387,35 @@ class GradientDescent(object):
             while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
                 local_grad = state.grad #.unity()
+                # local_grad.A0 = 0.0046
 
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
-                        for lcl, emp in zip(local_grad, emp_grad(state)):
+                        for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
+                        # for lcl, emp_A0_res, ana_A0_res in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state)):
+
+                            print "ana_dA0", ana_A0_res['dE']
                             print "LCL"
                             print lcl
+                            print "emp_dA0", emp_A0_res['dE']
                             print "EMP"
                             print emp
                     else:
                         print local_grad
-
+                
                 local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
-                descent = self.RMSprop( - local_grad ).unity()
+                descent = self.RMSprop( - local_grad ) #.unity()
                 # descent = self.momentum_grad( - local_grad).unity()
 
                 # print "ERRORS", self.errors
-                s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=debug)
+                s, ls_data = self.line_search(state, descent, debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
                     # take local gradient instead
                     descent = - local_grad.unity()
-                    s, data = self.line_search(state, descent, e0=self.errors[-1])
+                    s, data = self.line_search(state, descent, debug=debug)
+                    
                     # and reset RMSProp
                     self.past_grad = None
                     self.past_sqg = 1
@@ -364,6 +435,9 @@ class GradientDescent(object):
                 state._ls_data = ls_data
                 self.t += 1
                 # self.history.append(state.archive())
+                self.last_state = state
+                self.errors.append(state.error)
+
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
                     # print descent
@@ -371,9 +445,11 @@ class GradientDescent(object):
 
                 if callback:
                     state = callback(self, state)
-                
-                self.last_state = state
-                self.errors.append(state.error)
+
+                # if state != self.last_state:
+                #     self.logger.debug("callback changed state:")
+                #     print "AFTER CALLBACK"
+                #     self.print_state(state)
 
                 self.logger.debug("n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
                     self=self,

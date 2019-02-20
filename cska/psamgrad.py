@@ -70,7 +70,7 @@ class PSAMGradientDescent(object):
         self.descent = cska.gradient.GradientDescent(self.model, params, maxiter=maxiter, maxtime=maxtime, eps=eps, tau=tau, debug_grad=debug_grad)
         self.params = params
     
-    def optimize(self, debug=True):
+    def optimize(self, debug=False):
         # params.betas[:] = model.estimate_betas(state)
         # params.betas[:] = model.optimal_betas(state)
         # res = model.quantile_fit(state)
@@ -123,7 +123,7 @@ class PSAMGradientDescent(object):
                 
             # collect and write data on the gradient descent progress
             pR, pval = state.correlations
-            out = [descent.t + self.t_ofs, state.params[0].A0, state.error] \
+            out = [descent.t + self.t_ofs, state.params.A0, state.error] \
                 + list(state.sample_errors) + list(pR) \
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
@@ -131,7 +131,7 @@ class PSAMGradientDescent(object):
             print line
             self.track_file.write(line)
             self.track_file.write('\n')
-
+            self.logger.debug("t={0} error={1:.3f}% max_corr={2:.4f}".format(descent.t + self.t_ofs, 100 * state.error/descent.errors[0], np.array(pR).max()))
             if self.resample_int and (descent.t - self.last_resample) >= self.resample_int:
                 # it's time to draw a new sub-sample
                 state = descent.new_subsample()
