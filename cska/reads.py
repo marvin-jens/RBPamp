@@ -14,7 +14,19 @@ import cska.fold
 from cska.subsampling import SubSampler
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, n_samples=0, replace=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear'), sub_sampler=None, acc_storage=None):
+    def __init__(
+        self, 
+        fname, 
+        rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22,
+        format='raw', chunklines=2000000, n_max=0,
+        adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg",
+        storage_kw=dict(disc_mode='linear'),
+        acc_storage_path='cska/acc',
+        acc_storage=None,
+        pseudo_count=10, seqm=[], n_subsamples = 20,
+        n_samples=0, replace=0,
+        sub_sampler=None,
+        ):
         
         CachedBase.__init__(self)
         
@@ -32,7 +44,7 @@ class RBNSReads(CachedBase):
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
         self.n_max = n_max
-        # self.n_subsamples = n_subsamples
+        self.n_subsamples = n_subsamples
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
         self.format = format
@@ -158,7 +170,8 @@ class RBNSReads(CachedBase):
     def subsamples(self):
         # TODO: do this more rigorously. Perhaps bootstrapping is better?
         self.logger.info("subsampling reads...")
-        return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+        # return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+        return [self.get_new_subsample() for i in range(self.n_subsamples)]
 
     @property
     @cached
