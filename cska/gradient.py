@@ -179,7 +179,7 @@ class GradientDescent(object):
         scales = []
         errors = []
 
-        self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
+        # self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read.max())
         # throw away large buffers of reference state before 
         # actual line-search bc we don't need them anymore
         state.flush()
@@ -203,7 +203,7 @@ class GradientDescent(object):
         # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
-        self.model.set_mask()
+        # self.model.set_mask()
         self.logger.debug("line_search took {0:.3f} seconds for {1} iterations".format(time.time() - t0, N['fev']))
         # print res.success, res.fun, res
         if res.fun > 0:
