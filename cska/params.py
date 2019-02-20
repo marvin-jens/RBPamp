@@ -182,7 +182,7 @@ class ModelSetParams(object):
         c.set_data( - self.get_data())
         return c
 
-    def apply_delta(self, delta_set):
+    def apply_delta(self, delta_set, min_rel_A0=1e-3):
         c = self.copy()
         new = []
         for i, (params, delta) in enumerate(zip(c.param_set, delta_set)):
@@ -203,6 +203,12 @@ class ModelSetParams(object):
 
             params.betas = np.clip(params.betas + delta.betas, 1e-9, None)
             new.append(params)
+
+        a0s = np.array([params.A0 for params in new])
+        min_a0 = a0s.max() * min_rel_A0
+        a0s = np.where(a0s > min_a0, a0s, min_a0)
+        for a0, params in zip(a0s, new):
+            params.A0 = a0
 
         c.param_set = new
         return c

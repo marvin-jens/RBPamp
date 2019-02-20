@@ -131,7 +131,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -160,8 +160,9 @@ class GradientDescent(object):
         self.maxiter = maxiter
         self.maxtime = maxtime
         self.eps = eps
+        self.tau = tau
 
-    def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1, e0=None, plot=""):
+    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1, e0=None, plot=""):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
@@ -239,35 +240,33 @@ class GradientDescent(object):
 
         return state
 
-    def converged(self, atol=1e-7, tau=3):
+    def converged(self, atol=1e-7):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
-
-        if (self.t - self.last_subsample_t) <= tau:
-            self.logger.debug("not enough data to estimate convergence since last (re-)sample at t_ss={0} (t_now={1})".format(self.last_subsample_t, self.t))
-            return self.status
-           
-        last_errs = np.array(self.errors[-tau:])
-        rel_error = self.errors[-1] / self.errors[0]
-        rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
-
-        mean = last_errs.mean()
-        before = self.errors[-tau - 1]
-        rel_decrease = (before - mean) / before
 
         if self.past_grad is None:
             mag = np.inf
         else:
             mag = np.sqrt((self.past_grad**2).sum())
-
-        self.logger.debug("rel_decrease={rel_decrease}, eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
         if mag < atol:
             return 'CONVERGED_GRAD_NULL'
 
-        elif rel_decrease < self.eps:
+        if len(self.errors) < self.tau:
+            self.logger.debug("not enough data to estimate convergence (t={})".format(self.t))
+            return self.status
+           
+        last_errs = np.array(self.errors[-self.tau:])
+        rel_error = self.errors[-1] / self.errors[0]
+        rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
+
+        from scipy import stats
+        slope, intercept, r_value, p_value, std_err = stats.linregress(np.arange(self.tau), last_errs)
+        rel_decrease = - slope / self.errors[0]
+
+        self.logger.debug("rel_decrease={rel_decrease} (P < {p_value}), eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
+        if rel_decrease < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'
-            
         else:
             return self.status
 

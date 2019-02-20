@@ -84,6 +84,7 @@ def parse_cmdline():
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
+    parser.add_option("","--tau",dest="mdl_tau",default=23, type=int, help="convergence estimation interval (default=13) [Note, this should be larger than the re-sampling interval -r]")
 
     # TODO: update
     parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
@@ -541,17 +542,18 @@ class Run(object):
         PGD = PSAMGradientDescent(
             self.rbns, 
             self.params, 
-            ref=self.ref, 
-            k_fit=self.options.grad_k, 
-            mdl_name=self.options.grad_mdl, 
-            Z_thresh=self.options.Z_thresh, 
-            run_name=name, 
-            maxiter=self.options.grad_maxiter, 
-            maxtime=self.options.grad_maxtime, 
-            eps=self.options.mdl_epsilon, 
-            redo=self.options.redo,
-            debug_grad=self.options.debug_grad,
-            resample_int=self.options.resample_int,
+            ref = self.ref, 
+            k_fit = self.options.grad_k, 
+            mdl_name = self.options.grad_mdl, 
+            Z_thresh = self.options.Z_thresh, 
+            run_name = name, 
+            maxiter = self.options.grad_maxiter, 
+            maxtime = self.options.grad_maxtime, 
+            eps = self.options.mdl_epsilon, 
+            tau = self.options.mdl_tau,
+            redo = self.options.redo,
+            debug_grad = self.options.debug_grad,
+            resample_int = self.options.resample_int,
         )
         PGD.optimize()
         self.params = PGD.descent.params
