@@ -188,10 +188,10 @@ class ModelSetParams(object):
         for i, (params, delta) in enumerate(zip(c.param_set, delta_set)):
             p = params.psam_matrix + delta.psam_matrix
             # print i, "after applying update of magnitude", np.fabs(delta.data).max(), "min/max", p.min(), p.max()
-            m = p.min(axis=1) # find out if we dropped below zero
-            m = np.where(m < 0, -m + 1e-6, 0)
-            # print "raise", m
-            p += m[:, np.newaxis] # and raise the level in these columns accordingly
+            # m = p.min(axis=1) # find out if we dropped below zero
+            # m = np.where(m < 0, -m + 1e-6, 0)
+            # # print "raise", m
+            # p += m[:, np.newaxis] # and raise the level in these columns accordingly
             p = np.clip(p, 1e-6, None)
             M = p.max(axis=1) # increases above 1 on cognate should increase A0
             p /= M[:,np.newaxis]
@@ -209,7 +209,7 @@ class ModelSetParams(object):
         a0s = np.where(a0s > min_a0, a0s, min_a0)
         for a0, params in zip(a0s, new):
             params.A0 = a0
-
+        # print "params.A0", params.A0
         c.param_set = new
         return c
 
