@@ -4,50 +4,6 @@ import pandas as pd
 import seaborn as sns
 import sys
 
-domains = pd.read_table('domains.txt', header=None, names=['rbp','domains'])
-linscore = pd.read_table('scores.txt', header=None, names=['rbp','linscore'])
-fp_params = pd.read_table('opt_a.txt', header=None, names=['rbp', 'acc_scale'])
-topR = pd.read_table('topR.txt', header=None, names=['rbp','top_R'])
-
-# print fp_params.describe()
-# print fp_params
-# sys.exit(0)
-# df = linscore.join(descent, on='rbp', rsuffix='_lin')
-
-def _linearity(v):
-    if v > 1.:
-        return '1+'
-    elif v > .7:
-        return '0.7-1'
-    elif v > 0:
-        return '0.7-'
-    else:
-        return "NA"
-
-def _topR(v):
-    if v > 20.:
-        return '20+'
-    elif v > 5:
-        return '5-20'
-    elif v > 2:
-        return '2-5'
-    elif v > 1:
-        return '1-2'
-    else:
-        return 'NA'
-
-def _scale(v):
-    if v > .5:
-        return '0.5+'
-    elif v > .2:
-        return '0.2-0.5'
-    elif v > .1:
-        return '0.1-0.2'
-    elif v > 0.05:
-        return '0.05-0.1'
-    else:
-        return '< 0.05'
-
 def _domain(dom):
     if type(dom) == float:
         return 'NA'
@@ -55,7 +11,6 @@ def _domain(dom):
     ds = defaultdict(int)
     for d in dom.split(','):
         ds[d] += 1
-
     tbl = np.array(sorted([(v,k) for k,v in ds.items()]))[::-1]
     if len(ds.keys()) == 1:
         return ds.keys()[0]
@@ -74,19 +29,76 @@ def _domain_count(dom):
     else:
         return "4+"
 
+def _topR(v):
+    if v > 20.:
+        return '20+'
+    elif v > 5:
+        return '5-20'
+    elif v > 2:
+        return '2-5'
+    elif v > 1:
+        return '1-2'
+    else:
+        return 'NA'
+
+# linscore = pd.read_table('scores.txt', header=None, names=['rbp','linscore'])
+# fp_params = pd.read_table('opt_a.txt', header=None, names=['rbp', 'acc_scale'])
+extra = pd.read_table('domains.txt', header=None, names=['rbp', 'domains'])
+extra['domain'] = extra['domains'].apply(_domain)
+extra['n_dom'] = extra['domains'].apply(_domain_count)
+
+topR = pd.read_table('topR.txt', header=None, names=['rbp', 'top_R'])
+print topR.describe()
+extra = extra.merge(topR, on='rbp')
+print extra.describe()
+extra['max_R'] = extra['top_R'].apply(_topR)
+
+
+# print df.describe()
+
+# print fp_params.describe()
+# print fp_params
+# df = linscore.join(descent, on='rbp', rsuffix='_lin')
+
+def _linearity(v):
+    if v > 1.:
+        return '1+'
+    elif v > .7:
+        return '0.7-1'
+    elif v > 0:
+        return '0.7-'
+    else:
+        return "NA"
+
+def _scale(v):
+    if v > .5:
+        return '0.5+'
+    elif v > .2:
+        return '0.2-0.5'
+    elif v > .1:
+        return '0.1-0.2'
+    elif v > 0.05:
+        return '0.05-0.1'
+    else:
+        return '< 0.05'
+
+
+
 def load_descent_run(fname, run='full'):
-# descent = pd.read_table('descent2.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
-# descent = pd.read_table('descent_bugfix_noopt.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
-    descent = pd.read_table(fname, header=None, names=['rbp','rerr','ferr','corr','steps'])
-    df = descent.merge(linscore, how='left', on='rbp')
-    df = df.merge(domains, how='left', on='rbp')
-    df = df.merge(topR, how='left', on='rbp')
-    df = df.merge(fp_params, how='left', on='rbp')
-    df['motif_linearity'] = df['linscore'].apply(_linearity)
-    df['domain'] = df['domains'].apply(_domain)
-    df['n_dom'] = df['domains'].apply(_domain_count)
-    df['max_R'] = df['top_R'].apply(_topR)
-    df['opt_a'] = df['acc_scale'].apply(_scale)
+    # descent = pd.read_table('descent2.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
+    # descent = pd.read_table('descent_bugfix_noopt.txt', header=None, names=['rbp','rerr','ferr','corr','steps'])
+    df = domains.merge(pd.read_table('/home/mjens/engaging/ci_ns.tsv'), on='rbp')
+    df = df.merge(topR, on='rbp')
+    # descent = pd.read_table(fname, header=None, names=['rbp','rerr','ferr','corr','steps'])
+
+    # df = descent.merge(linscore, how='left', on='rbp')
+    # df = df.merge(domains, how='left', on='rbp')
+    # df = df.merge(topR, how='left', on='rbp')
+    # df = df.merge(fp_params, how='left', on='rbp')
+    # df['motif_linearity'] = df['linscore'].apply(_linearity)
+    # df['domain'] = df['domains'].apply(_domain)
+    # df['n_dom'] = df['domains'].apply(_domain_count)
+    # df['opt_a'] = df['acc_scale'].apply(_scale)
     df['run'] = run
 
     return df.set_index('rbp')
@@ -96,45 +108,43 @@ def label_point(row):
     x,y,val = row
     plt.text(x, y-0.02, str(val))
 
-df = load_descent_run(sys.argv[1])
-df_nostruct = load_descent_run(sys.argv[2], run='nostruct')
-combined = df.append(df_nostruct)
-
-intersect = df.join(df_nostruct, lsuffix="_full", rsuffix='_nostruct', how='inner')
 # print intersect.describe()
 # print intersect[['corr_full', 'corr_nostruct']]
 # sys.exit(0)
 # print df
 def by_R_value_plot(df):
     order = ['20+','5-20','2-5','1-2']
-    ax = sns.boxplot(x='max_R', y="corr", data=df, order=order[::-1], whis=np.inf, width=.5, hue='run', dodge=True, hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='max_R', y="corr", data=df, order=order[::-1], color=".2", hue='run', dodge=True, hue_order=['nostruct', 'full'])
+    ax = sns.boxplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], whis=np.inf, width=.5, hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
+    ax = sns.swarmplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], color=".2", hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
     plt.xlabel('max. observed 6-mer R-value')
     plt.ylabel('max. R-value correlation after fit')
-    plt.ylim(0,1)
+    plt.ylim(.25, 1)
     plt.savefig('overview.pdf')
     plt.close()
 
-def by_domain_plot(df):
-    # order = ['RRM','RRM+KH','RRM+ZNF', 'RRM+other', 'KH', 'KH+ZNF','KH+other', 'ZNF', 'ZNF+other','other','NA']
-    # order = ['1 RRM', '2 RRM', '3 RRM', '4 RRM', '1 KH', '2 KH', '3 KH', '4 KH', '1 ZNF', '2 ZNF', '3 ZNF', '4 ZNF', '1 other', 'mixed']
+def by_domain_plot(df, col="nostruct.best_corr"):
+    # order = ['RRM','RRM+KH','    df = descent.merge(linscore, how='left', on='rbp')F', 'RRM+other', 'KH', 'KH+ZNF','KH+other', 'ZNF', 'ZNF+other','other','NA']
+    # order = ['1 RRM', '2 RRM'    df = df.merge(domains, how='left', on='rbp')RM', '4 RRM', '1 KH', '2 KH', '3 KH', '4 KH', '1 ZNF', '2 ZNF', '3 ZNF', '4 ZNF', '1 other', 'mixed']
     order = ['RRM', 'KH', 'ZNF', 'other', 'mixed']
-    ax = sns.boxplot(x='domain', y="corr", data=df, order=order, whis=np.inf, width=.5, hue='run', hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='domain', y="corr", data=df, order=order, color=".2", hue='run', dodge=True, hue_order=['nostruct', 'full'])
-
-    # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
+    ax = sns.boxplot(x='domain', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['nostruct', 'full'])
+    ax = sns.swarmplot(x='domain', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, dodge=True, hue_order=['nostruct', 'full'])
+    # lmp = sns.lmplot(x='rerr'    df['domain'] = df['domains'].apply(_domain)rr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
     plt.xlabel('RBD type')
     plt.ylabel('final 6mer correlation')
+    plt.ylim(.25,1.)
+    sns.despine(trim=True)
     plt.savefig('fit_by_domain_type.pdf')
     plt.close()
 
     order = ['1', '2', '3', '4+']
-    ax = sns.boxplot(x='n_dom', y="corr", data=df, order=order, whis=np.inf, width=.5, hue='run', hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='n_dom', y="corr", data=df, order=order, color=".2", hue='run', dodge=True, hue_order=['nostruct', 'full'])
-
+    ax = sns.boxplot(x='n_dom', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['nostruct', 'full'])
+    ax = sns.swarmplot(x='n_dom', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
     # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
     plt.xlabel('RBD number')
     plt.ylabel('final 6mer correlation')
+    plt.ylim(.25,1.)
+    sns.despine(trim=True)
+
     plt.savefig('fit_by_domain_num.pdf')
     plt.close()
 
@@ -159,6 +169,20 @@ def scale_by_domain(df):
     # plt.savefig('fit_by_domain_num.pdf')
     # plt.close()
 
+# df = load_descent_run(sys.argv[1])
+# df_nostruct = load_descent_run(sys.argv[2], run='nostruct')
+# combined = df.append(df_nostruct)
+
+# intersect = df.join(df_nostruct, lsuffix="_full", rsuffix='_nostruct', how='inner')
+df = extra.merge(pd.read_table('/home/mjens/engaging/ci_ns.tsv'), on='rbp')
+df['run'] = 'mutli PSAM (CI)'
+
+df2 = extra.merge(pd.read_table('/home/mjens/engaging/1m_ns.tsv'), on='rbp')
+df2['run'] = 'single PSAM'
+
+by_domain_plot(pd.concat([df, df2]))
+by_R_value_plot(pd.concat([df, df2]))
+sys.exit(0)
 
 scale_by_domain(df)
 
