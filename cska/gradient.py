@@ -329,7 +329,7 @@ class GradientDescent(object):
         rel_decrease = - slope / self.errors[0]
 
         rel_dec_eps = rel_decrease / self.eps
-        self.logger.debug("rel_decrease={rel_dec_eps} x eps (P < {p_value}), rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
+        self.logger.debug("rel_decrease={rel_dec_eps:.1f} x eps (P < {p_value:.3e}) |gradient|={mag:.2e}".format(**locals()))
         if rel_decrease < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'
         else:
