@@ -243,8 +243,8 @@ class RBPBindModel(object):
         self.state = self.evaluate_PSAM(param_file, seq_only=seq_only)
 
     def evaluate_PSAM(self, fname, seq_only = False):
-        from cska.params import ModelParametrization
-        params = ModelParametrization.load(fname, 1)
+        from cska.params import ModelSetParams
+        params = ModelSetParams.load(fname, 1)
         # seqm = self.ns.reads.get_padded_seqm(psam.n)
         # openen = self.ns.reads.acc_storage.get_raw(psam.n)
         # acc = openen.acc
@@ -253,7 +253,7 @@ class RBPBindModel(object):
             params.acc_k = 0 
         # Z1 = cyska.PSAM_partition_function(seqm, acc, psam.psam, openen_ofs = openen.ofs - psam.n + 1)
 
-        params.acc_scale = 1.
+        # params.acc_scale = 1.
         # import cska.cyska as cyska
         Z1 = self.ns.reads.PSAM_partition_function(params, full_reads=True)
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
@@ -476,8 +476,8 @@ class nsRBNSModel(object):
 
     def evaluate_PSAM(self, fname, seq_only = False):
 
-        from cska.params import ModelParametrization
-        params = ModelParametrization.load(fname, 1)
+        from cska.params import ModelSetParams
+        params = ModelSetParams.load(fname, 1)
         # seqm = self.ns.reads.get_padded_seqm(psam.n)
         # openen = self.ns.reads.acc_storage.get_raw(psam.n)
         # acc = openen.acc
@@ -879,7 +879,7 @@ def rbfox2_analysis(lp=0, z_cut=4):
     lm = nsRBNSModel(exp, 'SPA_psam_na', psam_model, seq_only=True, low_perc=lp, mdl_type='PSAM')
     fits_psam_na = lm.regression_analysis(**kw)
 
-    psam_model = 'RBFOX3_full.tsv'
+    psam_model = "RBFOX3_struct_PSAM.tsv"  # 'RBFOX3_full.tsv'
     lm = nsRBNSModel(exp, 'SPA_psam', psam_model, seq_only=False, low_perc=lp, mdl_type='PSAM')
     fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
     exp.heatmap_plot(lm)
@@ -952,7 +952,7 @@ def msi1_analysis(lp=0, z_cut=4):
     fits_r = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=lp)
-    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MSI1_nostruct.tsv', seq_only=True, mdl_type='MSI1')
+    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MSI1_nostruct_PSAM.tsv', seq_only=True, mdl_type='MSI1')
     # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
     fits_psam_na = lm.regression_analysis(**kw)
 
@@ -1020,12 +1020,12 @@ def mbnl1_analysis(lp=0, z_cut=4):
     fits_r = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_psam_na', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=True, low_perc=lp)
-    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MBNL1_nostruct_12mer_PSAM.tsv', seq_only=True, mdl_type='PSAM')
+    lm = nsRBNSModel(exp, 'SPA_psam_na', 'MBNL1_nostruct_PSAM.tsv', seq_only=True, mdl_type='PSAM')
     # lm = nsRBNSModel(exp, 'SPA', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
     fits_psam_na = lm.regression_analysis(**kw)
 
     # lm = nsRBNSModel(exp, 'SPA_psam', '/scratch/data/RBNS/MSI1/cska/test_mfa2/meanfield/7mer_affinities.tsv', seq_only=False, low_perc=lp)
-    lm = nsRBNSModel(exp, 'SPA_psam', 'MBNL1_12mer_PSAM.tsv', seq_only=False, low_perc=lp, mdl_type="PSAM")
+    lm = nsRBNSModel(exp, 'SPA_psam', 'MBNL1_nostruct_PSAM.tsv', seq_only=False, low_perc=lp, mdl_type="PSAM")
     # lm = nsRBNSModel(exp, 'SPA_psam', 'msi1_mfa_spa_7mer.tsv', seq_only=False, low_perc=10)
     fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
     exp.heatmap_plot(lm)
@@ -1086,10 +1086,10 @@ def rbpbind_analysis(lp=0, z_cut=4):
     # lm.run_rbpbind(884)
     # fits_rc = lm.regression_analysis(**kw)
 
-rbpbind_analysis()
-# rbfox2_analysis()
-# msi1_analysis()
+# rbpbind_analysis()
 # mbnl1_analysis()
+# msi1_analysis()
+rbfox2_analysis()
 sys.exit(0)
 
 nsrbns = nsRBNSOligos(fa_name = 'nsRBNS_oligos_taliaferro_et_al.fa', adap5 = 'GGGCCTTGACACCCGAGAATTCCA', adap3 = 'GATCGTCGGACTGTAGAACT', xtalk_file='blast/results.out')

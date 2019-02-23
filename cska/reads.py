@@ -268,46 +268,59 @@ class RBNSReads(CachedBase):
             seqm = self.get_full_seqm()
         else:
             seqm = self.get_padded_seqm(params.k)
-
-        w = self.L - params.k + 1 + self.l5 + self.l3
-       
-        acc_k = getattr(params, "acc_k", None)
-        if not acc_k:
-            self.logger.debug("acc_k=0 pretending everything is accessible")
-            acc1 = np.ones( (self.N, w), dtype=np.float32)
-            ofs = self.l5 - params.k + 1 + params.acc_shift
-            acc_scale = 1.
-        else:
-            openen = self.acc_storage.get_raw(acc_k)
-            acc1 = np.array(openen.acc)
-            ofs = openen.ofs - params.k + 1 + params.acc_shift
-            acc_scale = getattr(params, "acc_scale", 1.)
+        
+        w = self.L + self.l5 + self.l3 - params.k + 1
 
         if subsample:
-            self.logger.debug("PSAM_partition_function() subsampling with {}".format(self.sub_sampler))
+            self.logger.debug("PSAM_partition_function() subsampling seqm with {}".format(self.sub_sampler))
             seqm = self.sub_sampler.draw(data=seqm)
-            acc1 = self.sub_sampler.draw(data=acc1)
-
-        if acc_scale != 1. and acc_k:
-            # print "power"
-            # import time
-            # t0 = time.time()
-            # np.power(acc1, acc_scale)
-            t1 = time.time()
-            cyska.pow_scale(acc1, acc_scale)
-            # t2 = time.time()
-            # print "got it", t1-t0, t2-t1
-
-        if full_reads:
-            ofs = params.acc_shift
 
         non_specific = getattr(params, "non_specific", 0.)
-        Z1 = cyska.PSAM_partition_function(
-            seqm, 
-            acc1,
-            np.array(params.psam_matrix, dtype=np.float32),
-            openen_ofs=ofs, non_specific = non_specific
-        )
+
+        Z1 = None
+        for i, par in enumerate(params):
+            acc_k = getattr(par, "acc_k", None)
+            acc_scale = getattr(par, "acc_scale", 1.)
+       
+            if not acc_k:
+                self.logger.debug("acc_k=0 pretending everything is accessible")
+                acc1 = np.ones( (self.N, w), dtype=np.float32)
+                acc_scale = 1.
+            else:
+                openen = self.acc_storage.get_raw(acc_k)
+                acc1 = np.array(openen.acc)
+
+            if full_reads:
+                ofs = params.acc_shift
+            else:
+                ofs = self.l5 - par.k + 1 + par.acc_shift
+                    # ofs = openen.ofs - params.k + 1 + params.acc_shift
+
+            if subsample:
+                self.logger.debug("PSAM_partition_function() subsampling acc with {}".format(self.sub_sampler))
+                acc1 = self.sub_sampler.draw(data=acc1)
+
+            if acc_scale != 1. and acc_k:
+                # print "power"
+                # import time
+                # t0 = time.time()
+                # np.power(acc1, acc_scale)
+                t1 = time.time()
+                cyska.pow_scale(acc1, acc_scale)
+                # t2 = time.time()
+                # print "got it", t1-t0, t2-t1
+
+            Z = cyska.PSAM_partition_function(
+                seqm, 
+                acc1,
+                np.array(par.psam_matrix, dtype=np.float32),
+                openen_ofs = ofs, 
+                non_specific = non_specific
+            )
+            if Z1 is None:
+                Z1 = Z*(par.A0 / params.A0)
+            else:
+                Z1 += Z*(par.A0 / params.A0)
         
         return Z1 # relative affinities of all motif instances everywhere
 
