@@ -176,7 +176,7 @@ class FootprintCalibration(CachedBase):
                     h_map = np.zeros(l+1, dtype=bool)
                     for i in I:
                         # set the optimum and nearest neighbors to True
-                        h_map[i:min(l+2, i + 3)] = True
+                        h_map[max(0, i-1):min(l+2, i + 3)] = True
                         print "heuristic map: good site at", i - pad, k_row[i]
 
                     print "heuristic map for k=", k-1
@@ -218,14 +218,14 @@ class FootprintCalibration(CachedBase):
         return self.params
     
 
-    def load_footprints(self, fp):
-        for line in file(fp).readlines()[1:]:
-            k, s, a, A0, err = line.split('\t')
-            k = int(k)
-            s = int(s)
-            self.results[(k, s)] = ( float(err), k, s, float(a), float(A0) )
+    # def load_footprints(self, fp):
+    #     for line in file(fp).readlines()[1:]:
+    #         k, s, a, A0, err = line.split('\t')
+    #         k = int(k)
+    #         s = int(s)
+    #         self.results[(k, s)] = ( float(err), k, s, float(a), float(A0) )
 
-        self.logger.debug("loaded {} footprint records from '{}'".format(len(self.results),fp))
+    #     self.logger.debug("loaded {} footprint records from '{}'".format(len(self.results),fp))
 
 
     def store_footprint(self, opt):
