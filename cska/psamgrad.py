@@ -13,6 +13,11 @@ class PSAMGradientDescent(object):
         self.logger = logging.getLogger('opt.PSAMGradient')
         self.results = logging.getLogger('results.PSAMGrad')
 
+        self.k = params.k
+        self.k_fit = k_fit
+        self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
+        self.logR = np.log2(self.R)
+
         fname = os.path.join(self.out_path, "descent.tsv")
         sname = os.path.join(self.out_path, "history")
         self.shelve = shelve.open(
@@ -39,11 +44,6 @@ class PSAMGradientDescent(object):
                 pass
             self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
             self.track_file = file(fname, 'a', 0)
-
-        self.k = params.k
-        self.k_fit = k_fit
-        self.R, self.R_err = rbns.R_value_matrix(self.k_fit)
-        self.logR = np.log2(self.R)
         
         from cska.partfunc import PartFuncModel
         # from cska.meanfield import MeanFieldModel, InvMeanFieldModel
