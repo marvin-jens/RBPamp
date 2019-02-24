@@ -19,16 +19,6 @@ class PSAMGradientDescent(object):
         self.logR = np.log2(self.R)
 
         fname = os.path.join(self.out_path, "descent.tsv")
-        sname = os.path.join(self.out_path, "history")
-        self.shelve = shelve.open(
-            sname, 
-            protocol=-1, 
-            flag='n' if redo else 'c'
-        )
-        self.logger.info("storing states in shelve '{}'".format(sname))
-        self.shelve["R_exp"] = self.R
-        self.shelve["rbp_conc"] = self.descent.model.rbp_conc
-
         self.t_ofs = 0
         if not os.path.exists(fname) or redo:
             self.logger.info("tracking progress in new file '{}'".format(fname))
@@ -78,7 +68,18 @@ class PSAMGradientDescent(object):
         self.resample_int = resample_int
         self.last_resample = 0
         self.params = params
-    
+
+        sname = os.path.join(self.out_path, "history")
+        self.shelve = shelve.open(
+            sname, 
+            protocol=-1, 
+            flag='n' if redo else 'c'
+        )
+        self.logger.info("storing states in shelve '{}'".format(sname))
+        self.shelve["R_exp"] = self.R
+        self.shelve["rbp_conc"] = self.descent.model.rbp_conc
+
+
     def optimize(self, debug=False):
         def callback(descent, state):
             self.shelve["params_t{}".format(descent.t + self.t_ofs)] = state.params
