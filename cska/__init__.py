@@ -501,7 +501,8 @@ class Run(object):
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
         calibrated_set = []
-        for par in self.params:
+        params = self.params.copy(sort=True)
+        for par in params:
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)

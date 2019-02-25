@@ -40,7 +40,7 @@ class FootprintCalibration(CachedBase):
         # print ">>> before initialization"
         # dump_caches()
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
-        self.params = params.copy(sort=True)
+        self.params = params.copy()
         self.params.acc_k = 0
         self.params.acc_scale = 0
         self.params.non_specific = 0
@@ -306,7 +306,7 @@ class FootprintCalibration(CachedBase):
 
     def _optimize(self, a):
         pass
-        
+
     # @monitored
     @pickled
     def optimize(self, acc_k, acc_shift, a_fixed=False):
