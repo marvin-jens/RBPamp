@@ -78,7 +78,28 @@ def project_column(col):
         c = c.lower()
     # print scores.shape, scores, c, scores[i]
     return c
-    
+
+def project_column_old(col):
+    if len(col) == 4:
+        ambig = ambig_vectors
+        codes = ambig_codes
+    else:
+        ambig = ambig_vectors16
+        codes = ambig_codes16
+
+    n = col.sum()
+    if n:
+        col = col / n
+
+    # project onto ambiguity codes as vector
+    scores = (col[np.newaxis,:] * ambig).sum(axis=1)
+    i = scores.argmax()
+    c = codes[i]
+    # if scores[i] < .9:
+    #     c = c.lower()
+    # print scores.shape, scores, c, scores[i]
+    return c
+
 def hull(kmer):
     """
     generate all single base substitution variants of a 
@@ -228,7 +249,8 @@ class PSAM(object):
 
     @property
     def consensus(self):
-        return "".join([project_column(col) for col in self.psam])
+        return "".join([project_column_old(col) for col in self.psam])
+        # return "".join([project_column(col) for col in self.psam])
         
     # def __add__(self, mdl):
     #     assert self.n == mdl.n

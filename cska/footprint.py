@@ -40,7 +40,7 @@ class FootprintCalibration(CachedBase):
         # print ">>> before initialization"
         # dump_caches()
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
-        self.params = params.copy()
+        self.params = params.copy(sort=True)
         self.params.acc_k = 0
         self.params.acc_scale = 0
         self.params.non_specific = 0
@@ -213,21 +213,7 @@ class FootprintCalibration(CachedBase):
         res_a_one, punp_a_one = self.optimize(k, s, a_fixed=True)
         self.store_shelve("opt_profile_a_one_{k}_{s}".format(**locals()), (punp_a_one, res_a_one))
 
-        # path = os.path.join(self.path, '{}_calibrated.tsv'.format(self.consensus))
-        # self.logger.info("storing footprinted model in '{}'".format(path))
-        # file(path, 'w').write(str(self.params) + '\n')
         return self.params
-    
-
-    # def load_footprints(self, fp):
-    #     for line in file(fp).readlines()[1:]:
-    #         k, s, a, A0, err = line.split('\t')
-    #         k = int(k)
-    #         s = int(s)
-    #         self.results[(k, s)] = ( float(err), k, s, float(a), float(A0) )
-
-    #     self.logger.debug("loaded {} footprint records from '{}'".format(len(self.results),fp))
-
 
     def store_footprint(self, opt):
         err, k, s, a, A0 = opt
@@ -240,25 +226,17 @@ class FootprintCalibration(CachedBase):
     # @monitored
     @pickled
     def compute_initial_profiles(self):
-        
+
         punp_profiles = np.array([
             reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad, subsample=self.subsample)[0]
             for reads, z in zip(self.rbns.reads, self.Z1_full)])
-        
+
         # predict profiles w/o accessibility footprint
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
         sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
         rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
         psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
 
-        # from cska import vector_stats
-        # print "Z_read"
-        # vector_stats(Z1_read)
-        # print "rbp_free * A0", rbp_free*self.params.A0
-        # print "PSIs"
-        # [vector_stats(p) for p in psi]
-
-        # openen_punp = self.input_reads.acc_storage.get_raw(1)
         openen_punp = self.get_input_openen_cached(1)
         punp_acc = openen_punp.acc
         if self.subsample:
@@ -303,6 +281,32 @@ class FootprintCalibration(CachedBase):
         
         return self._lacc_cache[k]
 
+    def predict_profiles(self, acc1, acc_ofs, punp, punp_ofs, A0):
+        # TODO: refactor and add background contribution?
+        zw = self.Z1.shape[1]
+        Z1_acc = self.Z1 * acc1[:, acc_ofs:acc_ofs + zw]
+        t1 = time()
+        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6) # aggregate to read-level
+        t2 = time()
+        sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
+        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=A0)
+        # print "rbp_free", rbp_free
+        t3 = time()
+        psi = cyska.p_bound(Z1_read, np.array(rbp_free*A0,dtype=np.float32))
+        # print "psi", psi.min(axis=1), psi.max(axis=1)
+        # print psi.shape
+        t4 = time()
+        # punp_expect = self.input_reads.weighted_accessibility_profile(self.Z1, self.params.k, pad=self.pad, row_w=psi)
+        punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
+        t_prof = time() - t4
+        # print self.Z1.shape, punp.shape
+        times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
+        print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
+        return np.array(punp_expect)
+
+    def _optimize(self, a):
+        pass
+        
     # @monitored
     @pickled
     def optimize(self, acc_k, acc_shift, a_fixed=False):

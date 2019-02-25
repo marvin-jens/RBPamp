@@ -578,6 +578,8 @@ class GradientDescentReport(object):
         shelf_i, shelf_t = self.map_t_shelf(t)
         est = self.error_estimators[shelf_i]
         p_mid = est.estimate(save=False, t_ref=shelf_t)
+        # print "t=",t
+        # print p_mid
         if not p_mid is None:
             y = 1/self.comp.predict_affinities_from_paramset(p_mid)
         else:
@@ -628,7 +630,7 @@ class GradientDescentReport(object):
 
         return res
 
-    def plot_literature(self, debug=False):
+    def plot_literature(self, debug=True):
         if self.comp is None:
             return
 
@@ -638,7 +640,8 @@ class GradientDescentReport(object):
         if self.t[-1] > t:
             times.append(self.t[-1])
         
-        data = [self._get_lit_data(t) for t in times]
+        # times = [145,] # DEBUG HACK!!!
+        data = [self._get_lit_data(t, debug=debug) for t in times]
         _data = [res for res in data if res is not None]
         if not _data:
             return

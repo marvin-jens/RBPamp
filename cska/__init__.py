@@ -528,7 +528,7 @@ class Run(object):
             out_path=plot_path
         )
         print "footprint report"
-        fprep.report()
+        # fprep.report()
 
         print "gradient report"
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref)

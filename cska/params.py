@@ -90,8 +90,8 @@ class ModelSetParams(object):
     def betas(self, value):
         self.param_set[0].betas = value
 
-    def copy(self):
-        return ModelSetParams([p.copy() for p in self.param_set])
+    def copy(self, sort=False):
+        return ModelSetParams([p.copy() for p in self.param_set], sort=sort)
 
     def get_data(self):
         "return one np.ndarray containing all model parameters"
