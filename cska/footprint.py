@@ -79,8 +79,10 @@ class FootprintCalibration(CachedBase):
         from cska.params import ModelSetParams
         self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params,]), subsample=self.subsample) for reads in rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
-
-        self.I = (self.Z1_in_noacc > self.thresh).any(axis=1)
+        
+        Z1_read = self.Z1_in_noacc.sum(axis=1)
+        thresh = self.thresh * Z1_read.max()
+        self.I = Z1_read > thresh
         N = self.I.sum()
         self.logger.debug("subsetting to {} reads with Z1 > {}".format(N, thresh) )
         self.Z1 = self.Z1_in_noacc[self.I,:]
