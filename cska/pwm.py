@@ -36,6 +36,8 @@ ambig_vectors = np.array([
     [.33, 0.0, .33, .33],
     [0.0, .33, .33, .33],
 ])
+N = np.linalg.norm(ambig_vectors, axis=1, ord=1)[:, np.newaxis]
+ambig_normed = ambig_vectors / np.where(N > 0, N, 1.)
 
 import itertools
 ambig_codes16 = ["{0}{1}".format(*p) for p in itertools.product(ambig_codes, ambig_codes)]
@@ -53,20 +55,29 @@ for i,a in enumerate(ambig_vectors):
         ambig_vectors16.append(v)
 
 ambig_vectors16 = np.array(ambig_vectors16)
+N = np.linalg.norm(ambig_vectors16, axis=1, ord=1)[:, np.newaxis]
+ambig_normed16 = ambig_vectors16 / np.where(N > 0, N, 1.)
 
 def project_column(col):
     if len(col) == 4:
-        ambig = ambig_vectors
+        ambig = ambig_normed
         codes = ambig_codes
     else:
-        ambig = ambig_vectors16
+        ambig = ambig_normed16
         codes = ambig_codes16
 
-    n = col.sum()
+    n = np.linalg.norm(col, ord=1)
     if n:
         col = col / n
-    i = (col[np.newaxis,:] * ambig).sum(axis=1).argmax()
-    return codes[i]
+
+    # project onto ambiguity codes as vector
+    scores = (col[np.newaxis,:] * ambig).sum(axis=1)
+    i = scores.argmax()
+    c = codes[i]
+    if scores[i] < .9:
+        c = c.lower()
+    # print scores.shape, scores, c, scores[i]
+    return c
     
 def hull(kmer):
     """
@@ -376,8 +387,13 @@ if __name__ == "__main__":
     # "ttgggc is 2-shift of GTGCAT"
     # print is_shifted('gggcat')
     
-    psam = PSAM.from_kmer('GCAUG').expand16()
-    print psam
+    #psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'AGCAUGU', 'CGCAUGU', 'GGCAUGU'], [1., 1., 1., 1., 1.])
+    psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU',], [1., .1, ])
+    psam = PSAM.from_kmer_variants(['AGCAUGU', 'CGCAUGU', 'GGCAUGU', 'UGCAUGU'], [.99, .8, .8, .8,])
+    
+    
+    #.expand16()
+    print psam.consensus
     sys.exit(1)
     
     import sys
