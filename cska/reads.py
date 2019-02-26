@@ -264,6 +264,30 @@ class RBNSReads(CachedBase):
         PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
         this should do the trick! Set params.acc_k=0 to disable accessibility scoring.
         """
+        seqm, accs_k, accs, accs_scaled, accs_ofs = self.get_data_for_PSAM(params, full_reads, subsample)
+        return self.evaluate_partition_function(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
+
+    def evaluate_partition_function(self, params, seqm, accs_k, accs, accs_scaled, accs_ofs):
+        non_specific = getattr(params, "non_specific", 0.)
+
+        data = zip(params, accs_k, accs, accs_scaled, accs_ofs)
+        Z1 = None
+        for i, (par, acc_k, acc, acc_scaled, acc_ofs) in enumerate(data):
+            Z = cyska.PSAM_partition_function(
+                seqm, 
+                acc_scaled,
+                np.array(par.psam_matrix, dtype=np.float32),
+                openen_ofs = acc_ofs, 
+                non_specific = non_specific
+            )
+            if Z1 is None:
+                Z1 = Z*(par.A0 / params.A0)
+            else:
+                Z1 += Z*(par.A0 / params.A0)
+        
+        return Z1 # relative affinities of all motif instances everywhere
+
+    def get_data_for_PSAM(self, params, full_reads=False, subsample=False):
         if full_reads:
             seqm = self.get_full_seqm()
         else:
@@ -275,30 +299,30 @@ class RBNSReads(CachedBase):
             self.logger.debug("PSAM_partition_function() subsampling seqm with {}".format(self.sub_sampler))
             seqm = self.sub_sampler.draw(data=seqm)
 
-        non_specific = getattr(params, "non_specific", 0.)
-
-        Z1 = None
+        accs_k = []
+        accs = []
+        accs_scaled = []
+        accs_ofs = []
         for i, par in enumerate(params):
             acc_k = getattr(par, "acc_k", None)
             acc_scale = getattr(par, "acc_scale", 1.)
-       
+            print par.as_PSAM().consensus
             if not acc_k:
                 self.logger.debug("acc_k=0 pretending everything is accessible")
-                acc1 = np.ones( (self.N, w), dtype=np.float32)
+                acc = np.ones( (self.N, w), dtype=np.float32)
                 acc_scale = 1.
             else:
                 openen = self.acc_storage.get_raw(acc_k)
-                acc1 = np.array(openen.acc)
+                acc = np.array(openen.acc)
 
             if full_reads:
                 ofs = params.acc_shift
             else:
                 ofs = self.l5 - par.k + 1 + par.acc_shift
                     # ofs = openen.ofs - params.k + 1 + params.acc_shift
-
             if subsample:
                 self.logger.debug("PSAM_partition_function() subsampling acc with {}".format(self.sub_sampler))
-                acc1 = self.sub_sampler.draw(data=acc1)
+                acc = self.sub_sampler.draw(data=acc)
 
             if acc_scale != 1. and acc_k:
                 # print "power"
@@ -306,23 +330,20 @@ class RBNSReads(CachedBase):
                 # t0 = time.time()
                 # np.power(acc1, acc_scale)
                 t1 = time.time()
-                cyska.pow_scale(acc1, acc_scale)
+                acc_scaled = np.array(acc)
+                cyska.pow_scale(acc_scaled, acc_scale)
                 # t2 = time.time()
                 # print "got it", t1-t0, t2-t1
-
-            Z = cyska.PSAM_partition_function(
-                seqm, 
-                acc1,
-                np.array(par.psam_matrix, dtype=np.float32),
-                openen_ofs = ofs, 
-                non_specific = non_specific
-            )
-            if Z1 is None:
-                Z1 = Z*(par.A0 / params.A0)
             else:
-                Z1 += Z*(par.A0 / params.A0)
-        
-        return Z1 # relative affinities of all motif instances everywhere
+                acc_scaled = acc
+            
+            accs_k.append(acc_k)
+            accs.append(acc)
+            accs_scaled.append(acc_scaled)
+            accs_ofs.append(ofs)
+
+        return seqm, accs_k, accs, accs_scaled, accs_ofs
+
 
     def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, subsample=False, **kwargs):
         """
