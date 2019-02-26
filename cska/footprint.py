@@ -77,7 +77,7 @@ class FootprintCalibration(CachedBase):
         # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.logger.debug("evaluating partition function")
         from cska.params import ModelSetParams
-        self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params,]), subsample=self.subsample) for reads in rbns.reads])
+        self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params, ]), subsample=self.subsample) for reads in rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
         
         Z1_read = self.Z1_in_noacc.sum(axis=1)

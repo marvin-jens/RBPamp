@@ -879,7 +879,7 @@ def rbfox2_analysis(lp=0, z_cut=4):
     lm = nsRBNSModel(exp, 'SPA_psam_na', psam_model, seq_only=True, low_perc=lp, mdl_type='PSAM')
     fits_psam_na = lm.regression_analysis(**kw)
 
-    psam_model = "RBFOX3_struct_PSAM.tsv"  # 'RBFOX3_full.tsv'
+    psam_model = "RBFOX2_struct_PSAM.tsv"  # 'RBFOX3_full.tsv'
     lm = nsRBNSModel(exp, 'SPA_psam', psam_model, seq_only=False, low_perc=lp, mdl_type='PSAM')
     fits_psam = lm.regression_analysis(scatter_plots=True, res_plots=False)
     exp.heatmap_plot(lm)
