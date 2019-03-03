@@ -65,3 +65,8 @@ join tt <(sort msi_625nM_140307BurB_D14-1668_NA_sequence.fastq.counts) | sed 's/
 join <(sort input_pool_140307BurB_D14-1668_NA_sequence.fastq.counts) <(sort mbnl_25nM_140307BurB_D14-1668_NA_sequence.fastq.counts) > t
 join t <(sort mbnl_125nM_140307BurB_D14-1668_NA_sequence.fastq.counts) > tt
 join tt <(sort mbnl_625nM_140307BurB_D14-1668_NA_sequence.fastq.counts) | sed 's/ /\t/g' > mbnl1_trial1.counts
+
+#join <(sort mbnl_0_140904Bur_D14-6276_NA_sequence.fastq.counts) <(sort mbnl_12_140904Bur_D14-6276_NA_sequence.fastq.counts) > t
+join <(sort mbnl_0_140904Bur_D14-6276_NA_sequence.fastq.counts) <(sort mbnl_12_140904Bur_D14-6276_NA_sequence.fastq.counts) > t
+join t <(sort mbnl_62_140904Bur_D14-6276_NA_sequence.fastq.counts) > tt
+join tt <(sort mbnl_312_140904Bur_D14-6276_NA_sequence.fastq.counts) | sed 's/ /\t/g' > mbnl1_trial2.counts
