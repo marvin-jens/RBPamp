@@ -198,7 +198,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     cdef UINT64_t L_acc = acc_matrix.base.shape[1]
     # print "part_func L-k+1", l, k
     # assert L_acc - openen_ofs >= l 
-    assert openen_ofs >= 0
+    # assert openen_ofs >= 0
     # result will be stored here (Z = 'Zustandssumme' sum of states)
     cdef FLOAT32_t [:, :] Z = np.ones((N,l), dtype=np.float32)
     
