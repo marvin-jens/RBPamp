@@ -30,7 +30,7 @@ class PSAMGradientDescent(object):
             lines = file(fname).readlines()
             try:
                 self.t_ofs = int(lines[-1].split('\t')[0]) + 1
-            except IndexError, ValueError:
+            except (IndexError, ValueError):
                 pass
             self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
             self.track_file = file(fname, 'a', 0)
