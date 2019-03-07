@@ -262,6 +262,10 @@ class PSAM(object):
         
     #     return PSAMState(psam, max(self.A0, mdl.A0))
 
+    @property
+    def consensus_ul(self):
+        return "".join([project_column(col) for col in self.psam])
+
     def align(self, kmer):
         """ slide kmer over matrix and classify best, gapless alignment"""
         from cska.seed import Alignment
