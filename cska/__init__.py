@@ -57,7 +57,7 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
-    parser.add_option("-s","--seed-analysis-k",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
+    parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="3-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=3-11)")
@@ -479,14 +479,14 @@ class Run(object):
 
     def seed_stage(self):
         from cska.seed import SeedRefinement
-        SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
+        SR = SeedRefinement(self.rbns, km=self.options.k_seed, max_linear_k=self.options.max_width)
         # print "enriched MOTIFs in this library"
         # for m in SR.analysis.motifs_from_R(7):
         #     print m
         #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
-        self.params = SR.seeded_multi_params(self.rbns.n_samples)
+        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 
