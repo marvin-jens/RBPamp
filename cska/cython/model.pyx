@@ -221,6 +221,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                 z = 1.
                 for d in range(k):
                     n = seqm[j, i + d]
+                    if n > 3:
+                        z = 0. # skip N's
                     z = z * psam[d, n]
                 # add non-specific component (still reacts to accessbility)
                 z = z + non_specific
