@@ -388,7 +388,7 @@ class GradientDescentReport(object):
 
         self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
         from cska.errors import PSAMErrorEstimator
-        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', shelve=self.shelves[-1])
+        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', use_shelve=self.shelves[-1])
         self.error_estimators.append(est)
         self.t_ofs += len(t)
         self.shelf_map.append(self.t_ofs)
@@ -404,9 +404,9 @@ class GradientDescentReport(object):
 
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
-            # print "epoch", t0, t, name
-            self.plot_scatter(t0, title="before {}".format(name))
-            self.plot_scatter(t, title="after {}".format(name))
+            # # print "epoch", t0, t, name
+            # self.plot_scatter(t0, title="before {}".format(name))
+            # self.plot_scatter(t, title="after {}".format(name))
 
             self.plot_motifs(t0, title="before {}".format(name))
             self.plot_motifs(t, title="after {}".format(name))
@@ -428,13 +428,14 @@ class GradientDescentReport(object):
         return shelf_i, t_shelf
 
     def get(self, name, t):
-        # print t, "->", shelf_i, t_shelf
         shelf_i, t_shelf = self.map_t_shelf(t)
-        return self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
+        # print t, "->", shelf_i, t_shelf
+        val = self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
+        return val
 
     def read_sample_errors(self):
-        errors = np.array([self.get('stats', t).errors for t in self.t])
-        return errors
+        errors = [self.get('stats', t).errors for t in self.t]
+        return np.array(errors, dtype=float)
 
     def read_correlations(self):
         pearsonR = np.array([self.get('stats', t).pearsonR for t in self.t])
