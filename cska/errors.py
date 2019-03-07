@@ -4,21 +4,23 @@ import os
 import logging
 
 class PSAMErrorEstimator(object):
-    def __init__(self, descentpath, q=[25., 50., 75.], tol=.05, shelve=None):
+    def __init__(self, descentpath, q=[25., 50., 75.], tol=.05, use_shelve=None):
         self.q = np.array(q)
         self.descentpath = descentpath
         self.tol = tol
         self.logger = logging.getLogger("opt.PSAMErrorEstimator")
-        if shelve:
-            self.shelve = shelve
+        if use_shelve:
+            self.shelve = use_shelve
         else:
             try:
-                self.shelve = shelve.open(os.path.join(descentpath, 'history'), flag='r')
+                spath = os.path.join(descentpath, 'history')
+                self.shelve = shelve.open(spath, flag='r')
+            except IOError:
                 self.logger.error("no history to estimate error from in '{}'".format(descentpath))
-            except:
                 self.shelve = None
 
         self.max_t = self.find_max_t()
+        self.logger.debug("max_t={}".format(self.max_t))
 
     def find_max_t(self):
         if self.shelve is None:
