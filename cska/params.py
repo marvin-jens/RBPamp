@@ -183,7 +183,7 @@ class ModelSetParams(object):
         c.set_data( - self.get_data())
         return c
 
-    def apply_delta(self, delta_set, min_rel_A0=1e-3):
+    def apply_delta(self, delta_set, min_rel_A0=1e-4):
         new = []
         for i, (params, delta) in enumerate(zip(self.copy(), delta_set)):
             p = params.psam_matrix + delta.psam_matrix
