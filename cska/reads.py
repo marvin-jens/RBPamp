@@ -287,6 +287,24 @@ class RBNSReads(CachedBase):
         
         return Z1 # relative affinities of all motif instances everywhere
 
+    def evaluate_partition_function_split(self, params, seqm, accs_k, accs, accs_scaled, accs_ofs):
+        non_specific = getattr(params, "non_specific", 0.)
+
+        data = zip(params, accs_k, accs, accs_scaled, accs_ofs)
+        Z1 = None
+        Zm = []
+        for i, (par, acc_k, acc, acc_scaled, acc_ofs) in enumerate(data):
+            Z = cyska.PSAM_partition_function(
+                seqm, 
+                acc_scaled,
+                np.array(par.psam_matrix, dtype=np.float32),
+                openen_ofs = acc_ofs, 
+                non_specific = non_specific
+            )
+            Zm.append(Z * (par.A0 / params.A0) )
+        
+        return Zm # relative affinities of all motif instances everywhere
+
     def get_data_for_PSAM(self, params, full_reads=False, subsample=False):
         if full_reads:
             seqm = self.get_full_seqm()
