@@ -511,7 +511,7 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
-    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, min_mer=.01, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -539,8 +539,6 @@ class SeedRefinement(object):
         n = 0
         kmer_set = []
 
-        n_min = max(int(min_mer * i_cut), 10) # use at least 10 kmers to seed motifs
-
         for i in I:
             kmer = cyska.index_to_seq(i, k)
             n += 1
@@ -553,6 +551,7 @@ class SeedRefinement(object):
             kmer_set.append( (kmer, r) )
         
         n_enriched = len(kmer_set)
+        self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
         def make_psam(aln, **kwargs):
             return aln.to_PSAM(
@@ -571,7 +570,7 @@ class SeedRefinement(object):
         aln = Alignment()
         aln.blend(kmer, 0, r, normalize=False)
         alns.append(aln)
-        self.logger.debug("starting first motif with {0} R_corr={1:.1f}".format(kmer, r))
+        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
         while kmer_set:
             # align all remaining enriched kmers to all motifs
             scores = []
@@ -588,7 +587,7 @@ class SeedRefinement(object):
             if (scores < thresh).all() and len(alns) < m_max:
                 kmer, r = kmer_set[0]
                 current_motifs = get_motifs(alns)
-                self.logger.debug("{0} R_corr={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+                self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
                 # print "starting NEW MOTIF", kmer, r, scores[0]
                 kmer_set.pop(0)
                 aln = Alignment()
@@ -613,9 +612,9 @@ class SeedRefinement(object):
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
 
-        psams = [make_psam(aln, n_max=n_max) for aln in alns]
+        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) > n_min]
         motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs from {1} kmers with z > {2}: {3}".format(len(psams), n, z_cut, motifs))
+        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
         w = np.array([p.n for p in psams])
         wm = w.max()
 
