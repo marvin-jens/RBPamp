@@ -584,7 +584,7 @@ class SeedRefinement(object):
             scores = np.array(scores)
             ofs = np.array(ofs)
 
-            if (scores < thresh).all() and len(alns) < m_max:
+            if (scores < thresh).all() and len(alns) < m_max and len(alns[0].seqs) >= n_min:
                 kmer, r = kmer_set[0]
                 current_motifs = get_motifs(alns)
                 self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
@@ -612,7 +612,7 @@ class SeedRefinement(object):
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
 
-        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) > n_min]
+        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
         motifs = ",".join([p.consensus_ul for p in psams])
         self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
         w = np.array([p.n for p in psams])
