@@ -379,7 +379,7 @@ class Run(object):
 
     def keep_best(self):
         if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best)
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best, k=6)
         return self.rbns
 
 

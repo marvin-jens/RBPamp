@@ -360,13 +360,47 @@ class RBNSAnalysis(CachedBase):
             return
         
         n = min(n, len(self.reads) - 1)
-        I = self.get_optimal_kmer_ranking(k)
-        R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
-        sample_ranks = R.argsort()[::-1]
-        cut_off = R[sample_ranks][n-1]
-        self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
-        reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
+        # I = self.get_optimal_kmer_ranking(k)
+        # R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
+        # sample_ranks = R.argsort()[::-1]
+        # cut_off = R[sample_ranks][n-1]
+        # self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
+        # reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
+        # self.reads = []
+        R = self.R_value_matrix(k)[0]
+        Rm = R.max(axis=1)
+        from cyska import index_to_seq
+        Rm_i = sorted(set(R.argmax(axis=1)))
+
+        n_choices = len(R)
+        print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
+        min_R = []
+        enr_R = []
+        for i in Rm_i:
+            # print "checking kmer", index_to_seq(i, k), R[:, i]
+            min_R.append(R[:, i].min())
+            enr_R.append((R[:, i] > 1).sum()/float(n_choices))
+        
+        enr_R = np.array(enr_R)
+        min_R = np.array(min_R)
+        # print "minimal enrichment observed for these kmers", min_R
+        # print "number of samples that showed any enrichment for these kmers", enr_R
+        kmer_score = min_R * enr_R
+        print "diagnostic score for kmers", kmer_score
+        kmer_i = Rm_i[kmer_score.argmax()]
+        print "most diagnostic kmer", index_to_seq(kmer_i, k)
+        # print "sample enrichments", R[:, kmer_i]
+        ranks = np.array([(r.argsort()[::-1] == kmer_i).argmax() for r in R])
+        # print "ranks", ranks
+        sample_score = R[:, kmer_i]
+        # sample_score = R[:, kmer_i] / (ranks + 1)
+        print "sample score", sample_score
+        sample_i = sample_score.argsort()[::-1]
+        chosen = sorted(sample_i[:n])
+
+        reads = [self.reads[0],] + list(np.array(self.reads[1:])[chosen])
         self.reads = []
+
         self.logger.info("keeping samples with RBP concentrations {}".format([r.rbp_conc for r in reads]))
         rbns = RBNSAnalysis(rbp_name = self.rbp_name, out_path=self.out_path, ska_runner=self.ska_runner, known_kd=self.known_kd, n_pure_samples = self.n_pure_samples)
         for r in reads:
