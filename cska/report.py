@@ -404,17 +404,26 @@ class GradientDescentReport(object):
 
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
-            # # print "epoch", t0, t, name
-            # self.plot_scatter(t0, title="before {}".format(name))
-            # self.plot_scatter(t, title="after {}".format(name))
+            # print "epoch", t0, t, name
+            self.plot_scatter(t0, title="before {}".format(name))
+            self.plot_scatter(t, title="after {}".format(name))
 
             self.plot_motifs(t0, title="before {}".format(name))
             self.plot_motifs(t, title="after {}".format(name))
     
     def find_max_t(self, shelf):
         t = -1
+        n_samples = None
         while shelf.has_key("stats_t{}".format(t+1)):
-            t += 1
+            stats = shelf["stats_t{}".format(t+1)]
+            n = len(stats.rbp_free)
+            if n_samples is None:
+                n_samples = n
+
+            if n == n_samples:
+                t += 1
+            else:
+                break
         return t
 
     def map_t_shelf(self, t):
@@ -446,7 +455,8 @@ class GradientDescentReport(object):
         return np.array([self.get('linesearch', t) for t in self.t]).T
 
     def read_grad(self):
-        return [self.get('grad', t) for t in self.t]
+        res = [self.get('grad', t) for t in self.t[:-1]]
+        return res
 
     def plot_report(self):
         pp.figure(figsize=(6, 5))
@@ -503,18 +513,22 @@ class GradientDescentReport(object):
         sns.despine()
 
         params0 = self.get('params', 0).copy()
+        n_motifs = len(params0.param_set)
+        # print "number of motifs", n_motifs
         def mag(grad_data):
             if grad_data is None:
-                return [np.nan,]
+                return [np.nan,] * n_motifs
 
             grad = params0.copy().set_data(grad_data)
+            # print "number of gradients", len(grad.param_set)
+
             for par in grad:
                 par.betas[:] = 0
 
             return [np.sqrt((g.data**2).sum()) for g in grad] 
 
         mags = np.array([mag(grad) for grad in self.read_grad()]).T
-
+        print "mags.shape", mags.shape
         # with sns.axes_style("ticks", sns_style)
         plt.subplot(212)
         # plt.semilogy(mags.mean(axis=0), '-k', label="motif mean")
@@ -547,7 +561,12 @@ class GradientDescentReport(object):
             pp.legend(loc='upper left', frameon=False)
             pp.xlabel("observed {}-mer enrichment".format(self.k_mer))
             pp.ylabel("predicted {}-mer enrichment".format(self.k_mer))
-            pp.savefig(os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t)), dpi=300)
+            fname = os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t))
+            try:
+                pp.savefig(fname, dpi=300)
+            except ValueError as err:
+                self.logger.warning("caught '{}' while trying to save {}".format(err, fname))
+
             pp.close()
 
     def plot_motifs(self, t=-1, title=""):
