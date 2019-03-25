@@ -150,7 +150,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     for f in files:
         try:
-            name, conc = os.path.basename(f).split("_")
+            name, conc = os.path.basename(f).rsplit("_", 1)
             conc = conc.rsplit('.',1)[0]
             conc = float(conc.replace('input','0'))
         except ValueError:
