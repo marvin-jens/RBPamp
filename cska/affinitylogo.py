@@ -209,10 +209,15 @@ def nice_conc(kd, lo=None, hi =None, digits=3):
             digits = min(dl, dh) + u + 1  # max(0, min(u - ul, u - uh))
             digits = max(0, digits)
             # print("dl, dh", dl, dh, digits)
-            errstr = "(+{} -{}) ".format(
-                round_sig(err_hi/10**u, digits, mode='ceil'), 
-                round_sig(err_lo/10**u, digits, mode='ceil')
+            # errstr = "(+{} -{}) ".format(
+            #     round_sig(err_hi/10**u, digits, mode='ceil'), 
+            #     round_sig(err_lo/10**u, digits, mode='ceil')
+            # )
+            errstr = "({} - {}) ".format(
+                round_sig(lo/10**u, digits, mode='ceil'), 
+                round_sig(hi/10**u, digits, mode='ceil')
             )
+
         else:
             errstr = ""
         units = {
