@@ -258,14 +258,17 @@ class RBNSReads(CachedBase):
 
         return prof
 
-    def PSAM_partition_function(self, params, full_reads=False, subsample=False):
+    def PSAM_partition_function(self, params, full_reads=False, subsample=False, split=False):
         """
         Note: it is more efficient to request the necessary ingredients once and re-use them, as
         PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
         this should do the trick! Set params.acc_k=0 to disable accessibility scoring.
         """
         seqm, accs_k, accs, accs_scaled, accs_ofs = self.get_data_for_PSAM(params, full_reads, subsample)
-        return self.evaluate_partition_function(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
+        if split:
+            return self.evaluate_partition_function_split(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
+        else:
+            return self.evaluate_partition_function(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
 
     def evaluate_partition_function(self, params, seqm, accs_k, accs, accs_scaled, accs_ofs):
         non_specific = getattr(params, "non_specific", 0.)
