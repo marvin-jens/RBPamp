@@ -61,14 +61,14 @@ def rand_seed(UINT64_t seed, burn=1000):
     for i in range(burn):
         rnd = randint()
 
-def fast_randint(int N, max=RAND_MAX):
-    cdef np.ndarray[UINT64_t] rnd = np.empty(N, dtype=np.uint64)
+def fast_randint(int N, UINT64_t max=RAND_MAX):
+    cdef UINT64_t [:] rnd = np.empty(N, dtype=np.uint64)
     cdef int i
     
     for i in range(N):
         rnd[i] = randint() % max
 
-    return rnd
+    return rnd.base
 
 def fast_rand(int N):
     cdef np.ndarray[FLOAT32_t] rnd = np.empty(N, dtype=np.float32)
