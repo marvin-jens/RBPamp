@@ -190,7 +190,7 @@ def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
                 Z[j, i] = exp(a * log(Z[j, i]))
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, single_thread=False):
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, FLOAT32_t alpha=1, single_thread=False):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
@@ -231,6 +231,24 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     Z[j, i] = z * acc_matrix[j, i + openen_ofs]
                 else:
                     Z[j, i] = 0 # no valid accessibility footprint
+    elif alpha < 1:
+        with nogil, parallel():
+            for j in prange(N, schedule='static'):
+                # iterate over all PSAM start positions
+                for i in range(l):
+                    # specific binding: product of per-site affinities
+                    z = 1.
+                    for d in range(k):
+                        n = seqm[j, i + d]
+                        z = z * psam[d, n]
+                    # add non-specific component (still reacts to accessbility)
+                    z = z + non_specific
+                    acc_i = i + openen_ofs
+                    if 0 <= acc_i < L_acc:
+                        # scale on the fly, expects log(acc) instead of acc!!!
+                        Z[j, i] = z * exp(acc_matrix[j, i + openen_ofs] * alpha) 
+                    else:
+                        Z[j, i] = 0 # no valid accessibility footprint
     else:
         with nogil, parallel():
             for j in prange(N, schedule='static'):
@@ -261,6 +279,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     cdef FLOAT32_t *Z1_row
     cdef FLOAT32_t *Z1m_row # this is used for the motif-specific terms *scaled by rel. affinity*!
     cdef FLOAT32_t [:] Z1_read = state.Z1_read
+    cdef FLOAT32_t [:] rbp_free = state.rbp_free
     # do not even look at reads with Z1_read < this value
     cdef FLOAT32_t Z1_thresh = state.threshold * state.Z1_read_max # set to 0 to look at all reads
     cdef UINT32_t [:] F0 = state.mdl.F0 # 4^k kmer frequencies in input
@@ -291,8 +310,9 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     cdef FLOAT32_t Nk_inv = 1./Nk
     cdef int n_threads = 8
 
-    ### Local variables
+    ### Local variables and flags
     cdef int tid = 0 # thread number
+    cdef int lin_occ = state.mdl.linear_occ # pretend we're far from saturation
     cdef UINT32_t index=0
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, y=0, r=0
     cdef FLOAT32_t Z1r=0, Z1r_inv = 0, dZ=0, p=0, pp2=0, to_w=0, dbeta=-1, norm=-1
@@ -385,9 +405,13 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
         # push dpsi_dA. to individual kmer weights dw_dA.
         im_row = &im[r, 0]
         for j in range(n_samples):
-            p = psi[j, r]
-            # (psi - psi^2) is the only sample/concentration dependent term
-            pp2 = (p - (p * p))
+            if lin_occ:
+                pp2 = 1. #rbp_free[j]
+            else:
+                p = psi[j, r]
+                # (psi - psi^2) is the only sample/concentration dependent term
+                pp2 = (p - (p * p))
+
             for y in range(n_psam):
                 to_w = dZr_dA_row[y] * pp2 
 

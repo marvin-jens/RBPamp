@@ -36,7 +36,7 @@ def parse_cmdline():
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("-N","--n-max", dest="n_max", default=0, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries)")
+    parser.add_option("-N","--n-max", dest="n_max", default=10000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=10M, 0=off)")
     parser.add_option("-n","--n-samples", dest="n_samples", default=1000000, type=int, help="TESTING: sub-sample n reads from N reads")
     parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="TESTING: re-sample every -r iterations of descent (default=5, 0 to disable)")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
@@ -69,6 +69,8 @@ def parse_cmdline():
     parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
+    parser.add_option("","--excess-rbp",dest="excess_rbp",default=False, action="store_true",help="MODEL: pretend total RBP == free RBP")
+    parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
@@ -532,10 +534,11 @@ class Run(object):
         # fprep.report()
 
         print "gradient report"
-        grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
+        grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
-        grep.report()
+        # grep.report()
+        grep.plot_affinity_dists()
         
     def PSAM_gradient_descent(self, name="opt"):
 
@@ -553,10 +556,12 @@ class Run(object):
             eps = self.options.mdl_epsilon, 
             tau = self.options.mdl_tau,
             redo = self.options.redo,
-            debug_grad = self.options.debug_grad,
+            # debug_grad = self.options.debug_grad,
             resample_int = self.options.resample_int,
+            excess_rbp = self.options.excess_rbp,
+            linear_occ = self.options.linear_occ,
         )
-        PGD.optimize()
+        PGD.optimize(debug=self.options.debug_grad)
         self.params = PGD.descent.params
 
         return PGD.descent.status.startswith('CONVERGED')

@@ -94,7 +94,10 @@ class PartFuncModelState(object):
 
     def _update_rbp_free(self, rbp_free):
         self.rbp_free = rbp_free
-        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
+        if self.mdl.linear_occ:
+            self.psi = self.Z1_read[np.newaxis, :] * (self.rbp_free*self.params.A0)[:, np.newaxis]
+        else:
+            self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
         self.q = self.mdl.PD_kmer_weights(self.psi)
         self.Q = self.q.sum(axis=1)
 
@@ -248,7 +251,7 @@ class PartFuncModel(object):
     be more complex than the kmer frequencies
     being used to estimate agreement with the experiment.
     """
-    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, **kwargs):
+    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, excess_rbp=False, linear_occ=False, **kwargs):
         self.logger = logging.getLogger('model.PartFuncModel')
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
@@ -260,6 +263,8 @@ class PartFuncModel(object):
         # self.acc_scale = self.params.acc_scale
 
         self.Z_thresh = Z_thresh
+        self.excess_rbp = excess_rbp
+        self.linear_occ = linear_occ
 
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
@@ -429,9 +434,15 @@ class PartFuncModel(object):
         self.N = np.float32(len(self._seqm))
 
     def SPA_free_protein(self, Z1, Z_scale=1.):
-        sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
-        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=Z_scale)
-        self._last_sc = sc  # keep for debugging or re-use (if Z1 is unaltered)
+        if self.excess_rbp:
+            # pretend all RBP is available
+            rbp_free = self.rbp_conc
+        
+        else:
+            sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
+            rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=Z_scale)
+            self._last_sc = sc  # keep for debugging or re-use (if Z1 is unaltered)
+
         return np.array(rbp_free, dtype=np.float32)
 
     def PD_kmer_weights(self, psi):
