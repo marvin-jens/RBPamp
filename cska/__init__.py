@@ -537,8 +537,8 @@ class Run(object):
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
-        # grep.report()
-        grep.plot_affinity_dists()
+        # grep.plot_affinity_dists()
+        grep.report()
         
     def PSAM_gradient_descent(self, name="opt"):
 
