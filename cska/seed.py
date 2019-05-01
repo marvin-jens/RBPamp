@@ -511,7 +511,7 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
-    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 

@@ -57,7 +57,7 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
-    parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
+    parser.add_option("","--seed-k",dest="k_seed",default=7, type=int, help="kmer size used for seeding PSAM(s) (default=7)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="3-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=3-11)")
@@ -530,8 +530,6 @@ class Run(object):
             os.path.join(self.run_path, 'footprint/calibrated.tsv'),
             out_path=plot_path
         )
-        print "footprint report"
-        # fprep.report()
 
         print "gradient report"
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
@@ -540,6 +538,9 @@ class Run(object):
         # grep.plot_affinity_dists()
         grep.report()
         
+        print "footprint report"
+        fprep.report()
+
     def PSAM_gradient_descent(self, name="opt"):
 
         from cska.psamgrad import PSAMGradientDescent
