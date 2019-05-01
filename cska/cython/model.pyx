@@ -190,7 +190,7 @@ def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
                 Z[j, i] = exp(a * log(Z[j, i]))
 
 
-def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, FLOAT32_t alpha=1, single_thread=False):
+def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FLOAT32_t [:, :] psam, int n_max=0, int openen_ofs=0, FLOAT32_t non_specific=0, FLOAT32_t alpha=1, int single_thread=False, int noacc=False):
     cdef UINT64_t N = seqm.base.shape[0]
     cdef UINT64_t L = seqm.base.shape[1]
     cdef UINT64_t k = psam.base.shape[0]
@@ -261,11 +261,14 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                         z = z * psam[d, n]
                     # add non-specific component (still reacts to accessbility)
                     z = z + non_specific
-                    acc_i = i + openen_ofs
-                    if 0 <= acc_i < L_acc:
-                        Z[j, i] = z * acc_matrix[j, i + openen_ofs]
-                    else:
-                        Z[j, i] = 0 # no valid accessibility footprint
+                    if not noacc:
+                        acc_i = i + openen_ofs
+                        if 0 <= acc_i < L_acc:
+                            z = z * acc_matrix[j, i + openen_ofs]
+                        else:
+                            z = 0 # no valid accessibility footprint
+
+                    Z[j, i] = z
 
     return Z.base
 

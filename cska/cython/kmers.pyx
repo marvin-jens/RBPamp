@@ -1398,21 +1398,22 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
 
 # @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None):
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+@cython.boundscheck(True)
+# @cython.wraparound(True)
+def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None, int n_threads = 8):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
-    cdef int n_threads = 8
     cdef int tid=-1
     cdef int l = w + 2 * pad
     cdef FLOAT32_t [:,:] rw
     cdef int n_cols=0, col=0
     if row_w is None:
         n_cols = 1
-        rw = np.ones((1,N), dtype=np.float32)
+        rw = np.ones((N, 1), dtype=np.float32)
     else:
-        n_cols = row_w.shape[0]
+        n_cols = row_w.shape[1]
         rw = row_w
 
     # print "n_cols=", n_cols
@@ -1428,43 +1429,53 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
     cdef FLOAT32_t *Z_row
     cdef FLOAT32_t *Z1_row
     cdef FLOAT32_t *acc_row
+    cdef FLOAT32_t *rw_row
     cdef FLOAT32_t Z1x = 0.
     # for j in prange(N, schedule='static')
-    for j in prange(N, schedule='dynamic', nogil=True, num_threads=3):
-        tid = openmp.omp_get_thread_num()
-    # n_threads = 1
-    # for j in range(N):
-    #     tid = 0
-    # for x in range(pad, L-pad):
-    #     for d in range(-pad, w+pad):
-    #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
-        Z_row = &Z[tid, 0]
-        for x in range(pad, L-pad):
-            ofsx = ofs + x
-            Z1_row = &Z1[j, x]
-            Z1x = Z1_row[0]
-            for col in range(n_cols):
-                Z_row[col] += Z1x * rw[col, j]
+    if n_threads==1:
+        # print "single threaded"
+        with nogil:
+            tid = 0
+            for j in range(N):
+                Z_row = &Z[tid, 0]
+                for x in range(pad, L-pad):
+                    ofsx = ofs + x
+                    Z1_row = &Z1[j, x]
+                    Z1x = Z1_row[0]
+                    rw_row = &rw[j, 0]
+                    for col in range(n_cols):
+                        Z_row[col] += Z1x * rw_row[col]
 
-            acc_row = &acc[j, ofsx]
-            for d in range(-pad, w + pad):
-                # print "d={} fp_i={} acc_i={}".format(d, d+pad, ofs + x + d)
-                # x0 = d+pad
-                # try:
-                #     x1 = ofs + x + d
-                # except OverflowError:
-                #     print ofs, x, d
-                #     raise
-                # assert x1 > 0
-                # f0 = acc[j, x1]
-                # f1 = Z1[j, x] * acc[j, ofs + x + d]
-                # f2 = footprint[x0]
-                # f3 = f2 + f1
-                # footprint[x0] = f3
-                f0 = Z1x * acc_row[d]
-                for col in range(n_cols):
-                    fp = footprint[tid, col, d + pad]
-                    footprint[tid, col, d + pad] = fp + f0 * rw[col, j]
+                    acc_row = &acc[j, ofsx]
+                    for d in range(-pad, w + pad):
+                        f0 = Z1x * acc_row[d]
+                        for col in range(n_cols):
+                            fp = footprint[tid, col, d + pad]
+                            footprint[tid, col, d + pad] = fp + f0 * rw_row[col]
+
+    # else:    
+    #     for j in prange(N, schedule='dynamic', nogil=True, num_threads=3):
+    #         tid = openmp.omp_get_thread_num()
+    #     # n_threads = 1
+    #     # for j in range(N):
+    #     #     tid = 0
+    #     # for x in range(pad, L-pad):
+    #     #     for d in range(-pad, w+pad):
+    #     #         footprint[d+pad] += Z1[j, x] * acc[j, ofs + x + d]
+    #         Z_row = &Z[tid, 0]
+    #         for x in range(pad, L-pad):
+    #             ofsx = ofs + x
+    #             Z1_row = &Z1[j, x]
+    #             Z1x = Z1_row[0]
+    #             for col in range(n_cols):
+    #                 Z_row[col] += Z1x * rw[col, j]
+
+    #             acc_row = &acc[j, ofsx]
+    #             for d in range(-pad, w + pad):
+    #                 f0 = Z1x * acc_row[d]
+    #                 for col in range(n_cols):
+    #                     fp = footprint[tid, col, d + pad]
+    #                     footprint[tid, col, d + pad] = fp + f0 * rw[col, j]
 
     # collect data from all threads
     for tid in range(1, n_threads):

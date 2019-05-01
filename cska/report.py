@@ -347,9 +347,10 @@ class RunReport(object):
 
 
 class GradientDescentReport(object):
-    def __init__(self, path='.', comp=None):
+    def __init__(self, path='.', comp=None, rbns=None):
         self.logger = logging.getLogger('plot.GradientDescentReport')
         self.comp = comp
+        self.rbns = rbns
         self.shelves = []
         self.shelf_map = [0]
         self.t = None
@@ -585,6 +586,46 @@ class GradientDescentReport(object):
             hi = ModelSetParams(p_mid.hi.param_set, sort=True)
         
         params.save_logos(os.path.join(self.path,"motifs_t{0}.svg".format(t)), lo=lo, hi=hi, title=title)
+
+    def plot_affinity_dists(self, t=-1, title="", k_fit=6):
+        from cska.params import ModelSetParams
+
+        shelf_i, shelf_t = self.map_t_shelf(t)
+        est = self.error_estimators[shelf_i]
+        p_mid = est.estimate(save=False, t_ref=shelf_t)
+        if p_mid is None:
+            params = ModelSetParams(self.get('params', t), sort=True) # re-initialize in case it's not sorted
+        else:
+            params = ModelSetParams(p_mid.param_set, sort=True)
+        
+
+        # from cska.partfunc import PartFuncModel
+        # mdl = PartFuncModel(
+        #     self.rbns.reads[0],
+        #     params,
+        #     self.rbns.R_value_matrix(k_fit)[0],
+        #     rbp_conc = self.rbns.rbp_conc
+        # )
+        # state = mdl.predict(params)
+        # print state.psi
+        # np.histogram()
+        
+        bins = 10 ** np.linspace(np.log10(1e-6), np.log10(10), 100)
+        for reads in self.rbns.reads:
+            import matplotlib.pyplot as plt
+            plt.figure()
+            Z1m = reads.PSAM_partition_function(params, split=True)
+            for z in Z1m:
+                print z.shape
+                plt.hist(z.sum(axis=1), bins=bins, histtype='step', cumulative=True)
+            plt.gca().set_xscale('log')
+            plt.savefig("{reads.name}_affdist.pdf".format(reads=reads))
+            plt.close()
+
+        
+
+
+
 
     def _get_lit_data(self, t, debug=False):
         if t == -1:
@@ -839,7 +880,7 @@ class FootprintCalibrationReport(object):
             self.rbp_conc = []
             self.params = []
         
-        self.motifs = [par.as_PSAM().consensus for par in self.params]
+        self.motifs = [par.as_PSAM().consensus_ul for par in self.params]
         if (self.rbp_conc == np.round(self.rbp_conc)).all():
             self.rbp_conc = np.array(self.rbp_conc, dtype=int)
 

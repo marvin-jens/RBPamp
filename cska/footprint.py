@@ -9,6 +9,9 @@ from cska.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
 import cska.cyska as cyska
 from cska.sc import SelfConsistency
 
+from scipy.optimize import minimize
+from time import time
+from copy import deepcopy
 # gc.enable()
 # gc.set_debug(gc.DEBUG_LEAK)
 
@@ -32,6 +35,127 @@ def dump_caches():
     for size, cache in get_cache_sizes():
         print cache, size/1024.
 
+
+class RowOptimization(object):
+    def __init__(self, cal, acc_k):
+        self.logger = logging.getLogger("opt.footprint.row_opt")
+        self.cal = cal
+        self.acc_k = acc_k
+        self.params = deepcopy(self.cal.params)
+        self.params.acc_k = acc_k
+        
+        self.lacc0, self.punp1 = self.cal.get_lacc_punp_cached(acc_k)
+        self.openen = self.cal.get_input_openen_cached(acc_k)
+        self.openen_punp = self.cal.get_input_openen_cached(1)
+        self.Z1 = self.cal.Z1
+        self.zw = self.Z1.shape[1]
+
+    def predict_profiles(self, acc_shift, a, A0):
+        from time import time
+        t0 = time()
+        # scale accessibilities
+        acc1 = np.exp(self.lacc0 * np.float32(a))
+        
+        # select shifted accessibilities
+        self.params.acc_shift = acc_shift
+        ofs = self.openen.ofs - self.params.k + 1 + acc_shift
+        if ofs < 0:
+            self.logger.warning("ofs underflow")
+
+        # compute partition function with scaled acc.
+        Z1_acc = self.Z1 * acc1[:, ofs:ofs + self.zw]
+
+        # aggregate to read-level
+        t1 = time()
+        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6)
+        t2 = time()
+
+        # predict binding probability
+        sc = SelfConsistency(Z1_read, self.cal.input_reads.rna_conc, bins=1000)
+        rbp_free = sc.free_rbp_vector(self.cal.rbp_conc, Z_scale=A0)
+        t3 = time()
+
+        psi = cyska.p_bound(Z1_read, np.array(rbp_free*A0,dtype=np.float32))
+        t4 = time()
+
+        # compute base-p_unpaired profiles
+        punp_expect = cyska.acc_footprints(
+            self.Z1,
+            self.punp1,
+            self.params.k, 
+            1, 
+            self.openen_punp.ofs - self.params.k + 1, 
+            pad=self.cal.pad, 
+            row_w = np.ascontiguousarray(psi.T),
+            n_threads=1
+        )
+        t_prof = time() - t4
+
+        times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
+        self.logger.debug("t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times))
+        return np.array(punp_expect)
+
+    def optimize_a(self, acc_shift, A0=None):
+        if A0 is None:
+            A0 = self.params.A0
+        
+        self.logger.debug("optimize_a({acc_shift}, A0={A0})".format(**locals()))
+        def to_opt_a(a):
+            punp_expect = self.predict_profiles(acc_shift, a, A0)
+            err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
+            return err
+
+        from scipy.optimize import minimize
+        res = minimize(
+            to_opt_a,
+            (0, ),  # start with no secondary structure data A0
+            bounds= [ (0, 1.), ], 
+            options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
+        )
+        res.a = res.x
+        res.A0 = A0
+        punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
+        return res, punp_expect
+
+    def optimize_A0(self, acc_shift, a=1):
+        self.logger.debug("optimize_A0({acc_shift}, a={a})".format(**locals()))
+        def to_opt_A0(A0):
+            punp_expect = self.predict_profiles(acc_shift, a, A0)
+            err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
+            return err
+
+        res = minimize(
+            to_opt_A0,
+            (1., ),
+            bounds= [ (1e-4, 1e3), ], 
+            options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
+        )
+        res.a = a
+        res.A0 = res.x
+        punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
+        return res, punp_expect
+
+    def optimize(self, acc_shift):
+        self.logger.debug("optimize({acc_shift})".format(**locals()))
+        def to_opt(args):
+            a, A0 = args
+            punp_expect = self.predict_profiles(acc_shift, a, A0)
+            err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
+            return err
+
+        res = minimize(
+            to_opt,
+            (0, 1., ),
+            bounds= [ (0, 1), (1e-4, 1e3), ], 
+            options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
+        )
+        res.a = res.x[0]
+        res.A0 = res.x[1]
+        punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
+        return res, punp_expect
+
+
+
 class FootprintCalibration(CachedBase):
     def __init__(self, rbns, params, pad=5, thresh=1e-3, subsample=False, redo=False):
          
@@ -45,6 +169,7 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = 0
         self.params.non_specific = 0
         self.consensus = self.params.as_PSAM().consensus
+        self.consensus_ul = self.params.as_PSAM().consensus_ul
         self.rbns = rbns
         self.input_reads = rbns.reads[0]
         self.subsample = subsample
@@ -111,97 +236,79 @@ class FootprintCalibration(CachedBase):
             reads.cache_flush()
             reads.acc_storage.cache_flush()
 
-
     def store_shelve(self, key, value):
-        self.shelve["{0}_{1}".format(self.consensus, key)] = value
+        self.shelve["{0}_{1}".format(self.consensus_ul, key)] = value
         self.shelve.sync()        
+
+    def load_shelve(self, key, default=None):
+        k = "{0}_{1}".format(self.consensus_ul, key)
+        if k in self.shelve:
+            return self.shelve[k]
+        return default
+
+    def load_profile(self, k, s):
+        key = "opt_profile_{k}_{s}".format(k=k, s=s)
+        return self.load_shelve(key)
+
+    def store_profile(self, k, s, value):
+        key = "opt_profile_{k}_{s}".format(k=k, s=s)
+        return self.store_shelve(key, value)
 
     @property
     def cache_key(self):
         return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}".format(self=self)
 
-    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False, heuristic=2):
-        # TODO: smarter way to guess footprint size from motif?
+    def optimize_row(self, acc_k, shift_range, from_scratch=False):
+        from multiprocessing.pool import ThreadPool
+        
+        row = RowOptimization(self, acc_k)
+        pool = ThreadPool()
+
+        def _optimize(s):
+            x = self.load_profile(acc_k, s)
+            if not x or from_scratch:
+                x = row.optimize(s)
+
+            return (acc_k, s, x)
+
+        results = pool.map(_optimize, shift_range, chunksize=1)
+        pool.terminate()
+        pool.close()
+        pool.join()
+        return results
+        # return map(_optimize, shift_range)
+
+
+    def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False, heuristic=0):
         kmin, kmax = k_core_range
         if kmax is None:
             kmax = self.params.k + 2
 
         self.logger.debug("scanning acc_k = {} .. {}".format(kmin, kmax) )
-        try:
-            if from_scratch:
-                for k in range(kmin, kmax+1):
-                    d = self.params.k - k
-                    for s in range( -pad , d + pad):
-                        self.drop_pickle("optimize", k, s)
+        for acc_k in range(kmax, kmin - 1, -1):
+            d = self.params.k - acc_k + 1
+            shift_range = range(-pad, d + pad)
 
-            lowest_err = np.Inf
-            h_map = None
-            for k in range(kmax, kmin-1, -1):
-                d = self.params.k - k + 1
-                l = d + 2*pad + 1
-                k_row = np.zeros(l, dtype=float) + np.Inf
-                for s in range(-pad, d + pad):
-                    # if not (k, s) in self.results:
-                    if not h_map is None:
-                        print "testing", s, h_map[s + pad]
-                        if not h_map[s + pad]:
-                            print "skip"
-                            continue
+            for k, s, (res, punp_predict) in self.optimize_row(acc_k, shift_range, from_scratch):
+                err = res.fun
+                rel_err = err / self.err0
+                a = res.a
+                A0 = res.A0
 
-                    self.logger.debug("optimizing acc_k={} acc_shift={}".format(k, s) )
-                    res, punp_predict = self.optimize(k, s)
-                    err = res.fun
-                    rel_err = err / self.err0
-                    a = res.x[0]
-                    A0 = res.x[1]
-                    if not res.success:
-                        self.logger.warning("unable to optimize footprint k={k}, s={s}.".format(**locals()))
-                        a = 0.
-                        A0 = self.params.A0
-                        err = self.err0
-                    
-                    opt = (err, k, s, a, A0)
+                if not res.success:
+                    self.logger.warning("unable to optimize footprint k={k}, s={s}.".format(**locals()))
+                    a = 0.
+                    A0 = self.params.A0
+                    err = self.err0
+                
+                opt = (err, k, s, a, A0)
+                self.results[(k, s)] = opt
+                self.store_profile(k, s, (punp_predict, res))
+                self.store_footprint(opt)
+                self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
 
-                    self.results[(k, s)] = opt
-                    self.store_shelve("opt_profile_{k}_{s}".format(**locals()), (punp_predict, res))
-                    self.store_footprint(opt)
-                    # self.logger.debug("a={a} A0={A0} err={err}".format(**locals()) )
-                    self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
-                    #     self.plot_profiles(punp_predict, k, s, res)
-
-                    k_row[s + pad] = err
-                    lowest_err = min(lowest_err, err)
-
-                if heuristic:
-                    print k_row
-                    I = (k_row <= 1.1 * k_row.min()).nonzero()[0]
-                    print I
-                    h_map = np.zeros(l+1, dtype=bool)
-                    for i in I:
-                        # set the optimum and nearest neighbors to True
-                        h_map[max(0, i-1):min(l+2, i + 3)] = True
-                        print "heuristic map: good site at", i - pad, k_row[i]
-
-                    print "heuristic map for k=", k-1
-                    for x in range( -pad , d + pad + 1):
-                        print x, h_map[x + pad]
-
-                # if k_row.min() > lowest_err and heuristic:
-                #     # we went past the optimum. Everything smaller than this is 
-                #     # not interesting
-                #     self.logger.debug("breaking early because optimum was already seen at higher k")
-                #     break
-    
-        except KeyboardInterrupt:
-            self.logger.warning("received KeyboardInterrupt")
-            raise
-            return False
 
         results = sorted(self.results.values())
-        # self.store_footprints()
-        # if plot:
-        #     self.matrix_plots(results)
-
         err, k, s, a, A0 = results[0]
         rel_err = err/self.err0
         self.result_log.critical("OPTIMUM {self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
@@ -212,7 +319,8 @@ class FootprintCalibration(CachedBase):
         self.store_shelve("params_calibrated", self.params)
 
         # for the optimum, also compute profile for a=1
-        res_a_one, punp_a_one = self.optimize(k, s, a_fixed=True)
+        row = RowOptimization(self, k)
+        res_a_one, punp_a_one = row.optimize_A0(s, a=1)
         self.store_shelve("opt_profile_a_one_{k}_{s}".format(**locals()), (punp_a_one, res_a_one))
 
         return self.params
@@ -223,7 +331,6 @@ class FootprintCalibration(CachedBase):
         self.fp_file.write("\t".join([str(o) for o in out]) + "\n")
         self.fp_file.flush()
         self.store_shelve("{0}_{1}".format(k, s), opt)
-
 
     # @monitored
     @pickled
@@ -243,7 +350,16 @@ class FootprintCalibration(CachedBase):
         punp_acc = openen_punp.acc
         if self.subsample:
             punp_acc = self.input_reads.sub_sampler.draw(data=punp_acc)
-        naive_profiles = cyska.acc_footprints(self.Z1_in_noacc, punp_acc, self.params.k, 1, openen_punp.ofs - self.params.k + 1, pad=self.pad, row_w = psi)
+
+        naive_profiles = cyska.acc_footprints(
+            self.Z1_in_noacc, 
+            punp_acc, 
+            self.params.k, 
+            1, 
+            openen_punp.ofs - self.params.k + 1, 
+            pad=self.pad, 
+            row_w = np.ascontiguousarray(psi.T),
+        )
 
         return punp_profiles, naive_profiles
 
@@ -282,124 +398,6 @@ class FootprintCalibration(CachedBase):
             self._lacc_cache = { k : (lacc0, punp) }  # always keep only one item!
         
         return self._lacc_cache[k]
-
-    def predict_profiles(self, acc1, acc_ofs, punp, punp_ofs, A0):
-        # TODO: refactor and add background contribution?
-        zw = self.Z1.shape[1]
-        Z1_acc = self.Z1 * acc1[:, acc_ofs:acc_ofs + zw]
-        t1 = time()
-        Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6) # aggregate to read-level
-        t2 = time()
-        sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
-        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=A0)
-        # print "rbp_free", rbp_free
-        t3 = time()
-        psi = cyska.p_bound(Z1_read, np.array(rbp_free*A0,dtype=np.float32))
-        # print "psi", psi.min(axis=1), psi.max(axis=1)
-        # print psi.shape
-        t4 = time()
-        # punp_expect = self.input_reads.weighted_accessibility_profile(self.Z1, self.params.k, pad=self.pad, row_w=psi)
-        punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
-        t_prof = time() - t4
-        # print self.Z1.shape, punp.shape
-        times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
-        print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
-        return np.array(punp_expect)
-
-    def _optimize(self, a):
-        pass
-
-    # @monitored
-    @pickled
-    def optimize(self, acc_k, acc_shift, a_fixed=False):
-        from time import time
-        self.logger.info("performing calibration for k={} s={}".format(acc_k, acc_shift))
-        # from pympler.tracker import SummaryTracker
-        # tracker = SummaryTracker()
-        if a_fixed:
-            acc0 = self.get_input_openen_cached(acc_k).acc
-            punp = self.get_input_openen_cached(1).acc
-            if self.subsample:
-                acc0 = self.input_reads.sub_sampler.draw(data=acc0)
-                punp = self.input_reads.sub_sampler.draw(data=punp)
-            acc0 = acc0[self.I, :]
-            punp = punp[self.I, :]
-        else:
-            lacc0, punp = self.get_lacc_punp_cached(acc_k)
-
-        openen_punp = self.get_input_openen_cached(1)
-        openen = self.get_input_openen_cached(acc_k)
-        ofs = openen.ofs - self.params.k + 1
-        zw = self.Z1.shape[1]
-
-        from copy import deepcopy
-        params = deepcopy(self.params)
-        params.acc_k = acc_k
-        params.acc_shift = acc_shift
-
-        def predict_profiles(a, A0):
-            t0 = time()
-            if not a_fixed:
-                acc1 = np.exp(lacc0 * a) # scale accessibilities
-            else:
-                acc1 = acc0
-
-            ofs = openen.ofs - params.k + 1 + acc_shift
-
-            Z1_acc = self.Z1 * acc1[:, ofs:ofs + zw]
-            t1 = time()
-            Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6) # aggregate to read-level
-            t2 = time()
-            sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
-            rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=A0)
-            # print "rbp_free", rbp_free
-            t3 = time()
-            psi = cyska.p_bound(Z1_read, np.array(rbp_free*A0,dtype=np.float32))
-            # print "psi", psi.min(axis=1), psi.max(axis=1)
-            # print psi.shape
-            t4 = time()
-            # punp_expect = self.input_reads.weighted_accessibility_profile(self.Z1, self.params.k, pad=self.pad, row_w=psi)
-            punp_expect = cyska.acc_footprints(self.Z1, punp, self.params.k, 1, openen_punp.ofs - params.k + 1, pad=self.pad, row_w = psi)
-            t_prof = time() - t4
-            # print self.Z1.shape, punp.shape
-            times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
-            print "t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times)
-            return np.array(punp_expect)
-
-        def to_opt(args):
-            if a_fixed:
-                A0 = args[0]
-                punp_expect = predict_profiles(1., A0)
-            else:
-                a, A0 = args
-                punp_expect = predict_profiles(a, A0)
-            
-            err = np.sum((punp_expect - self.punp_profiles[1:])**2)
-            return err
-
-        from scipy.optimize import minimize
-        if a_fixed:
-            res = minimize(
-                to_opt, 
-                (params.A0,),  
-                bounds= [ (1e-3, 1000.), ], 
-                options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
-            )
-            A0 = res.x
-            a = 1.
-            res.x = (1., A0)
-        else:
-            res = minimize(
-                to_opt, 
-                (0, params.A0),  # start with no secondary structure data A0
-                bounds= [ (0, 1.), (1e-3, 1000.)], 
-                options=dict(eps=1e-4, maxiter=100, ftol=1e-5)
-            )
-            a, A0 = res.x
-
-        punp_expect = predict_profiles(a, A0)
-        gc.collect()
-        return res, punp_expect
 
     def close(self):
         for reads in self.rbns.reads[1:]:
