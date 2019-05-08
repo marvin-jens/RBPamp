@@ -16,6 +16,7 @@ sns_style = {
     # 'xtick.major.linewidth' : .5, # Whut is the right one? Seaborn docs, where are u?
     'legend.frameon' : False,
     'legend.fancybox' : False,
+    'font.size' : 8,
 }
 
 import matplotlib.pyplot as pp
@@ -116,6 +117,8 @@ def density_scatter_plot(
     dens_thresh=1000,
     x_ref=True,
     tick_exp=0,
+    lim_max=None,
+    lim_min=None,
     ):
     from scipy.stats import kde
     import seaborn as sns
@@ -123,11 +126,11 @@ def density_scatter_plot(
     t0 = time.time()
     N = len(x)
     
-    xmin = x.min()
-    xmax = x.max()
-    ymin = y.min()
-    ymax = y.max()
-
+    xmin = x.min() if lim_min is None else lim_min
+    xmax = x.max() if lim_max is None else lim_max
+    ymin = y.min() if lim_min is None else lim_min
+    ymax = y.max() if lim_max is None else lim_max
+    
     if N > dens_thresh and x_ref:
         # use experiment as reference
         m = xmin  
@@ -550,18 +553,22 @@ class GradientDescentReport(object):
 
         stats = self.get("stats", t)
         logRt = np.log2(self.get("R", t))
+
+        maxR = max(self.logR0.max(), logRt.max())
         for i in range(self.n_samples):
-            pp.figure()
+            pp.figure(figsize=(5, 5))
             pp.title("{0}mer R-value scatter plot {1}".format(self.k_mer, title))
 
             x = self.logR0[i]
             y = logRt[i]
             label = u"{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
             # data_labels = self.opt.mdl.parameters.param_name
-            density_scatter_plot(x, y, label=label, tick_exp=2)
+            density_scatter_plot(x, y, label=label, tick_exp=2, lim_max=maxR)
             pp.legend(loc='upper left', frameon=False)
             pp.xlabel("observed {}-mer enrichment".format(self.k_mer))
             pp.ylabel("predicted {}-mer enrichment".format(self.k_mer))
+            pp.gca().set(aspect="equal")
+            pp.tight_layout()
             fname = os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t))
             try:
                 pp.savefig(fname, dpi=300)
@@ -713,8 +720,8 @@ class GradientDescentReport(object):
 
         import seaborn as sns
         with sns.axes_style("ticks", sns_style):
-            matplotlib.rc('xtick.major', width = .1)
-            matplotlib.rc('ytick.major', width = .1)
+            # matplotlib.rc('xtick.major', width = .1)
+            # matplotlib.rc('ytick.major', width = .1)
 
 
             pp.figure(figsize=(6,6))
