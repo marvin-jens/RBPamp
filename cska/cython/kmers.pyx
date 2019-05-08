@@ -1400,9 +1400,9 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 # @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
-@cython.boundscheck(True)
+# @cython.boundscheck(True)
 # @cython.wraparound(True)
-def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None, int n_threads = 8):
+def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None, int n_threads = 1):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
     cdef int tid=-1
@@ -1453,7 +1453,8 @@ def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int o
                             fp = footprint[tid, col, d + pad]
                             footprint[tid, col, d + pad] = fp + f0 * rw_row[col]
 
-    # else:    
+    else:    
+        raise ValueError("n_threads > 1 no longer supported!")
     #     for j in prange(N, schedule='dynamic', nogil=True, num_threads=3):
     #         tid = openmp.omp_get_thread_num()
     #     # n_threads = 1

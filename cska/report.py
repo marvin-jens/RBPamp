@@ -399,12 +399,9 @@ class GradientDescentReport(object):
         self.epoch_names.append(epoch_name)
         # print "shelfmap", self.shelf_map
 
-    def report(self):
+    def plot_scatter(self):
         if self.t is None:
             return
-        
-        self.plot_literature()
-        self.plot_report()
 
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
@@ -412,8 +409,24 @@ class GradientDescentReport(object):
             self.plot_scatter(t0, title="before {}".format(name))
             self.plot_scatter(t, title="after {}".format(name))
 
+    def plot_motifs(self):
+        if self.t is None:
+            return
+
+        for i, name in enumerate(self.epoch_names):
+            t0, t = self.epochs[i]
             self.plot_motifs(t0, title="before {}".format(name))
             self.plot_motifs(t, title="after {}".format(name))
+
+    def report(self):
+        if self.t is None:
+            return
+        
+        self.plot_literature()
+        self.plot_report()
+
+        self.plot_scatter()
+        self.plot_motifs()
     
     def find_max_t(self, shelf):
         t = -1

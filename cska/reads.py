@@ -380,6 +380,8 @@ class RBNSReads(CachedBase):
 
         if openen.missing_data and k_acc > 0:
             raise ValueError("missing accessibility data for {} k_acc={}".format(self.fname, k_acc))
+        
+        # print np.isfinite(Z1).all(), np.isfinite(acc).all(), k_motif, openen.ofs - k_motif + 1, pad, row_w, k_acc
         # t1 = time()
         fp = cyska.acc_footprints(Z1, acc, k_motif, k_acc, openen.ofs - k_motif + 1, pad=pad, row_w = row_w)
         # t2 = time()

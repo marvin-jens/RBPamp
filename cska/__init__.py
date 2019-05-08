@@ -60,7 +60,7 @@ def parse_cmdline():
     parser.add_option("","--seed-k",dest="k_seed",default=7, type=int, help="kmer size used for seeding PSAM(s) (default=7)")
 
     # accessibility footprint analysis
-    parser.add_option("","--footprint-k", dest="footprint", default="3-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=3-11)")
+    parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
@@ -80,7 +80,7 @@ def parse_cmdline():
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
     parser.add_option("", "--est-errors", dest="est_errors", default=False, action="store_true", help="perform PSAM error estimation")
-    parser.add_option("", "--plot", dest="plot", default=False, action="store_true", help="plot results")
+    parser.add_option("", "--plot", dest="plot", default="", help="(re-) generate plots. Comma-separated items from descent,scatter,fp,lit,logos or 'all' ")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
@@ -523,7 +523,10 @@ class Run(object):
         self.params.save(path)
         return self.params
 
-    def make_plots(self):
+    def make_plots(self, plots):
+        if plots == ["all",] : 
+            plots = ['descent', 'scatter', 'fp', 'lit', 'logos']
+
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
@@ -532,15 +535,21 @@ class Run(object):
             out_path=plot_path
         )
 
-        print "gradient report"
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
-        # grep.plot_affinity_dists()
-        grep.report()
-        
-        print "footprint report"
-        fprep.report()
+
+        funcs = {
+            'descent' : grep.plot_report,
+            'scatter' : grep.plot_scatter,
+            'fp' : fprep.report,
+            'lit' : grep.plot_literature,
+            'logos' : grep.plot_motifs,
+            'aff' : grep.plot_affinity_dists, # EXPERIMENTAL
+        }
+
+        for plt in plots:
+            funcs[plt]()
 
     def PSAM_gradient_descent(self, name="opt"):
 
@@ -633,7 +642,7 @@ def main():
                 run.mark_complete("struct")
 
         if options.plot:
-            run.make_plots()
+            run.make_plots(options.plot.split(','))
 
         if options.est_errors:
             run.estimate_errors()

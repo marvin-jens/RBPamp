@@ -141,6 +141,7 @@ class RowOptimization(object):
             a, A0 = args
             punp_expect = self.predict_profiles(acc_shift, a, A0)
             err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
+            # print punp_expect, err
             return err
 
         res = minimize(
@@ -217,7 +218,8 @@ class FootprintCalibration(CachedBase):
             reads.acc_storage.cache_flush()
 
         self.punp_profiles, self.naive_profiles = self.compute_initial_profiles()
-
+        print "punp_profiles", self.punp_profiles
+        print "naive_profiles", self.naive_profiles
         self.store_shelve("params_initial", params)
         self.store_shelve("punp_profiles", self.punp_profiles)
         self.store_shelve("naive_profiles", self.naive_profiles)
@@ -272,6 +274,7 @@ class FootprintCalibration(CachedBase):
             return (acc_k, s, x)
 
         results = pool.map(_optimize, shift_range, chunksize=1)
+        # results = map(_optimize, shift_range)
         pool.terminate()
         pool.close()
         pool.join()
@@ -333,13 +336,15 @@ class FootprintCalibration(CachedBase):
         self.store_shelve("{0}_{1}".format(k, s), opt)
 
     # @monitored
-    @pickled
+    # @pickled
     def compute_initial_profiles(self):
 
         punp_profiles = np.array([
             reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad, subsample=self.subsample)[0]
             for reads, z in zip(self.rbns.reads, self.Z1_full)])
 
+        # print "right here", punp_profiles
+        # 1/0
         # predict profiles w/o accessibility footprint
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
         sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
