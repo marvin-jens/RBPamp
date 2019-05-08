@@ -74,6 +74,7 @@ def parse_cmdline():
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
+    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.72, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
@@ -488,7 +489,7 @@ class Run(object):
         #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
-        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed)
+        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 

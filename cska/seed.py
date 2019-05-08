@@ -59,7 +59,7 @@ class Alignment(object):
                     if m_start:
                         start_avg = func(self.matrix[:m_start], axis=1).sum()
 
-                    end_avg = 1.
+                    end_avg = 0.
                     if m_end < n:
                         end_avg = func(self.matrix[m_end:], axis=1).sum()
 
@@ -74,6 +74,8 @@ class Alignment(object):
                 # else:
                 #     score = 1 if multiply else 0
                 score = start_avg*end_avg if multiply else start_avg + end_avg
+                # if seq == "acuuacc":
+                #     print "score before matching part", score
 
                 for i in range(n_cols):
                     if bits[i+s_start] > 3:
@@ -511,7 +513,7 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
-    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -588,6 +590,8 @@ class SeedRefinement(object):
                 kmer, r = kmer_set[0]
                 current_motifs = get_motifs(alns)
                 self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+                best_i = scores.max(axis=1).argmax()
+                self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
                 # print "starting NEW MOTIF", kmer, r, scores[0]
                 kmer_set.pop(0)
                 aln = Alignment()
@@ -623,11 +627,11 @@ class SeedRefinement(object):
         return psams
 
 
-    def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, **kwargs):
+    def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
         from cska.params import ModelSetParams, ModelParametrization
         params = []
 
-        for i, psam in enumerate(self.motifs_from_R(k=k_seed, m_max=max_motifs, **kwargs)):
+        for i, psam in enumerate(self.motifs_from_R(k=k_seed, m_max=max_motifs, thresh=thresh, **kwargs)):
             params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
 
         param_set = ModelSetParams(params)
