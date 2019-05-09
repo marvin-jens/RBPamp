@@ -60,11 +60,10 @@ def parse_cmdline():
     parser.add_option("","--seed-k",dest="k_seed",default=7, type=int, help="kmer size used for seeding PSAM(s) (default=7)")
 
     # accessibility footprint analysis
-    parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
+    parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
-    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
     parser.add_option("","--grad-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
     parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
@@ -75,24 +74,27 @@ def parse_cmdline():
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
     parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.72, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
+    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
+
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
     parser.add_option("", "--est-errors", dest="est_errors", default=False, action="store_true", help="perform PSAM error estimation")
+
     parser.add_option("", "--plot", dest="plot", default="", help="(re-) generate plots. Comma-separated items from descent,scatter,fp,lit,logos or 'all' ")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
-    parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    # parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
     parser.add_option("","--tau",dest="mdl_tau",default=23, type=int, help="convergence estimation interval (default=13) [Note, this should be larger than the re-sampling interval -r]")
 
     # TODO: update
-    parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
-    parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
-    parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
+    # parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
+    # parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    # parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
 
     parser.add_option("","--reference",dest="ref_file",default="", help="tab-separated file with measured (reference) Kd values (default=use builtin known_kds.csv)")
     parser.add_option("","--compare",dest="compare",default="", help="compare to literature values for this protein")
@@ -110,12 +112,12 @@ def parse_cmdline():
     # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
     # read simulation (currently broken)
-    parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
+    # parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
     parser.add_option("","--rnd-seed",dest="seed",default=47110815,type=int,help="seed for fast pseudo-random number generator (for RBNS simulation)")
-    parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
-    parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
+    # parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
+    # parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
+    # parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
+    # parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
     
     options, args = parser.parse_args()
     
@@ -544,7 +546,7 @@ class Run(object):
             'scatter' : grep.plot_scatter,
             'fp' : fprep.report,
             'lit' : grep.plot_literature,
-            'logos' : grep.plot_motifs,
+            'logos' : grep.plot_logos,
             'aff' : grep.plot_affinity_dists, # EXPERIMENTAL
         }
 

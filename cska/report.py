@@ -19,11 +19,29 @@ sns_style = {
     'font.size' : 8,
 }
 
+import matplotlib
+font = {
+    'family' : 'normal',
+    'weight' : 'normal',
+    'size'   : 8
+}	
+matplotlib.rc('font', **font)
+
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import spearmanr, pearsonr
 import cska
+
+def sane_colorbar(cb, nbins=4):
+    from matplotlib import ticker
+
+    # tick_locator = ticker.MaxNLocator(nbins=nbins)
+    # cb.locator = ticker.LinearLocator(numticks=nbins)
+    cb.locator = ticker.MaxNLocator(nbins=nbins, min_n_ticks=3, prune='both')
+    # cb.ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=nbins))
+    cb.update_ticks()
+    return cb
 
 def pval_str(p):
     if p > 0:
@@ -163,7 +181,7 @@ def density_scatter_plot(
             # pca().set_facecolor('w')
             pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
             pm.set_rasterized(True)
-            cb = pp.colorbar(pm, shrink=.3) #orientation='horizontal', fraction=.05)
+            cb = sane_colorbar(pp.colorbar(pm, shrink=.3, aspect=20)) #orientation='horizontal', fraction=.05)
             cb.set_label('density')
             zt = np.array([z_min, (z_max + z_min)/2., z_max])
             ztr = np.round(zt, 1)
@@ -409,7 +427,7 @@ class GradientDescentReport(object):
             self.plot_scatter(t0, title="before {}".format(name))
             self.plot_scatter(t, title="after {}".format(name))
 
-    def plot_motifs(self):
+    def plot_logos(self):
         if self.t is None:
             return
 
@@ -935,7 +953,7 @@ class FootprintCalibrationReport(object):
 
         return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
 
-    def plot_profile(self, motif, acc_k, acc_shift):
+    def plot_profile(self, motif, acc_k, acc_shift, lw=1):
         data = self.get_profile_data(motif, acc_k, acc_shift)
         if data is None:
             return
@@ -948,6 +966,11 @@ class FootprintCalibrationReport(object):
         # pwm = self.params.as_PSAM()
         pad = (punp_input.shape[1] - len(motif)) / 2
         x = np.arange(-pad, len(motif) + pad )
+
+        gradient = np.linspace(.3, 1., len(punp_naive))
+        naive_colors = plt.get_cmap("Greys")(gradient)
+        vienna_colors = plt.get_cmap("Blues")(gradient)
+        fit_colors = plt.get_cmap("Reds")(gradient)
 
         def make_rect():
             import matplotlib.patches as patches
@@ -969,8 +992,8 @@ class FootprintCalibrationReport(object):
                 make_rect()
             cons = motif
             plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
-            plt.axvline( - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
-            plt.axvline(len(motif) - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+            plt.axvline( - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
+            plt.axvline(len(motif) - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
 
             plt.legend(
                 bbox_to_anchor=(0., 1.02, 1., .202), 
@@ -981,18 +1004,15 @@ class FootprintCalibrationReport(object):
             plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
             plt.xlabel('pos. rel to motif (consensus) [nt]')
 
-        def plot_exp(with_label=False, with_input=False):
+        def plot_exp(with_label=False, with_input=True, colors=sns.color_palette("husl", 8), sym='.'):
             if with_input:
                 plt.plot(x, punp_input[0], '.', color='.75', label='input' if with_label else None)
-                plt.plot(x, punp_input[0], '-', color='.75', linewidth=.5)
+                plt.plot(x, punp_input[0], '-', color='.75', linewidth=lw)
 
             for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
-                plt.plot(x, obs, '.', color=color, label="{} nM".format(conc) if with_label else None)
-                plt.plot(x, obs, '-', color=color, linewidth=.5)
+                plt.plot(x, obs, sym, color=color, label="{} nM".format(conc) if with_label else None)
+                plt.plot(x, obs, '-', color=color, linewidth=lw)
 
-        colors = sns.color_palette("husl", 8)
-        
-        
         plt.figure(figsize=(10,5))
         # fig1, axes = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
 
@@ -1002,7 +1022,7 @@ class FootprintCalibrationReport(object):
 
         plt.subplot(222)
         plot_exp(with_input=True)
-        for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, colors)):
+        for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, naive_colors)):
             lbl = "no footprint: err=100%"
             plt.plot(x, naive, '-', color=color, label=lbl if i == 0 else None)
         finalize_plot(fp=False)
@@ -1012,7 +1032,7 @@ class FootprintCalibrationReport(object):
         plot_exp()
         print "punp_a_one", punp_a_one
         if not punp_a_one is None:
-            for i, (one, color) in enumerate(zip(punp_a_one, colors)):
+            for i, (one, color) in enumerate(zip(punp_a_one, vienna_colors)):
                 lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
                 plt.plot(x, one, '-', color=color, label=lbl if i == 0 else None)
         finalize_plot()
@@ -1020,7 +1040,7 @@ class FootprintCalibrationReport(object):
         plt.subplot(224)
         plot_exp()
 
-        for i, (pred, color) in enumerate(zip(punp_expect, colors)):
+        for i, (pred, color) in enumerate(zip(punp_expect, fit_colors)):
             lbl = 'optimized (a={res.x[0]:.2f}):  err={rerr:.1f}%'.format(res=res, rerr = 100. * res.fun/err0)
             plt.plot(x, pred, '-', color=color, label=lbl if i == 0 else None)
         finalize_plot()
@@ -1036,10 +1056,10 @@ class FootprintCalibrationReport(object):
 
         plt.figure()
         for i, (obs, naive, one, pred) in enumerate(izip_longest(punp_input[1:], punp_naive, punp_a_one, punp_expect, fillvalue=None)):
-            plt.plot(obs, naive, 'x', color=colors[i], label="no structure footprint" if i==0 else None)
+            plt.plot(obs, naive, 's', color=naive_colors[i], label="no structure" if i==0 else None, alpha=.75)
             if not one is None:
-                plt.plot(obs, one, '^', color=colors[i], label="RNAfold (a=1) footprint" if i==0 else None)
-            plt.plot(obs, pred, '.', color=colors[i], label="optimized footprint" if i==0 else None)
+                plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==0 else None, alpha=.75)
+            plt.plot(obs, pred, 'o', color=fit_colors[i], label="optimized" if i==0 else None, alpha=.75)
         
         ymin, ymax = plt.gca().get_ylim()
         plt.legend(loc='upper left', frameon=False)
@@ -1052,13 +1072,15 @@ class FootprintCalibrationReport(object):
             self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
             self.plot_profile(motif, params.acc_k, params.acc_shift)
         
-    def get_matrix_data(self, motif, k_range=(3, 11), s_range=(-5, 10)):
+    def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
         kmin, kmax = k_range
         smin, smax = s_range
 
         scales = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
         errors = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
 
+        k_found = set()
+        s_found = set()
         err0 = self.baseline_error(motif)
         for k in range(kmin, kmax + 1):
             for s in range(smin, smax + 1):
@@ -1066,6 +1088,8 @@ class FootprintCalibrationReport(object):
                 if key in self.shelve:
                     err, k, s, a, A0 = self.shelve[key]
                     # print k,s, '->', err/err0, a
+                    k_found.add(k)
+                    s_found.add(s)
                 else:
                     err = np.nan
                     a = np.nan
@@ -1073,18 +1097,24 @@ class FootprintCalibrationReport(object):
                 scales[s - smin, k - kmin] = a
                 errors[s - smin, k - kmin] = err
         
-        return scales, errors/err0, k_range, s_range
+        ks = min(k_found) - kmin
+        ke = kmax - max(k_found)
+        ss = min(s_found) - smin
+        se = smax - max(s_found)
+
+        return scales[ss:-se, ks:-ke], (errors/err0)[ss:-se, ks:-ke], (min(k_found), max(k_found)), (min(s_found), max(s_found))
 
     def matrix_plots(self, motif, highlight=None):
         self.logger.debug("matrix plot")
         import seaborn as sns
         import matplotlib.pyplot as plt
-
+        
         mat_a, mat_err, k_range, s_range = self.get_matrix_data(motif)
         kmin, kmax = k_range
         smin, smax = s_range
 
         print "s_range", s_range
+        print "k_range", k_range
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 
@@ -1103,7 +1133,7 @@ class FootprintCalibrationReport(object):
             )
             return rect
 
-        fig = plt.figure(figsize=(5.5,6))
+        fig = plt.figure(figsize=(4,4))
         if highlight:
             k, s = highlight
         # fig.suptitle("accessibility footprint analysis")
@@ -1112,7 +1142,7 @@ class FootprintCalibrationReport(object):
         if highlight:
             plt.gca().add_patch(make_rect(*highlight))
 
-        plt.colorbar(label=r'fold error reduction', fraction=.05)
+        sane_colorbar(plt.colorbar(label=r'fold error reduction', fraction=.05, shrink=.75, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
 
@@ -1125,12 +1155,12 @@ class FootprintCalibrationReport(object):
         if highlight:
             plt.gca().add_patch(make_rect(*highlight))
 
-        plt.colorbar(label=r'accessibility scaling', fraction=.05)
+        sane_colorbar(plt.colorbar(label=r'accessibility scaling', fraction=.05, shrink=.5, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
 
-        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
-        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
+        plt.xticks(np.arange(n_shift), [str(s) for s in range(smin, smax + 1)])
+        plt.yticks(np.arange(n_k), [str(k) for k in range(kmin, kmax + 1)])
         # plt.ylim(kmin, kmax + 1)
 
         plt.tight_layout()
