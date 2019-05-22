@@ -82,7 +82,7 @@ def parse_cmdline():
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
     parser.add_option("", "--est-errors", dest="est_errors", default=False, action="store_true", help="perform PSAM error estimation")
 
-    parser.add_option("", "--plot", dest="plot", default="", help="(re-) generate plots. Comma-separated items from descent,scatter,fp,lit,logos or 'all' ")
+    parser.add_option("", "--plot", dest="plot", default="", help="(re-) generate plots. Comma-separated items from seed,descent,scatter,fp,lit,logos or 'all' ")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
     # parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
@@ -509,6 +509,8 @@ class Run(object):
         params = self.params.copy(sort=True)
         for par in params:
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
+            cal.compute_kmer_acc_profiles()
+
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
             if res:
@@ -527,14 +529,17 @@ class Run(object):
 
     def make_plots(self, plots):
         if plots == ["all",] : 
-            plots = ['descent', 'scatter', 'fp', 'lit', 'logos']
+            plots = ['seed', 'descent', 'scatter', 'fp', 'lit', 'logos']
 
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
+        srep = report.SeedReport(path=plot_path, rbns=self.rbns)
+
         fprep = report.FootprintCalibrationReport(
             os.path.join(self.run_path, 'footprint/calibrated.tsv'),
-            out_path=plot_path
+            out_path=plot_path,
+            rbns=self.rbns
         )
 
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
@@ -542,12 +547,14 @@ class Run(object):
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
 
         funcs = {
+            'seed' : srep.plot_R_dist,
             'descent' : grep.plot_report,
             'scatter' : grep.plot_scatter,
             'fp' : fprep.report,
             'lit' : grep.plot_literature,
             'logos' : grep.plot_logos,
             'aff' : grep.plot_affinity_dists, # EXPERIMENTAL
+            'afit' : grep.plot_param_error_scatter, # EXPERIMENTAL
         }
 
         for plt in plots:
