@@ -38,7 +38,7 @@ class RBNSOpenen(CachedBase):
         self.k = k
         self.discretized = ("discretized" in self.fname)
         self.T = rbns_reads.temp
-        self.RT = (self.T + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
+        self.RT = rbns_reads.RT
         self.acc_scale = acc_scale
         self.logger = logging.getLogger('fold.RBNSOpenen')
         self.missing_data = False
