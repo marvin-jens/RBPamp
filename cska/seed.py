@@ -85,14 +85,18 @@ class Alignment(object):
                     col_scores.append(S)
                     score = score * S if multiply else score + S
                 
+                # score += score/n_cols * .1 * abs(ofs)
+                if normalize:
+                    score /= self.max_score
+                
+                # score += .05 * abs(ofs)
+
                 scores.append(score)
                 if debug:
                     print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
 
             x = np.array(scores).argmax()
             S = scores[x]
-            if normalize:
-                S /= self.max_score
 
             return ofs_range[x], S
 
@@ -492,6 +496,8 @@ class SeedRefinement(object):
         self.rbns = rbns
         self.logger = logging.getLogger("seed.SeedRefinement({0})".format(km))
         self.km = km
+        import shelve
+        self.shelf = shelve.open(os.path.join(cska.ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
         # self.analysis = DependentKmerAnalysis(self.rbns, km=km)
         # self.analysis.build_matrices()
         # self.psam_lin = self.analysis.linear_PSAM_seed(keep_weight=keep_weight, n_max=max_linear_k)
@@ -513,7 +519,7 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
-    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=5, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -524,18 +530,26 @@ class SeedRefinement(object):
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
 
+        self.shelf['R0'] = R
+        self.shelf['Rns'] = Rns
+
         R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+        self.shelf['R'] = R
 
         I = R.argsort()[::-1]
+        self.shelf['I'] = I
         R_sort = R[I]
         z = (R_sort - R_sort.mean())/R_sort.std()
+        self.shelf['z'] = z
         # print R_sort[:10]
         # print "z-scores", z.min(), z.max(), z.mean()
         i_cut = (z < z_cut).argmax()
+        self.shelf['i_cut'] = i_cut
+        self.shelf['i_ns'] = (R_sort > Rns).argmax() - 1
         # print i_cut
         R_cut = max(1, R[I[i_cut]])
         # print i_cut, "R_values above z-cut", R_cut
-        
+
         r0 = R[I[0]]
         # print "maxR", r0
         n = 0
@@ -552,6 +566,7 @@ class SeedRefinement(object):
             
             kmer_set.append( (kmer, r) )
         
+        self.shelf['kmer_set'] = kmer_set
         n_enriched = len(kmer_set)
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
@@ -573,8 +588,8 @@ class SeedRefinement(object):
         aln.blend(kmer, 0, r, normalize=False)
         alns.append(aln)
         self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
-        while kmer_set:
-            # align all remaining enriched kmers to all motifs
+
+        def update_scores(alns, kmer_set):
             scores = []
             ofs = []
             # print "re-aligning"
@@ -585,45 +600,81 @@ class SeedRefinement(object):
 
             scores = np.array(scores)
             ofs = np.array(ofs)
+            
+            return scores, ofs
 
-            if (scores < thresh).all() and len(alns) < m_max and len(alns[0].seqs) >= n_min:
-                kmer, r = kmer_set[0]
-                current_motifs = get_motifs(alns)
-                self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
-                best_i = scores.max(axis=1).argmax()
-                self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
-                # print "starting NEW MOTIF", kmer, r, scores[0]
-                kmer_set.pop(0)
-                aln = Alignment()
-                aln.blend(kmer, 0, r, normalize=False)
-                alns.append(aln)
+        def start_new(alns, kmer_set):
+            kmer, r = kmer_set[0]
+            current_motifs = get_motifs(alns)
+            self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+            best_i = scores.max(axis=1).argmax()
+            self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
+            # print "starting NEW MOTIF", kmer, r, scores[0]
+            kmer_set.pop(0)
+            aln = Alignment()
+            aln.blend(kmer, 0, r, normalize=False)
+            alns.append(aln)
+
+            return alns, kmer_set
+
+        def blend_best(alns, kmer_set, scores, ofs):
+            # find best aligning kmer and add to best matching motif
+            mer_scores = scores.max(axis=1)
+            best_i = mer_scores.argmax()
+            # print "best matching kmer is", kmer_set[best_i]
+
+            kmer, r = kmer_set.pop(best_i)
+            j = scores[best_i].argmax()
+            s = scores[best_i, j]
+            o = ofs[best_i, j]
+
+            alns[j].blend(kmer, int(o), r, normalize=False)
+            # cons = alns[j].to_PSAM(pseudo=0).consensus
+            # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+            # if cons == 'AUAGCAU':
+            #     print alns[j].matrix
+            #     print alns[j].align(kmer, normalize=True, debug=True)
+            return alns, kmer_set
+
+        while kmer_set:
+            # align all remaining enriched kmers to all motifs
+            scores, ofs = update_scores(alns, kmer_set)
+            if (scores < thresh).all() and len(alns) < m_max:
+                start_new(alns, kmer_set)
             else:
-                # find best aligning kmer and add to best matching motif
-                mer_scores = scores.max(axis=1)
-                best_i = mer_scores.argmax()
-                # print "best matching kmer is", kmer_set[best_i]
+                blend_best(alns, kmer_set, scores, ofs)
 
-                kmer, r = kmer_set.pop(best_i)
-                j = scores[best_i].argmax()
-                s = scores[best_i, j]
-                o = ofs[best_i, j]
+        keep = []
+        drop = []
+        orphan_set = []
+        for aln in alns:
+            if len(aln.seqs) >= n_min:
+                keep.append(aln)
+            else:
+                drop.append(aln)
+                ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
+                orphan_set.extend(ks)
 
-                alns[j].blend(kmer, int(o), r, normalize=False)
-                cons = alns[j].to_PSAM(pseudo=0).consensus
-                # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
-                # if cons == 'AUAGCAU':
-                #     print alns[j].matrix
-                #     print alns[j].align(kmer, normalize=True, debug=True)
-    
+        orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+        print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
+        print "re-distributing kmers of weakest motfs", orphan_set
+        while orphan_set:
+            # align all remaining enriched kmers to all motifs
+            scores, ofs = update_scores(keep, orphan_set)
+            blend_best(keep, orphan_set, scores, ofs)
 
-        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) >= n_min]
+        psams = [make_psam(aln, n_max=n_max) for aln in keep]
+        maxlen = max([psam.n for psam in psams])
         motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
+        self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
         w = np.array([p.n for p in psams])
         wm = w.max()
 
         # second pass -> pad motifs to equal size
         [p.pad_to_size(wm) for p in psams]
+        self.shelf['width'] = wm
+        self.shelf['n_psam'] = len(psams)
+        self.shelf['psams'] = psams
         return psams
 
 
@@ -634,7 +685,7 @@ class SeedRefinement(object):
         for i, psam in enumerate(self.motifs_from_R(k=k_seed, m_max=max_motifs, thresh=thresh, **kwargs)):
             params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
 
-        param_set = ModelSetParams(params)
+        param_set = ModelSetParams(params, sort=True)
         self.store_logos(param_set)
         return param_set
 
