@@ -30,8 +30,13 @@ import numpy as np
 import pandas
 from svgpath2mpl import parse_path
 
-_pal = sns.color_palette('colorblind')
-default_colors = {'A': _pal[1], 'C': _pal[0], 'G': _pal[4], 'T': _pal[2], 'U': _pal[2]}
+# _pal = sns.color_palette('bright')
+# default_colors = {'A': _pal[1], 'C': _pal[0], 'G': _pal[4], 'T': _pal[2], 'U': _pal[2]}
+
+# _pal = sns.xkcd_palette(['teal', 'cobalt blue', 'amber', 'scarlet'])
+_pal = sns.xkcd_palette(['moss', 'cobalt blue', 'amber', 'scarlet'])
+default_colors = {'A': _pal[0], 'C': _pal[1], 'G': _pal[2], 'T': _pal[3], 'U': _pal[3]}
+
 default_glyphs = {}
 default_glyphs['A'] = """\
 M 235,-357
@@ -285,7 +290,7 @@ def plot_seqlogo(ax, pfm, info=False, charwidth=1.0, **kwargs):
         ax.yaxis.set_major_locator(ticker.FixedLocator([0., 1., 2.]))
 
 
-def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="title", **kwargs):
+def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="", **kwargs):
     matrix = np.array(matrix)   # work on local copy!
     d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75
     matrix *= d[:, np.newaxis]
@@ -304,7 +309,8 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
                 ax.add_artist(patch)
 
     ax.set_xlim([0, seqlen * charwidth])
-    ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
+    # ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
+    ax.set_ylim(0, 1)
     
     # major ticks
     ax.tick_params(which='major', direction='out')
@@ -317,12 +323,14 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
     ax.xaxis.set_minor_locator(ticker.FixedLocator(np.arange(0, seqlen) + 0.5))
     ax.xaxis.set_minor_formatter(ticker.FixedFormatter(np.arange(1, seqlen+1)))
     
-    ax.set_aspect(1)
+    ax.set_aspect(3)
     ax.set_xlabel('position [nt]')
     ax.set_ylabel('preference')
 
     if title:
         ax.set_title(title)
+    
+    return ax
 
 ctcf_str = """\
 P0 A C G T
