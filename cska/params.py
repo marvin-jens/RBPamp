@@ -221,7 +221,7 @@ class ModelSetParams(object):
         from cska.affinitylogo import plot_afflogo, nice_conc
 
         n = len(self.param_set)
-        fig = plt.figure(figsize=(6, n*1.5))
+        fig = plt.figure(figsize=(3, n*.75))
         if title:
             plt.suptitle(title)
 
@@ -232,11 +232,34 @@ class ModelSetParams(object):
             else:
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
-            plot_afflogo(
-                fig.add_subplot(n*100 + 10 + (i+1)), 
+            ax = plot_afflogo(
+                fig.add_subplot(n*100 + 20 + (2*i+1)), 
                 params.as_PSAM().psam, 
-                title = kdstr
+                # title = kdstr
             )
+            # print ax
+            if i < n-1:
+                ax.set_xlabel('')
+                ax.tick_params(
+                    axis='x',          # changes apply to the x-axis
+                    which='both',      # both major and minor ticks are affected
+                    bottom=False,      # ticks along the bottom edge are off
+                    top=False,         # ticks along the top edge are off
+                    labelbottom=False
+                )
+
+            ax = fig.add_subplot(n*100 + 20 + (2*i+2))
+            ax.text(0, 0.5, kdstr)
+            ax.tick_params(
+                axis='both',          # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom=False,      # ticks along the bottom edge are off
+                top=False,         # ticks along the top edge are off
+                left=False,
+                labelbottom=False,
+                labelleft=False,
+            )
+
 
         plt.tight_layout()
         plt.savefig(fname)
