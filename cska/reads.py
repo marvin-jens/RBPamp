@@ -35,6 +35,7 @@ class RBNSReads(CachedBase):
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
         self.temp = temp
+        self.RT = (self.temp + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.adap5 = adap5
         self.adap3 = adap3
         self.l5 = len(adap5)
@@ -394,6 +395,20 @@ class RBNSReads(CachedBase):
         counts, openen = cyska.kmer_acc_counts(self, k)
         return counts, openen.acc_lookup
         
+    def get_kmer_raw_unfolding_energy(self, kmer):
+        """
+        Extract accessibilities for all instances of a specific kmer.
+        """
+        k = len(kmer)
+        kmer_i = cyska.seq_to_index(kmer)
+        im = self.get_index_matrix(k)
+        openen = self.acc_storage.get_raw(k)
+        oem = openen.oem # open-energy matrix
+        ofs = openen.ofs - k + 1
+        data = cyska.collect_kmer_acc(im, oem, kmer_i, ofs)
+
+        return data
+
     @property
     @cached
     @pickled
@@ -699,7 +714,6 @@ if __name__ == "__main__":
     np.random.seed(seed)
     cyska.rand_seed(seed)
 
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=10000, n_samples=10)
     sub = reads.get_new_subsample()
     # print sub.get_padded_seqm(1)
     assert (reads.get_padded_seqm(1)[reads.sub_sampler.ind] == sub.get_padded_seqm(1)).all()

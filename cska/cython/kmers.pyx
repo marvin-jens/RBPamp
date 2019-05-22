@@ -464,6 +464,49 @@ def kmer_counts_acc_weighted(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_ma
     return weights.base
 
 
+def collect_kmer_acc(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_matrix, UINT64_t kmer_i, int ofs):
+    cdef UINT64_t N = index_matrix.base.shape[0]
+    cdef UINT64_t l = index_matrix.base.shape[1]
+    
+    # result will be stored here
+    cdef FLOAT32_t [:] accs = np.empty(N, dtype=np.float32)
+    cdef UINT64_t n_max = N - 1
+    cdef UINT64_t n_acc = 0
+
+    # helper variables to tell cython the types
+    cdef int thread_num
+    cdef FLOAT32_t a=0
+    cdef UINT64_t i=0, j=0
+    cdef UINT32_t index=0
+
+    # with nogil:
+    for j in range(N):
+        for i in range(l):
+            if index_matrix[j, i] == kmer_i:
+                accs[n_acc] = acc_matrix[j, i + ofs]
+                if n_acc < n_max:
+                    # WARNING! Upon overflow we are overwriting already seen data
+                    n_acc += 1
+
+    return accs.base[:n_acc]
+
+
+    # with nogil, parallel():
+    #     for j in prange(N, schedule='static'):
+    #         thread_num = openmp.omp_get_thread_num()
+    #         # iterate over all k-mers
+    #         for i in range(0, l):
+    #             # assigned variables are thread-local
+    #             index = index_matrix[j, i]
+    #             a = acc_matrix[j, i + openen_ofs]
+    #             weights[index] += a
+            
+    # return weights.base
+
+
+
+
+
 def index_matrix_kmer_counts(UINT32_t [:,:] index_matrix, UINT64_t k, int n_threads = 8):
     assert k <= 16 # must fit into UINT32 kmer-indices!
     # largest index in array of DNA/RNA k-mer counts
