@@ -245,6 +245,10 @@ class RBNSAnalysis(CachedBase):
     def cache_key(self):
         return ".".join([r.cache_key for r in self.reads])
 
+    @property
+    def sample_labels(self):
+        return ["input"] + ["{} nM".format(conc) for conc in self.rbp_conc]
+
     def flush(self, all=False):
         for comp in self.comparisons:
             comp.cache_flush()
@@ -355,25 +359,16 @@ class RBNSAnalysis(CachedBase):
         #return gmean(all_ska_weights, axis=0).argsort()[::-1]
         return np.median(all_R, axis=0).argsort()[::-1]
     
-    def keep_best_samples(self, n=3, k=7, top=5):
-        if n == 0:
-            return
-        
-        n = min(n, len(self.reads) - 1)
-        # I = self.get_optimal_kmer_ranking(k)
-        # R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
-        # sample_ranks = R.argsort()[::-1]
-        # cut_off = R[sample_ranks][n-1]
-        # self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
-        # reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
-        # self.reads = []
+    def select_diagnostic_kmers(self, k=7, n=10):
         R = self.R_value_matrix(k)[0]
+        # print "R-shape", R.shape
         Rm = R.max(axis=1)
+        
         from cyska import index_to_seq
         Rm_i = sorted(set(R.argmax(axis=1)))
 
         n_choices = len(R)
-        print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
+        # print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
         min_R = []
         enr_R = []
         for i in Rm_i:
@@ -386,14 +381,55 @@ class RBNSAnalysis(CachedBase):
         # print "minimal enrichment observed for these kmers", min_R
         # print "number of samples that showed any enrichment for these kmers", enr_R
         kmer_score = min_R * enr_R
-        print "diagnostic score for kmers", kmer_score
-        kmer_i = Rm_i[kmer_score.argmax()]
-        print "most diagnostic kmer", index_to_seq(kmer_i, k)
+        # print kmer_score.shape, kmer_score
+        I = kmer_score.argsort()[::-1]
+        best = []
+        for i in I:
+            kmer_i = Rm_i[i]
+            best.append( (index_to_seq(kmer_i, k), kmer_i, R[:, kmer_i]) )
+
+        return best
+
+    def keep_best_samples(self, n=3, k=7, top=5):
+        if n == 0:
+            return
+        
+        n = min(n, len(self.reads) - 1)
+        # I = self.get_optimal_kmer_ranking(k)
+        # R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
+        # sample_ranks = R.argsort()[::-1]
+        # cut_off = R[sample_ranks][n-1]
+        # self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
+        # reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
+        # self.reads = []
+        # R = self.R_value_matrix(k)[0]
+        # Rm = R.max(axis=1)
+        # from cyska import index_to_seq
+        # Rm_i = sorted(set(R.argmax(axis=1)))
+
+        # n_choices = len(R)
+        # print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
+        # min_R = []
+        # enr_R = []
+        # for i in Rm_i:
+        #     # print "checking kmer", index_to_seq(i, k), R[:, i]
+        #     min_R.append(R[:, i].min())
+        #     enr_R.append((R[:, i] > 1).sum()/float(n_choices))
+        
+        # enr_R = np.array(enr_R)
+        # min_R = np.array(min_R)
+        # # print "minimal enrichment observed for these kmers", min_R
+        # # print "number of samples that showed any enrichment for these kmers", enr_R
+        # kmer_score = min_R * enr_R
+        # print "diagnostic score for kmers", kmer_score
+        # kmer_i = Rm_i[kmer_score.argmax()]
+        # print "most diagnostic kmer", index_to_seq(kmer_i, k)
         # print "sample enrichments", R[:, kmer_i]
-        ranks = np.array([(r.argsort()[::-1] == kmer_i).argmax() for r in R])
+        # ranks = np.array([(r.argsort()[::-1] == kmer_i).argmax() for r in R])
         # print "ranks", ranks
-        sample_score = R[:, kmer_i]
-        # sample_score = R[:, kmer_i] / (ranks + 1)
+        kmer, kmer_i, sample_score = self.select_diagnostic_kmers(k=k, n=1)[0]
+        # sample_score = R[:, kmer_i]
+        # # sample_score = R[:, kmer_i] / (ranks + 1)
         print "sample score", sample_score
         sample_i = sample_score.argsort()[::-1]
         chosen = sorted(sample_i[:n])
