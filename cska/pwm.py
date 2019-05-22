@@ -266,6 +266,22 @@ class PSAM(object):
     def consensus_ul(self):
         return "".join([project_column(col) for col in self.psam])
 
+    def highest_scoring_kmers(self, k=7, n_max=10):
+        """ slide kmer over matrix and classify best, gapless alignment"""
+        from cska.seed import Alignment
+        from cska.cyska import yield_kmers
+
+        A = Alignment()
+        A.matrix = self.psam
+        
+        matches = []
+        for kmer in yield_kmers(k):
+            ofs, score = A.align(kmer, multiply=True)
+            matches.append( (score, kmer) )
+        
+        return sorted(matches, reverse=True)[:n_max]
+
+
     def align(self, kmer):
         """ slide kmer over matrix and classify best, gapless alignment"""
         from cska.seed import Alignment
@@ -413,6 +429,11 @@ if __name__ == "__main__":
     # "ttgggc is 2-shift of GTGCAT"
     # print is_shifted('gggcat')
     
+    import cska.params
+    psam = cska.params.ModelSetParams.load('/scratch2/RBNS/RBFOX3/cska/std/opt_nostruct/parameters.tsv', 1)[0].as_PSAM()
+    for score, kmer in psam.highest_scoring_kmers():
+        print kmer, score
+    sys.exit(0)
     #psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'AGCAUGU', 'CGCAUGU', 'GGCAUGU'], [1., 1., 1., 1., 1.])
     psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU',], [1., .1, ])
     psam = PSAM.from_kmer_variants(['AGCAUGU', 'CGCAUGU', 'GGCAUGU', 'UGCAUGU'], [.99, .8, .8, .8,])
