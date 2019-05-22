@@ -368,6 +368,48 @@ class FootprintCalibration(CachedBase):
 
         return punp_profiles, naive_profiles
 
+    def compute_kmer_acc_profiles(self):
+        
+        motif = self.consensus_ul
+        psam = self.params.as_PSAM()
+        highest_affinity = psam.highest_scoring_kmers()
+        self.shelve['{}_high_affinity_kmers'.format(motif)] = highest_affinity
+        
+        for score, kmer in highest_affinity:
+            all_data = [reads.get_kmer_raw_unfolding_energy(kmer) for reads in self.rbns.reads]
+            self.shelve['{}_acc_data'.format(kmer)] = all_data
+
+        # import seaborn as sns
+        # import matplotlib.pyplot as plt
+        # labels=["input", "5 nM", "20 nM", "80 nM", "320 nM"]
+        # plt.figure(figsize=(3, 3))
+        # bins = np.linspace(0, 15, num=30)
+        # all_data = [data, data5, data2, data3, data4]
+        # counts = plt.hist(all_data, bins=bins, histtype='step', label=labels)[0]
+        # total = np.array([len(d) for d in all_data])
+        # R_avg = total[1:] / total[0]
+        # sns.despine()
+        # plt.tight_layout()
+        # plt.savefig("tt.pdf")
+
+        # plt.figure(figsize=(3,3))
+        # print counts
+        # R = counts[1:] / counts[0]
+        # print "R-value as function of bin", R
+        # acc = np.exp(- bins/reads.RT)
+        # am = (acc[1:] + acc[:-1])/2.
+        # for r, ra, lbl in zip(R, R_avg, labels[1:]):
+        #     patch = plt.semilogx(am, r, label=lbl)
+        #     plt.axhline(ra, color=patch[0].get_color(), linewidth=1, linestyle='dashed')
+
+
+        # plt.legend(loc='best')
+        # plt.xlabel("UGCAUGU accessibility")
+        # plt.ylabel("UGCAUGU enrichment over input")
+        # sns.despine()
+        # plt.tight_layout()
+        # plt.savefig("R_acc.pdf")
+
     def get_input_openen_cached(self, k):
         if not k in self._openen_cache:
             self.logger.debug("get_input_openen_cached({}) not found".format(k))
