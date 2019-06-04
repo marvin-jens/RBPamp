@@ -25,9 +25,29 @@ font = {
     'weight' : 'normal',
     'size'   : 8
 }	
+matplotlib.rc('axes.spines',
+    top=False,
+    right=False,
+    left=True,
+    bottom=True
+)
+matplotlib.rc('boxplot.flierprops', marker='.')
 matplotlib.rc('font', **font)
 matplotlib.rc('lines', markersize=3)
-matplotlib.rc('legend', handletextpad=.25)
+matplotlib.rc('figure', dpi=300)
+matplotlib.rc('figure', figsize=(3,3))
+matplotlib.rc('legend', 
+    handlelength=.5,
+    labelspacing=.3,
+    handletextpad=.4,
+    frameon=True,
+    fancybox=False,
+    framealpha=1,
+    borderpad=.3,
+    borderaxespad=.5,
+    columnspacing=.5,
+    edgecolor='k'
+)
 
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
