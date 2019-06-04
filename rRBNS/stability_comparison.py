@@ -99,13 +99,18 @@ er, ur = np.log2(np.array([plot_param_error_scatter(rbp, 0) for rbp in rbps]).T)
 print "mean error log ratio", er.mean()
 print "mean update log ratio", ur.mean()
 
-from scipy.stats import ttest_1samp
+from scipy.stats import ttest_1samp, wilcoxon
 print "t-test error log ratio is 0", ttest_1samp(er, 0)
 print "t-test update log ratio is 0", ttest_1samp(ur, 0)
 
-plt.figure(figsize=(3,3))
+print "Wilcoxon test error log ratio is symmetric about 0", wilcoxon(er)
+print "Wilcoxon test update log ratio is symmetric about 0", wilcoxon(ur)
+
+
+plt.figure(figsize=(1.5,3))
 bplot = plt.boxplot([er, ur],
     notch=False,  # notch shape
+    widths=.5,
     vert=True,  # vertical box alignment
     patch_artist=True,  # fill with color
     labels=["model\nerror", "parameter\nchanges"],  # will be used to label x-ticks
@@ -120,7 +125,14 @@ plt.axhline(0, color='k', linewidth=.5, linestyle='dashed')
 for patch, color in zip(bplot['boxes'], ['lightgray', 'gray']):
     patch.set_facecolor(color)
 
-sns.despine()
+def lstr(x, base=2):
+    if x >= 0:
+        return "{}".format(int(base**x))
+    else:
+        return "1/{}".format(int(base**(-x)))
+
+yt = plt.yticks()[0][1:-1]
+plt.yticks(yt, [lstr(y) for y in yt])
 plt.tight_layout()
 plt.savefig('stability.pdf')
 plt.close()
