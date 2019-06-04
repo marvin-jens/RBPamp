@@ -16,12 +16,54 @@ sns_style = {
     # 'xtick.major.linewidth' : .5, # Whut is the right one? Seaborn docs, where are u?
     'legend.frameon' : False,
     'legend.fancybox' : False,
+    'font.size' : 8,
 }
+
+import matplotlib
+font = {
+    'family' : 'Arial',
+    'weight' : 'normal',
+    'size'   : 8
+}	
+matplotlib.rc('axes.spines',
+    top=False,
+    right=False,
+    left=True,
+    bottom=True
+)
+matplotlib.rc('boxplot.flierprops', marker='.')
+matplotlib.rc('font', **font)
+matplotlib.rc('lines', markersize=3)
+matplotlib.rc('figure', dpi=300)
+matplotlib.rc('figure', figsize=(3,3))
+matplotlib.rc('legend', 
+    handlelength=.5,
+    labelspacing=.3,
+    handletextpad=.4,
+    frameon=True,
+    fancybox=False,
+    framealpha=1,
+    borderpad=.3,
+    borderaxespad=.5,
+    columnspacing=.5,
+    edgecolor='k'
+)
 
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.stats import spearmanr, pearsonr
 import cska
+
+def sane_colorbar(cb, nbins=4):
+    from matplotlib import ticker
+
+    # tick_locator = ticker.MaxNLocator(nbins=nbins)
+    # cb.locator = ticker.LinearLocator(numticks=nbins)
+    cb.locator = ticker.MaxNLocator(nbins=nbins, min_n_ticks=3, prune='both')
+    # cb.ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=nbins))
+    cb.update_ticks()
+    return cb
 
 def pval_str(p):
     if p > 0:
@@ -115,6 +157,8 @@ def density_scatter_plot(
     dens_thresh=1000,
     x_ref=True,
     tick_exp=0,
+    lim_max=None,
+    lim_min=None,
     ):
     from scipy.stats import kde
     import seaborn as sns
@@ -122,11 +166,11 @@ def density_scatter_plot(
     t0 = time.time()
     N = len(x)
     
-    xmin = x.min()
-    xmax = x.max()
-    ymin = y.min()
-    ymax = y.max()
-
+    xmin = x.min() if lim_min is None else lim_min
+    xmax = x.max() if lim_max is None else lim_max
+    ymin = y.min() if lim_min is None else lim_min
+    ymax = y.max() if lim_max is None else lim_max
+    
     if N > dens_thresh and x_ref:
         # use experiment as reference
         m = xmin  
@@ -159,7 +203,7 @@ def density_scatter_plot(
             # pca().set_facecolor('w')
             pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
             pm.set_rasterized(True)
-            cb = pp.colorbar(pm, shrink=.3) #orientation='horizontal', fraction=.05)
+            cb = sane_colorbar(pp.colorbar(pm, shrink=.3, aspect=20)) #orientation='horizontal', fraction=.05)
             cb.set_label('density')
             zt = np.array([z_min, (z_max + z_min)/2., z_max])
             ztr = np.round(zt, 1)
@@ -236,8 +280,9 @@ def density_scatter_plot(
             xlocs = xlocs[1:-1]
             pp.xticks(xlocs, [roundmax(tick_exp**l, 1) for l in xlocs])
 
-            ylocs, labels = pp.yticks()
-            ylocs = ylocs[1:-1]
+            # ylocs, labels = pp.yticks()
+            # ylocs = ylocs[1:-1]
+            ylocs = xlocs
             pp.yticks(ylocs, [roundmax(tick_exp**l, 1) for l in ylocs])
 
         t4 = time.time()
@@ -250,7 +295,9 @@ def density_scatter_plot(
         
         sns.despine(trim=True)
 
-        
+
+
+
 class TrackedValues(object):
     def __init__(self):
         self.d0 = None
@@ -299,556 +346,6 @@ class TrackedValues(object):
         return self.times, data
         
 
-# def p_bound_plot(state, fname = "pbound.pdf", bins=1000):
-#     pp.figure()
-    
-#     lZ = np.log(state.Z1)
-#     counts, bins = np.histogram(lZ, bins=bins)
-#     bins = np.exp(bins)
-#     # midpoint integration
-#     aff = (bins[1:] + bins[:-1])/2.
-            
-#     N = counts.sum()
-#     expected = []
-#     state.betas = [0.0008, 0.003,0.02,0.1,0.2]
-#     for conc, beta in zip(state.rbp_free, state.betas):
-#         Z = conc * aff
-#         pb = Z/(Z + 1.)
-#         pp.semilogx(aff, pb, label="{0:.2f} nM free RBP".format(conc) )
-        
-#         x = counts * (pb + beta)
-#         print x.min(), x.max(), np.median(x)
-#         expected.append( N * x/x.sum() )
-
-#         print conc, beta, "pb", pb.min(), pb.max(), np.median(pb)
-
-
-#     pp.axhline(1, color="k")
-#     pp.axhline(.5, color="gray", linestyle='dashed')
-#     pp.legend(loc='upper center', faceolor='white', frameon=False)
-#     pp.xlabel("total read affinity [1/nM]")
-#     pp.ylabel(r"$\psi$")
-#     pp.savefig(fname)
-#     pp.close()
-
-#     pp.figure()
-    
-#     pp.loglog(aff, counts, color="black", label="random RNA pool")
-#     for conc, x in zip(state.rbp_free, expected):
-#         pp.loglog(aff, np.clip(x, a_min=1, a_max=None) , label="predicted @ {0:.2f}nM free RBP".format(conc))
-
-#     pp.legend(loc = 'upper left')
-#     pp.xlabel("total read affinity [1/nM]")
-#     pp.ylabel("count")
-#     pp.savefig("aff_dist.pdf")
-#     pp.close()
-    
-#     # cska -a --run-path=blup --n-max=1000000 --metrics="" --model-report-ignore-trigger="init" --seed-analysis --model
-
-# class Sensor(object):
-#     def __init__(self, rep, name, plot_interval=100, data_interval=1, get_func=lambda this : 0, setup_func = None, labels=[], multipage=False, snapshot=True, xlabel="optimization step", ylabel="data", fname="{self.name}.pdf", mp_fname="mp_{self.name}.pdf", plot_func=pp.plot, mode='temporal', description="", scatter_func = density_scatter_plot):
-#         self.name = name.replace(' ','_')
-#         self.description = description
-#         self.get_func = get_func
-#         self.plot_func = plot_func
-#         self.setup_func = setup_func
-#         self.mode = mode
-#         self.scatter_func = scatter_func
-#         self.data_interval = data_interval
-#         self.plot_interval = plot_interval
-#         self.rep = rep
-#         self.opt = rep.opt
-        
-#         self.logger = logging.getLogger('report.Sensor.{name}'.format(name=name))
-#         self.t_data = -1
-#         self.t_plot = -1
-#         self.data = TrackedValues()
-        
-#         self.multipage = multipage
-#         self.snapshot = snapshot
-#         self.xlabel = xlabel
-#         self.ylabel = ylabel
-#         self.labels = labels
-#         self.snap_path = os.path.join(self.rep.path, fname)
-#         self.mp_path = os.path.join(self.rep.path, mp_fname.format(**locals()))
-
-#         from matplotlib.backends.backend_pdf import PdfPages
-#         if self.multipage:
-#             self.pdf = PdfPages(self.mp_path)
-
-#     def tick(self, t):
-#         if self.mode == 'temporal':
-#             if t - self.t_data >= self.data_interval:
-#                 self.record_data(t)
-        
-#         if t - self.t_plot >= self.plot_interval:
-#             self.update_plot(t)
-            
-#     def record_data(self, t):
-#         data = np.array(self.get_func(self))
-#         self.logger.debug('recording data of shape {0}'.format(data.shape))
-#         self.data.store(t, data)
-#         self.t_data = t
-        
-#     def start_plot(self, t, occasion=""):
-#         pp.figure()
-#         if not self.description:
-#             pp.title(" ".join([self.name, occasion]))
-#         else:
-#             pp.title(self.description)
-
-#     def end_plot(self, t, occasion=""):
-#         pp.xlabel(self.xlabel)
-#         pp.ylabel(self.ylabel)
-#         pp.legend(loc='lower right')
-#         if self.snapshot:
-#             path = cska.ensure_path(self.snap_path.format(**locals()))
-#             self.logger.debug("saving snapshot in '{0}'".format(path) )
-#             pp.savefig(path)
-        
-#         if self.multipage:
-#             self.logger.debug("adding page to '{0}'".format(self.mp_path) )
-#             self.pdf.savefig()
-
-#         pp.close()
-#         self.t_plot = t
-        
-#     def do_plot(self, t, occasion=""):
-#         if self.mode == 'temporal':
-#             from itertools import izip_longest
-#             #from adjustText import adjust_text
-#             times, cols = self.data.read()
-#             #print times, cols, label
-#             if not len(times):
-#                 return
-            
-#             lines = []
-#             for label, row in izip_longest(self.labels, cols.T, fillvalue="none" ):
-#                 lines.extend(self.plot_func(times, row, label=label))
-            
-#             #print self.name
-#             t_trig = np.array(sorted(self.rep.triggers.keys()))
-#             y_min = cols.min(axis=1)
-#             #y_max = cols.max(axis=0)
-            
-#             yt = np.interp(t_trig, times, y_min)
-#             labels = [self.rep.triggers[x] for x in t_trig]
-#             repel_labels(t_trig, yt, labels)
-
-#         elif self.mode == 'scatter':
-#             if self.setup_func:
-#                 x, y, title, label, data_labels = self.setup_func(self)
-#             else:
-#                 title = "{0}mer R-value scatter plot".format(self.opt.k)
-#                 x, y = self.get_func(self)
-#                 corr, pval = pearsonr(x,y)
-#                 label = u"{0} R={1:.3f} ({2})".format(self.labels[0], corr, pval_str(pval))
-#                 data_labels = self.opt.mdl.parameters.param_name
-
-#             pp.title(title)
-#             self.scatter_func(x, y, label=label, data_labels=data_labels)
-#             self.logger.info("{self.name} scatter plot".format(**locals()) )
-        
-#     def update_plot(self, t, occasion="snapshot"):
-#         self.start_plot(t, occasion=occasion)
-#         self.do_plot(t, occasion=occasion)
-#         self.end_plot(t, occasion=occasion)
-
-#     def close(self):
-#         if self.multipage:
-#             self.pdf.close()
-    
-        
-# class OptReporting(object):
-#     def __init__(self, opt, path='./', track=[], report_interval=200, comp=None, triggers=[], ref=None):
-#         self.opt = opt
-#         self.path = path
-#         if not os.path.exists(path):
-#             os.makedirs(path)
-        
-#         self.logger = logging.getLogger('report.OptReporting')
-#         self.conc_labels = ['{0:.2f} nM'.format(conc) for conc in self.opt.rbp_conc]
-#         self.triggers = {}
-#         self.trigger_filter = set(triggers)
-#         self.ref = ref
-#         self.sensors = []
-        
-#         if ref and len(ref.seqs):
-#             self.sensors.extend(self.add_sensor_ref())
-
-#         # populate with sensors
-#         for name in track:
-#             adder = getattr(self, "add_sensor_{0}".format(name))
-#             sensors = adder()
-#             self.sensors.extend(sensors)
-
-#     def close(self):
-#         self.logger.info('broadcasting close() to {0} sensors'.format(len(self.sensors)) )
-#         # broadcast close to all attached sensors
-#         for sensor in self.sensors:
-#             sensor.close()
-
-#     def tick(self, t):
-#         self.logger.debug('broadcasting tick() to {0} sensors'.format(len(self.sensors)) )
-#         t0 = time.time()
-#         # broadcast to all attached sensors
-#         for sensor in self.sensors:
-#             sensor.tick(t)
-#         t1 = time.time()
-#         self.logger.debug('tick() completed in {0:.2f}ms'.format(1000. * (t1-t0)) )
-
-#     def trigger_plots(self, t, occasion="trigger", mode="scatter"):
-#         self.logger.debug("received trigger '{occasion}' at time {t} for {mode}-sensors".format(**locals()) )
-#         self.triggers[t] = occasion
-#         t0 = time.time()
-#         if occasion in self.trigger_filter:
-#             self.logger.info('trigger {0} is filtered! skipping plot updates'.format(occasion) )
-#         else:
-#             for s in self.sensors:
-#                 #s.update_plot(t, occasion=occasion)
-#                 if s.mode == mode:
-#                     s.update_plot(t, occasion=occasion)
-
-#         t1 = time.time()
-#         self.logger.debug('trigger_plots("{0}") completed in {1:.2f} ms'.format(occasion, 1000. * (t1-t0)) )
-
-#     def set_opt(self, opt):
-#         self.logger.debug('broadcasting set_opt() to {0} sensors'.format(len(self.sensors)) )
-#         # broadcast to all attached sensors
-#         for sensor in self.sensors:
-#             sensor.opt = opt
-        
-#     def add_sensor_correlation(self):
-#         sensor = Sensor(
-#             self, "kmer_correlation", 
-#             get_func = lambda this : this.opt.correlation(), 
-#             ylabel=r"log(R-value) correlation coefficient", 
-#             labels=self.conc_labels,
-#         )
-#         return [sensor,]
-    
-#     def add_sensor_betas(self):
-#         sensor = Sensor(
-#             self, "beta",
-#             get_func = lambda this : this.opt.current.params[this.opt.nA:],
-#             plot_func = pp.semilogy,
-#             ylabel=r"estimated sample background ($\beta$)",
-#             labels=self.conc_labels
-#         )
-#         return [sensor,]
-        
-#     def add_sensor_errors(self):
-#         sensor = Sensor(
-#             self, "errors",
-#             get_func = lambda this : this.opt.global_errors(this.opt.current.R),
-#             plot_func = pp.semilogy,
-#             ylabel=r"kmer R-value mean squared errors",
-#             labels=self.conc_labels + ['all']
-#         )
-#         return [sensor,]
-        
-#     def add_sensor_R_values(self):
-#         sensors = []
-#         for i, label in enumerate(self.conc_labels):
-#             # add one sensor per experiment
-#             sensor = Sensor(
-#                 self, "R_values_{0}".format(label),
-#                 get_func = lambda this, i=i : (np.log2(this.opt.R_obs[i]), np.log2(this.opt.current.R[i])),
-#                 ylabel=r"predicted kmer enrichment $\log_2(R)$",
-#                 xlabel=r"observed kmer enrichment $\log_2(R)$",
-#                 mode='scatter',
-#                 scatter_func = density_scatter_plot,
-#                 labels=[label,],
-#                 fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
-#                 plot_interval=1000,
-#                 multipage=True# 100
-#             )
-#             sensors.append(sensor)
-#         return sensors
-
-#     def add_sensor_ref(self):
-#         def setup_func(this):
-#             x = np.log10(this.rep.ref.observed_affinities)
-#             y = np.log10(this.rep.ref.predict_affinities(this.opt.mdl))
-
-#             R, ppval = pearsonr(x,y)
-#             rho, pval = spearmanr(x,y)
-
-#             title = "comparison to literature values"
-#             label = r"log-affinity R={R:.3f} (P < {ppval:.3e}) $\rho$={rho:.3f} (P < {pval:.3e}) ".format(**locals())
-#             data_labels = this.rep.ref.seqs
-#             print x, y, title, label, data_labels
-#             return x, y, title, label, data_labels
-
-#         sensor = Sensor(
-#             self, "reference",
-#             setup_func = setup_func,
-#             ylabel=r"modeled affinity $-\log_{10}(K_d)$",
-#             xlabel=r"literature affinity $-\log_{10}(K_d)$",
-#             mode='scatter',
-#             scatter_func = density_scatter_plot,
-#             labels=["reference",],
-#             fname="{self.name}/{self.opt.input_reads.rbp_name}_{occasion}_{self.opt.k}mers_{self.name}_{t}.pdf",
-#             plot_interval=1000,
-#             multipage=True# 100
-#         )
-#         return [sensor,]
-        
-#         #self.comp = comp
-#         #if comp and not track:
-#             #track = sorted(comp.uniq_kmers)
-
-#         #self.tracked_kmers = [t for t in track if len(t)== self.opt.k]
-#         #import cska.cyska
-#         #self.tracked_indices = [cyska.seq_to_index(t) for t in self.tracked_kmers]
-#         #self.tracked = set(self.tracked_indices)
-#         #self.tracked_history = defaultdict(list)
-#         #self.tracked_updated = defaultdict(list)
-#         #for param_i in self.tracked_indices:
-#             #self.tracked_history[param_i].append( (self.opt.t, self.opt.current.params[param_i]) )
-
-#         #self.report_interval = report_interval
-#         #self.last_report = 0
-#         #self.logger = logging.getLogger('OptReporting')
-#         #self.betas = TrackedValues()
-#         ##self.affinities = TrackedValues()
-    
-#     #def tick(self, t):
-#         #self.betas.store(t, self.opt.current.params[self.opt.nA:])
-#         ##self.affinities.store(t, self.opt.current.params[:self.opt.nA])
-        
-#         #if t > self.last_report + self.report_interval:
-#             #self.plot_errors()
-#             #self.plot_correlations()
-#             #self.plot_betas()
-#             ##self.plot_tracked_kmer_histories()
-#             ##self.plot_affinity_history()
-            
-#             #self.plot_R_value_agreement()
-#             #self.plot_known_comparison()
-            
-#             #for param_i in self.tracked_indices:
-#                 #self.plot_sweep(param_i)
-#             #self.last_report = t
-        
-#         #for param_i in self.tracked_indices:
-#             #self.tracked_history[param_i].append( (t, self.opt.current.params[param_i]) )
-#             #if param_i == self.opt.sched.last_param_update:
-#                 #self.tracked_updated[param_i].append(t)
-
-#     def plot_affinity_history(self, n=10):
-#         pp.figure()
-#         t, aff_matrix = self.affinities.read()
-#         last = aff_matrix[-1]
-#         top_kmer_ind = last.argsort()[::-1][:n]
-#         top_kmers = self.opt.kmers[top_kmer_ind]
-
-#         for kmer, aff in zip(top_kmers, aff_matrix.T[top_kmer_ind] ):
-#             pp.semilogy(t, aff, label=kmer)
-        
-#         pp.xlabel('time step')
-#         pp.ylabel('affinity [1/nM]')
-#         pp.legend(loc='lower right')
-#         pp.savefig(os.path.join(self.path,'affinity_history.pdf'))
-#         pp.close()
-        
-        
-#     def plot_tracked_kmer_histories(self):
-#         self.logger.info("rendering tracked kmer affinity history plots")
-#         pp.figure()
-#         for i, param_i in enumerate(self.tracked_indices):
-#             kmer = self.tracked_kmers[i]
-#             t, param = np.array(self.tracked_history[param_i]).T
-            
-#             pp.semilogy(t, param, label=kmer)
-#             known = self.opt.known_params[param_i]
-#             if np.isfinite(known):
-#                 pp.axhline(known, label='{0} reference'.format(kmer))
-
-#             #for t_update in self.tracked_updated[param_i]:
-#                 #pp.axvline(t_update)
-                
-#         pp.xlabel('optimization step')
-#         pp.ylabel('affinity [1/nM]')
-#         pp.legend(loc='lower right')
-#         pp.savefig(os.path.join(self.path, "tracked_kmers.pdf"))
-#         pp.close()
-
-#     def plot_known_comparison(self):
-#         if not self.comp:
-#             return
-        
-#         x = self.comp.observed_affinities
-#         y = self.comp.expected_affinities
-#         R = np.corrcoef(np.log(x), np.log(y))[0][1]
-#         pp.figure()
-#         pp.loglog(x, y, '.r', label="R={:.3f}".format(R))
-#         pp.xlabel("observed/known affinity [1/nM]")
-#         pp.ylabel("expected from fit [1/nM]")
-#         pp.legend(loc='lower right')
-#         pp.savefig(os.path.join(self.path, "known_affinity_comparison.pdf"))
-#         pp.close()
-        
-        
-#     def plot_gradient_descent(self, n_top=100):
-#         I = self.opt.R_obs.argsort()[::-1][:n_top]
-        
-#         x = np.arange(len(I))
-#         pp.figure()
-#         t = self.opt.t
-#         pp.title("gradient-descent at step {0}".format(t))
-        
-#         plot = pp.semilogy
-#         plot(x, self.opt.known_invkd[I], 'k', label='known affinities')
-#         plot(x, self.opt.prev_invkd[I], '.b', label='prev. delta')
-#         plot(x, self.opt.trial_invkd[I], '.r', label='last delta')
-#         pp.xlim(-1, len(x))
-#         self.descent_pdf.savefig()
-#         pp.savefig(os.path.join(self.path, "descent_t{0}.pdf".format(t)) )
-
-        
-#     def plot_jacobi(self):
-        
-#         for conc, jac in zip(self.opt.rbp_conc, self.opt.jacobi_new):
-#             pp.figure()
-#             pp.title("Jacobi matrix @{1}nM at t={0}".format(self.opt.t, conc))
-#             pp.imshow(np.arcsinh(jac), cmap='hot')
-#             pp.colorbar(label='arcsinh(jacobi matrix)')
-#             pp.savefig('jacobi_{1}nM_t{0}.pdf'.format(self.opt.t, conc))
-
-#         pp.show()
-#         pp.close()
-        
-#     def plot_R_value_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-#         #to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
-        
-#         self.logger.info('rendering R-value agreement plot')
-#         kmer_i = self.opt.sched.last_param_update
-#         if kmer_i == None:
-#             kmer = "none"
-#         else:
-#             kmer = self.opt.mdl.parameters.param_name[kmer_i]
-        
-#         pp.figure()
-#         pp.title('R-value fit after step {0}'.format(self.opt.t) )
-#         R_a = self.opt.R_obs
-#         R_b = self.opt.current.R
-#         for i,rbp_conc in reversed(list(enumerate(self.opt.rbp_conc))):
-#             corr = np.corrcoef(np.log(R_a[i]), np.log(R_b[i]))[0][1]
-#             patches = pp.loglog(R_a[i], R_b[i], 'o', markeredgecolor='none', markersize=3, alpha=.75, label="P={0:.2f}nM (R={1:.3f})".format(rbp_conc, corr) )
-
-#         if kmer_i < self.opt.nA and kmer_i != None:
-#             pp.loglog(R_a[:, kmer_i], R_b[:, kmer_i], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
-
-#         #m = min(R_a.min(), R_b.min())
-#         #M = max(R_a.max(), R_b.max())
-#         m = R_a.min() * .75 # always use experiment as reference
-#         M = R_a.max() * 1.25
-
-#         pp.plot([m,M],[m,M], '--k', zorder=np.inf)
-#         pp.xlim(m,M)
-#         pp.ylim(m,M)
-#         pp.xlabel(r'{0} [R-value]'.format("observed/simulated") )
-#         pp.ylabel(r'{0} [R-value]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
-#         pp.legend(loc='upper left')
-#         pp.tight_layout()
-#         self.R_pdf.savefig()
-#         pp.savefig(os.path.join(self.path, "predicted_vs_obs_R_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-#         pp.close()
-        
-#     #def plot_invkd_agreement(self, to_mark = ['UUUUU','UUUUG', 'UUUUC', 'UUUGU', 'AUUUU', 'CUUUU', 'GUUUU', 'AAUUU', 'UCUUU']):
-#         ##to_mark_i = [cyska.seq_to_index(x) for x in to_mark]
-        
-#         #kmer_i = self.opt.sched.last_param_update
-#         #kmer = self.opt.mdl.param_name[kmer_i]
-        
-        
-#         #pp.figure()
-#         #pp.title('affinity agreement after step {0}'.format(self.opt.t) )
-#         #A_a = self.opt.known_invkd
-#         #A_b = self.opt.trial_invkd
-#         #x = A_a
-#         #y = A_b
-        
-#         #max_error_conc = np.fabs(self.opt.kmer_error_new).argmax(axis=0)
-#         #for i,rbp_conc in enumerate(self.opt.rbp_conc):
-#             #ind = max_error_conc == i
-#             ##print ind.shape, ind, x[ind]
-#             #patches = pp.loglog(x[ind], y[ind], 'o', markeredgecolor='none', markersize=5, label="max error at P={0:.2f}nM".format(rbp_conc) )
-
-#         #corr = np.corrcoef(np.log(A_a), np.log(A_b))[0][1]
-#         #pp.loglog(x[kmer_i], self.opt.prev_invkd[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='gray', label="previous values" )
-#         #pp.loglog(A_a[kmer_i], A_b[kmer_i], 'o', markersize=10, markerfacecolor='none', markeredgecolor='red', label="updated {0}".format(kmer) )
-
-#         #m = min(A_a.min(), A_b.min())
-#         #M = max(A_a.max(), A_b.max())
-#         #pp.plot([m,M],[m,M], '--k', zorder=np.inf)
-#         #pp.xlabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("observed/simulated") )
-#         #pp.ylabel(r'{0} $\frac{{1}}{{K_d}}$ [$\frac{{1}}{{nM}}$]'.format("predicted after {0} steps of optimization".format(self.opt.t)) )
-#         #pp.legend(loc='lower right')
-#         ##pp.xlim(1e-1,1e2)
-#         ##pp.ylim(1e-1,1e2)
-#         #pp.tight_layout()
-#         #self.invkd_pdf.savefig()
-#         #pp.savefig(os.path.join(self.path, "predicted_vs_obs_invkd_updated_{0}_t{1}.pdf".format(kmer, self.opt.t) ))
-#         #pp.close()
-     
-# class EnrichmentBarPlot(object):
-#     def __init__(self, rbns_comparison):
-#         self.rbns_comparison = rbns_comparison
-        
-#     def make_plot(self, k, fname=None, dest="./", fmt='svg', Z_cut=2, figsize=(7,5) ):
-#         import matplotlib
-#         #matplotlib.use(fmt)
-#         import matplotlib.pyplot as pp
-#         import numpy as np
-#         if not fname:
-#             fname = "r_values.{self.rbns_comparison.pd_reads.name}.{k}mers".format(self=self, k=k)
-        
-#         R, R_err = self.rbns_comparison.R_values(k)
-#         kmers = np.array(list(cyska.yield_kmers(k)))
-
-#         I = R.argsort()
-#         R = R[I]
-#         R_err = R_err[I]
-#         kmers = kmers[I]
-        
-#         Z = (R - np.mean(R))/ np.std(R)
-#         enriched_i = (Z > Z_cut).argmax()
-#         depleted_i = (Z < -Z_cut).argmin()
-        
-        
-#         pp.figure(figsize=figsize)
-
-#         n = len(R)
-#         n_enriched = len(R) - enriched_i
-#         n_ns = enriched_i
-#         #x_ns = np.linspace(0, 1., num=n_ns)
-#         x_ns = np.arange(n_ns)
-#         x_enr = np.arange(n_ns,n)
-#         pp.fill_between(x_ns, 1, R[:enriched_i], color="0.75", label=None)
-#         pp.fill_between(x_enr, 1, R[enriched_i:], color='k', label="Z-score > {0}".format(Z_cut))
-        
-#         #xlabel = 
-#         for x, y, mer in zip(x_enr, R[enriched_i:], kmers[enriched_i:]):
-#             #pp.text(x, r, mer, fontdict=dict(size=6), withdash=True)
-#             pp.annotate(mer, xy=(x, y), xytext=(x-.05*n, y), arrowprops=dict(facecolor='black', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
-        
-#         pp.ylabel('{0}mer enrichment [R-value]'.format(k) )
-#         pp.xlabel('rank')
-#         pp.axhline(1, color='k', linewidth=.5)
-#         pp.xlim(0,n)
-#         pp.gca().set_yscale('log')
-#         pp.legend(loc='upper left')
-
-#         #x_enriched = np.linspace(0, 1,n_enriched) + 1.1
-#         #print x_enriched.shape, R[enriched_i:].shape
-#         #pp.bar(x_enriched, R[enriched_i:], width = .05, color='k')
-        
-        
-#         path = os.path.join(dest, "{0}.{1}".format(fname, fmt) )
-#         pp.savefig(path)
-
 
 class Container(object):
     pass
@@ -895,16 +392,74 @@ class RunReport(object):
         return descent 
 
 
+
+
+class SeedReport(object):
+    def __init__(self, path='.', rbns=None):
+        import shelve
+        self.path = path
+        self.logger = logging.getLogger("SeedReport")
+        spath = os.path.join(self.path, '../seed/history')
+        # print spath
+        try:
+            self.shelf = shelve.open(spath, 'r')
+        except:
+            self.logger.error("could not open database {}".format(spath))
+
+    def plot_R_dist(self, n_top=5):
+        pp.figure(figsize=(2,1.8))
+        R = self.shelf['R0']
+        Rw = (R.min() / R.max()) **.15
+        Nk = len(R)
+        # I = self.shelf['I']
+        i_cut = self.shelf['i_cut']
+        i_ns = self.shelf['i_ns']
+        # print i_cut, i_ns
+        kmer_set = self.shelf['kmer_set']
+        kmers = np.array([kmer for kmer, r in kmer_set])
+        I = R.argsort()
+        # pp.fill_between(np.arange(len(R)), R[I], color='k')
+        pp.fill_between(np.arange(Nk-i_cut), R[I][:Nk-i_cut], color='.75')
+        pp.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
+
+        top = np.linspace(0, len(kmers)-1, num=n_top, dtype=int)
+        print top, len(kmers), n_top
+
+        for i, kmer in enumerate(kmers[top]):
+            # print i, kmer
+            # pp.text(Nk/2, R.max() * (Rw ** i), kmer.upper(), fontdict=dict(family='fixed'))
+            j = top[i]
+            pp.annotate(
+                kmer.upper(),
+                (Nk-j, R[I][Nk-j-1]),
+                xytext=(Nk/2-i*1000, R.max() * (Rw ** i)),
+                arrowprops=dict(arrowstyle='-'),
+                # fontfamily='monospace',
+            )
+        pp.text(Nk/2-5000, R.max() * (Rw ** n_top), "...")
+
+        pp.legend(loc='best', frameon=False)
+        pp.ylabel("7-mer enrichment")
+        plt.xlabel("rank")
+        plt.tight_layout()
+        plt.gca().set_yscale('log')
+        sns.despine()
+        pp.savefig(os.path.join(self.path,"seed_report.pdf"))
+        pp.close()
+
+
 class GradientDescentReport(object):
-    def __init__(self, path='.', comp=None):
+    def __init__(self, path='.', comp=None, rbns=None):
         self.logger = logging.getLogger('plot.GradientDescentReport')
         self.comp = comp
+        self.rbns = rbns
         self.shelves = []
         self.shelf_map = [0]
         self.t = None
         self.t_ofs = 0
         self.epoch_names = []
         self.epochs = []
+        self.error_estimators = []
         self.path = path
 
     def load(self, fname, epoch_name):
@@ -935,44 +490,77 @@ class GradientDescentReport(object):
             self.t = np.concatenate((self.t, t))
 
         self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
+        from cska.errors import PSAMErrorEstimator
+        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', use_shelve=self.shelves[-1])
+        self.error_estimators.append(est)
         self.t_ofs += len(t)
         self.shelf_map.append(self.t_ofs)
         self.epoch_names.append(epoch_name)
         # print "shelfmap", self.shelf_map
 
-    def report(self):
+    def plot_scatter_all(self):
         if self.t is None:
             return
-        # print self.epochs
-        # print self.epoch_names
+
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
             # print "epoch", t0, t, name
             self.plot_scatter(t0, title="before {}".format(name))
             self.plot_scatter(t, title="after {}".format(name))
 
+    def plot_logos(self):
+        if self.t is None:
+            return
+
+        for i, name in enumerate(self.epoch_names):
+            t0, t = self.epochs[i]
+            self.plot_motifs(t0, title="before {}".format(name))
+            self.plot_motifs(t, title="after {}".format(name))
+
+    def report(self):
+        if self.t is None:
+            return
+        
         self.plot_literature()
         self.plot_report()
+
+        self.plot_scatter_all()
+        self.plot_logos()
     
     def find_max_t(self, shelf):
         t = -1
+        n_samples = None
         while shelf.has_key("stats_t{}".format(t+1)):
-            t += 1
+            stats = shelf["stats_t{}".format(t+1)]
+            n = len(stats.rbp_free)
+            if n_samples is None:
+                n_samples = n
+
+            if n == n_samples:
+                t += 1
+            else:
+                break
         return t
 
-    def get(self, name, t):
+    def map_t_shelf(self, t):
         if t == -1:
             t = self.t[-1]
 
         from bisect import bisect
         shelf_i = bisect(self.shelf_map, t) - 1
         t_shelf = t - self.shelf_map[shelf_i]
+
+        return shelf_i, t_shelf
+
+    def get(self, name, t):
+        shelf_i, t_shelf = self.map_t_shelf(t)
         # print t, "->", shelf_i, t_shelf
-        return self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
+        val = self.shelves[shelf_i]["{0}_t{1}".format(name, t_shelf)]
+        return val
 
     def read_sample_errors(self):
-        errors = np.array([self.get('stats', t).errors for t in self.t])
-        return errors
+        errors = [self.get('stats', t).errors for t in self.t]
+        return np.array(errors, dtype=float)
 
     def read_correlations(self):
         pearsonR = np.array([self.get('stats', t).pearsonR for t in self.t])
@@ -982,8 +570,12 @@ class GradientDescentReport(object):
     def read_linesearch(self):
         return np.array([self.get('linesearch', t) for t in self.t]).T
 
+    def read_grad(self):
+        res = [self.get('grad', t) for t in self.t[:-1]]
+        return res
+
     def plot_report(self):
-        pp.figure(figsize=(6, 5))
+        pp.figure(figsize=(3, 4))
 
         pp.subplot(211)
         errors = (self.read_sample_errors()**2).mean(axis=2)
@@ -996,8 +588,10 @@ class GradientDescentReport(object):
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
-        pp.legend(loc='upper right')
+        pp.legend(loc='upper right', frameon=False)
         pp.ylabel("mean squared R-value error")
+        pp.xlabel('iteration #')
+        sns.despine()
 
         pp.subplot(212)
         corr, pval = self.read_correlations()
@@ -1008,30 +602,62 @@ class GradientDescentReport(object):
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
-        pp.legend(loc='upper right')
+        pp.legend(loc='lower right', frameon=False)
         pp.ylabel("R-value correlation")
-
-        pp.tight_layout()
+        plt.xlabel("iteration #")
+        plt.tight_layout()
+        sns.despine()
         pp.savefig(os.path.join(self.path,"descent_report.pdf"))
         pp.close()
 
-        pp.figure(figsize=(6,3))
+
+
         nfev, step = self.read_linesearch()
+
+        pp.figure(figsize=(3, 4))
+        pp.subplot(211)
         pp.semilogy(nfev, label='no. function evaluations during line-search')
-        pp.legend(loc='upper right')
         pp.semilogy(step, label='step size')
-        pp.xlabel('time step')
-        pp.legend(loc='upper right')
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
                 # TODO: add annotation 'no structure' 'full model'
 
-        pp.tight_layout()
+        pp.xlabel('iteration #')
+        pp.legend(loc='upper right', frameon=False)
+        sns.despine()
+
+        params0 = self.get('params', 0).copy()
+        n_motifs = len(params0.param_set)
+        # print "number of motifs", n_motifs
+        def mag(grad_data):
+            if grad_data is None:
+                return [np.nan,] * n_motifs
+
+            grad = params0.copy().set_data(grad_data)
+            # print "number of gradients", len(grad.param_set)
+
+            for par in grad:
+                par.betas[:] = 0
+
+            return [np.sqrt((g.data**2).sum()) for g in grad] 
+
+        mags = np.array([mag(grad) for grad in self.read_grad()]).T
+        print "mags.shape", mags.shape
+        # with sns.axes_style("ticks", sns_style)
+        plt.subplot(212)
+        # plt.semilogy(mags.mean(axis=0), '-k', label="motif mean")
+        for i, mag in enumerate(mags):
+            plt.semilogy(mag, label="motif {}".format(i))
+
+        plt.legend(loc='upper right', ncol=2, frameon=False)
+        plt.ylabel("magnitude of gradient (log-scale)")
+        plt.xlabel("iteration #")
+        plt.tight_layout()
+        sns.despine()
         pp.savefig(os.path.join(self.path,"descent_linesearch.pdf"))
         pp.close()
-
 
     def plot_scatter(self, t=-1, title=""):
         if t == -1:
@@ -1039,20 +665,112 @@ class GradientDescentReport(object):
 
         stats = self.get("stats", t)
         logRt = np.log2(self.get("R", t))
+
+        maxR = max(self.logR0.max(), logRt.max())
         for i in range(self.n_samples):
-            pp.figure()
-            pp.title("{0}mer R-value scatter plot {1}".format(self.k_mer, title))
+            pp.figure(figsize=(3, 3))
+            # pp.title("{0}mer R-value scatter plot {1}".format(self.k_mer, title))
 
             x = self.logR0[i]
             y = logRt[i]
             label = u"{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
             # data_labels = self.opt.mdl.parameters.param_name
-            density_scatter_plot(x, y, label=label, tick_exp=2)
+            density_scatter_plot(x, y, label=label, tick_exp=2, lim_max=maxR)
             pp.legend(loc='upper left', frameon=False)
             pp.xlabel("observed {}-mer enrichment".format(self.k_mer))
             pp.ylabel("predicted {}-mer enrichment".format(self.k_mer))
-            pp.savefig(os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t)), dpi=300)
+            pp.gca().set(aspect="equal")
+            pp.tight_layout()
+            fname = os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t))
+            try:
+                pp.savefig(fname, dpi=300)
+            except ValueError as err:
+                self.logger.warning("caught '{}' while trying to save {}".format(err, fname))
+
             pp.close()
+
+    def plot_param_error_scatter(self, param_i=0):
+        plt.figure(figsize=(3,3))
+
+        for err_est in self.error_estimators[:1]:
+            params, stats = err_est.load_data()
+            mdl_errors = np.array([s.error for s in stats])
+            par = np.array([p.get_data()[param_i] for p in params])
+
+            sc = plt.scatter(
+                mdl_errors,
+                par,
+                alpha=.75,
+            )
+            plt.gca().set_xscale("log")
+
+        # pp.colorbar(sc, shrink=.05, label="time step")
+
+        pp.xlabel("model error")
+        pp.ylabel("affinity [1/nM]")
+        # pp.gca().set(aspect="equal")
+        sns.despine()
+        pp.tight_layout()
+
+        fname = os.path.join(self.path, "param_{0}_error_scatter.pdf".format(param_i))
+        plt.savefig(fname)
+        plt.close()
+
+    def plot_motifs(self, t=-1, title=""):
+        from cska.params import ModelSetParams
+
+        shelf_i, shelf_t = self.map_t_shelf(t)
+        est = self.error_estimators[shelf_i]
+        p_mid = est.estimate(save=False, t_ref=shelf_t)
+        if p_mid is None:
+            params = ModelSetParams(self.get('params', t), sort=True) # re-initialize in case it's not sorted
+            lo = None 
+            hi = None
+        else:
+            params = ModelSetParams(p_mid.param_set, sort=True)
+            lo = ModelSetParams(p_mid.lo.param_set, sort=True)
+            hi = ModelSetParams(p_mid.hi.param_set, sort=True)
+        
+        params.save_logos(os.path.join(self.path,"motifs_t{0}.svg".format(t)), lo=lo, hi=hi, title=title)
+
+    def plot_affinity_dists(self, t=-1, title="", k_fit=6):
+        from cska.params import ModelSetParams
+
+        shelf_i, shelf_t = self.map_t_shelf(t)
+        est = self.error_estimators[shelf_i]
+        p_mid = est.estimate(save=False, t_ref=shelf_t)
+        if p_mid is None:
+            params = ModelSetParams(self.get('params', t), sort=True) # re-initialize in case it's not sorted
+        else:
+            params = ModelSetParams(p_mid.param_set, sort=True)
+        
+
+        # from cska.partfunc import PartFuncModel
+        # mdl = PartFuncModel(
+        #     self.rbns.reads[0],
+        #     params,
+        #     self.rbns.R_value_matrix(k_fit)[0],
+        #     rbp_conc = self.rbns.rbp_conc
+        # )
+        # state = mdl.predict(params)
+        # print state.psi
+        # np.histogram()
+        
+        bins = 10 ** np.linspace(np.log10(1e-6), np.log10(10), 100)
+        for reads in self.rbns.reads:
+            import matplotlib.pyplot as plt
+            plt.figure()
+            Z1m = reads.PSAM_partition_function(params, split=True)
+            for z in Z1m:
+                print z.shape
+                plt.hist(z.sum(axis=1), bins=bins, histtype='step', cumulative=True)
+            plt.gca().set_xscale('log')
+            plt.savefig("{reads.name}_affdist.pdf".format(reads=reads))
+            plt.close()
+
+        
+
+
 
 
     def _get_lit_data(self, t, debug=False):
@@ -1063,7 +781,17 @@ class GradientDescentReport(object):
         if not len(x):
             return None
 
-        y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
+        # get the PSAM error estimator for this epoch
+        shelf_i, shelf_t = self.map_t_shelf(t)
+        est = self.error_estimators[shelf_i]
+        p_mid = est.estimate(save=False, t_ref=shelf_t)
+        # print "t=",t
+        # print p_mid
+        if not p_mid is None:
+            y = 1/self.comp.predict_affinities_from_paramset(p_mid)
+        else:
+            y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
+
         lfc = np.log2(y/x)
         I = lfc.argsort()
 
@@ -1098,9 +826,18 @@ class GradientDescentReport(object):
         res.min = min(x.min(), y.min())
         res.max = max(x.max(), y.max())
 
+        if not p_mid is None:
+            y_hi = 1/self.comp.predict_affinities_from_paramset(p_mid.lo)
+            y_lo = 1/self.comp.predict_affinities_from_paramset(p_mid.hi)
+
+            res.y_err = np.array((y - y_lo, y_hi - y))
+            # print "y_err", res.y_err
+        else:
+            res.y_err = None
+
         return res
 
-    def plot_literature(self, debug=False):
+    def plot_literature(self, debug=True):
         if self.comp is None:
             return
 
@@ -1110,7 +847,8 @@ class GradientDescentReport(object):
         if self.t[-1] > t:
             times.append(self.t[-1])
         
-        data = [self._get_lit_data(t) for t in times]
+        # times = [145,] # DEBUG HACK!!!
+        data = [self._get_lit_data(t, debug=debug) for t in times]
         _data = [res for res in data if res is not None]
         if not _data:
             return
@@ -1121,11 +859,11 @@ class GradientDescentReport(object):
 
         import seaborn as sns
         with sns.axes_style("ticks", sns_style):
-            matplotlib.rc('xtick.major', width = .1)
-            matplotlib.rc('ytick.major', width = .1)
+            # matplotlib.rc('xtick.major', width = .1)
+            # matplotlib.rc('ytick.major', width = .1)
 
 
-            pp.figure(figsize=(6,6))
+            pp.figure(figsize=(3,3))
             pp.title("comparison to {0} literature affinities".format(self.comp.n))
 
             errs = []
@@ -1135,7 +873,7 @@ class GradientDescentReport(object):
                 if res == None:
                     continue
 
-                pp.errorbar(res.x, res.y, xerr=res.x_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
+                pp.errorbar(res.x, res.y, xerr=res.x_err, yerr=res.y_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
 
                 errs.append(np.fabs(res.lfc))
                 err_cols.append(color)
@@ -1149,14 +887,14 @@ class GradientDescentReport(object):
             pp.legend(loc='lower right', shadow=False, fancybox=False)
             pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
             pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
-            pp.tight_layout()
             sns.despine(trim=False)
+            pp.tight_layout()
 
             pp.savefig(os.path.join(self.path,"literature_comparison.pdf".format(t)))
             pp.close()
 
             import scipy.stats
-            pp.figure(figsize=(6,4))
+            pp.figure(figsize=(2.5,2))
             for ei, ej in zip(errs[:-1], errs[1:]):
                 stat, pval = scipy.stats.mannwhitneyu(ei, ej)
                 print stat, pval
@@ -1168,6 +906,8 @@ class GradientDescentReport(object):
             pp.xticks(1 + np.arange(len(errs)), err_titles)
             pp.ylabel(r"$|\log_2 \frac{K_d\; predicted}{K_d \; measured}|$")
             pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
+            sns.despine(trim=False)
+            pp.tight_layout()
             pp.savefig(os.path.join(self.path,"literature_errors.pdf".format(t)))
             pp.close()
 
@@ -1267,7 +1007,7 @@ class GradientDescentReport(object):
 
 
 class FootprintCalibrationReport(object):
-    def __init__(self, fparams, out_path='.'):
+    def __init__(self, fparams, out_path='.', rbns=None):
         """
         fparams is path to calibrated.tsv params file
         expects database 'history' in same folder to retrieve
@@ -1276,6 +1016,7 @@ class FootprintCalibrationReport(object):
         from cska.params import ModelSetParams
         import shelve
         self.out_path = out_path
+        self.rbns = rbns
         self.logger = logging.getLogger('plot.FootprintCalibrationReport')
         dbfile = os.path.join(os.path.dirname(fparams), 'history')
         try:
@@ -1288,7 +1029,7 @@ class FootprintCalibrationReport(object):
             self.rbp_conc = []
             self.params = []
         
-        self.motifs = [par.as_PSAM().consensus for par in self.params]
+        self.motifs = [par.as_PSAM().consensus_ul for par in self.params]
         if (self.rbp_conc == np.round(self.rbp_conc)).all():
             self.rbp_conc = np.array(self.rbp_conc, dtype=int)
 
@@ -1305,13 +1046,25 @@ class FootprintCalibrationReport(object):
             return None
 
         opt = self.shelve[key]
-        punp_predict, punp_a_one, res, res_a_one = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
         punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
         punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]
 
+        S = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
+        if len(S) == 2:
+            punp_predict, res = S
+            onekey = '{motif}_opt_profile_a_one_{k}_{s}'.format(**locals())
+            if self.shelve.has_key(onekey):
+                punp_a_one, res_a_one = self.shelve[onekey]
+            else:
+                punp_a_one = None
+                res_a_one = None
+        else:
+            punp_predict, punp_a_one, res, res_a_one = S
+
+
         return res, res_a_one, opt, punp_input, punp_naive, punp_predict, punp_a_one
 
-    def plot_profile(self, motif, acc_k, acc_shift):
+    def plot_profile(self, motif, acc_k, acc_shift, lw=1):
         data = self.get_profile_data(motif, acc_k, acc_shift)
         if data is None:
             return
@@ -1325,6 +1078,13 @@ class FootprintCalibrationReport(object):
         pad = (punp_input.shape[1] - len(motif)) / 2
         x = np.arange(-pad, len(motif) + pad )
 
+        gradient = np.linspace(.3, 1., len(punp_naive))
+        data_colors = plt.get_cmap("YlOrBr")(gradient) # highest conc == darkest color
+        naive_colors = plt.get_cmap("Greens")(gradient)
+        vienna_colors = plt.get_cmap("Blues")(gradient)
+        fit_colors = plt.get_cmap("Reds")(gradient)
+
+        last = len(gradient) - 1
         def make_rect():
             import matplotlib.patches as patches
             ymin, ymax = plt.gca().get_ylim()
@@ -1345,8 +1105,8 @@ class FootprintCalibrationReport(object):
                 make_rect()
             cons = motif
             plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
-            plt.axvline( - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
-            plt.axvline(len(motif) - .5, color='k', linewidth=.5, linestyle='dashed', zorder=-1000)
+            plt.axvline( - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
+            plt.axvline(len(motif) - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
 
             plt.legend(
                 bbox_to_anchor=(0., 1.02, 1., .202), 
@@ -1354,22 +1114,24 @@ class FootprintCalibrationReport(object):
                 frameon=False
             )
 
-            plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
-            plt.xlabel('pos. rel to motif (consensus) [nt]')
+            # plt.ylabel(r"$P_{unpaired}$ (motif-weighted)")
+            plt.ylabel(r"$P_{unpaired}$")
+            plt.xlabel('position [nt]')
+            sns.despine()
 
-        def plot_exp(with_label=False, with_input=False):
+
+        def plot_exp(with_label=False, with_input=True, colors=data_colors, sym='x'):
             if with_input:
-                plt.plot(x, punp_input[0], '.', color='.75', label='input' if with_label else None)
-                plt.plot(x, punp_input[0], '-', color='.75', linewidth=.5)
+                if sym:
+                    plt.plot(x, punp_input[0], sym, color='k', label='input' if with_label else None)
+                plt.plot(x, punp_input[0], '-', color='k', linewidth=lw)
 
             for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
-                plt.plot(x, obs, '.', color=color, label="{} nM".format(conc) if with_label else None)
-                plt.plot(x, obs, '-', color=color, linewidth=.5)
+                if sym:
+                    plt.plot(x, obs, sym, color=color, label="{} nM".format(conc) if with_label else None)
+                plt.plot(x, obs, '-', color=color, linewidth=lw)
 
-        colors = sns.color_palette("husl", 8)
-        
-        
-        plt.figure(figsize=(10,5))
+        plt.figure(figsize=(6, 4))
         # fig1, axes = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
 
         plt.subplot(221)
@@ -1378,23 +1140,27 @@ class FootprintCalibrationReport(object):
 
         plt.subplot(222)
         plot_exp(with_input=True)
-        for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, colors)):
+        for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, naive_colors)):
             lbl = "no footprint: err=100%"
-            plt.plot(x, naive, '-', color=color, label=lbl if i == 0 else None)
+            plt.plot(x, naive, '-', color=color, label=lbl if i == last else None)
         finalize_plot(fp=False)
 
+        from itertools import izip_longest
         plt.subplot(223)
         plot_exp()
-        for i, (pred, one, conc, color) in enumerate(zip(punp_expect, punp_a_one, self.rbp_conc, colors)):
-            lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
-            plt.plot(x, one, '-', color=color, label=lbl if i == 0 else None)
+        print "punp_a_one", punp_a_one
+        if not punp_a_one is None:
+            for i, (one, color) in enumerate(zip(punp_a_one, vienna_colors)):
+                lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
+                plt.plot(x, one, '-', color=color, label=lbl if i == last else None)
         finalize_plot()
 
         plt.subplot(224)
         plot_exp()
-        for i, (pred, one, conc, color) in enumerate(zip(punp_expect, punp_a_one, self.rbp_conc, colors)):
+
+        for i, (pred, color) in enumerate(zip(punp_expect, fit_colors)):
             lbl = 'optimized (a={res.x[0]:.2f}):  err={rerr:.1f}%'.format(res=res, rerr = 100. * res.fun/err0)
-            plt.plot(x, pred, '-', color=color, label=lbl if i == 0 else None)
+            plt.plot(x, pred, '-', color=color, label=lbl if i == last else None)
         finalize_plot()
 
         plt.tight_layout()
@@ -1406,32 +1172,39 @@ class FootprintCalibrationReport(object):
         plt.savefig(fname)
         plt.close()
 
-        plt.figure()
-        for i, (obs, naive, one, pred) in enumerate(zip(punp_input[1:], punp_naive, punp_a_one, punp_expect)):
-            plt.plot(obs, naive, 'x', color=colors[i], label="no structure footprint" if i==0 else None)
-            plt.plot(obs, one, '^', color=colors[i], label="RNAfold (a=1) footprint" if i==0 else None)
-            plt.plot(obs, pred, '.', color=colors[i], label="optimized footprint" if i==0 else None)
+
+        plt.figure(figsize=(3, 3))
+        for i, (obs, naive, one, pred) in enumerate(izip_longest(punp_input[1:], punp_naive, punp_a_one, punp_expect, fillvalue=None)):
+            plt.plot(obs, naive, 'v', color=naive_colors[i], label="no structure" if i==last else None, alpha=.75)
+            if not one is None:
+                plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==last else None, alpha=.75)
+            plt.plot(obs, pred, 'o', color=fit_colors[i], label="optimized" if i==last else None, alpha=.75)
         
         ymin, ymax = plt.gca().get_ylim()
         plt.legend(loc='upper left', frameon=False)
         plt.plot([ymin, ymax], [ymin, ymax], color='k', linestyle='dashed', linewidth=.5)
+        plt.xlabel(r"observed $P_{unpaired}$")
+        plt.ylabel(r"expected $P_{unpaired}$")
+        sns.despine()
+        plt.tight_layout()
         plt.savefig(fname+"bla.pdf")
         plt.close()
 
     def report(self):
         for motif, params in zip(self.motifs, self.params):
-            self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
-            self.plot_profile(motif, params.acc_k, params.acc_shift)
+            self.kmer_acc_profiles(motif, params)
+            # self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
+            # self.plot_profile(motif, params.acc_k, params.acc_shift)
         
-        # fprep.plot_profile("CGCUACGCUC", 11, -1)
-
-    def get_matrix_data(self, motif, k_range=(5, 11), s_range=(-5, 5)):
+    def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
         kmin, kmax = k_range
         smin, smax = s_range
 
         scales = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
         errors = np.zeros((smax - smin + 1, kmax - kmin + 1), dtype=float)
 
+        k_found = set()
+        s_found = set()
         err0 = self.baseline_error(motif)
         for k in range(kmin, kmax + 1):
             for s in range(smin, smax + 1):
@@ -1439,6 +1212,8 @@ class FootprintCalibrationReport(object):
                 if key in self.shelve:
                     err, k, s, a, A0 = self.shelve[key]
                     # print k,s, '->', err/err0, a
+                    k_found.add(k)
+                    s_found.add(s)
                 else:
                     err = np.nan
                     a = np.nan
@@ -1446,17 +1221,24 @@ class FootprintCalibrationReport(object):
                 scales[s - smin, k - kmin] = a
                 errors[s - smin, k - kmin] = err
         
-        return scales, errors/err0, k_range, s_range
+        ks = min(k_found) - kmin
+        ke = kmax - max(k_found)
+        ss = min(s_found) - smin
+        se = smax - max(s_found)
+
+        return scales[ss:-se, ks:-ke], (errors/err0)[ss:-se, ks:-ke], (min(k_found), max(k_found)), (min(s_found), max(s_found))
 
     def matrix_plots(self, motif, highlight=None):
         self.logger.debug("matrix plot")
         import seaborn as sns
         import matplotlib.pyplot as plt
-
+        
         mat_a, mat_err, k_range, s_range = self.get_matrix_data(motif)
         kmin, kmax = k_range
         smin, smax = s_range
 
+        print "s_range", s_range
+        print "k_range", k_range
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 
@@ -1475,7 +1257,7 @@ class FootprintCalibrationReport(object):
             )
             return rect
 
-        fig = plt.figure(figsize=(5.5,6))
+        fig = plt.figure(figsize=(3,3))
         if highlight:
             k, s = highlight
         # fig.suptitle("accessibility footprint analysis")
@@ -1484,7 +1266,7 @@ class FootprintCalibrationReport(object):
         if highlight:
             plt.gca().add_patch(make_rect(*highlight))
 
-        plt.colorbar(label=r'fold error reduction', fraction=.05)
+        sane_colorbar(plt.colorbar(label=r'fold error reduction', fraction=.05, shrink=.75, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
 
@@ -1497,16 +1279,70 @@ class FootprintCalibrationReport(object):
         if highlight:
             plt.gca().add_patch(make_rect(*highlight))
 
-        plt.colorbar(label=r'accessibility scaling', fraction=.05)
+        sane_colorbar(plt.colorbar(label=r'accessibility scaling', fraction=.05, shrink=.5, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
 
-        plt.xticks(np.arange(n_shift)+.5, [str(s) for s in range(smin, smax + 1)])
-        plt.yticks(np.arange(n_k)+.5, [str(k) for k in range(kmin, kmax + 1)])
+        plt.xticks(np.arange(n_shift), [str(s) for s in range(smin, smax + 1)])
+        plt.yticks(np.arange(n_k), [str(k) for k in range(kmin, kmax + 1)])
         # plt.ylim(kmin, kmax + 1)
 
         plt.tight_layout()
         plt.savefig(os.path.join(self.out_path, '{motif}_footprint.pdf'.format(motif=motif)))
+
+
+    def kmer_acc_profiles(self, motif, params, maxU=15, n_bins=30):
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        labels = self.rbns.sample_labels
+        print labels
+        data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
+
+        for score, kmer in self.shelve['{}_high_affinity_kmers'.format(motif)]:
+            print "plotting kmer accessibility profiles for", kmer, score
+            all_data = self.shelve['{}_acc_data'.format(kmer)]
+            plt.figure(figsize=(2, 2))
+            bins = np.linspace(0, maxU, num=30)
+            counts = plt.hist(all_data, bins=bins, histtype='step', label=labels)[0]
+            total = np.array([len(d) for d in all_data])
+            R_avg = total[1:] / total[0]
+            sns.despine()
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.out_path, "{}_energy_hist.pdf".format(kmer)))
+            plt.close()
+
+            # print counts
+            R = counts[1:] / counts[0]
+            # print "R-value as function of bin", R
+            acc = np.exp(- params.acc_scale * bins/self.rbns.reads[0].RT)
+            acc_raw = np.exp(-bins/self.rbns.reads[0].RT)
+            am = (acc[1:] + acc[:-1])/2.
+            amr = (acc_raw[1:] + acc_raw[:-1])/2.
+            
+            plt.figure(figsize=(2,2))
+            for r, ra, lbl, color in zip(R, R_avg, labels[1:], data_colors):
+                plt.semilogx(am, r, color=color, label=lbl)
+                plt.axhline(ra, color=color, linewidth=1, linestyle='dashed')
+
+            plt.legend(loc='best')
+            plt.xlabel("{} accessibility".format(kmer))
+            plt.ylabel("enrichment over input".format())
+            sns.despine()
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_scaled.pdf".format(kmer)))
+
+            plt.figure(figsize=(2,2))
+            for r, ra, lbl, color in zip(R, R_avg, labels[1:], data_colors):
+                plt.semilogx(amr, r, color=color, label=lbl)
+                plt.axhline(ra, color=color, linewidth=1, linestyle='dashed')
+
+            plt.legend(loc='best')
+            plt.xlabel("{} accessibility".format(kmer))
+            plt.ylabel("enrichment over input".format())
+            sns.despine()
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_raw.pdf".format(kmer)))
+
 
 
 if __name__ == "__main__":

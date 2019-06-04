@@ -1,7 +1,9 @@
 __license__ = "MIT"
-__version__ = "0.9.9"
+__version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
+
+dominguez_rbps = "BOLL,CELF1,CNOT4,CPEB1,DAZ3,DAZAP1,EIF4G2,ELAVL4,ESRP1,EWSR1,FUBP1,FUBP3,FUS,A1CF,HNRNPA1,HNRNPA2B1,HNRNPC,HNRNPCL1,HNRNPD,HNRNPDL,HNRNPF,HNRNPH2,HNRNPK,HNRNPL,IGF2BP1,IGF2BP2,ILF2,KHDRBS2,KHDRBS3,KHSRP,MBNL1,MSI1,NOVA1,NUPL2,PABPN1L,PCBP1,PCBP2,PCBP4,PRR3,PTBP3,PUF60,PUM1,RALY,RBFOX2,RBFOX3,RBM15B,RBM22,RBM23,RBM25,RBM4,RBM41,RBM45,RBM4B,RBM6,RBMS2,RBMS3,RC3H1,SF1,SFPQ,SNRPA,SRSF10,SRSF11,SRSF2,SRSF4,SRSF5,SRSF8,SRSF9,TARDBP,TIA1,TRA2A,TRNAU1AP,UNK,ZCRB1,ZFP36,ZNF326".split(',')
 
 import sys
 import itertools
@@ -30,13 +32,16 @@ def parse_cmdline():
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
-    parser.add_option("-r","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
-    parser.add_option("-p","--rbp-concentration", dest="rbp_conc", default="0,320", help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
+    parser.add_option("-R","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
+    parser.add_option("-P","--rbp-concentration", dest="rbp_conc", default="0,320", help="(comma separated list of) protein concentration used in the experiment(s) in nano molars (default=0,300)")
     parser.add_option("-T","--temperature", dest="temp", default=4., type=float, help="temperature of the experiment in degrees Celsius (default=4.0)")
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("-n","--n-max", dest="n_max", default=0, type=int, help="TESTING: read at most N reads")
+    parser.add_option("-N","--n-max", dest="n_max", default=10000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=10M, 0=off)")
+    parser.add_option("-n","--n-samples", dest="n_samples", default=1000000, type=int, help="TESTING: sub-sample n reads from N reads")
+    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="TESTING: re-sample every -r iterations of descent (default=5, 0 to disable)")
+    parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
     parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
@@ -54,37 +59,44 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
-    parser.add_option("-s","--seed-analysis-k",dest="seed_analysis",default=4, type=int, help="activate initial dependent kmer analysis to seed the motifs (default=4,0=off)")
+    parser.add_option("","--seed-k",dest="k_seed",default=7, type=int, help="kmer size used for seeding PSAM(s) (default=7)")
 
     # accessibility footprint analysis
-    parser.add_option("","--footprint-k", dest="footprint", default="5-11", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-11)")
+    parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
-    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
     parser.add_option("","--grad-k",dest="grad_k",default=6, type=int, help="k for gradient descent kmer R-value mean squared error objective function (default=6)")
     parser.add_option("","--grad-mdl",dest="grad_mdl",default="", choices=['partfunc', 'meanfield', 'invmeanfield', ''], help="method for gradient descent refinement of PSAM [partfunc, meanfield, invmeanfield, ''=off] default=partfunc")
     parser.add_option("","--grad-maxiter",dest="grad_maxiter",default=500, type=int, help="maximal number of gradient descent iterations (default=500)")
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
+    parser.add_option("","--excess-rbp",dest="excess_rbp",default=False, action="store_true",help="MODEL: pretend total RBP == free RBP")
+    parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
-    parser.add_option("", "--max-motifs", dest="max_motifs", default=4, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=4)")
+    parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
+    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.72, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
+    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
+
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
     parser.add_option("", "--opt-struct", dest="opt_struct", default=False, action="store_true", help="perform structure-aware gradient descent (STAGE3: struct stage)")
     parser.add_option("", "--opt-full", dest="opt_full", default=False, action="store_true", help="perform all stages of optimization (STAGE0 - STAGE3")
-    parser.add_option("", "--plot", dest="plot", default=False, action="store_true", help="plot results")
+    parser.add_option("", "--est-errors", dest="est_errors", default=False, action="store_true", help="perform PSAM error estimation")
+
+    parser.add_option("", "--plot", dest="plot", default="", help="(re-) generate plots. Comma-separated items from seed,descent,scatter,fp,lit,logos or 'all' ")
 
     parser.add_option("","--Z-threshold",dest="Z_thresh",default=0, type=float, help="drop reads that have Boltzmann weight of a factor of Z_thresh below the max weight (default=0/off)")
-    parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
+    # parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
+    parser.add_option("","--tau",dest="mdl_tau",default=23, type=int, help="convergence estimation interval (default=13) [Note, this should be larger than the re-sampling interval -r]")
 
     # TODO: update
-    parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
-    parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
-    parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
+    # parser.add_option("","--sensors",dest="mdl_report_sensors",default="correlation,betas,errors,R_values", help="list of sensors to keep track of optimization progress. default='correlation,betas,errors,R_values'")
+    # parser.add_option("","--report-interval",dest="mdl_report_interval",default=50, type=int, help="generate diagnostic/report PDFs every x iterations of the model fit (default=50)")
+    # parser.add_option("","--report-skip",dest="mdl_report_trigger",default="", help="comma separated list of events that should *not* trigger new plots")
 
     parser.add_option("","--reference",dest="ref_file",default="", help="tab-separated file with measured (reference) Kd values (default=use builtin known_kds.csv)")
     parser.add_option("","--compare",dest="compare",default="", help="compare to literature values for this protein")
@@ -102,12 +114,12 @@ def parse_cmdline():
     # parser.add_option("","--track-kmers",dest="track_kmers",default="", help="comma separated list of kmers to track during optimization.")
 
     # read simulation (currently broken)
-    parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
+    # parser.add_option("","--simulate",dest="simulate",choices=["","reads","comparison"],default="",help="simulate RBNS instead of analysis, choices are ['reads','comparison']")    
     parser.add_option("","--rnd-seed",dest="seed",default=47110815,type=int,help="seed for fast pseudo-random number generator (for RBNS simulation)")
-    parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
-    parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
-    parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
+    # parser.add_option("","--sim-best-Kd",dest="sim_best_Kd",default=10.,type=float,help="best binding dissociation constant for simulation in nM (default=10 nM)")
+    # parser.add_option("","--sim-var",dest="sim_var",default=10.,type=float,help="variance for simulated binding energy log-normal distribution (default=)")
+    # parser.add_option("","--sim-mean",dest="sim_mean",default=10.,type=float,help="mean for simulated binding energy log-normal distribution (default=)")
+    # parser.add_option("","--sim-N-reads",dest="sim_N_reads",default=1000000,type=int,help="number of reads to simulate (default=1,000,000)")
     
     options, args = parser.parse_args()
     
@@ -145,7 +157,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     for f in files:
         try:
-            name, conc = os.path.basename(f).split("_")
+            name, conc = os.path.basename(f).rsplit("_", 1)
             conc = conc.rsplit('.',1)[0]
             conc = float(conc.replace('input','0'))
         except ValueError:
@@ -353,7 +365,9 @@ class Run(object):
                 n_subsamples = self.options.subsamples,
                 adap3=self.options.adap3,
                 acc_storage_path = self.fold_path,
-                storage_kw=storage_kw
+                storage_kw=storage_kw,
+                n_samples=self.options.n_samples,
+                replace=self.options.replace
             )
             
             rbns.add_reads(reads)
@@ -372,7 +386,7 @@ class Run(object):
 
     def keep_best(self):
         if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best)
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best, k=6)
         return self.rbns
 
 
@@ -472,14 +486,14 @@ class Run(object):
 
     def seed_stage(self):
         from cska.seed import SeedRefinement
-        SR = SeedRefinement(self.rbns, km=self.options.seed_analysis, max_linear_k=self.options.max_width)
+        SR = SeedRefinement(self.rbns, km=self.options.k_seed, max_linear_k=self.options.max_width)
         # print "enriched MOTIFs in this library"
         # for m in SR.analysis.motifs_from_R(7):
         #     print m
         #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
-        self.params = SR.seeded_multi_params(self.rbns.n_samples)
+        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 
@@ -494,8 +508,11 @@ class Run(object):
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
         calibrated_set = []
-        for par in self.params:
-            cal = FootprintCalibration(self.rbns, par)
+        params = self.params.copy(sort=True)
+        for par in params:
+            cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
+            cal.compute_kmer_acc_profiles()
+
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
             if res:
@@ -512,46 +529,78 @@ class Run(object):
         self.params.save(path)
         return self.params
 
-    def make_plots(self):
+    def make_plots(self, plots):
+        if plots == ["all",] : 
+            plots = ['seed', 'descent', 'scatter', 'fp', 'lit', 'logos']
+
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
+        srep = report.SeedReport(path=plot_path, rbns=self.rbns)
+
         fprep = report.FootprintCalibrationReport(
             os.path.join(self.run_path, 'footprint/calibrated.tsv'),
-            out_path=plot_path
+            out_path=plot_path,
+            rbns=self.rbns
         )
-        fprep.report()
 
-        grep = report.GradientDescentReport(path=plot_path, comp=self.ref)
+        grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
-        grep.report()
-        
+
+        funcs = {
+            'seed' : srep.plot_R_dist,
+            'descent' : grep.plot_report,
+            'scatter' : grep.plot_scatter,
+            'fp' : fprep.report,
+            'lit' : grep.plot_literature,
+            'logos' : grep.plot_logos,
+            'aff' : grep.plot_affinity_dists, # EXPERIMENTAL
+            'afit' : grep.plot_param_error_scatter, # EXPERIMENTAL
+        }
+
+        for plt in plots:
+            funcs[plt]()
+
     def PSAM_gradient_descent(self, name="opt"):
 
         from cska.psamgrad import PSAMGradientDescent
         PGD = PSAMGradientDescent(
             self.rbns, 
             self.params, 
-            ref=self.ref, 
-            k_fit=self.options.grad_k, 
-            mdl_name=self.options.grad_mdl, 
-            Z_thresh=self.options.Z_thresh, 
-            run_name=name, 
-            maxiter=self.options.grad_maxiter, 
-            maxtime=self.options.grad_maxtime, 
-            eps=self.options.mdl_epsilon, 
-            redo=self.options.redo,
-            debug_grad=self.options.debug_grad
+            ref = self.ref, 
+            k_fit = self.options.grad_k, 
+            mdl_name = self.options.grad_mdl, 
+            Z_thresh = self.options.Z_thresh, 
+            run_name = name, 
+            maxiter = self.options.grad_maxiter, 
+            maxtime = self.options.grad_maxtime, 
+            eps = self.options.mdl_epsilon, 
+            tau = self.options.mdl_tau,
+            redo = self.options.redo,
+            # debug_grad = self.options.debug_grad,
+            resample_int = self.options.resample_int,
+            excess_rbp = self.options.excess_rbp,
+            linear_occ = self.options.linear_occ,
         )
-        PGD.optimize()
+        PGD.optimize(debug=self.options.debug_grad)
         self.params = PGD.descent.params
 
         return PGD.descent.status.startswith('CONVERGED')
 
+    def estimate_errors(self):
+        from cska.errors import PSAMErrorEstimator
+        est = PSAMErrorEstimator(os.path.join(self.run_path, 'opt_nostruct/'))
+        est.estimate()
 
 def main():
     options, args = parse_cmdline()
+    if options.seed:
+        print "seeding", options.seed
+        np.random.seed(options.seed)
+        import cska.cyska
+        cska.cyska.rand_seed(options.seed)
+
     run = Run(options, args)
 
     try:
@@ -604,7 +653,10 @@ def main():
                 run.mark_complete("struct")
 
         if options.plot:
-            run.make_plots()
+            run.make_plots(options.plot.split(','))
+
+        if options.est_errors:
+            run.estimate_errors()
 
     except SystemExit:
         # This is alright

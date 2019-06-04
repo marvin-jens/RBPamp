@@ -6,7 +6,7 @@ from cska.sc import SelfConsistency
 
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, **kwargs):
+    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, keep_Z1_motif=True, **kwargs):
         self.mdl = mdl
         self.params = params.copy()
         self.rbp_conc = mdl.rbp_conc
@@ -33,23 +33,34 @@ class PartFuncModelState(object):
                 openen_ofs=self.mdl.openen[key].ofs - par.k + 1 + par.acc_shift
             )
             Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
-            self.Z1_read_motif.append(Z1_read)
+            # self.Z1_read_motif.append(Z1_read)
         
             if self.Z1 is None:
-                self.Z1 = Z1
+                self.Z1 = np.array(Z1)
+                self.Z1_read = np.array(Z1_read)
+
                 self.Z1_motif.append(Z1)
-                self.Z1_read = Z1_read
+                self.Z1_read_motif.append(Z1_read)
                 self.Z1_read_max = Z1_read_max
             else:
                 A_rel = par.A0/self.params.A0 # additional motif affinities are relative to motif0.A0!
                 Zscaled = Z1 * A_rel
                 Zrscaled = Z1_read * A_rel
-                self.Z1_motif.append(Zscaled)
+
                 self.Z1 += Zscaled
                 self.Z1_read += Zrscaled
+
+                self.Z1_motif.append(Zscaled)
                 self.Z1_read_motif.append(Zrscaled)# * A_rel)
                 self.Z1_read_max = self.Z1_read_max + Z1_read_max * A_rel
                 # TODO: extend clipped_sum_and_max to handle max properly
+            
+            if not keep_Z1_motif:
+                # we only need these if we are going to compute gradients.
+                # during line-search a lot of RAM can be saved by dropping
+                # these large arrays right away
+                self.Z1_motif = []
+                self.Z1_read_motif = []
 
         # vector_stats(self.Z1_read)
         # self.Z1_read_max is used for thresholding
@@ -83,7 +94,10 @@ class PartFuncModelState(object):
 
     def _update_rbp_free(self, rbp_free):
         self.rbp_free = rbp_free
-        self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
+        if self.mdl.linear_occ:
+            self.psi = self.Z1_read[np.newaxis, :] * (self.rbp_free*self.params.A0)[:, np.newaxis]
+        else:
+            self.psi = cyska.p_bound(self.Z1_read, self.rbp_free*self.params.A0)
         self.q = self.mdl.PD_kmer_weights(self.psi)
         self.Q = self.q.sum(axis=1)
 
@@ -212,19 +226,13 @@ class PartFuncModelState(object):
         }        
         return Tracked(**s)
 
-    # def archive(self):
-    #     from copy import copy
-    #     arc = copy(self)
-    #     arc.Z1 = None
-    #     arc.Z1_read = None
-    #     arc.Z1_read_max = None
-    #     arc.Z1_motif = None
-    #     arc.Z1_read_motif = None
-    #     arc.psi = None
-    #     arc.Q = None
-    #     arc.w = None
-    #     arc.R_errors = None
-    #     return arc
+    def flush(self):
+        self.Z1 = None
+        # self.Z1_read = None  # needed by line_search to set_mask()
+        # self.Z1_read_max = None
+        self.Z1_motif = None
+        self.Z1_read_motif = None
+        self.psi = None
 
     def __str__(self):
         buf = [str(self.params)]
@@ -243,7 +251,7 @@ class PartFuncModel(object):
     be more complex than the kmer frequencies
     being used to estimate agreement with the experiment.
     """
-    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, **kwargs):
+    def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, excess_rbp=False, linear_occ=False, **kwargs):
         self.logger = logging.getLogger('model.PartFuncModel')
         self.rbp_conc = np.array(rbp_conc, dtype=np.float32)
         self.reads = reads
@@ -255,6 +263,8 @@ class PartFuncModel(object):
         # self.acc_scale = self.params.acc_scale
 
         self.Z_thresh = Z_thresh
+        self.excess_rbp = excess_rbp
+        self.linear_occ = linear_occ
 
         self.n_samples, self.nA = R0.shape
         assert self.n_samples == params0.n_samples
@@ -269,11 +279,21 @@ class PartFuncModel(object):
         self.aff0 = aff0
         self.opt = None
 
+        self.n_fev = 0
+        self.t_fev = 0
+        self.n_grad = 0
+        self.t_grad = 0
+        self.t_aff = 0
+
+        self.init_data()
+
+    def init_data(self):
         self.im = self.reads.get_index_matrix(self.k)
         self.seqm = self.reads.get_padded_seqm(self.k_mdl)  #2bit coded read sequences, including flanking adapter overlap
         # self.im_mdl = self.reads.get_index_matrix(self.k_mdl) # k_mdl-mer indices from the reads
 
         self.openen = {}
+        self.full_acc = {}
         self.acc = {}
         self._acc = {}
         for par in self.params:
@@ -281,13 +301,15 @@ class PartFuncModel(object):
             # these parameters don't change over the course of the optimization
             # load the matching kmer accessibilities and scale them only once!
             openen = self.reads.acc_storage.get_raw(par.acc_k)  
+            self.openen[key] = openen
+            
             acc = openen.acc
             if par.acc_scale != 1.:
                 self.logger.debug("scaling accessibilities by {}".format(par.acc_scale))
                 acc = np.array(acc, dtype=np.float32)  # make a scaled *copy*
                 cyska.pow_scale(acc, par.acc_scale)
             
-            self.openen[key] = openen
+            self.full_acc[key] = acc
             self.acc[key] = acc
             self._acc[key] = acc
             assert np.isfinite(acc).all()
@@ -297,12 +319,26 @@ class PartFuncModel(object):
         self._seqm = self.seqm
         self._im = self.im
         self.N = np.float32(len(self._seqm))
+        self.logger.debug("initialized partfunc model on {} reads".format(self.N))
 
-        self.n_fev = 0
-        self.t_fev = 0
-        self.n_grad = 0
-        self.t_grad = 0
-        self.t_aff = 0
+    def init_subsample(self):
+        sub = self.reads.get_new_subsample()
+        self.im = sub.get_index_matrix(self.k)
+        self.seqm = sub.get_padded_seqm(self.k_mdl)
+
+        for par in self.params:
+            key = (par.acc_k, par.acc_scale)
+            acc = sub.sub_sampler.draw(self.full_acc[key])
+            self.acc[key] = acc
+            self._acc[key] = acc
+            assert np.isfinite(acc).all()
+
+        # in case a mask is set, this can be a subset
+        self.indices = []
+        self._seqm = self.seqm
+        self._im = self.im
+        self.N = np.float32(len(self._seqm))
+        self.logger.debug("initialized subsample of {} reads".format(self.N))
 
     def set_R0(self, R0):
         self.R0 = np.array(R0, dtype=np.float32)
@@ -317,7 +353,7 @@ class PartFuncModel(object):
         self.Rf0 = self.R0 * self.f0[np.newaxis]
         self.beta_denom = self.F0[np.newaxis, :] * (1 - self.R0)
 
-    def tune(self, state, debug=True, maxiter=5):
+    def tune(self, state, debug=False, maxiter=5, min_A0=1e-4, max_A0=1000.):
         params = state.params
         A00 = params.A0
         from cska.gradient import minimize_logspaced
@@ -352,12 +388,12 @@ class PartFuncModel(object):
 
             return state.error
 
-        res = minimize_logspaced(err, bounds=np.array((1e-3, 1000)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
+        res = minimize_logspaced(err, bounds=np.array((min_A0, max_A0)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
 
         if debug:
             print res
     
-        if 5e-3 < res.x < 500:
+        if min_A0 < res.x < max_A0:
             state.params.A0 = res.x
         else:
             self.logger.debug("fit would push A0 to boundaries. Letting drift through gradient-only instead.")
@@ -398,9 +434,15 @@ class PartFuncModel(object):
         self.N = np.float32(len(self._seqm))
 
     def SPA_free_protein(self, Z1, Z_scale=1.):
-        sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
-        rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=Z_scale)
-        self._last_sc = sc  # keep for debugging or re-use (if Z1 is unaltered)
+        if self.excess_rbp:
+            # pretend all RBP is available
+            rbp_free = self.rbp_conc
+        
+        else:
+            sc = SelfConsistency(Z1, self.reads.rna_conc, bins=1000)
+            rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=Z_scale)
+            self._last_sc = sc  # keep for debugging or re-use (if Z1 is unaltered)
+
         return np.array(rbp_free, dtype=np.float32)
 
     def PD_kmer_weights(self, psi):
@@ -410,12 +452,12 @@ class PartFuncModel(object):
 
         return w
 
-    def predict(self, params, aff0=1e-6, debug=False, tune=False, **kwargs):
+    def predict(self, params, debug=False, tune=False, **kwargs):
         t0 = time.time()
         state = PartFuncModelState(self, params, **kwargs)
         self.logger.debug("predict(took {:.2f} ms".format(1000. * (time.time() - t0)))
         if tune:
-            state = self.tune(state)
+            state = self.tune(state, debug=debug)
 
         return state
 
@@ -463,11 +505,13 @@ class PartFuncModel(object):
                 # print beta, "->", error, "R({})".format(top_mer), R[top_i], self.R0[i,top_i]
                 return error
             
-            res = minimize_logspaced(to_optimize, bounds=np.array([1e-7, 10]), n_samples=7, debug=False)
+            res = minimize_logspaced(to_optimize, bounds=np.array([1e-9, 10]), n_samples=7, debug=False)
             # res = minimize_scalar(to_optimize, opt_betas[i], bounds=np.array([1e-7, 10]), method='Bounded')
             # print "beta",i, res
             if res.success:
                 opt_betas[i] = res.x
+            else:
+                self.logger.warning("optimal_betas() did not converge! res={}".format(res))
 
         # print "final values", opt_betas
         # self.logger.debug("optimal_betas took {0:.2f} ms".format(1000. * (time.time() - t0)))

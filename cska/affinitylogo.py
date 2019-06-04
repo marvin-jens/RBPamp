@@ -30,8 +30,13 @@ import numpy as np
 import pandas
 from svgpath2mpl import parse_path
 
-_pal = sns.color_palette('colorblind')
-default_colors = {'A': _pal[1], 'C': _pal[0], 'G': _pal[4], 'T': _pal[2], 'U': _pal[2]}
+# _pal = sns.color_palette('bright')
+# default_colors = {'A': _pal[1], 'C': _pal[0], 'G': _pal[4], 'T': _pal[2], 'U': _pal[2]}
+
+# _pal = sns.xkcd_palette(['teal', 'cobalt blue', 'amber', 'scarlet'])
+_pal = sns.xkcd_palette(['moss', 'cobalt blue', 'amber', 'scarlet'])
+default_colors = {'A': _pal[0], 'C': _pal[1], 'G': _pal[2], 'T': _pal[3], 'U': _pal[3]}
+
 default_glyphs = {}
 default_glyphs['A'] = """\
 M 235,-357
@@ -152,32 +157,85 @@ Q 352,12 301,12
 Z
 """
 
-def nice_conc(kd, digits=3):
+def nice_conc(kd, lo=None, hi =None, digits=3):
+    """
+    determines the appropriate unit to represent the concentraion.
+    takes into account low and high confidence interval to compute 
+    error and print appropriate number of significant digits.
+    example.
+
+    >>> nice_conc(kd=1.555556, lo=1.2341434, hi=1.812314324) 
+    1.56 (+0.25 -0.27) nM 
+    """
+
     if not np.isfinite(kd):
         return str(kd)
+
+    def leading_digit(x, space=3, umin=-3, umax=6):
+        if x <= 0:
+            return umin
+
+        dec = np.log10(x)
+        u = int(np.floor(dec / space)) * space
+        u = max(umin, u)
+        u = min(umax, u)
+        return u
+
+    def round_sig(f, p, mode='round'):
+        from math import floor, ceil
+        if mode == 'ceil':
+            f = ceil(10**p * f) / 10**p
+        if mode == 'floor':
+            f = floor(10**p * f) / 10**p
+
+        if p == 0:
+            r = int(round(f))
+        else:
+            r = float(('%.' + str(p) + 'f') % f)
+        # print(f,p, "->", r)
+        return r
 
     if kd <= 0:
         val = kd
         unit = "nM"
     else:
-        dec = np.log10(kd)
-        u = int(np.floor(dec /3)) * 3
-        u = max(-3, u)
-        u = min(6, u)
+        u = leading_digit(kd)
+        # print("leading dig of kd", u)
+        if (not lo is None) and (not hi is None):
+            ul = leading_digit(lo)
+            uh = leading_digit(hi)
+
+            # print("all the 3-group units", u, ul, uh)
+            u = max(u, ul, uh)
+            err_lo = kd - lo
+            err_hi = hi - kd
+            dl = - leading_digit(err_lo, space=1, umin=-9, umax=6)
+            dh = - leading_digit(err_hi, space=1, umin=-9, umax=6)
+            digits = min(dl, dh) + u + 1  # max(0, min(u - ul, u - uh))
+            digits = max(0, digits)
+            # print("dl, dh", dl, dh, digits)
+            # errstr = "(+{} -{}) ".format(
+            #     round_sig(err_hi/10**u, digits, mode='ceil'), 
+            #     round_sig(err_lo/10**u, digits, mode='ceil')
+            # )
+            errstr = "({} - {}) ".format(
+                round_sig(lo/10**u, digits, mode='ceil'), 
+                round_sig(hi/10**u, digits, mode='ceil')
+            )
+
+        else:
+            errstr = ""
         units = {
-            -3 : u"pM",
-            0 : u"nM",
-            3 : u"μM",
-            6 : u"mM",
+            -3: u"pM",
+            0: u"nM",
+            3: u"μM",
+            6: u"mM",
         }
         unit = units.get(u, 'UNDEFINED')
-
-        def round_sig(f, p):
-            return float(('%.' + str(p) + 'e') % f)
-
         val = round_sig(kd / 10**u, digits)
 
-    return u"{:g} {}".format(val, unit)
+    return u"{:g} {}{}".format(val, errstr, unit)
+
 
 def _get_glyph(path_data, color, x, y, dx, dy, **kwargs):
     kwargs.setdefault('facecolor', color)
@@ -200,6 +258,7 @@ def _draw_logo(ax, matrix, charwidth, glyphs=default_glyphs, colors=default_colo
         letters_sorted = position.sort_values()
         bottom = 0
         for letter, height in letters_sorted.iteritems():
+            print(letter, height)
             patch = _get_glyph(glyphs[letter], colors[letter],
                                i*charwidth, bottom, charwidth, height)
             ax.add_artist(patch)
@@ -231,7 +290,7 @@ def plot_seqlogo(ax, pfm, info=False, charwidth=1.0, **kwargs):
         ax.yaxis.set_major_locator(ticker.FixedLocator([0., 1., 2.]))
 
 
-def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="title", **kwargs):
+def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="", **kwargs):
     matrix = np.array(matrix)   # work on local copy!
     d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75
     matrix *= d[:, np.newaxis]
@@ -250,7 +309,8 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
                 ax.add_artist(patch)
 
     ax.set_xlim([0, seqlen * charwidth])
-    ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
+    # ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
+    ax.set_ylim(0, 1)
     
     # major ticks
     ax.tick_params(which='major', direction='out')
@@ -263,12 +323,14 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
     ax.xaxis.set_minor_locator(ticker.FixedLocator(np.arange(0, seqlen) + 0.5))
     ax.xaxis.set_minor_formatter(ticker.FixedFormatter(np.arange(1, seqlen+1)))
     
-    ax.set_aspect(1)
+    ax.set_aspect(3)
     ax.set_xlabel('position [nt]')
-    ax.set_ylabel('rel. affinity x discrimination')
+    ax.set_ylabel('preference')
 
     if title:
         ax.set_title(title)
+    
+    return ax
 
 ctcf_str = """\
 P0 A C G T
@@ -301,10 +363,19 @@ def reverse_complement(matrix):
 # print(pfm.head())
 
 if __name__ == "__main__":
+    # print(nice_conc(1.554656444444, .822243313, 1.897328472876))
+    # print(nice_conc(1.554656444444, .0822243313, 1.897328472876))
+
+    np.random.seed(123345)
     for x in np.random.random(1000):
         y = np.random.randint(-5, high=8)
         x *= 10**y
-        print(x, nice_conc(x))
+        ye = y + 1 if y < 0 else y -1
+        d = np.random.normal(scale=10**ye)
+        d2 = np.random.normal(scale=10**ye)
+        lo = max(1e-6, x-np.fabs(d))
+        hi = x+np.fabs(d2)
+        print(x, lo, hi, '->', nice_conc(x, lo=lo, hi=hi))
 
     # fig = plt.figure(figsize=(6, 3))
     # ax = fig.add_subplot(111)

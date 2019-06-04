@@ -90,10 +90,12 @@ class RefComparison(object):
         aff = np.zeros(len(self.seqs), dtype=np.float32)
         for i, params in enumerate(paramset):
             a = self.predict_affinities(params)
-            if i > 0:
-                a *= paramset.A0
+            # # if i > 0:
+            # a *= paramset.A0
+            # print i, a
             aff += a
         
+        # print "combined Kd", 1./aff
         return aff
 
     def predict_affinities(self, params):
@@ -106,22 +108,31 @@ class RefComparison(object):
 
         # from cska.seed import Alignment
         # A = Alignment()
+        psam = params.as_PSAM()
         matrix = params.psam_matrix
+        # print matrix
         missing = []
-        core_start = params.acc_shift
-        core_end = core_start + params.acc_k
+        core_start = max(0, params.acc_shift)
+        core_end = min(core_start + params.acc_k, len(matrix))
         if core_end == core_start:
             # handle nostruct runs with acc_k=0
             core_end = len(matrix)
 
+        # core_start = 0
+        # core_end = len(matrix)
+        # print "core", core_start, core_end
+        disc = psam.discrimination
         for i in range(len(matrix)):
 
-            if i < core_start:
-                missing.append( matrix[i].max() )
-            elif i < core_end:
-                missing.append( matrix[i].min() )
-            else:
-                missing.append( matrix[i].max() )
+            # if i < core_start:
+            #     missing.append( matrix[i].max() )
+            # elif i < core_end:
+            #     missing.append( matrix[i].min() )
+            # else:
+            #     missing.append( matrix[i].max() )
+            d = disc[i]
+            m = matrix[i].min()
+            missing.append( (d*m) + (1-d) ) # if d ~ 1, take the minimum. If d ~ 0, don't care about the base.
 
         def align(seq, min_overlap=2):
             l = len(seq)
@@ -155,8 +166,10 @@ class RefComparison(object):
                 
                 alignments.append( (score, ofs) )
 
+            Z = np.array([aln[0] for aln in alignments])
             best = sorted(alignments)[-1]
-            return best
+            # return best
+            return Z.sum(), best[1]
 
         for seq in self.seqs:
             l = len(seq)

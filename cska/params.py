@@ -37,12 +37,13 @@ class Proxy(object):
         return d
 
 class ModelSetParams(object):
-    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_shift', 'acc_scale']):
+    def __init__(self, param_set, forward = ['k', 'n_samples', 'k_mdl', 'acc_shift', 'acc_scale'], sort=False):
         self._forward = set(forward)
-        self.param_set = param_set
-        # for name in forward:
-        #     setattr(ModelSetParams, name, property(fget = lambda : getattr(self.param_set[0], name)))
-        
+        if sort:
+            self.param_set = sorted(param_set, key = lambda params: params.A0, reverse=True)
+        else:
+            self.param_set = param_set
+
     def __getattr__(self, attr):
         fw = object.__getattribute__(self, '_forward')
         p0 = object.__getattribute__(self, 'param_set')[0]
@@ -89,8 +90,8 @@ class ModelSetParams(object):
     def betas(self, value):
         self.param_set[0].betas = value
 
-    def copy(self):
-        return ModelSetParams([p.copy() for p in self.param_set])
+    def copy(self, sort=False):
+        return ModelSetParams([p.copy() for p in self.param_set], sort=sort)
 
     def get_data(self):
         "return one np.ndarray containing all model parameters"
@@ -107,6 +108,7 @@ class ModelSetParams(object):
             i += l
 
         assert i == len(data)
+        return self
     
     def unity(self):
         p = self.copy()
@@ -181,16 +183,15 @@ class ModelSetParams(object):
         c.set_data( - self.get_data())
         return c
 
-    def apply_delta(self, delta_set):
-        c = self.copy()
+    def apply_delta(self, delta_set, min_rel_A0=1e-4):
         new = []
-        for i, (params, delta) in enumerate(zip(c.param_set, delta_set)):
+        for i, (params, delta) in enumerate(zip(self.copy(), delta_set)):
             p = params.psam_matrix + delta.psam_matrix
             # print i, "after applying update of magnitude", np.fabs(delta.data).max(), "min/max", p.min(), p.max()
-            m = p.min(axis=1) # find out if we dropped below zero
-            m = np.where(m < 0, -m + 1e-6, 0)
-            # print "raise", m
-            p += m[:, np.newaxis] # and raise the level in these columns accordingly
+            # m = p.min(axis=1) # find out if we dropped below zero
+            # m = np.where(m < 0, -m + 1e-6, 0)
+            # # print "raise", m
+            # p += m[:, np.newaxis] # and raise the level in these columns accordingly
             p = np.clip(p, 1e-6, None)
             M = p.max(axis=1) # increases above 1 on cognate should increase A0
             p /= M[:,np.newaxis]
@@ -203,8 +204,66 @@ class ModelSetParams(object):
             params.betas = np.clip(params.betas + delta.betas, 1e-9, None)
             new.append(params)
 
-        c.param_set = new
-        return c
+        # ensure max and min A0 don't drift more than a factor 
+        # of min_rel_A0 apart. Otherwise motifs can get stuck at A0 ~ 0
+        # and never come back bc grad -> 0 as A0 -> 0
+        a0s = np.array([params.A0 for params in new])
+        min_a0 = a0s.max() * min_rel_A0
+        a0s = np.where(a0s > min_a0, a0s, min_a0)
+        for a0, params in zip(a0s, new):
+            params.A0 = a0
+
+        return ModelSetParams(new)
+
+    def save_logos(self, fname, lo=None, hi=None, title=""):
+        # TODO: add error estimates to Kd 
+        import matplotlib.pyplot as plt
+        from cska.affinitylogo import plot_afflogo, nice_conc
+
+        n = len(self.param_set)
+        fig = plt.figure(figsize=(3, n*.75))
+        if title:
+            plt.suptitle(title)
+
+        for i, params in enumerate(self.param_set):
+            kd = 1. / params.A0
+            if (lo is None) or (hi is None):
+                kdstr = u"$K_d$ = {}".format(nice_conc(kd))
+            else:
+                kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
+
+            ax = plot_afflogo(
+                fig.add_subplot(n*100 + 20 + (2*i+1)), 
+                params.as_PSAM().psam, 
+                # title = kdstr
+            )
+            # print ax
+            if i < n-1:
+                ax.set_xlabel('')
+                ax.tick_params(
+                    axis='x',          # changes apply to the x-axis
+                    which='both',      # both major and minor ticks are affected
+                    bottom=False,      # ticks along the bottom edge are off
+                    top=False,         # ticks along the top edge are off
+                    labelbottom=False
+                )
+
+            ax = fig.add_subplot(n*100 + 20 + (2*i+2))
+            ax.text(0, 0.5, kdstr)
+            ax.tick_params(
+                axis='both',          # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom=False,      # ticks along the bottom edge are off
+                top=False,         # ticks along the top edge are off
+                left=False,
+                labelbottom=False,
+                labelleft=False,
+            )
+
+
+        plt.tight_layout()
+        plt.savefig(fname)
+        plt.close()
 
 
 class ModelParametrization(object):
@@ -435,7 +494,28 @@ class ModelParametrization(object):
         return ModelParametrization.from_vector(- self.data, self.k, self.n_samples)
 
 
-if __name__ == "__main__":
+def test_logo():
+    from cska.pwm import PSAM
+    A = PSAM.from_kmer('TATTTTATT')
+    A.psam = np.where(A.psam < 1., 1e-6, 1.)
+    A.A0 = .5
+
+    B = PSAM.from_kmer('TTAATTAAA')
+    B.psam = np.where(B.psam < 1., 1e-6, 1.)
+    B.A0 = 3.28
+
+    C = PSAM.from_kmer('TTGAGTTTT')
+    C.psam = np.where(C.psam < 1., 1e-6, 1.)
+    C.A0 = 1.8
+
+    param_set = [ModelParametrization.from_PSAM(A), ModelParametrization.from_PSAM(B), ModelParametrization.from_PSAM(C)]
+    for p in param_set:
+        print p
+    params0 = ModelSetParams(param_set)
+    print params0
+    params0.save_logos('motifs.svg')
+
+def test_save_load():
     psam = np.identity(4)
     print psam
 
@@ -444,3 +524,7 @@ if __name__ == "__main__":
 
     params = ModelParametrization.load('bla.tsv', 3)
     print params
+
+if __name__ == "__main__":
+    test_logo()
+    # test_save_load()

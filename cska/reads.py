@@ -11,9 +11,22 @@ import cska.cyska as cyska
 
 from cska.caching import cached, pickled, CachedBase
 import cska.fold
+from cska.subsampling import SubSampler
 
 class RBNSReads(CachedBase):
-    def __init__(self, fname, format='raw', chunklines=2000000, n_max=0, pseudo_count=10, seqm=[], rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22, n_subsamples = 0, adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", acc_storage_path='cska/acc', storage_kw=dict(disc_mode='linear')):
+    def __init__(
+        self, 
+        fname, 
+        rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22,
+        format='raw', chunklines=2000000, n_max=0,
+        adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg",
+        storage_kw=dict(disc_mode='linear'),
+        acc_storage_path='cska/acc',
+        acc_storage=None,
+        pseudo_count=10, seqm=[], n_subsamples = 20,
+        n_samples=0, replace=0,
+        sub_sampler=None,
+        ):
         
         CachedBase.__init__(self)
         
@@ -22,6 +35,7 @@ class RBNSReads(CachedBase):
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
         self.temp = temp
+        self.RT = (self.temp + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
         self.adap5 = adap5
         self.adap3 = adap3
         self.l5 = len(adap5)
@@ -37,23 +51,24 @@ class RBNSReads(CachedBase):
         self.format = format
 
         if len(seqm):
-            self.is_subsample = True
             self.cache_preload("seqm", seqm)
             N, L = seqm.shape
             self.cache_preload("N", N)
             self.cache_preload("L", L)
-            # self.N, self.L = seqm.shape
-            # self.N_total = self.N
-        else:
-            self.is_subsample = False
-            # self.N_total, self.L = self.get_dimensions(fname)
-            # if n_max:
-            #     self.N = n_max
-            # else:
-            #     self.N = self.N_total
+
+        self.is_subsample = not (sub_sampler is None)
 
         # TODO: rel-path
-        self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
+        if self.is_subsample:
+            self._do_not_cache = True
+            self._do_not_pickle = True
+            self.sub_sampler = sub_sampler
+            self.logger.debug("we are a sub-sample and inherit sub-sampler {}".format(self.sub_sampler))
+            self.acc_storage = acc_storage
+        else:
+            self.sub_sampler = SubSampler(self.N, n_samples, replace=replace)
+            self.logger.debug("we are at top-level and created new sub-sampler {}".format(self.sub_sampler))
+            self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
     def iter_reads(self, n_skip=0):
         if hasattr(self.fname, "read"):
@@ -100,17 +115,15 @@ class RBNSReads(CachedBase):
     @classmethod
     def from_seqs(cls, seqs, fname = "", **kwargs):
         
-        reads = cls(fname, **kwargs)
+        seqm = cyska.read_raw_seqs_chunked(seqs)
+        reads = cls(fname, seqm=seqm, **kwargs)
         reads._do_not_unpickle = True
         reads._do_not_pickle = True
-        seqm = cyska.read_raw_seqs_chunked(seqs, chunklines=reads.chunklines, n_max=reads.n_max)
-        N, L = seqm.shape
-        reads.cache_preload("seqm", seqm)
+        # N, L = seqm.shape
+        # reads.cache_preload("seqm", seqm)
         # self.N = N
         # self.N_total = N
         # self.L = L
-        reads.cache_preload("N", N)
-        reads.cache_preload("L", L)
         
         return reads
 
@@ -140,12 +153,26 @@ class RBNSReads(CachedBase):
         ss._do_not_cache = True
         return ss
 
+    def get_new_subsample(self):
+        self.sub_sampler.new_indices()
+        ss = RBNSReads(
+            self.fname,
+            seqm = self.sub_sampler.draw(self.seqm),
+            pseudo_count = self.pseudo_count,
+            rbp_name = "{self.rbp_name}_sub-{self.sub_sampler}".format(self=self),
+            rbp_conc = self.rbp_conc,
+            sub_sampler = self.sub_sampler,
+            acc_storage = self.acc_storage
+        )
+        return ss
+
     @property
     @cached
     def subsamples(self):
         # TODO: do this more rigorously. Perhaps bootstrapping is better?
         self.logger.info("subsampling reads...")
-        return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+        # return [self._subsample(i, self.n_subsamples) for i in range(self.n_subsamples)]
+        return [self.get_new_subsample() for i in range(self.n_subsamples)]
 
     @property
     @cached
@@ -161,7 +188,6 @@ class RBNSReads(CachedBase):
         N, L = seqm.shape
         self.logger.info("read {0:.3f}M sequences of length {1}.".format(N/1E6, L) )
         self.time_logger.debug("read {0:.3f}M x {1}nt in {2:.2f}ms.".format(N/1E6, L, 1000. * (t1-t0)) )
-
         return seqm
 
     def get_padded_seqm(self, k):
@@ -233,54 +259,115 @@ class RBNSReads(CachedBase):
 
         return prof
 
-    def PSAM_partition_function(self, params, full_reads=False):
+    def PSAM_partition_function(self, params, full_reads=False, subsample=False, split=False):
         """
         Note: it is more efficient to request the necessary ingredients once and re-use them, as
         PartFuncModel does. But if you just want to evaluate a PSAM model once and get the scores,
         this should do the trick! Set params.acc_k=0 to disable accessibility scoring.
         """
+        seqm, accs_k, accs, accs_scaled, accs_ofs = self.get_data_for_PSAM(params, full_reads, subsample)
+        if split:
+            return self.evaluate_partition_function_split(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
+        else:
+            return self.evaluate_partition_function(params, seqm, accs_k, accs, accs_scaled, accs_ofs)
+
+    def evaluate_partition_function(self, params, seqm, accs_k, accs, accs_scaled, accs_ofs):
+        non_specific = getattr(params, "non_specific", 0.)
+
+        data = zip(params, accs_k, accs, accs_scaled, accs_ofs)
+        Z1 = None
+        for i, (par, acc_k, acc, acc_scaled, acc_ofs) in enumerate(data):
+            Z = cyska.PSAM_partition_function(
+                seqm, 
+                acc_scaled,
+                np.array(par.psam_matrix, dtype=np.float32),
+                openen_ofs = acc_ofs, 
+                non_specific = non_specific
+            )
+            if Z1 is None:
+                Z1 = Z*(par.A0 / params.A0)
+            else:
+                Z1 += Z*(par.A0 / params.A0)
+        
+        return Z1 # relative affinities of all motif instances everywhere
+
+    def evaluate_partition_function_split(self, params, seqm, accs_k, accs, accs_scaled, accs_ofs):
+        non_specific = getattr(params, "non_specific", 0.)
+
+        data = zip(params, accs_k, accs, accs_scaled, accs_ofs)
+        Z1 = None
+        Zm = []
+        for i, (par, acc_k, acc, acc_scaled, acc_ofs) in enumerate(data):
+            Z = cyska.PSAM_partition_function(
+                seqm, 
+                acc_scaled,
+                np.array(par.psam_matrix, dtype=np.float32),
+                openen_ofs = acc_ofs, 
+                non_specific = non_specific
+            )
+            Zm.append(Z * (par.A0 / params.A0) )
+        
+        return Zm # relative affinities of all motif instances everywhere
+
+    def get_data_for_PSAM(self, params, full_reads=False, subsample=False):
         if full_reads:
             seqm = self.get_full_seqm()
         else:
             seqm = self.get_padded_seqm(params.k)
+        
+        w = self.L + self.l5 + self.l3 - params.k + 1
 
-        w = self.L - params.k + 1 + self.l5 + self.l3
-       
-        acc_k = getattr(params, "acc_k", None)
-        if not acc_k:
-            self.logger.debug("acc_k=0 pretending everything is accessible")
-            acc1 = np.ones( (self.N, w), dtype=np.float32)
-            ofs = self.l5 - params.k + 1 + params.acc_shift
-        else:
-            openen = self.acc_storage.get_raw(acc_k)
-            acc1 = np.array(openen.acc)
-            ofs = openen.ofs - params.k + 1 + params.acc_shift
-            acc_scale = getattr(params, "acc_scale", 1.)
-            if acc_scale != 1.:
+        if subsample:
+            self.logger.debug("PSAM_partition_function() subsampling seqm with {}".format(self.sub_sampler))
+            seqm = self.sub_sampler.draw(data=seqm)
+
+        accs_k = []
+        accs = []
+        accs_scaled = []
+        accs_ofs = []
+        for i, par in enumerate(params):
+            acc_k = getattr(par, "acc_k", None)
+            acc_scale = getattr(par, "acc_scale", 1.)
+            print par.as_PSAM().consensus
+            if not acc_k:
+                self.logger.debug("acc_k=0 pretending everything is accessible")
+                acc = np.ones( (self.N, w), dtype=np.float32)
+                acc_scale = 1.
+            else:
+                openen = self.acc_storage.get_raw(acc_k)
+                acc = np.array(openen.acc)
+
+            if full_reads:
+                ofs = params.acc_shift
+            else:
+                ofs = self.l5 - par.k + 1 + par.acc_shift
+                    # ofs = openen.ofs - params.k + 1 + params.acc_shift
+            if subsample:
+                self.logger.debug("PSAM_partition_function() subsampling acc with {}".format(self.sub_sampler))
+                acc = self.sub_sampler.draw(data=acc)
+
+            if acc_scale != 1. and acc_k:
                 # print "power"
                 # import time
                 # t0 = time.time()
                 # np.power(acc1, acc_scale)
                 t1 = time.time()
-                cyska.pow_scale(acc1, acc_scale)
+                acc_scaled = np.array(acc)
+                cyska.pow_scale(acc_scaled, acc_scale)
                 # t2 = time.time()
                 # print "got it", t1-t0, t2-t1
+            else:
+                acc_scaled = acc
+            
+            accs_k.append(acc_k)
+            accs.append(acc)
+            accs_scaled.append(acc_scaled)
+            accs_ofs.append(ofs)
 
-        if full_reads:
-            ofs = params.acc_shift
+        return seqm, accs_k, accs, accs_scaled, accs_ofs
 
-        print ofs, acc1.shape, seqm.shape
-        non_specific = getattr(params, "non_specific", 0.)
-        Z1 = cyska.PSAM_partition_function(
-            seqm, 
-            acc1,
-            np.array(params.psam_matrix, dtype=np.float32),
-            openen_ofs=ofs, non_specific = non_specific
-        )
-        
-        return Z1 # relative affinities of all motif instances everywhere
 
-    def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, **kwargs):
+    def weighted_accessibility_profile(self, Z1, k_motif, pad=0, k_acc=1, row_w = None, subsample=False, **kwargs):
         """
         Use Boltzmann-weights in Z1 to weigh k-nt accesibility (p-unpaired) profiles across the motifs + <pad> nts 
         on either side.
@@ -289,8 +376,13 @@ class RBNSReads(CachedBase):
         # t0 = time()
         openen = self.acc_storage.get_raw(k_acc)
         acc = openen.acc  # trigger access to raw data
+        if subsample:
+            acc = self.sub_sampler.draw(data=acc)
+
         if openen.missing_data and k_acc > 0:
             raise ValueError("missing accessibility data for {} k_acc={}".format(self.fname, k_acc))
+        
+        # print np.isfinite(Z1).all(), np.isfinite(acc).all(), k_motif, openen.ofs - k_motif + 1, pad, row_w, k_acc
         # t1 = time()
         fp = cyska.acc_footprints(Z1, acc, k_motif, k_acc, openen.ofs - k_motif + 1, pad=pad, row_w = row_w)
         # t2 = time()
@@ -303,6 +395,20 @@ class RBNSReads(CachedBase):
         counts, openen = cyska.kmer_acc_counts(self, k)
         return counts, openen.acc_lookup
         
+    def get_kmer_raw_unfolding_energy(self, kmer):
+        """
+        Extract accessibilities for all instances of a specific kmer.
+        """
+        k = len(kmer)
+        kmer_i = cyska.seq_to_index(kmer)
+        im = self.get_index_matrix(k)
+        openen = self.acc_storage.get_raw(k)
+        oem = openen.oem # open-energy matrix
+        ofs = openen.ofs - k + 1
+        data = cyska.collect_kmer_acc(im, oem, kmer_i, ofs)
+
+        return data
+
     @property
     @cached
     @pickled
@@ -341,11 +447,11 @@ class RBNSReads(CachedBase):
         """
         self.seqm # trigger loading, so that timer is correct
         im = self.get_index_matrix(k)
-        print "IM", im.shape
+        # print "IM", im.shape
         openen = self.acc_storage.get_raw(k)
         acc = openen.acc
-        print "acc", acc.shape, acc.min(), acc.max()
-        print "openen_ofs", openen.ofs - k + 1
+        # print "acc", acc.shape, acc.min(), acc.max()
+        # print "openen_ofs", openen.ofs - k + 1
         t0 = time.time()
         weighted = cyska.kmer_counts_acc_weighted(im, acc, k, openen_ofs=openen.ofs - k + 1)
         t = time.time() - t0
@@ -588,19 +694,45 @@ class RBNSReads(CachedBase):
     def __str__(self):
         return "RBNSReads('{self.fname}' N={self.N} L={self.L})".format(self=self)
 
+    def cache_flush(self, *argc, **kwargs):
+        CachedBase.cache_flush(self, *argc, **kwargs)
+        self.acc_storage.cache_flush(deep=True)
+
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
-    CachedBase.debug_caching=True
-    test_reads = [
-        "TAATTTTTGCATGAAAAATCGAT",
-        "AGAGGAGAGAGAGAGTCGCGCGA",
-        "CGCGCGCGTCGCGATAGCGTCGA",
-    ]
+    # CachedBase.debug_caching=True
+    # test_reads = [
+    #     "TAATTTTTGCATGAAAAATCGAT",
+    #     "AGAGGAGAGAGAGAGTCGCGCGA",
+    #     "CGCGCGCGTCGCGATAGCGTCGA",
+    # ]
     
-    reads = RBNSReads.from_seqs(test_reads)
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', n_max=1000000)
+    # reads = RBNSReads.from_seqs(test_reads)
+    seed = 471108153
+    np.random.seed(seed)
+    cyska.rand_seed(seed)
+
+    sub = reads.get_new_subsample()
+    # print sub.get_padded_seqm(1)
+    assert (reads.get_padded_seqm(1)[reads.sub_sampler.ind] == sub.get_padded_seqm(1)).all()
+    
+    acc = reads.acc_storage.get_raw(7).acc
+    accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
+    print acc.shape
+    print accsub.shape
+    
+    sub = reads.get_new_subsample()
+    # acc = reads.acc_storage.get_raw(7).acc
+    accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
+    print acc.shape
+    print accsub.shape
+
+
+    import sys
+    sys.exit(0)
+
     k = 4
     l = 3
     ext, init, transition = reads.extrapolated_kmer_frequencies(k,level=l)

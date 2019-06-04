@@ -16,7 +16,7 @@ class Tracked(object):
             setattr(self, k,v)
 
 
-def emp_grad(state, eps=1e-5):
+def emp_grad(state, eps=1e-4):
     v0 = state.params.get_data()
     v = np.array(v0)
     var = state.params.copy()
@@ -24,7 +24,7 @@ def emp_grad(state, eps=1e-5):
     state0 = state
     # print "err0", err0
     kw = dict()#.predict_kwargs)
-    kw['beta_fixed'] = True
+    kw['beta_fixed'] = False #True
     kw['tune'] = False
     kw['rbp_free'] = state0.rbp_free
 
@@ -46,7 +46,7 @@ def emp_grad(state, eps=1e-5):
     return var
 
 
-def emp_gradi(state, eps=1e-6):
+def emp_gradi(state, eps=1e-4):
     v0 = state.params.as_vector()
     var = state.params.copy()
     Nk = state.mdl.nA
@@ -71,6 +71,70 @@ def emp_gradi(state, eps=1e-6):
         var.data[i] = v0[i]
     
     return gradi
+
+
+def emp_grad_A0(state, eps=1e-4, _dE=True, _dR=False, _dq=False, _dPsi=False, _dZ=False):
+    "useful for debugging"
+    ret = []
+    for i, params in enumerate(state.params.copy()):
+        err0 = state.error
+
+        Z0 = np.array(state.Z1_read_motif[i])
+        params.A0 += eps
+        kw = dict()#.predict_kwargs)
+        kw['beta_fixed'] = False
+        kw['tune'] = False
+        kw['rbp_free'] = state.rbp_free
+
+        paramset = state.params.copy()
+        paramset[i] = params
+        new = state.mdl.predict(paramset, **kw)
+
+        dE = (new.error - err0)/eps
+        dZ = new.Z1_read_motif[i] - Z0
+        dPsi = (new.psi - state.psi)/eps
+        dq = (new.q - state.q)/eps
+        # dQ = (new.Q - state.Q)/eps
+        dR = (new.R - state.R)/eps
+
+        res = {}
+        if _dE: res['dE'] = dE
+        if _dR: res['dR'] = dR
+        if _dq: res['dq'] = dq
+        if _dPsi: res['dPsi'] = dPsi
+        if _dZ: res['dZ'] = dZ
+        
+        ret.append(res)
+
+    return ret
+
+
+def ana_grad_A0(state, eps=1e-3, _dE=True, _dR=False, _dq=False, _dPsi=False, _dZ=False):
+    "useful for debugging"
+    ret = []
+    for i, params in enumerate(state.params):
+        norm = (params.A0/state.params.A0)
+        print "norm", norm
+        Z1m = state.Z1_read_motif[i] 
+        dZ = Z1m / state.Z1_read
+        # print "dZ", dZ.shape, dZ
+        dPsi_dA0 = (state.psi - state.psi**2) * dZ
+        dPsi_dA0 /= state.params.A0
+        dq = state.mdl.PD_kmer_weights(dPsi_dA0)
+        dR = state.R / state.q * (dq - state.mdl.f0[np.newaxis,:] * state.R * dq.sum(axis=1))
+        dE = 2 * ((state.R - state.mdl.R0) * dR).mean()
+
+        res = {}
+        if _dE: res['dE'] = dE
+        if _dR: res['dR'] = dR
+        if _dq: res['dq'] = dq
+        if _dPsi: res['dPsi'] = dPsi
+        if _dZ: res['dZ'] = dZ
+        
+        ret.append(res)
+
+    return ret
+
 
 
 def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, options=None, **kwargs):
@@ -131,7 +195,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.75, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -152,6 +216,7 @@ class GradientDescent(object):
         self.ls_nfev = [0,]
         self.ls_step = [0,]
         self.t = 0
+        self.last_subsample_t = 0
         self.last_quantile = 0
 
         # optimization result/status
@@ -159,22 +224,9 @@ class GradientDescent(object):
         self.maxiter = maxiter
         self.maxtime = maxtime
         self.eps = eps
-        
-    # @staticmethod
-    # def apply_delta(params, delta):
-    #     new = params.copy()
-    #     p = np.clip(params.psam_matrix + delta.psam_matrix, 1e-6, None)
-    #     M = p.max(axis=1)
-    #     p /= M[:,np.newaxis]
-    #     new.psam_matrix = np.clip(p, 1e-6, 1)
-    #     new.A0 *= M.prod() # keep matrix elements <= 1 and absorb excess into A0
-    #     new.A0 = max(1e-6, new.A0 + delta.A0) # prevent underflow
+        self.tau = tau
 
-    #     new.betas = np.clip(params.betas + delta.betas, 1e-9, None)
-    #     return new
-
-
-    def line_search(self, state, vec, debug=False, min_step = 1e-6, max_step = 10., maxiter=10, xatol=1e-1, e0=None, plot=""):
+    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error
@@ -184,17 +236,23 @@ class GradientDescent(object):
         t0 = time.time()
         N = {'fev' : 0}
         kw = dict(self.predict_kwargs)
-        kw['beta_fixed'] = True
+        kw['beta_fixed'] = False
         kw['tune'] = False
+        kw['keep_Z1_motif'] = False
 
         scales = []
         errors = []
 
-        self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read_max)
+        # self.model.set_mask( state.Z1_read > self.model.Z_thresh * state.Z1_read.max())
+        # throw away large buffers of reference state before 
+        # actual line-search bc we don't need them anymore
+        state.flush()
+
         def err(s):
             # s = np.exp(x)
             m = params0.apply_delta(vec * s)
             new = self.model.predict(m, **kw)
+
             N['fev'] += 1
             scales.append(s)
             new_err = new.error
@@ -203,13 +261,13 @@ class GradientDescent(object):
                 print s,"->", new_err - e0
             return new_err - e0
 
-        assert np.fabs(err(0)) < 1e-6
+        # assert np.fabs(err(0)) < 1e-6
 
         res = minimize_logspaced(err, bounds = np.array([min_step, max_step]), options=dict(maxiter=maxiter) )
         # res = minimize_scalar(err, method='Bounded', bounds=np.log(np.array([min_step, max_step])), options=dict(maxiter=maxiter, xatol=xatol))
         # self.logger.debug("minimize_logspaced took {dt:.2f}ms".format(dt= 1000. * (t1-t0)) )
 
-        self.model.set_mask()
+        # self.model.set_mask()
         self.logger.debug("line_search took {0:.3f} seconds for {1} iterations".format(time.time() - t0, N['fev']))
         # print res.success, res.fun, res
         if res.fun > 0:
@@ -222,14 +280,6 @@ class GradientDescent(object):
         errors = np.array(errors)
         I = scales.argsort()
         return s, Tracked(scales = scales[I], errors=errors[I], res=res, s_opt=s, err0=e0)
-
-    def momentum_grad(self, local_grad):
-        if self.past_grad is None:
-            self.past_grad = local_grad
-
-        grad = self.past_grad * self.dec + local_grad * (1- self.dec)
-        self.past_grad = grad
-        return grad
 
     def RMSprop(self, local_grad, delta=.00001):
         if self.past_grad is None:
@@ -246,32 +296,42 @@ class GradientDescent(object):
 
         return upd
 
-    def converged(self, atol=1e-7, tau=3):
+    def new_subsample(self):
+        self.logger.debug("drawing new sub-sample at t={}".format(self.t))
+        self.model.init_subsample()
+        self.last_subsample_t = self.t
+        state = self.model.predict(self.params, **self.predict_kwargs)
+
+        return state
+
+    def converged(self, atol=1e-7):
         if len(self.errors):
             if self.errors[-1] < atol:
                 return 'CONVERGED_ERR_MINIMAL'
 
-        if len(self.errors) < tau:
-            return self.status
-           
-        last_errs = np.array(self.errors[-tau:])
-        rel_error = self.errors[-1] / self.errors[0]
-        rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
-
-        mean = last_errs.mean()
-        rel_decrease = (mean - self.errors[-1]) / mean
         if self.past_grad is None:
             mag = np.inf
         else:
             mag = np.sqrt((self.past_grad**2).sum())
-
-        self.logger.debug("rel_decrease={rel_decrease}, eps={self.eps}, rel_err_dec={rel_err_dec} mag_grad={mag}, rel_error={rel_error}".format(**locals()))
-        if np.allclose(self.past_grad, 0, atol=atol):
+        if mag < atol:
             return 'CONVERGED_GRAD_NULL'
 
-        elif rel_decrease < self.eps:
+        if len(self.errors) < self.tau:
+            self.logger.debug("not enough data to estimate convergence (t={})".format(self.t))
+            return self.status
+           
+        last_errs = np.array(self.errors[-self.tau:])
+        rel_error = self.errors[-1] / self.errors[0]
+        rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
+
+        from scipy import stats
+        slope, intercept, r_value, p_value, std_err = stats.linregress(np.arange(self.tau), last_errs)
+        rel_decrease = - slope / self.errors[0]
+
+        rel_dec_eps = rel_decrease / self.eps
+        self.logger.debug("rel_decrease={rel_dec_eps:.1f} x eps (P < {p_value:.3e}) |gradient|={mag:.2e}".format(**locals()))
+        if rel_decrease < self.eps:
             return 'CONVERGED_NO_MORE_DECREASE'
-            
         else:
             return self.status
 
@@ -300,12 +360,12 @@ class GradientDescent(object):
         print "step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals())
 
 
-    def optimize(self, params, debug=True, callback=None):
-        if debug:
-            print "INITIAL PARAMETERS"
-            print params
-            from cska.caching import _dump_cache_sizes
-            _dump_cache_sizes()
+    def optimize(self, params, debug=False, callback=None):
+        # if debug:
+        #     print "INITIAL PARAMETERS"
+        #     print params
+        #     from cska.caching import _dump_cache_sizes
+        #     _dump_cache_sizes()
 
         state = self.model.predict(self.params, **self.predict_kwargs)
 
@@ -318,7 +378,7 @@ class GradientDescent(object):
             self.print_state(state)
 
         if callback:
-            callback(self)
+            callback(self, state)
 
         t0 = time.time()
         dt = 0
@@ -327,38 +387,35 @@ class GradientDescent(object):
             while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
                 local_grad = state.grad #.unity()
+                # local_grad.A0 = 0.0046
+
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
-                        for lcl, emp in zip(local_grad, emp_grad(state)):
+                        for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
+                        # for lcl, emp_A0_res, ana_A0_res in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state)):
+
+                            print "ana_dA0", ana_A0_res['dE']
                             print "LCL"
                             print lcl
+                            print "emp_dA0", emp_A0_res['dE']
                             print "EMP"
                             print emp
                     else:
                         print local_grad
-
-                local_grad.betas *= 0
-                # local_grad.A0 = 0
-                # local_grad = local_grad.unity()
-                descent = self.RMSprop( - local_grad ).unity()
+                
+                local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
+                descent = self.RMSprop( - local_grad ) #.unity()
                 # descent = self.momentum_grad( - local_grad).unity()
-                # descent = - local_grad.unity()
-                # print descent
 
-                s, ls_data = self.line_search(state, descent, e0=self.errors[-1], debug=debug)
+                # print "ERRORS", self.errors
+                s, ls_data = self.line_search(state, descent, debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
-                    # # and tune parameters
-                    # state = self.model.tune(state.params) # recent addition, needs testing!
                     # take local gradient instead
-                    local_grad = state.grad
-                    # TODO: Clean up my act and handle this gracefully
-                    # local_grad.A0 *= 0
-                    # local_grad.betas *= 0
-
                     descent = - local_grad.unity()
-                    s, data = self.line_search(state, descent, e0=self.errors[-1])
+                    s, data = self.line_search(state, descent, debug=debug)
+                    
                     # and reset RMSProp
                     self.past_grad = None
                     self.past_sqg = 1
@@ -376,17 +433,23 @@ class GradientDescent(object):
 
                 state = self.model.predict(self.params, **self.predict_kwargs)
                 state._ls_data = ls_data
-                self.errors.append(state.error)
                 self.t += 1
                 # self.history.append(state.archive())
                 self.last_state = state
+                self.errors.append(state.error)
+
                 if debug:
                     print ">>>>>>>>>UPDATE, scale=",s
                     # print descent
                     self.print_state(state)
 
                 if callback:
-                    callback(self)
+                    state = callback(self, state)
+
+                # if state != self.last_state:
+                #     self.logger.debug("callback changed state:")
+                #     print "AFTER CALLBACK"
+                #     self.print_state(state)
 
                 self.logger.debug("n_fev={self.model.n_fev} t_aff={t_aff:.3f} t_fev={t_fev:.3f}ms n_grad={self.model.n_grad} t_grad={t_grad:.3f}ms".format(
                     self=self,
@@ -395,10 +458,10 @@ class GradientDescent(object):
                     t_grad = 1000. * self.model.t_grad/self.model.n_grad,
                 ))
                 dt = time.time() - t0
-                if debug:
-                    from cska.caching import _dump_cache_sizes
-                    print "caches at the end of loop"
-                    _dump_cache_sizes()
+                # if debug:
+                #     from cska.caching import _dump_cache_sizes
+                #     print "caches at the end of loop"
+                #     _dump_cache_sizes()
 
         # except ValueError: #KeyboardInterrupt
         except KeyboardInterrupt:
