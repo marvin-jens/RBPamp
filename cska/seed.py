@@ -765,6 +765,148 @@ class SeedRefinement(object):
 
 if __name__ == "__main__":
 
+    from cska.pwm import PSAM, project_column
+    test_data = [
+        (100, 'UGCAUGC'),
+        # (100, 'GCAUGCA'),
+        (90, 'UGCAUGU'),
+        (80, 'GCAUGCA'),
+        (79, 'GCAUGCU'),
+        (78, 'GCAUGCC'),
+        (77, 'GCAUGCG'),
+        (70, 'GCAUGUA'),
+        (69, 'GCAUGUU'),
+        (68, 'GCAUGUC'),
+        (67, 'GCAUGUG'),
+        (85, 'AGCAUGU'),
+        (75, 'CGCAUGU'),
+        (55, 'GGCAUGU'),
+        (79, 'AGCAUGC'),
+        (78, 'CGCAUGC'),
+        (58, 'GGCAUGC'),
+        (30, 'UGCACGC'),
+        (25, 'UGCACGU'),
+        (15, 'UGCACGA'),
+        (15, 'UGCACGG'),
+        (90, 'GCAAUGC'), # test, secondary motif
+        (85, 'GCAAUGU'),
+        (88, 'UGCAAUG'),
+        (75, 'AGCAAUG'),
+    ]
+
+    def align(P1, P2, max_shift=3, ws=0.2, debug=False):
+        if len(P2) > len(P1):
+            P1, P2 = P2, P1
+        
+        if debug:
+            print "aligning", consensus(P1), consensus(P2)
+
+        l1 = len(P1)
+        l2 = len(P2)
+        A1 = P1.max()
+        A2 = P2.max()
+        A = max(A1, A2)
+        # the first is longer or same length
+        shifts = range(- l2 + max_shift, l1 - max_shift)
+        # shifts = [-1] # DEBUG!
+        scores = []
+        for s in shifts:
+            s1 = max(s,0)
+            e1 = min(s+l2, l1)
+            s2 = max(-s, 0)
+            e2 = min(l2, s2+l2)
+
+            M1 = P1[s1:e1]
+            M2 = P2[s2:e2]
+            if debug:
+                print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
+
+            N = np.zeros((l1 + abs(s), 4))
+            # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
+            N[s2:s2+l1] += P1
+            N[s1:s1+l2] += P2
+            if debug:
+                print "overlap buffer 1"
+                print N
+            # N[s2:s2+e1] /= (A2 + A1) # weighted mean
+
+            # amax - N.max(axis=1)
+            # N /= amax[:, np.newaxis]
+
+            # print "overlap buffer NORMED"
+            # print N
+            N1 = N[s2+s1:s2+s1+len(M1)]
+            N2 = N[s2+s1:s2+s1+len(M2)]
+            if debug:
+                print "N1"
+                print N1
+                print "M1"
+                print M1
+                print "N2"
+                print N2
+                print "M2"
+                print M2
+            r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
+            r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
+            score = (r1 * A1 + r2* A2)/(A1 + A2) + ws * abs(s)
+            if debug:
+                print score, "rel. change M1", r1, "M2", r2, "shift", ws*abs(s)
+            
+            # N *= (A2 + A1) / A
+            scores.append( (score, s, N) )
+        
+        best = sorted(scores)
+        return best[0]
+
+    def consensus(mat):
+        return "".join([project_column(col) for col in mat])
+
+    P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(test_data, reverse=True)]
+
+    def find_match(P):
+        N = len(P)
+        maxR = np.array([p.max() for p in P]).max()
+        print "maxR", maxR
+        scores = np.ones( (N,N) ) * np.inf
+        shifts = np.zeros( (N,N) ) + np.NaN
+        news = {}
+        for i in range(N):
+            for j in range(i):
+                # print "aligning", consensus(P[i]), "with", consensus(P[j])
+                score, shift, N = align(P[i], P[j])
+                # print score, shift #, N
+                scores[i, j] = score
+                shifts[i, j] = shift 
+                news[(i,j)] = N
+
+        i, j = np.unravel_index(scores.argmin(), scores.shape)
+        return i, j, scores, shifts, news
+
+    while len(P) > 1:
+        i, j, scores, shifts, news = find_match(P)
+
+        print "best match is", i,j, consensus(P[i]), consensus(P[j]), "shift", shifts[i,j], "scores", scores[i, j]
+        # if i == x and j == y:
+        #     align(P[i], P[j], debug=True)
+
+        s = int(shifts[i, j])
+        si = max(-s, 0)
+        sj = max(s, 0)
+
+        print " "*si, consensus(P[i])
+        print " "*sj, consensus(P[j])
+        P.pop(i)
+        P.pop(j)
+        N = news[(i, j)]
+        print "replacing with"
+        print consensus(N)
+        print N
+        P.append(N)
+
+        print len(P), "left"
+
+    sys.exit(0)
+
     import logging
     logging.basicConfig(level=logging.DEBUG)
     A = Alignment()
