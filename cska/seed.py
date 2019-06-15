@@ -519,6 +519,46 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
+    def primer_analysis(self, k=7):
+        from cska.seed import Alignment
+        import cska.cyska as cyska
+
+        dG = np.fromfile(
+            os.path.join(
+                os.path.dirname(__file__), '../adapters/7mer_adap3.dG'
+            ),
+            sep='\n'
+        )
+        print dG
+        low_dG = np.percentile(dG, 50)
+        mask = (dG <= low_dG)
+        print low_dG, len(mask)
+        g = dG[mask]
+
+        alns = []
+        R, R_err = self.rbns.R_value_matrix(k)
+        from scipy.stats import spearmanr, pearsonr
+        for j, r in enumerate(R):
+            print "sample", j
+            r_dG = np.log2(r[mask])
+            print pearsonr(g, r_dG)
+            print spearmanr(g, r_dG)
+
+            import cska.report
+            import matplotlib.pyplot as plt
+            plt.figure()
+            plt.plot(g, r_dG, '.')
+            plt.xlabel('dG')
+            plt.ylabel('log2 R')
+            plt.savefig('r_dG_{}.pdf'.format(j))
+            plt.close()
+
+        # R = R.mean(axis=0)
+        # Rns = np.percentile(R, q_ns)
+        # # print "non-specific quantile", Rns
+        # R_err = R_err.mean(axis=0)
+
+
     def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=5, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
