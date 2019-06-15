@@ -581,8 +581,10 @@ class GradientDescentReport(object):
         errors = (self.read_sample_errors()**2).mean(axis=2)
         m_err = errors.mean(axis=1)
         pp.semilogy(m_err, 'k-', label='sample mean')
+        data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(errors.T)))
+
         for i, err in enumerate(errors.T):
-            pp.semilogy(err, label='{0} nM'.format(self.rbp_conc[i]))
+            pp.semilogy(err, color=data_colors[i], label='{0} nM'.format(self.rbp_conc[i]))
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
@@ -596,7 +598,7 @@ class GradientDescentReport(object):
         pp.subplot(212)
         corr, pval = self.read_correlations()
         for i, c in enumerate(corr.T):
-            pp.plot(c, label='{0} nM'.format(self.rbp_conc[i]))
+            pp.plot(c, color=data_colors[i], label='{0} nM'.format(self.rbp_conc[i]))
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
@@ -1071,10 +1073,6 @@ class FootprintCalibrationReport(object):
 
         res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = data
         err0 = self.baseline_error(motif)
-
-        import seaborn as sns
-        import matplotlib.pyplot as plt
-        # pwm = self.params.as_PSAM()
         pad = (punp_input.shape[1] - len(motif)) / 2
         x = np.arange(-pad, len(motif) + pad )
 
@@ -1085,20 +1083,27 @@ class FootprintCalibrationReport(object):
         fit_colors = plt.get_cmap("Reds")(gradient)
 
         last = len(gradient) - 1
-        def make_rect():
+        def make_rect(ax=None, ofs=0, top=False):
             import matplotlib.patches as patches
-            ymin, ymax = plt.gca().get_ylim()
+            if ax is None:
+                ax = plt.gca()
+            ymin, ymax = ax.get_ylim()
             height = ymax - ymin
             h = height * .02
+            if top:
+                y = ymax,
+            else:
+                y = ymin
+
             rect = patches.Rectangle(
-                (acc_shift-.5, ymin + h), 
+                (acc_shift-.5 + ofs, y + h), 
                 acc_k, h,
                 linewidth=1,
                 edgecolor='r',
                 facecolor='r',
                 # label='footprint'
             )
-            plt.gca().add_patch(rect)
+            ax.add_patch(rect)
 
         def finalize_plot(fp=True):
             if fp:
@@ -1130,6 +1135,65 @@ class FootprintCalibrationReport(object):
                 if sym:
                     plt.plot(x, obs, sym, color=color, label="{} nM".format(conc) if with_label else None)
                 plt.plot(x, obs, '-', color=color, linewidth=lw)
+
+        plt.figure(figsize=(3,3))
+        # mats = np.array([
+        #     punp_input[1:], 
+        #     punp_naive,
+        #     punp_expect,
+        #     punp_a_one,
+        # ])
+
+        mats = np.concatenate([
+            punp_input, 
+            punp_naive,
+            punp_expect,
+            punp_a_one,
+        ])
+
+        labels = \
+            ["EXP input",] + ["EXP {}nM".format(conc) for conc in self.rbp_conc] + \
+            ["seq only {}nM".format(conc) for conc in self.rbp_conc] + \
+            ["opt {}nM".format(conc) for conc in self.rbp_conc] + \
+            ["RNAplfold {}nM".format(conc) for conc in self.rbp_conc]
+        
+        rcolors = \
+            ['k'] + \
+            list(data_colors) + \
+            ['gray'] * len(punp_naive) + \
+            ['scarlet'] * len(punp_expect) + \
+            ['g'] * len(punp_a_one)
+
+        # rcolors = \
+        #     ['k'] + list(data_colors) + \
+        #     list(naive_colors) + \
+        #     list(fit_colors) + \
+        #     list(vienna_colors)
+
+        print mats.shape
+        # m = mats[:, 0, :]
+        m = mats
+        print "-> heatmap shape", m.shape
+        hm = sns.clustermap(
+            m, 
+            figsize=(4,4), 
+            col_cluster=False, 
+            cmap='Spectral_r', 
+            xticklabels=[str(p) for p in range(-pad,0)] + list(motif) + [str(p) for p in range(1, pad+1)],
+            yticklabels=labels,
+            row_colors=rcolors,
+            method='centroid',
+            cbar_kws=dict(label=r"$P_{unpaired}$", aspect=10)
+            # metric='cosine'
+        )
+        make_rect(ax=hm.ax_heatmap, ofs=pad + .5, top=False)
+        # X = np.arange(len(punp_input[1])+1)
+        # Z = np.arange(len(mats)+1)
+        # plt.pcolor([X, Y], mats.T[0])
+        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}_heatmap.pdf'.format(**locals()))
+        self.logger.debug("saving plot: '{}'".format(fname))
+        hm.savefig(fname)
+        plt.close()
 
         plt.figure(figsize=(6, 4))
         # fig1, axes = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
@@ -1168,7 +1232,7 @@ class FootprintCalibrationReport(object):
         # sparse_y(plt.gca())
         fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
         self.logger.debug("saving plot: '{}'".format(fname))
-        plt.show()
+        # plt.show()
         plt.savefig(fname)
         plt.close()
 
@@ -1190,11 +1254,12 @@ class FootprintCalibrationReport(object):
         plt.savefig(fname+"bla.pdf")
         plt.close()
 
+
     def report(self):
         for motif, params in zip(self.motifs, self.params):
-            self.kmer_acc_profiles(motif, params)
+            # self.kmer_acc_profiles(motif, params)
             # self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
-            # self.plot_profile(motif, params.acc_k, params.acc_shift)
+            self.plot_profile(motif, params.acc_k, params.acc_shift)
         
     def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
         kmin, kmax = k_range
