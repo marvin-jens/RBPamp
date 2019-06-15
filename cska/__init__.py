@@ -29,6 +29,7 @@ def parse_cmdline():
     parser.add_option("","--run-path", dest="run", default="run_{datestr}", help="pattern for run-folder name (default='run_{datestr}')")
     parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("-b","--best", dest="best", default=0, type=int, help="keep only the best n samples (by top R-value) default=0 [off]")
+    parser.add_option("","--rank", dest="rank", default=None, type=int, help="analyze x out of the n --best samples (by top R-value) default=None [off]")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
@@ -386,7 +387,7 @@ class Run(object):
 
     def keep_best(self):
         if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best, k=6)
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best, rank=self.options.rank, k=6)
         return self.rbns
 
 
@@ -493,6 +494,9 @@ class Run(object):
         #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
+        # TODO!
+        # SR.primer_analysis()
+        # sys.exit(0)
         self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         

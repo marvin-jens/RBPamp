@@ -390,7 +390,7 @@ class RBNSAnalysis(CachedBase):
 
         return best
 
-    def keep_best_samples(self, n=3, k=7, top=5):
+    def keep_best_samples(self, n=3, k=7, top=5, rank=None):
         if n == 0:
             return
         
@@ -432,7 +432,12 @@ class RBNSAnalysis(CachedBase):
         # # sample_score = R[:, kmer_i] / (ranks + 1)
         print "sample score", sample_score
         sample_i = sample_score.argsort()[::-1]
-        chosen = sorted(sample_i[:n])
+        if rank is not None:
+            print "sample_score", sample_score
+            print "sample_i", sample_i
+            chosen = [sample_i[rank]]
+        else:
+            chosen = sorted(sample_i[:n])
 
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[chosen])
         self.reads = []
