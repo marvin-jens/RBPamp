@@ -106,3 +106,7 @@ ENV/
 
 # Rope project settings
 .ropeproject
+nsRBNS/mapping/
+.directory
+.vscode/
+*.code-workspace
