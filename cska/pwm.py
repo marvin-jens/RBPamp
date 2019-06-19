@@ -191,6 +191,10 @@ class PSAM(object):
     def matrix(self):
         return self.psam * self.A0
 
+    @property
+    def fraction_GC(self):
+        return (self.psam[:,1] + self.psam[:,2]).sum() / self.psam.sum()
+
     @classmethod
     def from_kmer(cls, kmer, **kwargs):
         kmer = kmer.upper()

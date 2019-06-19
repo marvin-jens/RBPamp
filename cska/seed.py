@@ -594,6 +594,7 @@ class SeedRefinement(object):
         # print "maxR", r0
         n = 0
         kmer_set = []
+        enriched = []
 
         for i in I:
             kmer = cyska.index_to_seq(i, k)
@@ -605,7 +606,12 @@ class SeedRefinement(object):
                 break
             
             kmer_set.append( (kmer, r) )
+            enriched.append( (r, kmer) )
         
+        pb = PSAMBuilder(enriched)
+        pb.aggregate()
+        return 1/0
+
         self.shelf['kmer_set'] = kmer_set
         n_enriched = len(kmer_set)
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
@@ -803,9 +809,134 @@ class SeedRefinement(object):
     # def store_params(self):
     #     self.opt.mdl.parameters.store(cska.ensure_path(os.path.join(self.opt.out_path, "affinity/"))
 
+from cska.pwm import PSAM, project_column
+class PSAMBuilder(object):
+    def __init__(self, enriched):
+        self.enriched = enriched
+        self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
+
+    def align(self, P1, P2, max_shift=3, ws=0.1, debug=False):
+        if len(P2) > len(P1):
+            P1, P2 = P2, P1
+        
+        if debug:
+            print "aligning", self.consensus(P1), self.consensus(P2)
+
+        l1 = len(P1)
+        l2 = len(P2)
+        A1 = P1.max()
+        A2 = P2.max()
+        A = max(A1, A2)
+        # the first is longer or same length
+        shifts = range(- l2 + max_shift, l1 - max_shift + 1)
+        # shifts = [-1] # DEBUG!
+        scores = []
+        for s in shifts:
+            s1 = max(s,0)
+            e1 = min(s+l2, l1)
+            s2 = max(-s, 0)
+            e2 = min(l2, s2+l2)
+
+            M1 = P1[s1:e1]
+            M2 = P2[s2:e2]
+            if debug:
+                print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
+
+            N = np.zeros((max(s1 + l2, s2+l1), 4))
+            # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
+            N[s2:s2+l1] += P1
+            N[s1:s1+l2] += P2
+            # if debug:
+            #     print "overlap buffer 1"
+            #     print N
+            # N[s2:s2+e1] /= (A2 + A1) # weighted mean
+
+            # amax - N.max(axis=1)
+            # N /= amax[:, np.newaxis]
+
+            # print "overlap buffer NORMED"
+            # print N
+            N1 = N[s2+s1:s2+s1+len(M1)]
+            N2 = N[s2+s1:s2+s1+len(M2)]
+            # if debug:
+            #     print "N1"
+            #     print N1
+            #     print "M1"
+            #     print M1
+            #     print "N2"
+            #     print N2
+            #     print "M2"
+            #     print M2
+            r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
+            r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
+            score = (r1 * A1 + r2* A2)/(A1 + A2) + ws * abs(s)
+            if debug:
+                print score, "rel. change M1", r1, "M2", r2, "shift", ws*abs(s)
+            
+            # N *= (A2 + A1) / A
+            scores.append( (score, s, N) )
+        
+        best = sorted(scores)
+        return best[0]
+
+    def consensus(self, mat):
+        return "".join([project_column(col) for col in mat])
+
+    def find_match(self):
+        n = len(self.P)
+        maxR = np.array([p.max() for p in self.P]).max()
+        print "maxR", maxR
+        scores = np.ones( (n, n) ) * np.inf
+        shifts = np.zeros( (n, n) ) + np.NaN
+        news = {}
+        for i in range(n):
+            for j in range(i):
+                # print "aligning", consensus(P[i]), "with", consensus(P[j])
+                score, shift, N = self.align(self.P[i], self.P[j])
+                # print score, shift #, N
+                scores[i, j] = score
+                shifts[i, j] = shift 
+                news[(i,j)] = N
+
+        i, j = np.unravel_index(scores.argmin(), scores.shape)
+        return i, j, scores, shifts, news
+
+    def aggregate(self):
+        score_steps = []
+        while len(self.P) > 1:
+            i, j, scores, shifts, news = self.find_match()
+
+            print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shifts[i,j], "scores", scores[i, j]
+            score_steps.append(scores[i, j])
+            # if i == x and j == y:
+            #     align(P[i], P[j], debug=True)
+
+            s = int(shifts[i, j])
+            si = max(-s, 0)
+            sj = max(s, 0)
+
+            print " "*si, self.consensus(self.P[i])
+            print " "*sj, self.consensus(self.P[j])
+            self.P.pop(i)
+            self.P.pop(j)
+            N = news[(i, j)]
+            print "replacing with"
+            print self.consensus(N)
+            print N
+            self.P.append(N)
+
+            print len(self.P), "left"
+
+        print "score history", score_steps
+        import cska.report
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.plot(score_steps)
+        plt.savefig('scores.pdf')
+
 if __name__ == "__main__":
 
-    from cska.pwm import PSAM, project_column
     test_data = [
         (100, 'UGCAUGC'),
         # (100, 'GCAUGCA'),
@@ -834,116 +965,8 @@ if __name__ == "__main__":
         (75, 'AGCAAUG'),
     ]
 
-    def align(P1, P2, max_shift=3, ws=0.2, debug=False):
-        if len(P2) > len(P1):
-            P1, P2 = P2, P1
-        
-        if debug:
-            print "aligning", consensus(P1), consensus(P2)
-
-        l1 = len(P1)
-        l2 = len(P2)
-        A1 = P1.max()
-        A2 = P2.max()
-        A = max(A1, A2)
-        # the first is longer or same length
-        shifts = range(- l2 + max_shift, l1 - max_shift)
-        # shifts = [-1] # DEBUG!
-        scores = []
-        for s in shifts:
-            s1 = max(s,0)
-            e1 = min(s+l2, l1)
-            s2 = max(-s, 0)
-            e2 = min(l2, s2+l2)
-
-            M1 = P1[s1:e1]
-            M2 = P2[s2:e2]
-            if debug:
-                print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
-
-            N = np.zeros((l1 + abs(s), 4))
-            # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
-            N[s2:s2+l1] += P1
-            N[s1:s1+l2] += P2
-            if debug:
-                print "overlap buffer 1"
-                print N
-            # N[s2:s2+e1] /= (A2 + A1) # weighted mean
-
-            # amax - N.max(axis=1)
-            # N /= amax[:, np.newaxis]
-
-            # print "overlap buffer NORMED"
-            # print N
-            N1 = N[s2+s1:s2+s1+len(M1)]
-            N2 = N[s2+s1:s2+s1+len(M2)]
-            if debug:
-                print "N1"
-                print N1
-                print "M1"
-                print M1
-                print "N2"
-                print N2
-                print "M2"
-                print M2
-            r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
-            r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
-            score = (r1 * A1 + r2* A2)/(A1 + A2) + ws * abs(s)
-            if debug:
-                print score, "rel. change M1", r1, "M2", r2, "shift", ws*abs(s)
-            
-            # N *= (A2 + A1) / A
-            scores.append( (score, s, N) )
-        
-        best = sorted(scores)
-        return best[0]
-
-    def consensus(mat):
-        return "".join([project_column(col) for col in mat])
-
-    P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(test_data, reverse=True)]
-
-    def find_match(P):
-        N = len(P)
-        maxR = np.array([p.max() for p in P]).max()
-        print "maxR", maxR
-        scores = np.ones( (N,N) ) * np.inf
-        shifts = np.zeros( (N,N) ) + np.NaN
-        news = {}
-        for i in range(N):
-            for j in range(i):
-                # print "aligning", consensus(P[i]), "with", consensus(P[j])
-                score, shift, N = align(P[i], P[j])
-                # print score, shift #, N
-                scores[i, j] = score
-                shifts[i, j] = shift 
-                news[(i,j)] = N
-
-        i, j = np.unravel_index(scores.argmin(), scores.shape)
-        return i, j, scores, shifts, news
-
-    while len(P) > 1:
-        i, j, scores, shifts, news = find_match(P)
-
-        print "best match is", i,j, consensus(P[i]), consensus(P[j]), "shift", shifts[i,j], "scores", scores[i, j]
-        # if i == x and j == y:
-        #     align(P[i], P[j], debug=True)
-
-        s = int(shifts[i, j])
-        si = max(-s, 0)
-        sj = max(s, 0)
-
-        print " "*si, consensus(P[i])
-        print " "*sj, consensus(P[j])
-        P.pop(i)
-        P.pop(j)
-        N = news[(i, j)]
-        print "replacing with"
-        print consensus(N)
-        print N
-        P.append(N)
-
-        print len(P), "left"
+    pb = PSAMBuilder(test_data)
+    pb.aggregate()
 
     sys.exit(0)
 
