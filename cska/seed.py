@@ -814,8 +814,27 @@ class PSAMBuilder(object):
     def __init__(self, enriched):
         self.enriched = enriched
         self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
+        self.maxR = np.array([p.max() for p in self.P]).max()
+        
+        n = len(self.P)
+        self.scores = np.ones( (n, n) ) * np.inf
+        self.shifts = np.zeros( (n, n) ) + np.NaN
+        self.merged = np.empty( (n, n), dtype=object )
+        
+        self.fill_tables()
+        self.align_debug = False
 
-    def align(self, P1, P2, max_shift=3, ws=0.1, debug=False):
+    def fill_tables(self):
+        n = len(self.P)
+        
+        for i in range(n):
+            for j in range(i):
+                score, shift, N = self.align(self.P[i], self.P[j])
+                self.scores[i, j] = score
+                self.shifts[i, j] = shift 
+                self.merged[i, j] = N
+
+    def align(self, P1, P2, max_shift=5, ws=0.5, debug=False):
         if len(P2) > len(P1):
             P1, P2 = P2, P1
         
@@ -828,7 +847,9 @@ class PSAMBuilder(object):
         A2 = P2.max()
         A = max(A1, A2)
         # the first is longer or same length
-        shifts = range(- l2 + max_shift, l1 - max_shift + 1)
+        shifts = range(- max_shift, max_shift + 1)
+        if debug:
+            print "shifts", max_shift, shifts
         # shifts = [-1] # DEBUG!
         scores = []
         for s in shifts:
@@ -839,6 +860,15 @@ class PSAMBuilder(object):
 
             M1 = P1[s1:e1]
             M2 = P2[s2:e2]
+
+            D1 = (P1.max(axis=1) / P1.sum(axis=1) - 1./4.) / 0.75
+            D2 = (P2.max(axis=1) / P2.sum(axis=1) - 1./4.) / 0.75
+            if debug:
+                print "D1", D1
+                print "D2", D2
+
+            unal1 = 1 - D1[s1:e1].sum() / D1.sum()
+            unal2 = 1 - D2[s2:e2].sum() / D2.sum()
             if debug:
                 print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
 
@@ -869,9 +899,10 @@ class PSAMBuilder(object):
             #     print M2
             r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
             r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
-            score = (r1 * A1 + r2* A2)/(A1 + A2) + ws * abs(s)
+            ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
+            score = (r1 * A1 + r2* A2)/(A1 + A2) + ss
             if debug:
-                print score, "rel. change M1", r1, "M2", r2, "shift", ws*abs(s)
+                print score, "rel. change M1", r1, "M2", r2, "shift", ss, "unal1", unal1, "unal2", unal2
             
             # N *= (A2 + A1) / A
             scores.append( (score, s, N) )
@@ -883,49 +914,88 @@ class PSAMBuilder(object):
         return "".join([project_column(col) for col in mat])
 
     def find_match(self):
-        n = len(self.P)
-        maxR = np.array([p.max() for p in self.P]).max()
-        print "maxR", maxR
-        scores = np.ones( (n, n) ) * np.inf
-        shifts = np.zeros( (n, n) ) + np.NaN
-        news = {}
-        for i in range(n):
-            for j in range(i):
-                # print "aligning", consensus(P[i]), "with", consensus(P[j])
-                score, shift, N = self.align(self.P[i], self.P[j])
-                # print score, shift #, N
-                scores[i, j] = score
-                shifts[i, j] = shift 
-                news[(i,j)] = N
+        i, j = np.unravel_index(self.scores.argmin(), self.scores.shape)
+        return i, j, self.scores[i, j], self.shifts[i, j], self.merged[i, j]
 
-        i, j = np.unravel_index(scores.argmin(), scores.shape)
-        return i, j, scores, shifts, news
+    def drop(self, x, fill=np.inf):
+        self.P.pop(x)
+        for arr in [self.scores, self.shifts, self.merged]:
+            arr[x:-1, :] = arr[x+1:, :]
+            arr[:, x:-1] = arr[:, x+1:]
+            arr[-1, :] = fill
+            arr[:, -1] = fill
+
+    def add(self, new):
+        n = len(self.P)
+        self.P.append(new)
+
+        for j in range(n):
+            score, shift, N = self.align(self.P[n], self.P[j], debug=self.align_debug)
+            self.scores[n, j] = score
+            self.shifts[n, j] = shift 
+            self.merged[n, j] = N
 
     def aggregate(self):
         score_steps = []
         while len(self.P) > 1:
-            i, j, scores, shifts, news = self.find_match()
+            i, j, score, shift, new = self.find_match()
 
-            print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shifts[i,j], "scores", scores[i, j]
-            score_steps.append(scores[i, j])
+            print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shift, "score", score
+            score_steps.append(score)
             # if i == x and j == y:
             #     align(P[i], P[j], debug=True)
 
-            s = int(shifts[i, j])
+            s = int(shift)
             si = max(-s, 0)
             sj = max(s, 0)
 
             print " "*si, self.consensus(self.P[i])
             print " "*sj, self.consensus(self.P[j])
-            self.P.pop(i)
-            self.P.pop(j)
-            N = news[(i, j)]
-            print "replacing with"
-            print self.consensus(N)
-            print N
-            self.P.append(N)
 
-            print len(self.P), "left"
+            # if len(self.P) == 42:
+            #     print "DEBUGGGGG"
+            #     x = 41
+            #     y = 17
+            #     print self.consensus(self.P[x]), self.consensus(self.P[y])
+            #     self.align(self.P[x], self.P[y], debug=True)
+            #     sys.exit(0)
+
+            self.drop(i)
+            self.drop(j)
+
+            print "replacing with"
+            print self.consensus(new)
+            print new
+            self.add(new)
+
+            n = len(self.P)
+            print n, "left"
+            if n <= 20:
+                print "consensus", [self.consensus(p) for p in self.P]
+                print "score matrix"
+                print self.scores[:n, :n]
+                from cska.params import ModelParametrization, ModelSetParams
+                from cska.pwm import PSAM
+                psams = [PSAM(np.round(p, 0), A0=p.max()) for p in self.P]
+                params = [ModelParametrization.from_PSAM(ps, n_samples=1) for ps in psams]
+                param_set = ModelSetParams(params, sort=True)
+                param_set.save_logos("seed_{}left.pdf".format(len(self.P)))
+                if n == 6:
+                    self.align_debug = True
+                    # S = np.array(self.scores).flatten()
+                    # S[S == np.inf] = np.nan
+                    # x, y = np.unravel_index(np.nanargmax(S), self.scores.shape)
+                    # print "aligning worst pair", x, y
+                    # print self.consensus(self.P[x]), self.consensus(self.P[y])
+                    # score, shift, n = self.align(self.P[x], self.P[y], debug=True)
+                    # s = int(shift)
+                    # si = max(-s, 0)
+                    # sj = max(s, 0)
+
+                    # print " "*si, self.consensus(self.P[x])
+                    # print " "*sj, self.consensus(self.P[y])
+                     
+
 
         print "score history", score_steps
         import cska.report
@@ -1074,7 +1144,8 @@ if __name__ == "__main__":
     #         jR = np.log2(joint / j0)
     #         I = jR[:,:,d].flatten().argsort()[::-1]
     #         # print I
-    #         for n in I[:10]:
+    #         for n in I[:10]:        data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
+
     #             i, j = np.unravel_index(n, joint.shape[:2])
     #             # print n, i, j
     #             print "most-co-enriched 3mers at d=", d, kmers[i], kmers[j], jR[i,j,d]
