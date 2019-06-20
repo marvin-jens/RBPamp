@@ -906,8 +906,8 @@ class PSAMBuilder(object):
             #     print M2
             dM1 = self.discrimination(M1) 
             dM2 = self.discrimination(M2) 
-            d1 = (dM1 - self.discrimination(N1)).sum() / dM1.sum() # fraction of discrimination lost in overlapping region
-            d2 = (dM2 - self.discrimination(N2)).sum() / dM2.sum()
+            d1 = np.fabs((dM1 - self.discrimination(N1)).sum()) / dM1.sum() # fraction of discrimination lost in overlapping region
+            d2 = np.fabs((dM2 - self.discrimination(N2)).sum()) / dM2.sum()
 
             # ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
             ss = ws * (unal1  + unal2)/ 2.
