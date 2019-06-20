@@ -811,18 +811,21 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched):
+    def __init__(self, enriched, init=True, max_w=11):
         self.enriched = enriched
         self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
-        self.maxR = np.array([p.max() for p in self.P]).max()
+        self.disc = [self.discrimination(p).sum() for p in self.P]
+        self.maxR = [p.max() for p in self.P]
+        self.ext_cost = np.array([np.Inf, 0., 0., 0., 0., 0., 0., 0.0, 0.1, .1, .2, .3, 1.5, 2., np.inf, np.inf, np.inf, np.inf, np.inf])
         
         n = len(self.P)
-        self.scores = np.ones( (n, n) ) * np.inf
+        self.scores = np.zeros( (n, n) ) - np.Inf
         self.shifts = np.zeros( (n, n) ) + np.NaN
         self.merged = np.empty( (n, n), dtype=object )
         
         self.align_debug = False
-        self.fill_tables()
+        if init:
+            self.fill_tables()
         # self.align_debug = True #False
 
     def fill_tables(self):
@@ -835,17 +838,36 @@ class PSAMBuilder(object):
                 self.shifts[i, j] = shift 
                 self.merged[i, j] = N
 
+        # self.scores += self.scores.T
+
     def discrimination(self, P):
         D = (P.max(axis=1) / P.sum(axis=1) - 1./4.) / 0.75
-        w = P.max(axis=1) / P.max()
+        w = (P.max(axis=1) / P.sum(axis=1).max()) **0
+        # print "disc weights", w
         return D*w
 
-    def align(self, P1, P2, max_shift=5, ws=1., debug=False):
+    def mean_discrimination(self):
+        d = np.array(self.disc)
+        r = np.array(self.maxR)
+
+        return (d*r).sum() / r.sum() # maxR-weighted mean
+
+    def align(self, P1, P2, max_shift=5, ws=-0.1, debug=False):
         if len(P2) > len(P1):
             P1, P2 = P2, P1
         
+        d1 = self.discrimination(P1)
+        d2 = self.discrimination(P2)
+
+        D1 = d1.sum()
+        D2 = d2.sum()
         if debug:
-            print "aligning", self.consensus(P1), self.consensus(P2)
+            print "aligning", self.consensus(P1)
+            print P1
+            print "D1", d1, D1
+            print "with", self.consensus(P2)
+            print P2
+            print "D2", d2, D2
 
         l1 = len(P1)
         l2 = len(P2)
@@ -857,6 +879,9 @@ class PSAMBuilder(object):
         if debug:
             print "shifts", max_shift, shifts
         # shifts = [-1] # DEBUG!
+        normed1 = P1 / P1.max(axis=1)[:, np.newaxis]
+        normed2 = P2 / P2.max(axis=1)[:, np.newaxis]
+
         scores = []
         for s in shifts:
             s1 = max(s,0)
@@ -867,22 +892,47 @@ class PSAMBuilder(object):
             M1 = P1[s1:e1]
             M2 = P2[s2:e2]
 
-            D1 = self.discrimination(P1)
-            D2 = self.discrimination(P2)
-            if debug:
-                print "D1", D1
-                print "D2", D2
-
-            # how much discrimination is lost from the shift?
-            unal1 = 1 - D1[s1:e1].sum() / D1.sum() 
-            unal2 = 1 - D2[s2:e2].sum() / D2.sum() 
-            if debug:
-                print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
 
             N = np.zeros((max(s1 + l2, s2+l1), 4))
             # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
             N[s2:s2+l1] += P1
             N[s1:s1+l2] += P2
+            
+            
+            w = N.sum(axis=1)
+            w /= w.sum()
+            normed = N / N.max(axis=1)[:, np.newaxis]
+            div = \
+                (np.fabs(normed[s2:s2+l1] - normed1).sum(axis=1) * w[s2:s2+l1]).sum() + \
+                (np.fabs(normed[s1:s1+l2] - normed2).sum(axis=1) * w[s1:s1+l2]).sum()
+
+            dN = self.discrimination(N)
+            DN = dN.sum()
+            # print "DN", dN, DN
+
+            # how much discrimination is in the overlap?
+            al1 = dN[s1:e1].sum() / D1
+            al2 = dN[s2:e2].sum() / D2
+
+            Ln = len(N)
+            L1 = len(P1)
+            L2 = len(P2)
+
+            # Ln = 1
+            # L1 = 1
+            # L2 = 1
+            # df = DN/Ln / (A1*D1/L1 + A2*D2/L2) * (A1+A2)
+            # df = DN / (A1*D1 + A2*D2) * (A1+A2)
+            df = 2 * DN / (D1 + D2)
+            
+            ss = 0
+            for x in range(l1, len(N)):
+                ss -= self.ext_cost[x]
+
+            # ss = - self.ext_cost[len(N)] * (len(N) - l1)
+            # if debug:
+            #     # print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
+            #     print "s={s} dN={dN} (fraction of mean={df})".format(**locals())
             # if debug:
             #     print "overlap buffer 1"
             #     print N
@@ -904,27 +954,34 @@ class PSAMBuilder(object):
             #     print N2
             #     print "M2"
             #     print M2
-            dM1 = self.discrimination(M1) 
-            dM2 = self.discrimination(M2) 
-            d1 = np.fabs((dM1 - self.discrimination(N1)).sum()) / dM1.sum() # fraction of discrimination lost in overlapping region
-            d2 = np.fabs((dM2 - self.discrimination(N2)).sum()) / dM2.sum()
+            # dM1 = self.discrimination(M1) 
+            # dM2 = self.discrimination(M2) 
+            # x1 = np.fabs((dM1 - self.discrimination(N1)).sum()) / dM1.sum() # fraction of discrimination lost in overlapping region
+            # x2 = np.fabs((dM2 - self.discrimination(N2)).sum()) / dM2.sum()
 
             # ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
-            ss = ws * (unal1  + unal2)/ 2.
+            # ss = ws * (unal1  + unal2)/ 2.
             # score = (d1 * A1 + d2* A2)/(A1 + A2) + ss
-            score = (d1 + d2) / 2. + ss
+            # score = (x1 + x2) / 2. + ss
+            # keep = (A1 * al1 + A2 * al2)/ (A1 + A2)
+            # keep = al1 * al2
+            # score = df * keep + ss
+            score = (1./(div + 1.) + ss)
+            # print score
             # r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
             # r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
             # score = (r1 * A1 + r2* A2)/(A1 + A2) + ss
+            # print "score", score
             if debug:
-                print score, "rel. change M1", d1, "M2", d2, "shift", ss, "unal1", unal1, "unal2", unal2
+                print s, '->', np.round(score, 2), "div", np.round(div, 3), "ss", ss
+                # print s, '->', np.round(score,2), "df", np.round(df,2), "keep", np.round(keep, 3), "ss", ss, 'dN', np.round(dN.sum(),3), 'al1', al1, 'al2', al2 #d1, "M2", d2, "shift", ss, "unal1", unal1, "unal2", unal2, 
             
             # N *= (A2 + A1) / A
             scores.append( (score, s, N) )
         
-        best = sorted(scores)[0]
+        best = sorted(scores, reverse=True)[0]
         if debug:
-            print ">> best alignment <<"
+            print ">> best alignment <<", np.round(best[0], 5)
             s = int(best[1])
             si = max(-s, 0)
             sj = max(s, 0)
@@ -938,11 +995,17 @@ class PSAMBuilder(object):
         return "".join([project_column(col) for col in mat])
 
     def find_match(self):
-        i, j = np.unravel_index(self.scores.argmin(), self.scores.shape)
+        # tilt = .001 * np.log(self.maxR)
+        scores = np.array(self.scores)
+        # scores += tilt[:, np.newaxis]
+        # scores += tilt[np.newaxis, :]
+        i, j = np.unravel_index(scores.argmax(), scores.shape)
         return i, j, self.scores[i, j], self.shifts[i, j], self.merged[i, j]
 
-    def drop(self, x, fill=np.inf):
+    def drop(self, x, fill=-np.inf):
         self.P.pop(x)
+        self.disc.pop(x)
+        self.maxR.pop(x)
         for arr in [self.scores, self.shifts, self.merged]:
             arr[x:-1, :] = arr[x+1:, :]
             arr[:, x:-1] = arr[:, x+1:]
@@ -952,6 +1015,8 @@ class PSAMBuilder(object):
     def add(self, new):
         n = len(self.P)
         self.P.append(new)
+        self.disc.append(self.discrimination(new).sum())
+        self.maxR.append(new.max())
 
         for j in range(n):
             score, shift, N = self.align(self.P[n], self.P[j], debug=self.align_debug)
@@ -961,21 +1026,62 @@ class PSAMBuilder(object):
 
     def aggregate(self):
         score_steps = []
+        mean_disc = []
         while len(self.P) > 1:
             i, j, score, shift, new = self.find_match()
+            
+            order = np.array(self.maxR).argsort()[::-1]
+            cons = np.array([self.consensus(p) for p in self.P])
+            print "PSAMs", len(self.P)
+            for h, x in enumerate(order):
+                if x == i or x ==j:
+                    m = '*'
+                else:
+                    m = ' '
+                
+                y = self.scores[x,:].argmax()
+                z = self.scores[:,x].argmax()
 
-            print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shift, "score", score
+
+                if self.scores[x, y] > self.scores[z, x]:
+                    N = self.merged[x, y]
+                    score = self.scores[x, y]
+                    other = cons[y]
+                else:
+                    N = self.merged[z, x]
+                    score = self.scores[z, x]
+                    other = cons[z]
+                    y = z
+                    
+                nc = self.consensus(N) if N is not None else 'none'
+                print m, cons[x], np.round(self.maxR[x], 2), "+", other, '->', nc, 'score=', score
+
+                if len(self.P) == 20 and x == i:
+                #     print "<<< SHOULD"
+                #     self.align(self.P[order[h]], self.P[order[h+1]], debug=True)
+                    print "<<< IS", i, j, shift, self.consensus(self.P[i]), self.consensus(self.P[j])
+                    self.align(self.P[i], self.P[j], debug=True)
+
+            # if len(self.P) == 48:
+            #     self.align(self.P[i], self.P[j], debug=True)
+
+            # print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shift, "score", score
             score_steps.append(score)
-            # if i == x and j == y:
-            #     align(P[i], P[j], debug=True)
+            mean_disc.append(self.mean_discrimination())
 
+            # i, j, score, shift, new = self.find_match()
             s = int(shift)
             si = max(-s, 0)
             sj = max(s, 0)
 
-            print " "*si, self.consensus(self.P[i])
-            print " "*sj, self.consensus(self.P[j])
-
+            seq1 = self.consensus(self.P[i])
+            seq2 = self.consensus(self.P[j])
+            if len(seq2) > len(seq1):
+                seq1, seq2 = seq2, seq1
+            
+            print " "*(si+2), seq1
+            print " "*(sj+2), seq2
+            print "->", self.consensus(new)
             # if len(self.P) == 42:
             #     print "DEBUGGGGG"
             #     x = 41
@@ -984,23 +1090,22 @@ class PSAMBuilder(object):
             #     self.align(self.P[x], self.P[y], debug=True)
             #     sys.exit(0)
 
-            if len(self.P) < 20:
-                self.align(self.P[i], self.P[j], debug=True)
+            # if len(self.P) < 20:
+            #     self.align(self.P[i], self.P[j], debug=True)
 
             self.drop(i)
             self.drop(j)
 
-            print "replacing with"
-            print self.consensus(new)
-            print new
+            # print "replacing with"
+            # print self.consensus(new)
+            # print new
             self.add(new)
 
             n = len(self.P)
-            print n, "left"
-            if n <= 20:
-                print "consensus", [self.consensus(p) for p in self.P]
-                print "score matrix"
-                print self.scores[:n, :n]
+            # print n, "left"
+            if n <= 10:
+                # print "score matrix"
+                # print self.scores[:n, :n]
                 
                 from cska.params import ModelParametrization, ModelSetParams
                 from cska.pwm import PSAM
@@ -1024,20 +1129,24 @@ class PSAMBuilder(object):
                     # print " "*sj, self.consensus(self.P[y])
                      
 
-
+        mean_disc.append(np.array(self.disc).mean())
         print "score history", score_steps
+        print "mean disc.", mean_disc
+        
         import cska.report
         import matplotlib.pyplot as plt
 
         plt.figure()
-        plt.plot(score_steps, linestyle='steps')
+        plt.plot(score_steps, label="score", linestyle='steps')
+        plt.plot(mean_disc, label="avg. discrimination", linestyle='steps')
+        plt.legend()
         plt.savefig('scores.pdf')
 
 if __name__ == "__main__":
 
     test_data = [
         (100, 'UGCAUGC'),
-        # (100, 'GCAUGCA'),
+        (100, 'GCAUGCA'),
         (90, 'UGCAUGU'),
         (80, 'GCAUGCA'),
         (79, 'GCAUGCU'),
@@ -1063,10 +1172,27 @@ if __name__ == "__main__":
         (75, 'AGCAAUG'),
     ]
 
-    pb = PSAMBuilder(test_data)
+    test_data_msi = [
+        (9, 'UAGUUAG'),
+        (6, 'UAGAUAG'),
+        (5.6, 'UUAGUUA'),
+        (5.2, 'UAGUUUA'), # <- 3
+        (5, 'AUAGUUA'),
+        (4.7, 'UAGGUAG'),
+        (4.3, 'UAGCUAG'),
+        (4.5, 'AGUUAGU'),
+        (4.1, 'UUAGUUU'), # <- 8
+        (4.2, 'AGUUUAG'), # <- 9
+        (4.0, 'UUUAGUU'),
+    ]
+    pb = PSAMBuilder(test_data_msi, init=False)
+    print "done building tables"
+    pb.align(pb.P[3], pb.P[8], debug=True)
+    pb.align(pb.P[3], pb.P[0], debug=True)
+    sys.exit(0)
+
     pb.aggregate()
 
-    sys.exit(0)
 
     import logging
     logging.basicConfig(level=logging.DEBUG)
