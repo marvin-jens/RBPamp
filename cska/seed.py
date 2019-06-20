@@ -821,20 +821,26 @@ class PSAMBuilder(object):
         self.shifts = np.zeros( (n, n) ) + np.NaN
         self.merged = np.empty( (n, n), dtype=object )
         
-        self.fill_tables()
         self.align_debug = False
+        self.fill_tables()
+        # self.align_debug = True #False
 
     def fill_tables(self):
         n = len(self.P)
         
         for i in range(n):
             for j in range(i):
-                score, shift, N = self.align(self.P[i], self.P[j])
+                score, shift, N = self.align(self.P[i], self.P[j], debug=self.align_debug)
                 self.scores[i, j] = score
                 self.shifts[i, j] = shift 
                 self.merged[i, j] = N
 
-    def align(self, P1, P2, max_shift=5, ws=0.5, debug=False):
+    def discrimination(self, P):
+        D = (P.max(axis=1) / P.sum(axis=1) - 1./4.) / 0.75
+        w = P.max(axis=1) / P.max()
+        return D*w
+
+    def align(self, P1, P2, max_shift=5, ws=1., debug=False):
         if len(P2) > len(P1):
             P1, P2 = P2, P1
         
@@ -861,14 +867,15 @@ class PSAMBuilder(object):
             M1 = P1[s1:e1]
             M2 = P2[s2:e2]
 
-            D1 = (P1.max(axis=1) / P1.sum(axis=1) - 1./4.) / 0.75
-            D2 = (P2.max(axis=1) / P2.sum(axis=1) - 1./4.) / 0.75
+            D1 = self.discrimination(P1)
+            D2 = self.discrimination(P2)
             if debug:
                 print "D1", D1
                 print "D2", D2
 
-            unal1 = 1 - D1[s1:e1].sum() / D1.sum()
-            unal2 = 1 - D2[s2:e2].sum() / D2.sum()
+            # how much discrimination is lost from the shift?
+            unal1 = 1 - D1[s1:e1].sum() / D1.sum() 
+            unal2 = 1 - D2[s2:e2].sum() / D2.sum() 
             if debug:
                 print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
 
@@ -897,18 +904,35 @@ class PSAMBuilder(object):
             #     print N2
             #     print "M2"
             #     print M2
-            r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
-            r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
-            ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
-            score = (r1 * A1 + r2* A2)/(A1 + A2) + ss
+            dM1 = self.discrimination(M1) 
+            dM2 = self.discrimination(M2) 
+            d1 = (dM1 - self.discrimination(N1)).sum() / dM1.sum() # fraction of discrimination lost in overlapping region
+            d2 = (dM2 - self.discrimination(N2)).sum() / dM2.sum()
+
+            # ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
+            ss = ws * (unal1  + unal2)/ 2.
+            # score = (d1 * A1 + d2* A2)/(A1 + A2) + ss
+            score = (d1 + d2) / 2. + ss
+            # r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
+            # r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
+            # score = (r1 * A1 + r2* A2)/(A1 + A2) + ss
             if debug:
-                print score, "rel. change M1", r1, "M2", r2, "shift", ss, "unal1", unal1, "unal2", unal2
+                print score, "rel. change M1", d1, "M2", d2, "shift", ss, "unal1", unal1, "unal2", unal2
             
             # N *= (A2 + A1) / A
             scores.append( (score, s, N) )
         
-        best = sorted(scores)
-        return best[0]
+        best = sorted(scores)[0]
+        if debug:
+            print ">> best alignment <<"
+            s = int(best[1])
+            si = max(-s, 0)
+            sj = max(s, 0)
+
+            print " "*si, self.consensus(P1)
+            print " "*sj, self.consensus(P2)
+
+        return best
 
     def consensus(self, mat):
         return "".join([project_column(col) for col in mat])
@@ -960,6 +984,9 @@ class PSAMBuilder(object):
             #     self.align(self.P[x], self.P[y], debug=True)
             #     sys.exit(0)
 
+            if len(self.P) < 20:
+                self.align(self.P[i], self.P[j], debug=True)
+
             self.drop(i)
             self.drop(j)
 
@@ -974,14 +1001,15 @@ class PSAMBuilder(object):
                 print "consensus", [self.consensus(p) for p in self.P]
                 print "score matrix"
                 print self.scores[:n, :n]
+                
                 from cska.params import ModelParametrization, ModelSetParams
                 from cska.pwm import PSAM
                 psams = [PSAM(np.round(p, 0), A0=p.max()) for p in self.P]
                 params = [ModelParametrization.from_PSAM(ps, n_samples=1) for ps in psams]
                 param_set = ModelSetParams(params, sort=True)
                 param_set.save_logos("seed_{}left.pdf".format(len(self.P)))
-                if n == 6:
-                    self.align_debug = True
+                # if n == 6:
+                #     self.align_debug = True
                     # S = np.array(self.scores).flatten()
                     # S[S == np.inf] = np.nan
                     # x, y = np.unravel_index(np.nanargmax(S), self.scores.shape)
@@ -1002,7 +1030,7 @@ class PSAMBuilder(object):
         import matplotlib.pyplot as plt
 
         plt.figure()
-        plt.plot(score_steps)
+        plt.plot(score_steps, linestyle='steps')
         plt.savefig('scores.pdf')
 
 if __name__ == "__main__":
