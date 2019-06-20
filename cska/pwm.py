@@ -159,8 +159,10 @@ def afflogo_save(psam, fname="psam.pdf", title="", scale_width=True, **kwargs):
 class PSAM(object):
     def __init__(self, psam, A0 = 1e-6):
         self.psam = np.array(psam, dtype=np.float32)
-        amax = psam.max(axis=1)
-        self.psam /= amax[:, np.newaxis]
+        M = self.psam.max()
+        d = M - self.psam.max(axis=1)
+        self.psam += d[:, np.newaxis] # now, every column should have at least one position with the max value of M
+        self.psam /= M
         cond = (self.psam.max(axis=1) == 1).all()
         if not cond:
             print "FCKP"
