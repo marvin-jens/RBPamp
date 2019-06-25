@@ -559,7 +559,7 @@ class SeedRefinement(object):
         # R_err = R_err.mean(axis=0)
 
 
-    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=5, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, z_cut=4, n_min=5, q_ns=5., **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -608,120 +608,134 @@ class SeedRefinement(object):
             kmer_set.append( (kmer, r) )
             enriched.append( (r, kmer) )
         
-        pb = PSAMBuilder(enriched)
-        pb.aggregate()
-        return 1/0
-
         self.shelf['kmer_set'] = kmer_set
         n_enriched = len(kmer_set)
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
-        def make_psam(aln, **kwargs):
-            return aln.to_PSAM(
-                pseudo=0, 
-                keep_weight=keep_weight, 
-                A0=aln.max_weight/r0 * A0,
-                **kwargs
-            )
+        pb = PSAMBuilder(enriched, **kwargs)
+        psams = pb.aggregate(n_min=n_min, **kwargs)
 
-        def get_motifs(alns):
-            psams = [make_psam(a) for a in alns]
-            return ",".join([p.consensus_ul for p in psams])
-
-        kmer, r = kmer_set.pop(0)
-        # print "STARTING from", kmer, r
-        aln = Alignment()
-        aln.blend(kmer, 0, r, normalize=False)
-        alns.append(aln)
-        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
-
-        def update_scores(alns, kmer_set):
-            scores = []
-            ofs = []
-            # print "re-aligning"
-            for kmer, r in kmer_set:
-                o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
-                ofs.append(o)
-                scores.append(s)
-
-            scores = np.array(scores)
-            ofs = np.array(ofs)
-            
-            return scores, ofs
-
-        def start_new(alns, kmer_set):
-            kmer, r = kmer_set[0]
-            current_motifs = get_motifs(alns)
-            self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
-            best_i = scores.max(axis=1).argmax()
-            self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
-            # print "starting NEW MOTIF", kmer, r, scores[0]
-            kmer_set.pop(0)
-            aln = Alignment()
-            aln.blend(kmer, 0, r, normalize=False)
-            alns.append(aln)
-
-            return alns, kmer_set
-
-        def blend_best(alns, kmer_set, scores, ofs):
-            # find best aligning kmer and add to best matching motif
-            mer_scores = scores.max(axis=1)
-            best_i = mer_scores.argmax()
-            # print "best matching kmer is", kmer_set[best_i]
-
-            kmer, r = kmer_set.pop(best_i)
-            j = scores[best_i].argmax()
-            s = scores[best_i, j]
-            o = ofs[best_i, j]
-
-            alns[j].blend(kmer, int(o), r, normalize=False)
-            # cons = alns[j].to_PSAM(pseudo=0).consensus
-            # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
-            # if cons == 'AUAGCAU':
-            #     print alns[j].matrix
-            #     print alns[j].align(kmer, normalize=True, debug=True)
-            return alns, kmer_set
-
-        while kmer_set:
-            # align all remaining enriched kmers to all motifs
-            scores, ofs = update_scores(alns, kmer_set)
-            if (scores < thresh).all() and len(alns) < m_max:
-                start_new(alns, kmer_set)
-            else:
-                blend_best(alns, kmer_set, scores, ofs)
-
-        keep = []
-        drop = []
-        orphan_set = []
-        for aln in alns:
-            if len(aln.seqs) >= n_min:
-                keep.append(aln)
-            else:
-                drop.append(aln)
-                ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
-                orphan_set.extend(ks)
-
-        orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-        print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
-        print "re-distributing kmers of weakest motfs", orphan_set
-        while orphan_set:
-            # align all remaining enriched kmers to all motifs
-            scores, ofs = update_scores(keep, orphan_set)
-            blend_best(keep, orphan_set, scores, ofs)
-
-        psams = [make_psam(aln, n_max=n_max) for aln in keep]
         maxlen = max([psam.n for psam in psams])
         motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
-        w = np.array([p.n for p in psams])
-        wm = w.max()
-
-        # second pass -> pad motifs to equal size
-        [p.pad_to_size(wm) for p in psams]
-        self.shelf['width'] = wm
-        self.shelf['n_psam'] = len(psams)
+        self.logger.info(
+            "done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(
+                len(psams), maxlen, len(kmer_set), z_cut, motifs, n_min
+            )
+        )
+        
         self.shelf['psams'] = psams
+        self.shelf['width'] = psams[0].n
+        self.shelf['n_psam'] = len(psams)
+
         return psams
+
+
+        # def make_psam(aln, **kwargs):
+        #     return aln.to_PSAM(
+        #         pseudo=0, 
+        #         keep_weight=keep_weight, 
+        #         A0=aln.max_weight/r0 * A0,
+        #         **kwargs
+        #     )
+
+        # def get_motifs(alns):
+        #     psams = [make_psam(a) for a in alns]
+        #     return ",".join([p.consensus_ul for p in psams])
+
+        # kmer, r = kmer_set.pop(0)
+        # # print "STARTING from", kmer, r
+        # aln = Alignment()
+        # aln.blend(kmer, 0, r, normalize=False)
+        # alns.append(aln)
+        # self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
+
+        # def update_scores(alns, kmer_set):
+        #     scores = []
+        #     ofs = []
+        #     # print "re-aligning"
+        #     for kmer, r in kmer_set:
+        #         o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+        #         ofs.append(o)
+        #         scores.append(s)
+
+        #     scores = np.array(scores)
+        #     ofs = np.array(ofs)
+            
+        #     return scores, ofs
+
+        # def start_new(alns, kmer_set):
+        #     kmer, r = kmer_set[0]
+        #     current_motifs = get_motifs(alns)
+        #     self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+        #     best_i = scores.max(axis=1).argmax()
+        #     self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
+        #     # print "starting NEW MOTIF", kmer, r, scores[0]
+        #     kmer_set.pop(0)
+        #     aln = Alignment()
+        #     aln.blend(kmer, 0, r, normalize=False)
+        #     alns.append(aln)
+
+        #     return alns, kmer_set
+
+        # def blend_best(alns, kmer_set, scores, ofs):
+        #     # find best aligning kmer and add to best matching motif
+        #     mer_scores = scores.max(axis=1)
+        #     best_i = mer_scores.argmax()
+        #     # print "best matching kmer is", kmer_set[best_i]
+
+        #     kmer, r = kmer_set.pop(best_i)
+        #     j = scores[best_i].argmax()
+        #     s = scores[best_i, j]
+        #     o = ofs[best_i, j]
+
+        #     alns[j].blend(kmer, int(o), r, normalize=False)
+        #     # cons = alns[j].to_PSAM(pseudo=0).consensus
+        #     # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+        #     # if cons == 'AUAGCAU':
+        #     #     print alns[j].matrix
+        #     #     print alns[j].align(kmer, normalize=True, debug=True)
+        #     return alns, kmer_set
+
+        # while kmer_set:
+        #     # align all remaining enriched kmers to all motifs
+        #     scores, ofs = update_scores(alns, kmer_set)
+        #     if (scores < thresh).all() and len(alns) < m_max:
+        #         start_new(alns, kmer_set)
+        #     else:
+        #         blend_best(alns, kmer_set, scores, ofs)
+
+        # keep = []
+        # drop = []
+        # orphan_set = []
+        # for aln in alns:
+        #     if len(aln.seqs) >= n_min:
+        #         keep.append(aln)
+        #     else:
+        #         drop.append(aln)
+        #         ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
+        #         orphan_set.extend(ks)
+
+        # orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+        # print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
+        # print "re-distributing kmers of weakest motfs", orphan_set
+        # while orphan_set:
+        #     # align all remaining enriched kmers to all motifs
+        #     scores, ofs = update_scores(keep, orphan_set)
+        #     blend_best(keep, orphan_set, scores, ofs)
+
+        # psams = [make_psam(aln, n_max=n_max) for aln in keep]
+        # maxlen = max([psam.n for psam in psams])
+        # motifs = ",".join([p.consensus_ul for p in psams])
+        # self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
+        # w = np.array([p.n for p in psams])
+        # wm = w.max()
+
+        # # second pass -> pad motifs to equal size
+        # [p.pad_to_size(wm) for p in psams]
+        # self.shelf['width'] = wm
+        # self.shelf['n_psam'] = len(psams)
+        # self.shelf['psams'] = psams
+        # return psams
 
 
     def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
@@ -811,22 +825,90 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, max_w=11):
+    def __init__(self, enriched, init=True, keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
+        self.logger = logging.getLogger("opt.seed.PSAMBuilder")
+        self.keep_weight = keep_weight
+        self.n_max = n_max
+        self.thresh = thresh
+        self.A0 = A0
+        self.alns = []
+
         self.enriched = enriched
-        self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
-        self.disc = [self.discrimination(p).sum() for p in self.P]
-        self.maxR = [p.max() for p in self.P]
-        self.ext_cost = np.array([np.Inf, 0., 0., 0., 0., 0., 0., 0.0, 0.1, .1, .2, .3, 1.5, 2., np.inf, np.inf, np.inf, np.inf, np.inf])
+        self.n_kmers = len(enriched)
+        # self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
+        # self.disc = [self.discrimination(p).sum() for p in self.P]
+        # self.maxR = [p.max() for p in self.P]
+        self.r0 = np.array(self.maxR).max()
+        # self.ext_cost = np.array([np.Inf, 0., 0., 0., 0., 0., 0., 0.0, 0.1, .15, .2, .3, 1.5, 2., np.inf, np.inf, np.inf, np.inf, np.inf])
         
-        n = len(self.P)
-        self.scores = np.zeros( (n, n) ) - np.Inf
-        self.shifts = np.zeros( (n, n) ) + np.NaN
-        self.merged = np.empty( (n, n), dtype=object )
+        # n = len(self.P)
+        # self.scores = np.zeros( (n, n) ) - np.Inf
+        # self.shifts = np.zeros( (n, n) ) + np.NaN
+        # self.merged = np.empty( (n, n), dtype=object )
         
-        self.align_debug = False
-        if init:
-            self.fill_tables()
+        # self.align_debug = False
+        # if init:
+        #     self.fill_tables()
         # self.align_debug = True #False
+
+    def make_psam(self, aln, **kwargs):
+        return aln.to_PSAM(
+            pseudo=0, 
+            keep_weight=self.keep_weight, 
+            A0=aln.max_weight/self.r0 * self.A0,
+            **kwargs
+        )
+
+    def get_motifs(self):
+        psams = [self.make_psam(a) for a in self.alns]
+        return ",".join([p.consensus_ul for p in psams])
+
+    def update_scores(self, alns, enriched):
+        scores = []
+        ofs = []
+        # print "re-aligning"
+        for r, kmer in enriched:
+            o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+            ofs.append(o)
+            scores.append(s)
+
+        scores = np.array(scores)
+        ofs = np.array(ofs)
+        
+        return scores, ofs
+
+    def start_new(self, scores, ofs):
+        r, kmer = self.enriched[0]
+        current_motifs = self.get_motifs()
+        self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+        best_i = scores.max(axis=1).argmax()
+        self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], self.enriched[best_i][1], scores[best_i], self.thresh))
+        # print "starting NEW MOTIF", kmer, r, scores[0]
+        self.enriched.pop(0)
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        self.alns.append(aln)
+
+        return self.alns, self.enriched
+
+    def blend_best(self, alns, enriched, scores, ofs):
+        # find best aligning kmer and add to best matching motif
+        mer_scores = scores.max(axis=1)
+        best_i = mer_scores.argmax()
+        # print "best matching kmer is", kmer_set[best_i]
+
+        r, kmer = enriched.pop(best_i)
+        j = scores[best_i].argmax()
+        s = scores[best_i, j]
+        o = ofs[best_i, j]
+
+        alns[j].blend(kmer, int(o), r, normalize=False)
+        # cons = alns[j].to_PSAM(pseudo=0).consensus
+        # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+        # if cons == 'AUAGCAU':
+        #     print alns[j].matrix
+        #     print alns[j].align(kmer, normalize=True, debug=True)
+        return alns, enriched
 
     def fill_tables(self):
         n = len(self.P)
@@ -1024,15 +1106,18 @@ class PSAMBuilder(object):
             self.shifts[n, j] = shift 
             self.merged[n, j] = N
 
-    def aggregate(self):
+    def aggregate(self, n_valid=5):
         score_steps = []
         mean_disc = []
+        mean_score = []
+        valid_sets = []
+
         while len(self.P) > 1:
+            print "PSAMs", len(self.P)
             i, j, score, shift, new = self.find_match()
             
             order = np.array(self.maxR).argsort()[::-1]
             cons = np.array([self.consensus(p) for p in self.P])
-            print "PSAMs", len(self.P)
             for h, x in enumerate(order):
                 if x == i or x ==j:
                     m = '*'
@@ -1062,12 +1147,11 @@ class PSAMBuilder(object):
                     print "<<< IS", i, j, shift, self.consensus(self.P[i]), self.consensus(self.P[j])
                     self.align(self.P[i], self.P[j], debug=True)
 
-            # if len(self.P) == 48:
-            #     self.align(self.P[i], self.P[j], debug=True)
-
-            # print "best match is", i,j, self.consensus(self.P[i]), self.consensus(self.P[j]), "shift", shift, "score", score
             score_steps.append(score)
             mean_disc.append(self.mean_discrimination())
+
+            S = np.array(self.scores).flatten()
+            mean_score.append(np.mean(S[np.isfinite(S)]))
 
             # i, j, score, shift, new = self.find_match()
             s = int(shift)
@@ -1082,28 +1166,13 @@ class PSAMBuilder(object):
             print " "*(si+2), seq1
             print " "*(sj+2), seq2
             print "->", self.consensus(new)
-            # if len(self.P) == 42:
-            #     print "DEBUGGGGG"
-            #     x = 41
-            #     y = 17
-            #     print self.consensus(self.P[x]), self.consensus(self.P[y])
-            #     self.align(self.P[x], self.P[y], debug=True)
-            #     sys.exit(0)
-
-            # if len(self.P) < 20:
-            #     self.align(self.P[i], self.P[j], debug=True)
 
             self.drop(i)
             self.drop(j)
-
-            # print "replacing with"
-            # print self.consensus(new)
-            # print new
             self.add(new)
 
             n = len(self.P)
-            # print n, "left"
-            if n <= 10:
+            if n <= n_valid:
                 # print "score matrix"
                 # print self.scores[:n, :n]
                 
@@ -1113,25 +1182,13 @@ class PSAMBuilder(object):
                 params = [ModelParametrization.from_PSAM(ps, n_samples=1) for ps in psams]
                 param_set = ModelSetParams(params, sort=True)
                 param_set.save_logos("seed_{}left.pdf".format(len(self.P)))
-                # if n == 6:
-                #     self.align_debug = True
-                    # S = np.array(self.scores).flatten()
-                    # S[S == np.inf] = np.nan
-                    # x, y = np.unravel_index(np.nanargmax(S), self.scores.shape)
-                    # print "aligning worst pair", x, y
-                    # print self.consensus(self.P[x]), self.consensus(self.P[y])
-                    # score, shift, n = self.align(self.P[x], self.P[y], debug=True)
-                    # s = int(shift)
-                    # si = max(-s, 0)
-                    # sj = max(s, 0)
 
-                    # print " "*si, self.consensus(self.P[x])
-                    # print " "*sj, self.consensus(self.P[y])
-                     
+                valid_sets.append(param_set)
 
         mean_disc.append(np.array(self.disc).mean())
         print "score history", score_steps
         print "mean disc.", mean_disc
+        print "mean score", mean_score
         
         import cska.report
         import matplotlib.pyplot as plt
@@ -1139,8 +1196,53 @@ class PSAMBuilder(object):
         plt.figure()
         plt.plot(score_steps, label="score", linestyle='steps')
         plt.plot(mean_disc, label="avg. discrimination", linestyle='steps')
+        plt.plot(mean_score, label="mean score", linestyle='steps')
         plt.legend()
         plt.savefig('scores.pdf')
+
+    def aggregate(self, n_min=5, m_max=5, **kwargs):
+        r, kmer = self.enriched.pop(0)
+        # self.logger.debug("STARTING from", kmer, r
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        self.alns = [aln, ]
+        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
+
+        while self.enriched:
+            # align all remaining enriched kmers to all motifs
+            scores, ofs = self.update_scores(self.alns, self.enriched)
+            if (scores < self.thresh).all() and len(self.alns) < m_max:
+                self.start_new(scores, ofs)
+            else:
+                self.blend_best(self.alns, self.enriched, scores, ofs)
+
+        keep = []
+        drop = []
+        orphan_set = []
+        for aln in self.alns:
+            if len(aln.seqs) >= n_min:
+                keep.append(aln)
+            else:
+                drop.append(aln)
+                ks = [ (w*self.r0, kmer) for kmer, w in zip(aln.seqs, aln.weights)]
+                orphan_set.extend(ks)
+
+        orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+        print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
+        print "re-distributing kmers of weakest motfs", orphan_set
+        while orphan_set:
+            # align all remaining enriched kmers to all motifs
+            scores, ofs = self.update_scores(keep, orphan_set)
+            self.blend_best(keep, orphan_set, scores, ofs)
+
+        psams = [self.make_psam(aln, n_max=self.n_max) for aln in keep]
+        w = np.array([p.n for p in psams])
+        wm = w.max()
+
+        # second pass -> pad motifs to equal size
+        [p.pad_to_size(wm) for p in psams]
+        return psams
+
 
 if __name__ == "__main__":
 
