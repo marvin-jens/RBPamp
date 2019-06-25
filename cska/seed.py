@@ -837,7 +837,7 @@ class PSAMBuilder(object):
         # self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
         # self.disc = [self.discrimination(p).sum() for p in self.P]
         # self.maxR = [p.max() for p in self.P]
-        self.r0 = np.array(self.maxR).max()
+        self.r0 = np.array([r for r, kmer in self.enriched]).max()
         # self.ext_cost = np.array([np.Inf, 0., 0., 0., 0., 0., 0., 0.0, 0.1, .15, .2, .3, 1.5, 2., np.inf, np.inf, np.inf, np.inf, np.inf])
         
         # n = len(self.P)
