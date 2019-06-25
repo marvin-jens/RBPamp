@@ -75,6 +75,7 @@ def parse_cmdline():
     parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
+    parser.add_option("", "--z-cut", dest="z_cut", default=4., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
     parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.72, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
     parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
@@ -497,7 +498,7 @@ class Run(object):
         # TODO!
         # SR.primer_analysis()
         # sys.exit(0)
-        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh)
+        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh, z_cut=self.options.z_cut)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 
