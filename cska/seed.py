@@ -27,7 +27,7 @@ class Alignment(object):
         l = len(seq)
         n = len(self.matrix)
         if not len(self.matrix):
-            return 0, 1 # offset, alignment score
+            return 0, 1  # offset, alignment score
         else:
             scores = []
             if contain:
@@ -62,7 +62,6 @@ class Alignment(object):
                     end_avg = 0.
                     if m_end < n:
                         end_avg = func(self.matrix[m_end:], axis=1).sum()
-
 
                 n_cols = m_end - m_start
 
