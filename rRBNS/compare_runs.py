@@ -1,6 +1,7 @@
 import re, glob, sys, os
 import numpy as np
 import shelve
+import logging
 import cska.report
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -37,8 +38,8 @@ class Results(object):
 def get_descent(fname, err_thresh=.05):
     # print fname
     sname = os.path.join(os.path.dirname(fname), "history")
-    shelf = shelve.open(sname, flag='r')
     try:
+        shelf = shelve.open(sname, flag='r')
         lines = [l for l in file(fname).readlines() if not l.startswith("#")]
     except:
         logging.warning('file "{}" not found!'.format(fname))
@@ -233,22 +234,68 @@ def load_or_make(pattern, base = "/home/mjens/engaging/", redo=False):
 # d_s, res_s = extract_error_corr("RBNS/*/cska/single")
 # d_o, res_o = extract_error_corr("RBNS/*/cska/oneconc")
 
+def compare_runs(runs, rbps):
+    rkeys = sorted(runs.keys())
+    mcorrs = []
+    merrs = []
+    all_errs = []
+    all_corrs = []
+    for run in rkeys:
+        errs, corrs = np.array([runs[run][rbp] for rbp in rbps]).T
+        merrs.append(np.mean(np.log10(errs)))
+        mcorrs.append(np.mean(corrs))
+    
+        all_errs.append(errs)
+        all_corrs.append(corrs)
 
-# d_std, res_std = load_or_make("RBNS/*/cska/std.72")
-d_std, res_std = load_or_make("RBNS/*/cska/CI", redo=False)
+        print ">>", run
+        eperc = np.percentile(np.log10(errs), [5, 25, 50, 75, 95])
+        cperc = np.percentile(corrs, [5, 25, 50, 75, 95])
+        print "  log10 error quartiles", np.round(eperc, 2)
+        print "  correlation quartiles", np.round(cperc, 2)
+        # mean corr {:.3f}".format(run, merrs[-1], mcorrs[-1]) 
+
+    rkeys = np.array(rkeys)
+    merrs = np.array(merrs)
+    mcorrs = np.array(mcorrs)
+
+    print ">> most variable RBPs"
+    all_errs = np.array(all_errs)
+    all_corrs = np.array(all_corrs)
+    vc = np.std(all_corrs, axis=0)
+    I = vc.argsort()[::-1]
+    for i in I[:5]:
+        print rbps[i], np.round(vc[i], 2), np.round(all_corrs[:, i], 3), np.round(all_errs[:, i], 3)
+
+
+    ie = merrs.argmin()
+    ic = mcorrs.argmax()
+
+    print "-> run with lowest error {}, highest corr {}".format(rkeys[ie], rkeys[ic])
+
+d_std, res_std = load_or_make("RBNS/*/cska/std.72", redo=False  )
+d_ci, res_ci = load_or_make("RBNS/*/cska/CI", redo=False)
 d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/xsrbp")
 # d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/std")
 d_linocc, res_linocc = load_or_make("RBNS/*/cska/linocc")
 d_dumb, res_dumb = load_or_make("RBNS/*/cska/dumb")
-d_s, res_s = load_or_make("RBNS/*/cska/single")
+# d_s, res_s = load_or_make("RBNS/*/cska/single")
+d_s, res_s = load_or_make("RBNS/*/cska/std.72.1")
 d_o, res_o = load_or_make("RBNS/*/cska/oneconc")
 
-
+runs = {
+    'std.72' : d_std,
+    'std.72.1' : d_s,
+    'CI' : d_ci,
+}
 
 from cska import dominguez_rbps as dom_rbps
 rbps = sorted(d_std.keys())
 rbps = np.array(dom_rbps)
 print len(rbps), "RBPs are being considered"
+
+compare_runs(runs, rbps)
+sys.exit(0)
 
 err_std, corr_std = np.array([d_std[rbp] for rbp in rbps]).T
 err_xs, corr_xs = np.array([d_xsrbp[rbp] for rbp in rbps]).T
