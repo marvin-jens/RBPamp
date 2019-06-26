@@ -30,6 +30,7 @@ class Alignment(object):
             return 0, 1  # offset, alignment score
         else:
             scores = []
+            ms = self.max_score(k=len(seq))
             if contain:
                 assert n > l
                 d = n - l
@@ -86,7 +87,7 @@ class Alignment(object):
                 
                 # score += score/n_cols * .1 * abs(ofs)
                 if normalize:
-                    score /= self.max_score
+                    score /= ms
                 
                 # score += .05 * abs(ofs)
 
@@ -106,7 +107,7 @@ class Alignment(object):
         if ofs < 0:
             self.ofs = [o - ofs for o in self.ofs]
             matrix = np.zeros((len(self.matrix)-ofs,4))
-            matrix[-ofs:] =  self.matrix[:]
+            matrix[-ofs:] = self.matrix[:]
             self.matrix = matrix
             ofs = 0
         
@@ -114,7 +115,7 @@ class Alignment(object):
         if d > 0:
             matrix = np.zeros((len(self.matrix)+d,4))
             if len(self.matrix):
-                matrix[:len(self.matrix)] =  self.matrix[:]
+                matrix[:len(self.matrix)] = self.matrix[:]
             self.matrix = matrix
         
         self.ofs.append(ofs)
@@ -127,7 +128,7 @@ class Alignment(object):
             self.matrix[i+ofs, bits[i]] += weight
         
         if normalize:
-            self.matrix /= self.max_score
+            self.matrix /= self.max_score(k=len(seq))
 
     def add(self, seq, weight=1.):
         ofs, score = self.align(seq)
@@ -139,10 +140,11 @@ class Alignment(object):
     def score(self):
         return self.matrix.max(axis=0).mean()
     
-    @property
-    def max_score(self):
+    def max_score(self, k=7):
         if len(self.matrix):
-            return self.matrix.max(axis=1).sum()
+            ma = self.matrix.max(axis=1)
+            slices = np.array([ma[i:i+k].sum() for i in range(len(self.matrix)-k+1)])
+            return slices.max()
         else:
             return 1.
 
@@ -161,8 +163,9 @@ class Alignment(object):
             spacer = " "*o
             buf.append("{w:3.3e}  {spacer}{s}".format(**locals()))
 
-        perc = 100. * self.score / self.max_score
-        buf.append("average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(self.score, self.max_score, perc))
+        ms = self.max_score(k=len(self.matrix))
+        perc = 100. * self.score / ms
+        buf.append("average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(self.score, ms, perc))
         return "\n".join(buf)
 
     def save_logo(self, fname):
@@ -824,7 +827,7 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
+    def __init__(self, enriched, init=True, keep_weight=.999, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMBuilder")
         self.keep_weight = keep_weight
         self.n_max = n_max
@@ -873,7 +876,11 @@ class PSAMBuilder(object):
 
         scores = np.array(scores)
         ofs = np.array(ofs)
-        
+        # print "UPDATE"
+        # for i in scores.max(axis=1).argsort()[::-1]:
+        #     r, kmer = enriched[i]
+        #     print kmer, np.round(r/self.r0, 2), scores[i], "->", alns[scores[i].argmax()].to_PSAM().consensus_ul, ofs[i]
+
         return scores, ofs
 
     def start_new(self, scores, ofs):
@@ -885,7 +892,7 @@ class PSAMBuilder(object):
         # print "starting NEW MOTIF", kmer, r, scores[0]
         self.enriched.pop(0)
         aln = Alignment()
-        aln.blend(kmer, 0, r, normalize=False)
+        aln.blend(kmer, 0, r/self.r0, normalize=False)
         self.alns.append(aln)
 
         return self.alns, self.enriched
@@ -901,7 +908,7 @@ class PSAMBuilder(object):
         s = scores[best_i, j]
         o = ofs[best_i, j]
 
-        alns[j].blend(kmer, int(o), r, normalize=False)
+        alns[j].blend(kmer, int(o), r/self.r0, normalize=False)
         # cons = alns[j].to_PSAM(pseudo=0).consensus
         # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
         # if cons == 'AUAGCAU':
