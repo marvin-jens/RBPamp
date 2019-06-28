@@ -17,11 +17,15 @@ class Alignment(object):
         for s,w in izip_longest(seqs, weights, fillvalue=1.):
             ofs, score = self.align(s)
 
+        self.ext_cost = np.ones(125)
+        self.ext_cost[:8] = 0.01
+        self.ext_cost[8:17] = [.01, .02, .04, .05, .08, .1, .1, .1, .1, ]
+        print self.ext_cost
         self.seqs = []
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None, debug=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=5, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
@@ -30,7 +34,7 @@ class Alignment(object):
             return 0, 1  # offset, alignment score
         else:
             scores = []
-            ms = self.max_score(k=len(seq))
+            Ms = self.max_score(k=len(seq))
             if contain:
                 assert n > l
                 d = n - l
@@ -38,7 +42,7 @@ class Alignment(object):
             else:
                 ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
             # print seq
-            if end_weight:
+            if end_weight == True:
                 func = np.mean
             else:
                 func = np.min
@@ -57,13 +61,20 @@ class Alignment(object):
                         end_avg = func(self.matrix[m_end:], axis=1).prod()
                 else:
                     start_avg = 0
-                    if m_start:
+                    if m_start and not end_weight is None:
                         start_avg = func(self.matrix[:m_start], axis=1).sum()
 
                     end_avg = 0.
-                    if m_end < n:
+                    if m_end < n and not end_weight is None:
                         end_avg = func(self.matrix[m_end:], axis=1).sum()
 
+                ext_n = max(0, -ofs) + max(0, (ofs + l) - n) # number of columns that would be added to matrix
+                ext_cost = 0
+                for i in range(n, n+ext_n):
+                    ext_cost += self.ext_cost[i]
+
+                ms = self.matrix[m_start:m_end].max(axis=1).sum()
+                ms = (ms + Ms) / 2. # favor alignments that overlap the highest weight region
                 n_cols = m_end - m_start
 
                 s_start = max(-ofs, 0)
@@ -88,12 +99,14 @@ class Alignment(object):
                 # score += score/n_cols * .1 * abs(ofs)
                 if normalize:
                     score /= ms
-                
+
+                score -= ext_cost                
                 # score += .05 * abs(ofs)
 
                 scores.append(score)
                 if debug:
-                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
+                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score, "ext_n", ext_n, "ext_cost", ext_cost, "ms", ms
+                    print "max_score", self.matrix[m_start:m_end].max(axis=1)
 
             x = np.array(scores).argmax()
             S = scores[x]
@@ -122,10 +135,14 @@ class Alignment(object):
 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
+        m = self.matrix.max()
+        if m == 0:
+            m = np.inf
+
         for i in range(l):
             if bits[i] > 3:
                 continue # skip gaps
-            self.matrix[i+ofs, bits[i]] += weight
+            self.matrix[i+ofs, bits[i]] += weight #min(max(weight, self.matrix[i+ofs, bits[i]]), m)
         
         if normalize:
             self.matrix /= self.max_score(k=len(seq))
@@ -172,7 +189,7 @@ class Alignment(object):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=None):
+    def to_PSAM(self, keep_weight=1., n_max=0, pseudo=1, col_scale=True, A0=None):
         # print self
         # print "to PSAM"
         # print self.matrix
@@ -827,7 +844,7 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, keep_weight=.999, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
+    def __init__(self, enriched, init=True, keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMBuilder")
         self.keep_weight = keep_weight
         self.n_max = n_max
@@ -857,34 +874,38 @@ class PSAMBuilder(object):
         return aln.to_PSAM(
             pseudo=0, 
             keep_weight=self.keep_weight, 
-            A0=aln.max_weight/self.r0 * self.A0,
+            A0=aln.max_weight * self.A0,
             **kwargs
         )
 
     def get_motifs(self):
-        psams = [self.make_psam(a) for a in self.alns]
-        return ",".join([p.consensus_ul for p in psams])
+        return ",".join([a.to_PSAM().consensus_ul for a in self.alns])
 
     def update_scores(self, alns, enriched):
         scores = []
         ofs = []
         # print "re-aligning"
         for r, kmer in enriched:
-            o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+            o, s = np.array([aln.align(kmer, normalize=True, end_weight=None) for aln in alns]).T
             ofs.append(o)
             scores.append(s)
 
         scores = np.array(scores)
         ofs = np.array(ofs)
-        # print "UPDATE"
-        # for i in scores.max(axis=1).argsort()[::-1]:
-        #     r, kmer = enriched[i]
-        #     print kmer, np.round(r/self.r0, 2), scores[i], "->", alns[scores[i].argmax()].to_PSAM().consensus_ul, ofs[i]
+        print "UPDATE"
+        for j, i in enumerate(scores.max(axis=1).argsort()[::-1]):
+            r, kmer = enriched[i]
+            al = alns[scores[i].argmax()]
+            print kmer, np.round(r/self.r0, 2), scores[i], "->", al.to_PSAM().consensus_ul, ofs[i]
+            if j > 2:
+                break
+                
 
         return scores, ofs
 
     def start_new(self, scores, ofs):
         r, kmer = self.enriched[0]
+        print "START NEW FROM", kmer
         current_motifs = self.get_motifs()
         self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
         best_i = scores.max(axis=1).argmax()
@@ -892,7 +913,7 @@ class PSAMBuilder(object):
         # print "starting NEW MOTIF", kmer, r, scores[0]
         self.enriched.pop(0)
         aln = Alignment()
-        aln.blend(kmer, 0, r/self.r0, normalize=False)
+        aln.blend(kmer, 0, r, normalize=False)
         self.alns.append(aln)
 
         return self.alns, self.enriched
@@ -908,7 +929,11 @@ class PSAMBuilder(object):
         s = scores[best_i, j]
         o = ofs[best_i, j]
 
-        alns[j].blend(kmer, int(o), r/self.r0, normalize=False)
+        print "BEST ALIGNMENT out of", self.get_motifs(), "is", alns[j].to_PSAM().consensus_ul, "+", kmer, s
+        if kmer == "augcacg":
+            alns[j].align(kmer, normalize=True, debug=True, end_weight=None)
+
+        alns[j].blend(kmer, int(o), r, normalize=False)
         # cons = alns[j].to_PSAM(pseudo=0).consensus
         # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
         # if cons == 'AUAGCAU':
