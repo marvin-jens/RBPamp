@@ -18,14 +18,14 @@ class Alignment(object):
             ofs, score = self.align(s)
 
         self.ext_cost = np.ones(125)
-        self.ext_cost[:8] = 0.01
-        self.ext_cost[8:17] = [.01, .02, .04, .05, .08, .1, .1, .1, .1, ]
-        print self.ext_cost
+        self.ext_cost[:9] = 0.01
+        self.ext_cost[9:18] = [.01, .02, .03, .04, .05, .06, .07, .08, .1, ]
+        # print self.ext_cost
         self.seqs = []
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=5, core_k=None, core_start=None, debug=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=4, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
@@ -75,7 +75,7 @@ class Alignment(object):
 
                 ms0 = self.matrix[m_start:m_end].max(axis=1).sum()
                 ms = (ms0 + Ms) / 2. # favor alignments that overlap the highest weight region
-                ms = Ms
+                # ms = Ms
                 n_cols = m_end - m_start
 
                 s_start = max(-ofs, 0)
@@ -848,8 +848,9 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
+    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, debug=False, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMBuilder")
+        self.debug = debug
         self.keep_weight = keep_weight
         self.n_max = n_max
         self.thresh = thresh
@@ -891,31 +892,43 @@ class PSAMBuilder(object):
     def get_motifs(self):
         return ",".join([a.to_PSAM().consensus_ul for a in self.alns])
 
-    def update_scores(self, alns, enriched):
+    def update_scores(self, alns, enriched, prev_scores=None, prev_ofs=None, col=None):
+        
         scores = []
         ofs = []
-        # print "re-aligning"
-        for r, kmer in enriched:
-            o, s = np.array([aln.align(kmer, normalize=True, end_weight=None) for aln in alns]).T
-            ofs.append(o)
-            scores.append(s)
+        if col is None:
+            # print "re-aligning"
+            for r, kmer in enriched:
+                o, s = np.array([aln.align(kmer, normalize=True, end_weight=None) for aln in alns]).T
+                ofs.append(o)
+                scores.append(s)
+        else:
+            scores = prev_scores
+            ofs = prev_ofs
+
+            for i,(r, kmer) in enumerate(enriched):
+                o, s = alns[col].align(kmer, normalize=True, end_weight=None)
+                ofs[i, col] = o
+                scores[i, col] = s
 
         scores = np.array(scores)
         ofs = np.array(ofs)
-        print "UPDATE"
-        for j, i in enumerate(scores.max(axis=1).argsort()[::-1]):
-            r, kmer = enriched[i]
-            al = alns[scores[i].argmax()]
-            print kmer, np.round(r/self.r0, 2), scores[i], "->", al.to_PSAM().consensus_ul, ofs[i]
-            if j > 2:
-                break
-                
+        # print "shapes", scores.shape, ofs.shape
+        if self.debug:
+            print "UPDATE", col
+            for j, i in enumerate(scores.max(axis=1).argsort()[::-1]):
+                # print "j,i", j, i, len(enriched), len(alns)
+                r, kmer = enriched[i]
+                al = alns[scores[i].argmax()]
+                print kmer, np.round(r/self.r0, 2), scores[i], "->", al.to_PSAM().consensus_ul, ofs[i]
+                if j > 2:
+                    break
 
         return scores, ofs
 
     def start_new(self, scores, ofs):
         r, kmer = self.enriched[0]
-        print "START NEW FROM", kmer
+        # print "START NEW FROM", kmer
         current_motifs = self.get_motifs()
         self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
         best_i = scores.max(axis=1).argmax()
@@ -926,20 +939,20 @@ class PSAMBuilder(object):
         aln.blend(kmer, 0, r, normalize=False)
         self.alns.append(aln)
 
-        return self.alns, self.enriched
+        return 0
 
     def blend_best(self, alns, enriched, scores, ofs):
         # find best aligning kmer and add to best matching motif
         mer_scores = scores.max(axis=1)
         best_i = mer_scores.argmax()
-        # print "best matching kmer is", kmer_set[best_i]
+        # print "best matching kmer is", best_i, enriched[best_i]
 
         r, kmer = enriched.pop(best_i)
         j = scores[best_i].argmax()
         s = scores[best_i, j]
         o = ofs[best_i, j]
 
-        print "BEST ALIGNMENT out of", self.get_motifs(), "is", alns[j].to_PSAM().consensus_ul, "+", kmer, s
+        self.logger.debug("BEST ALIGNMENT out of {} is {} + {} shift={}".format(self.get_motifs(), alns[j].to_PSAM().consensus_ul, kmer, s))
         if kmer == "augcacg":
             alns[j].align(kmer, normalize=True, debug=True, end_weight=None)
 
@@ -952,7 +965,7 @@ class PSAMBuilder(object):
         # if cons == 'AUAGCAU':
         #     print alns[j].matrix
         #     print alns[j].align(kmer, normalize=True, debug=True)
-        return alns, enriched
+        return best_i, j
 
     def fill_tables(self):
         n = len(self.P)
@@ -1252,13 +1265,35 @@ class PSAMBuilder(object):
         self.alns = [aln, ]
         self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
 
+        prev_scores = None
+        prev_ofs = None
+        col = None
         while self.enriched:
+            self.logger.debug("{} kmers left".format(len(self.enriched)))
             # align all remaining enriched kmers to all motifs
-            scores, ofs = self.update_scores(self.alns, self.enriched)
+            scores, ofs = self.update_scores(self.alns, self.enriched, prev_scores=prev_scores, prev_ofs=prev_ofs, col=col)
             if (scores < self.thresh).all() and (len(self.alns) - self.n_contaminants) < m_max:
-                self.start_new(scores, ofs)
+                i = self.start_new(scores, ofs)
+                n, m = scores.shape
+                prev_scores = np.zeros( (n-1, m+1), dtype=float)
+                prev_ofs = np.zeros( (n-1, m+1), dtype=int)
+                prev_scores[:i, :-1] = scores[:i, :]
+                prev_scores[i:, :-1] = scores[i+1:, :]
+                prev_ofs[:i, :-1] = ofs[:i, :]
+                prev_ofs[i:, :-1] = ofs[i+1:, :]
+                col = m
+
             else:
-                self.blend_best(self.alns, self.enriched, scores, ofs)
+                i, j = self.blend_best(self.alns, self.enriched, scores, ofs)
+                # print "drop scores for kmer", i
+                n, m = scores.shape
+                prev_scores = np.zeros( (n-1, m), dtype=float)
+                prev_ofs = np.zeros( (n-1, m), dtype=int)
+                prev_scores[:i, :] = scores[:i, :]
+                prev_scores[i:, :] = scores[i+1:, :]
+                prev_ofs[:i, :] = ofs[:i, :]
+                prev_ofs[i:, :] = ofs[i+1:, :]
+                col = j
 
         keep = []
         drop = []
