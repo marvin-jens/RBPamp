@@ -73,8 +73,9 @@ class Alignment(object):
                 for i in range(n, n+ext_n):
                     ext_cost += self.ext_cost[i]
 
-                ms = self.matrix[m_start:m_end].max(axis=1).sum()
-                ms = (ms + Ms) / 2. # favor alignments that overlap the highest weight region
+                ms0 = self.matrix[m_start:m_end].max(axis=1).sum()
+                ms = (ms0 + Ms) / 2. # favor alignments that overlap the highest weight region
+                ms = Ms
                 n_cols = m_end - m_start
 
                 s_start = max(-ofs, 0)
@@ -97,19 +98,22 @@ class Alignment(object):
                     score = score * S if multiply else score + S
                 
                 # score += score/n_cols * .1 * abs(ofs)
+                score0 = score
                 if normalize:
                     score /= ms
+                    score0 /= ms0
 
-                score -= ext_cost                
+                score -= ext_cost
+                score0 -= ext_cost                
                 # score += .05 * abs(ofs)
 
-                scores.append(score)
+                scores.append( (score, score0) )
                 if debug:
                     print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score, "ext_n", ext_n, "ext_cost", ext_cost, "ms", ms
                     print "max_score", self.matrix[m_start:m_end].max(axis=1)
 
-            x = np.array(scores).argmax()
-            S = scores[x]
+            x = np.array(scores).T[0].argmax()
+            S = scores[x][0]
 
             return ofs_range[x], S
 
@@ -844,13 +848,19 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
+    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMBuilder")
         self.keep_weight = keep_weight
         self.n_max = n_max
         self.thresh = thresh
         self.A0 = A0
         self.alns = []
+        for seq in contaminants:
+            ca = Alignment()
+            ca.blend(seq, 0, 1, normalize=False)
+            self.alns.append(ca)
+
+        self.n_contaminants = len(contaminants)
 
         self.enriched = enriched
         self.n_kmers = len(enriched)
@@ -933,7 +943,10 @@ class PSAMBuilder(object):
         if kmer == "augcacg":
             alns[j].align(kmer, normalize=True, debug=True, end_weight=None)
 
-        alns[j].blend(kmer, int(o), r, normalize=False)
+        if j >= self.n_contaminants:
+            alns[j].blend(kmer, int(o), r, normalize=False)
+        else:
+            self.logger.debug("dropping contaminant-matching kmer {}".format(kmer))
         # cons = alns[j].to_PSAM(pseudo=0).consensus
         # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
         # if cons == 'AUAGCAU':
@@ -1242,7 +1255,7 @@ class PSAMBuilder(object):
         while self.enriched:
             # align all remaining enriched kmers to all motifs
             scores, ofs = self.update_scores(self.alns, self.enriched)
-            if (scores < self.thresh).all() and len(self.alns) < m_max:
+            if (scores < self.thresh).all() and (len(self.alns) - self.n_contaminants) < m_max:
                 self.start_new(scores, ofs)
             else:
                 self.blend_best(self.alns, self.enriched, scores, ofs)
@@ -1250,7 +1263,7 @@ class PSAMBuilder(object):
         keep = []
         drop = []
         orphan_set = []
-        for aln in self.alns:
+        for aln in self.alns[self.n_contaminants:]:
             if len(aln.seqs) >= n_min:
                 keep.append(aln)
             else:
