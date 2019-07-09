@@ -582,7 +582,7 @@ class SeedRefinement(object):
         # R_err = R_err.mean(axis=0)
 
 
-    def motifs_from_R(self, k=7, z_cut=4, n_min=5, q_ns=5., **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=7, z_cut=4, n_min=20, n_min_psam=5, q_ns=5., **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -636,13 +636,13 @@ class SeedRefinement(object):
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
         pb = PSAMBuilder(enriched, **kwargs)
-        psams = pb.aggregate(n_min=n_min, **kwargs)
+        psams = pb.aggregate(n_min=n_min_psam, **kwargs)
 
         maxlen = max([psam.n for psam in psams])
         motifs = ",".join([p.consensus_ul for p in psams])
         self.logger.info(
             "done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(
-                len(psams), maxlen, len(kmer_set), z_cut, motifs, n_min
+                len(psams), maxlen, len(kmer_set), z_cut, motifs, n_min_psam
             )
         )
         
@@ -1295,24 +1295,26 @@ class PSAMBuilder(object):
                 prev_ofs[i:, :] = ofs[i+1:, :]
                 col = j
 
-        keep = []
-        drop = []
-        orphan_set = []
-        for aln in self.alns[self.n_contaminants:]:
-            if len(aln.seqs) >= n_min:
-                keep.append(aln)
-            else:
-                drop.append(aln)
-                ks = [ (w*self.r0, kmer) for kmer, w in zip(aln.seqs, aln.weights)]
-                orphan_set.extend(ks)
+        if len(self.alns) > 1:
+            alns = sorted(self.alns[self.n_contaminants:], key=lambda a : len(a.seqs), reverse=True)
+            keep = [alns[0], ]
+            drop = []
+            orphan_set = []
+            for aln in alns[1:]:
+                if len(aln.seqs) >= n_min:
+                    keep.append(aln)
+                else:
+                    drop.append(aln)
+                    ks = [ (w*self.r0, kmer) for kmer, w in zip(aln.seqs, aln.weights)]
+                    orphan_set.extend(ks)
 
-        orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-        print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
-        print "re-distributing kmers of weakest motfs", orphan_set
-        while orphan_set:
-            # align all remaining enriched kmers to all motifs
-            scores, ofs = self.update_scores(keep, orphan_set)
-            self.blend_best(keep, orphan_set, scores, ofs)
+            orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+            print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
+            print "re-distributing kmers of weakest motfs", orphan_set
+            while orphan_set:
+                # align all remaining enriched kmers to all motifs
+                scores, ofs = self.update_scores(keep, orphan_set)
+                self.blend_best(keep, orphan_set, scores, ofs)
 
         psams = [self.make_psam(aln, n_max=self.n_max) for aln in keep]
         w = np.array([p.n for p in psams])
