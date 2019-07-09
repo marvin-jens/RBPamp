@@ -230,7 +230,7 @@ class ModelSetParams(object):
         from cska.affinitylogo import plot_afflogo, nice_conc
 
         n = len(self.param_set)
-        print "param_set size", n
+        # print "param_set size", n
         fig = plt.figure(figsize=(3, n*.75))
         if title:
             plt.suptitle(title)
@@ -243,7 +243,7 @@ class ModelSetParams(object):
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
             num = 2 * i + 1
-            print "subplot num", num
+            # print "subplot num", num
             ax = plot_afflogo(
                 fig.add_subplot(n, 2, num), 
                 params.as_PSAM().psam, 
@@ -261,7 +261,7 @@ class ModelSetParams(object):
                 )
 
             num = 2 * i + 2
-            print "subplot num", num
+            # print "subplot num", num
             ax = fig.add_subplot(n, 2, num)
             ax.text(0, 0.5, kdstr)
             ax.tick_params(
@@ -273,7 +273,6 @@ class ModelSetParams(object):
                 labelbottom=False,
                 labelleft=False,
             )
-
 
         plt.tight_layout()
         plt.savefig(fname)
