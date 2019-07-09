@@ -1295,6 +1295,7 @@ class PSAMBuilder(object):
                 prev_ofs[i:, :] = ofs[i+1:, :]
                 col = j
 
+        keep = list(self.alns)
         if len(self.alns) > 1:
             alns = sorted(self.alns[self.n_contaminants:], key=lambda a : len(a.seqs), reverse=True)
             keep = [alns[0], ]
