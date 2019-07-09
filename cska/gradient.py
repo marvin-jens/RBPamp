@@ -195,12 +195,16 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
         self.ref_state = ref_state # used for simulations, where true values are known.
         self.predict_kwargs = predict_kwargs
+        self.fix_A0 = fix_A0
+        if fix_A0:
+            self.predict_kwargs['tune'] = False
+
         self.debug_grad = debug_grad
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
 
@@ -405,6 +409,9 @@ class GradientDescent(object):
                         print local_grad
                 
                 local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
+                if self.fix_A0:
+                    local_grad.A0s[:] = 0.
+
                 descent = self.RMSprop( - local_grad ) #.unity()
                 # descent = self.momentum_grad( - local_grad).unity()
 

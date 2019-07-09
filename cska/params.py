@@ -73,6 +73,15 @@ class ModelSetParams(object):
             par.A0 *= ratio
 
     @property
+    def A0s(self):
+        return np.array([par.A0 for par in self.param_set])
+    
+    @A0s.setter
+    def A0s(self, values):
+        for par, a in zip(self.param_set, values):
+            par.A0 = a
+
+    @property
     def acc_k(self):
         return self.param_set[0].A0
 
