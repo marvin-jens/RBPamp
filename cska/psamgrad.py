@@ -56,18 +56,9 @@ class PSAMGradientDescent(object):
         self.model.init_subsample()
         self.rbns.flush(all=True)  # save some memory
 
-        self.descent = cska.gradient.GradientDescent(
-            self.model,
-            params,
-            maxiter = maxiter,
-            maxtime = maxtime,
-            eps = eps,
-            tau = tau,
-            debug_grad = debug_grad,
-            fix_A0 = fix_A0
-        )
         self.resample_int = resample_int
-        self.last_resample = 0
+        self.last_resample = self.t_ofs
+        self.resample_times = [self.last_resample]
         self.params = params
 
         sname = os.path.join(self.out_path, "history")
@@ -76,10 +67,30 @@ class PSAMGradientDescent(object):
             protocol=-1, 
             flag='n' if redo else 'c'
         )
+        if hasattr(self.shelve, 'resample_times') and not redo:
+            self.resample_times = self.shelve['resample_times']
+            self.last_resample = self.resample_times[-1]
+
+        if hasattr(self.shelve, 'errors') and not redo:
+            past_errors = self.shelve['errors']
+        else:
+            past_errors = []
+
+        self.descent = cska.gradient.GradientDescent(
+            self.model,
+            params,
+            maxiter = maxiter,
+            maxtime = maxtime,
+            eps = eps,
+            tau = tau,
+            debug_grad = debug_grad,
+            fix_A0 = fix_A0,
+            errors = past_errors
+        )
         self.logger.info("storing states in shelve '{}'".format(sname))
         self.shelve["R_exp"] = self.R
         self.shelve["rbp_conc"] = self.descent.model.rbp_conc
-
+        self.shelve.sync()
 
     def optimize(self, debug=False):
         def callback(descent, state):
@@ -88,7 +99,6 @@ class PSAMGradientDescent(object):
             self.shelve["stats_t{}".format(descent.t + self.t_ofs)] = state.stats
             self.shelve["R_t{}".format(descent.t + self.t_ofs)] = state.R
             self.shelve["linesearch_t{}".format(descent.t + self.t_ofs)] = (descent.ls_nfev[-1], descent.ls_step[-1])
-            self.shelve.sync()
 
             # collect and write data on the gradient descent progress
             pR, pval = state.correlations
@@ -103,11 +113,14 @@ class PSAMGradientDescent(object):
             descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
 
             self.logger.debug("t={0} error={1:.3f}% max_corr={2:.4f}".format(descent.t + self.t_ofs, 100 * state.error/descent.errors[0], np.array(pR).max()))
-            if self.resample_int and (descent.t - self.last_resample) >= self.resample_int:
+            if (self.resample_int and (descent.t - self.last_resample) >= self.resample_int) or hasattr(state, "stuck"):
                 # it's time to draw a new sub-sample
                 state = descent.new_subsample()
-                self.last_resample = descent.t
+                self.last_resample = self.descent.t + self.t_ofs
+                self.resample_times.append(self.last_resample)
+                self.shelve["resample_times"] = self.resample_times
 
+            self.shelve.sync()
             return state
 
         self.descent.optimize(self.params, debug=debug, callback=callback)
@@ -129,6 +142,10 @@ class PSAMGradientDescent(object):
         
         state = self.descent.last_state
         self.store_residuals(state)
+        
+        # keep error history so that we can resume
+        self.shelve["errors"] = self.descent.errors
+        self.shelve.sync()
         return state
 
     def store_residuals(self, state):

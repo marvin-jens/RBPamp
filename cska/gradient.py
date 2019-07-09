@@ -195,7 +195,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False, errors=[]):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -215,7 +215,7 @@ class GradientDescent(object):
         self.dec = dec
 
         # records
-        self.errors = []
+        self.errors = list(errors)
         # self.history = []
         self.ls_nfev = [0,]
         self.ls_step = [0,]
@@ -428,8 +428,8 @@ class GradientDescent(object):
                     self.past_sqg = 1
                     if s == 0:
                         self.logger.warning("line_search unable to reduce error using local gradient")
-                        self.status = "CONVERGED_NO_DECREASE_ALONG_GRADIENT"
-                        break
+                        self.status = "ERROR_NO_DECREASE_ALONG_GRADIENT"
+                        state.stuck = True ## signal via callback to PSAMGradientDescent that we need a re-sample
 
                 self.ls_step.append(s)
                 self.ls_nfev.append(ls_data.res.nfev)
