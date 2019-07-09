@@ -18,6 +18,9 @@ import matplotlib
 matplotlib.use('agg')
 
 def parse_cmdline():
+    import datetime
+    datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
+
     from optparse import OptionParser
     usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
 
@@ -26,11 +29,12 @@ def parse_cmdline():
     parser.add_option("","--version", dest="version", default=False, action="store_true", help="show version information and quit")
     parser.add_option("","--name", dest="name", default="RBP", help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output", dest="output", default="cska", help="path where results are to be stored (default='cska')")
-    parser.add_option("","--run-path", dest="run", default="run_{datestr}", help="pattern for run-folder name (default='run_{datestr}')")
+    parser.add_option("","--run-path", dest="run", default="run_{datestr}".format(datestr=datestr), help="pattern for run-folder name (default='run_{datestr}')")
     # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("-b","--best", dest="best", default=3, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
     parser.add_option("","--rank", dest="rank", default=None, type=int, help="analyze x out of the n --best samples (by top R-value) default=None [off]")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
+    parser.add_option("","--continue", dest="cont", default=False, action="store_true", help="add more iterations of optimization even if already completed")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
     parser.add_option("-R","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
@@ -192,7 +196,7 @@ def vector_stats(v):
 
 
 def touch(fname, times=None):
-    print "touching", fname
+    # print "touching", fname
     with open(fname, 'a'):
         os.utime(fname, times)
 
@@ -230,8 +234,7 @@ class Run(object):
 
     def _init_paths(self):
         """prepare and initialize outout paths"""
-        import datetime
-        self.run_folder = (self.options.run+"/").format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+        self.run_folder = self.options.run+"/"
         self.run_path = ensure_path(os.path.join(self.options.output, self.run_folder))
         
         # keep a symlink named "recent" always pointing to last run folder
@@ -622,7 +625,7 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
 
-        rbns = run.keep_best() # unless --best is specified this does nothing
+        rbns = run.keep_best() # unless --best is non-zero this does nothing
         run.flush_reads()
 
         if options.folding:
@@ -635,7 +638,7 @@ def main():
             run.mark_complete("seed")
 
         param_sources = [run.options.mdl_psam_init, 'seed/initial.tsv']
-        if (options.opt_full or options.opt_nostruct) and not run.completed('nostruct'):
+        if (options.opt_full or options.opt_nostruct) and (not run.completed('nostruct') or options.cont):
             run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
 
             if options.resume:
@@ -654,7 +657,7 @@ def main():
 
             run.flush_reads()
 
-        if (options.opt_full or options.opt_struct) and not run.completed('struct'):
+        if (options.opt_full or options.opt_struct) and (not run.completed('struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
             param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
             if options.resume:
