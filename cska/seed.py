@@ -1310,8 +1310,8 @@ class PSAMBuilder(object):
                     orphan_set.extend(ks)
 
             orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-            print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
-            print "re-distributing kmers of weakest motfs", orphan_set
+            self.logger.info("need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set)))
+            self.logger.info("re-distributing kmers of weakest motfs", orphan_set)
             while orphan_set:
                 # align all remaining enriched kmers to all motifs
                 scores, ofs = self.update_scores(keep, orphan_set)
