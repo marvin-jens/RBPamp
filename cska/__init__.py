@@ -92,6 +92,7 @@ def parse_cmdline():
     # parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
+    parser.add_option("","--fix-A0",dest="fix_A0",default=False, action="store_true",help="do not attempt to optimize A0 at all")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
     parser.add_option("","--tau",dest="mdl_tau",default=23, type=int, help="convergence estimation interval (default=13) [Note, this should be larger than the re-sampling interval -r]")
 
@@ -218,6 +219,7 @@ class Run(object):
 
         self._init_paths()
         self._init_logging()
+        self._init_RNG()
         self._init_signal_handler()
 
         from cska.comparison import RefComparison
@@ -225,7 +227,6 @@ class Run(object):
             self.ref = RefComparison(self.options.compare, ref_file=self.options.ref_file)
         else:
             self.ref = RefComparison(self.rbp_name, ref_file=self.options.ref_file)
-
 
     def _init_paths(self):
         """prepare and initialize outout paths"""
@@ -260,7 +261,7 @@ class Run(object):
         path = os.path.dirname(os.path.realpath(__file__))
         git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
 
-        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t%(name)s\t%(message)s'.format(**locals())
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t{self.options.run}\t%(name)s\t%(message)s'.format(**locals())
         self.log_format = FORMAT
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
@@ -301,6 +302,13 @@ class Run(object):
             if sub == 'cache':
                 from cska.caching import CachedBase
                 CachedBase.debug_caching = True
+
+    def _init_RNG(self):
+        if self.options.seed:
+            self.logger.info("seeding RNG with {}".format(self.options.seed))
+            np.random.seed(self.options.seed)
+            import cska.cyska
+            cska.cyska.rand_seed(self.options.seed)
 
     def _init_signal_handler(self):
         import signal
@@ -583,7 +591,8 @@ class Run(object):
             Z_thresh = self.options.Z_thresh, 
             run_name = name, 
             maxiter = self.options.grad_maxiter, 
-            maxtime = self.options.grad_maxtime, 
+            maxtime = self.options.grad_maxtime,
+            fix_A0 = self.options.fix_A0,
             eps = self.options.mdl_epsilon, 
             tau = self.options.mdl_tau,
             redo = self.options.redo,
@@ -604,12 +613,6 @@ class Run(object):
 
 def main():
     options, args = parse_cmdline()
-    if options.seed:
-        print "seeding", options.seed
-        np.random.seed(options.seed)
-        import cska.cyska
-        cska.cyska.rand_seed(options.seed)
-
     run = Run(options, args)
 
     try:
