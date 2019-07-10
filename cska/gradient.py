@@ -416,6 +416,7 @@ class GradientDescent(object):
                 # descent = self.momentum_grad( - local_grad).unity()
 
                 # print "ERRORS", self.errors
+                stuck = False
                 s, ls_data = self.line_search(state, descent, debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
@@ -429,7 +430,7 @@ class GradientDescent(object):
                     if s == 0:
                         self.logger.warning("line_search unable to reduce error using local gradient")
                         self.status = "ERROR_NO_DECREASE_ALONG_GRADIENT"
-                        state.stuck = True ## signal via callback to PSAMGradientDescent that we need a re-sample
+                        stuck = True ## signal via callback to PSAMGradientDescent that we need a re-sample
 
                 self.ls_step.append(s)
                 self.ls_nfev.append(ls_data.res.nfev)
@@ -451,6 +452,8 @@ class GradientDescent(object):
                     self.print_state(state)
 
                 if callback:
+                    if stuck:
+                        state.stuck = True
                     state = callback(self, state)
 
                 # if state != self.last_state:
