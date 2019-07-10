@@ -323,7 +323,7 @@ class GradientDescent(object):
         if len(self.errors) < self.tau:
             self.logger.debug("not enough data to estimate convergence (t={})".format(self.t))
             return self.status
-           
+        
         last_errs = np.array(self.errors[-self.tau:])
         rel_error = self.errors[-1] / self.errors[0]
         rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
@@ -429,7 +429,6 @@ class GradientDescent(object):
                     self.past_sqg = 1
                     if s == 0:
                         self.logger.warning("line_search unable to reduce error using local gradient")
-                        self.status = "ERROR_NO_DECREASE_ALONG_GRADIENT"
                         stuck = True ## signal via callback to PSAMGradientDescent that we need a re-sample
 
                 self.ls_step.append(s)
