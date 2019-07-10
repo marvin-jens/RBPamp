@@ -68,6 +68,7 @@ def parse_cmdline():
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
+    parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
@@ -527,31 +528,63 @@ class Run(object):
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
+        from cska.params import ModelParametrization, ModelSetParams
+
         calibrated_set = []
         params = self.params.copy(sort=True)
-        for par in params:
+
+        def calibrate(par):
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
             cal.compute_kmer_acc_profiles()
 
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
             if res:
-                calibrated_set.append(res)
+                return res
             else:
-                calibrated_set.append(par)
+                return par
             
             cal.close()
 
-        from cska.params import ModelSetParams
+        def try_load(par):
+            # load from file
+            consensus = par.as_PSAM().consensus_ul
+            fname = os.path.join(
+                self.rbns.out_path, 
+                'footprint/calibrated_{}.tsv'.format(consensus)
+            )
+            print "trying to load", fname
+            if os.path.exists(fname):
+                return list(ModelParametrization.load(fname, self.rbns.n_samples))[0]
+            else:
+                print "not found"
+                return None
+
+        if self.options.fp_num:
+            # calibrate only ONE motif
+            self.logger.info("calibrating only motif number {}".format(self.options.fp_num))
+            if self.options.fp_num <= len(self.params.param_set):
+                calibrate(self.params.param_set[self.options.fp_num-1])
+            return None
+        
+        else:
+            for i, par in enumerate(params):
+                res = try_load(par)
+                if not res:
+                    res = calibrate(par)
+                calibrated_set.append(res)
+                
+        print "cal set", calibrated_set
         self.params = ModelSetParams(calibrated_set)
-        path = os.path.join(cal.path, 'calibrated.tsv')
+
+        path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
         self.params.save(path)
         return self.params
 
     def make_plots(self, plots):
         if plots == ["all",] : 
-            plots = ['seed', 'descent', 'scatter', 'fp', 'lit', 'logos']
+            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']
 
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
@@ -649,7 +682,7 @@ def main():
             if run.PSAM_gradient_descent('opt_nostruct'):
                 run.mark_complete("nostruct")
 
-        if (options.opt_full or options.opt_footprint) and not run.completed('footprint'):
+        if (options.opt_full or options.opt_footprint) and (not run.completed('footprint') or options.cont):
             run.logger.info("STAGE2: footprint parameter estimation")
             run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
             if run.calibrate_footprint():
