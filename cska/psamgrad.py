@@ -20,6 +20,7 @@ class PSAMGradientDescent(object):
 
         fname = os.path.join(self.out_path, "descent.tsv")
         self.t_ofs = 0
+        past_errors = []
         if not os.path.exists(fname) or redo:
             self.logger.info("tracking progress in new file '{}'".format(fname))
             self.track_file = file(fname, 'w', 0)
@@ -30,8 +31,10 @@ class PSAMGradientDescent(object):
             lines = file(fname).readlines()
             try:
                 self.t_ofs = int(lines[-1].split('\t')[0]) + 1
+                past_errors = [float(l.split('\t')[2]) for l in lines[1:]]
             except (IndexError, ValueError):
                 pass
+                
             self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
             self.track_file = file(fname, 'a', 0)
         
@@ -71,11 +74,7 @@ class PSAMGradientDescent(object):
             self.resample_times = self.shelve['resample_times']
             self.last_resample = self.resample_times[-1]
 
-        if hasattr(self.shelve, 'errors') and not redo:
-            past_errors = self.shelve['errors']
-        else:
-            past_errors = []
-
+        print "PAST ERRORS", past_errors
         self.descent = cska.gradient.GradientDescent(
             self.model,
             params,

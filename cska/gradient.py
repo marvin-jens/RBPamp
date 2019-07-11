@@ -396,13 +396,13 @@ class GradientDescent(object):
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
-                        for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
-                        # for lcl, emp_A0_res, ana_A0_res in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state)):
+                        # for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
+                        for lcl, emp in zip(local_grad, emp_grad(state)):
 
-                            print "ana_dA0", ana_A0_res['dE']
+                            # print "ana_dA0", ana_A0_res['dE']
                             print "LCL"
                             print lcl
-                            print "emp_dA0", emp_A0_res['dE']
+                            # print "emp_dA0", emp_A0_res['dE']
                             print "EMP"
                             print emp
                     else:

@@ -237,7 +237,7 @@ class Alignment(object):
 
         f, i, j = find_best()
 
-        m = self.matrix[i:j] + pseudo
+        m = self.matrix[i:j] 
         if col_scale:
             # add pseudo-scores to columns 
             # with fewer observations/lower score
@@ -248,7 +248,11 @@ class Alignment(object):
             inc = 1 - M / M.max() 
             m += inc[:,np.newaxis]
 
-        psam = m / m.max(axis=1)[:,np.newaxis]
+        psam = m / m.max(axis=1)[:, np.newaxis]
+        if pseudo:
+            psam += pseudo
+            psam /= psam.max(axis=1)[:, np.newaxis]
+
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
         
@@ -883,7 +887,7 @@ class PSAMBuilder(object):
 
     def make_psam(self, aln, **kwargs):
         return aln.to_PSAM(
-            pseudo=0, 
+            pseudo=1e-3, 
             keep_weight=self.keep_weight, 
             A0=aln.max_weight * self.A0,
             **kwargs

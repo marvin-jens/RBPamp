@@ -43,9 +43,9 @@ def parse_cmdline():
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=10M, 0=off)")
-    parser.add_option("-n","--n-samples", dest="n_samples", default=5000000, type=int, help="TESTING: sub-sample n reads from N reads")
-    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="TESTING: re-sample every -r iterations of descent (default=5, 0 to disable)")
+    parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=15M, 0=off)")
+    parser.add_option("-n","--n-samples", dest="n_samples", default=5000000, type=int, help="bootstrap sample n reads at regular intervals during gradient descent or when stuck (default=5M)")
+    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="re-sample every -r iterations of descent (default=5, 0 to disable)")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
@@ -632,7 +632,7 @@ class Run(object):
             eps = self.options.mdl_epsilon, 
             tau = self.options.mdl_tau,
             redo = self.options.redo,
-            # debug_grad = self.options.debug_grad,
+            debug_grad = self.options.debug_grad,
             resample_int = self.options.resample_int,
             excess_rbp = self.options.excess_rbp,
             linear_occ = self.options.linear_occ,

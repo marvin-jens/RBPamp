@@ -575,12 +575,12 @@ class GradientDescentReport(object):
         return res
 
     def plot_report(self):
-        pp.figure(figsize=(3, 4))
+        pp.figure(figsize=(2, 4))
 
         pp.subplot(211)
         errors = (self.read_sample_errors()**2).mean(axis=2)
         m_err = errors.mean(axis=1)
-        pp.semilogy(m_err, 'k-', label='sample mean')
+        # pp.semilogy(m_err, 'k-', label='sample mean')
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(errors.T)))
 
         for i, err in enumerate(errors.T):
@@ -591,7 +591,7 @@ class GradientDescentReport(object):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
         pp.legend(loc='upper right', frameon=False)
-        pp.ylabel("mean squared R-value error")
+        pp.ylabel("mean squared model error")
         pp.xlabel('iteration #')
         sns.despine()
 
@@ -605,10 +605,10 @@ class GradientDescentReport(object):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
 
         pp.legend(loc='lower right', frameon=False)
-        pp.ylabel("R-value correlation")
+        pp.ylabel("k-mer correlation")
         plt.xlabel("iteration #")
-        plt.tight_layout()
         sns.despine()
+        plt.tight_layout()
         pp.savefig(os.path.join(self.path,"descent_report.pdf"))
         pp.close()
 
@@ -733,7 +733,7 @@ class GradientDescentReport(object):
             lo = ModelSetParams(p_mid.lo.param_set, sort=True)
             hi = ModelSetParams(p_mid.hi.param_set, sort=True)
         
-        params.save_logos(os.path.join(self.path,"motifs_t{0}.svg".format(t)), lo=lo, hi=hi, title=title)
+        params.save_logos(os.path.join(self.path,"motifs_t{0}.pdf".format(t)), lo=lo, hi=hi, title=title)
 
     def plot_affinity_dists(self, t=-1, title="", k_fit=6):
         from cska.params import ModelSetParams
