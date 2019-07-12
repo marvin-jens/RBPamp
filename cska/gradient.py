@@ -121,7 +121,7 @@ def ana_grad_A0(state, eps=1e-3, _dE=True, _dR=False, _dq=False, _dPsi=False, _d
         dPsi_dA0 = (state.psi - state.psi**2) * dZ
         dPsi_dA0 /= state.params.A0
         dq = state.mdl.PD_kmer_weights(dPsi_dA0)
-        dR = state.R / state.q * (dq - state.mdl.f0[np.newaxis,:] * state.R * dq.sum(axis=1))
+        dR = state.R / state.q * (dq - state.mdl.f0[np.newaxis,:] * state.R * dq.sum(axis=1)[:, np.newaxis])
         dE = 2 * ((state.R - state.mdl.R0) * dR).mean()
 
         res = {}
@@ -397,9 +397,9 @@ class GradientDescent(object):
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
                         # for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
-                        for lcl, emp in zip(local_grad, emp_grad(state)):
+                        for lcl, emp, ana_A0_res in zip(local_grad, emp_grad(state), ana_grad_A0(state)):
 
-                            # print "ana_dA0", ana_A0_res['dE']
+                            print "ana_dA0", ana_A0_res['dE']
                             print "LCL"
                             print lcl
                             # print "emp_dA0", emp_A0_res['dE']
