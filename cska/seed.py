@@ -805,7 +805,7 @@ class SeedRefinement(object):
         rbp_name = self.rbns.reads[0].rbp_name
 
         if not params is None:
-            fname = os.path.join(path, 'seeded_{}.svg'.format(rbp_name))
+            fname = os.path.join(path, 'seeded_{}.pdf'.format(rbp_name))
             params.save_logos(fname, title="{} seeded PSAMs".format(rbp_name))
         else:
             self.psam_lin.save_logo(os.path.join(path, '{0}_linear.svg'.format(rbp_name)))
@@ -887,7 +887,7 @@ class PSAMBuilder(object):
 
     def make_psam(self, aln, **kwargs):
         return aln.to_PSAM(
-            pseudo=1e-3, 
+            pseudo=.1, 
             keep_weight=self.keep_weight, 
             A0=aln.max_weight * self.A0,
             **kwargs
