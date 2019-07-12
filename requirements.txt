@@ -1,0 +1,10 @@
+Cython==0.26
+matplotlib==2.0.2
+numpy==1.13.3
+pandas==0.22.0
+pycairo==1.10.0
+pyzmq==17.1.2
+seaborn==0.8.1
+simplejson==3.16.0
+svgpath2mpl==0.1.0
+weblogo==3.6.0
