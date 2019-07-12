@@ -113,9 +113,11 @@ class ModelSetParams(object):
         i = 0
         for p in self.param_set:
             l = len(p.data)
+            # print "p.data", l
             p.data[:] = data[i:i+l]
             i += l
 
+        # print i, len(data)
         assert i == len(data)
         return self
     

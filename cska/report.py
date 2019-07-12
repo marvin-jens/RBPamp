@@ -471,7 +471,12 @@ class GradientDescentReport(object):
             self.logger.error("could not open '{}'. No data to plot!".format(fname))
             return
 
-        t = np.arange(self.find_max_t(self.shelves[-1])) + self.t_ofs
+        descent_file = os.path.join(os.path.dirname(fname), "descent.tsv")
+        lines = list(file(descent_file))
+        max_t = int(lines[-1].split('\t')[0])
+        # print "max_t found in", descent_file, max_t
+
+        t = np.arange(max_t) + self.t_ofs
         if not len(t):
             self.logger.error("'{}' contained no data!".format(fname))
             return
@@ -491,7 +496,7 @@ class GradientDescentReport(object):
 
         self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
         from cska.errors import PSAMErrorEstimator
-        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', use_shelve=self.shelves[-1])
+        est = PSAMErrorEstimator(os.path.dirname(fname)+'/', use_shelve=self.shelves[-1], max_t=max_t)
         self.error_estimators.append(est)
         self.t_ofs += len(t)
         self.shelf_map.append(self.t_ofs)
