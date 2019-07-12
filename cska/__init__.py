@@ -481,19 +481,40 @@ class Run(object):
         
         if not self.params:
             self.logger.error("unable to initiate model parameters. Did you skip a stage?")
+            raise ValueError("previous stage incomplete or missing/malformed model parameters")
 
         return self.params
         
 
-    def completed(self, stage):
-        comp = os.path.exists(os.path.join(self.run_path,'completed.{}'.format(stage)))
-        if comp:
-            self.logger.info("found that {} was already completed".format(stage))
-            if self.options.redo:
-                self.logger.warning("but ignored because --redo was specified!")
-                return False
+    def completed(self, stage, check_time=True):
+        stage_output = {
+            'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
+            'nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
+            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
+            'struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
+        }
+        
+        fout = stage_output[stage]
+        fflag = os.path.join(self.run_path,'completed.{}'.format(stage))
 
-        return comp
+        if not os.path.exists(fout):
+            self.logger.debug("output of stage {} has not been created yet".format(stage))
+            return False
+        
+        if not os.path.exists(fflag):
+            self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
+            return False
+
+        if os.path.getmtime(fflag) < os.path.getmtime(fout):
+            self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
+            return False
+        
+        self.logger.info("stage {} is already complete".format(stage))
+        if self.options.redo:
+            self.logger.warning("but ignored because --redo was specified!")
+            return False
+
+        return True
 
     def mark_complete(self, stage):
         touch(os.path.join(self.run_path,'completed.{}'.format(stage)))
@@ -684,6 +705,7 @@ def main():
 
         if (options.opt_full or options.opt_footprint) and (not run.completed('footprint') or options.cont):
             run.logger.info("STAGE2: footprint parameter estimation")
+
             run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
             if run.calibrate_footprint():
                 run.mark_complete("footprint")
@@ -692,12 +714,13 @@ def main():
 
         if (options.opt_full or options.opt_struct) and (not run.completed('struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
+
             param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
             if options.resume:
-                param_sources.insert(1, 'opt_full/parameters.tsv')
+                param_sources.insert(1, 'opt_struct/parameters.tsv')
+            
             run.probe_params(*param_sources)
-
-            if run.PSAM_gradient_descent('opt_full'):
+            if run.PSAM_gradient_descent('opt_struct'):
                 run.mark_complete("struct")
 
         if options.plot:
