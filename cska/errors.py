@@ -4,7 +4,7 @@ import os
 import logging
 
 class PSAMErrorEstimator(object):
-    def __init__(self, descentpath, q=[25., 50., 75.], tol=.05, use_shelve=None):
+    def __init__(self, descentpath, q=[25., 50., 75.], tol=.05, use_shelve=None, max_t=None):
         self.q = np.array(q)
         self.descentpath = descentpath
         self.tol = tol
@@ -19,7 +19,11 @@ class PSAMErrorEstimator(object):
                 self.logger.error("no history to estimate error from in '{}'".format(descentpath))
                 self.shelve = None
 
-        self.max_t = self.find_max_t()
+        if max_t is None:
+            self.max_t = self.find_max_t()
+        else:
+            self.max_t = max_t
+
         self.logger.debug("max_t={}".format(self.max_t))
 
     def find_max_t(self):
@@ -50,6 +54,9 @@ class PSAMErrorEstimator(object):
             stats.append(self.get("stats", t))
             par = self.get("params", t+1)
         
+        # for t, par in enumerate(params):
+        #     print t, len(par.param_set)
+
         return np.array(params), np.array(stats)
     
     def estimate(self, save=True, t_ref=-1):

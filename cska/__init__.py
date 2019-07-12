@@ -18,6 +18,9 @@ import matplotlib
 matplotlib.use('agg')
 
 def parse_cmdline():
+    import datetime
+    datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
+
     from optparse import OptionParser
     usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
 
@@ -26,10 +29,12 @@ def parse_cmdline():
     parser.add_option("","--version", dest="version", default=False, action="store_true", help="show version information and quit")
     parser.add_option("","--name", dest="name", default="RBP", help="name of the protein assayed (default=RBP)")
     parser.add_option("-o","--output", dest="output", default="cska", help="path where results are to be stored (default='cska')")
-    parser.add_option("","--run-path", dest="run", default="run_{datestr}", help="pattern for run-folder name (default='run_{datestr}')")
-    parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
-    parser.add_option("-b","--best", dest="best", default=0, type=int, help="keep only the best n samples (by top R-value) default=0 [off]")
+    parser.add_option("","--run-path", dest="run", default="run_{datestr}".format(datestr=datestr), help="pattern for run-folder name (default='run_{datestr}')")
+    # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
+    parser.add_option("-b","--best", dest="best", default=3, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
+    parser.add_option("","--rank", dest="rank", default=None, type=int, help="analyze x out of the n --best samples (by top R-value) default=None [off]")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
+    parser.add_option("","--continue", dest="cont", default=False, action="store_true", help="add more iterations of optimization even if already completed")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
     
     parser.add_option("-R","--rna-concentration", dest="rna_conc", default=1000., type=float, help="concentration of random RNA used in the experiment in nano molars (default=1000 nM)")
@@ -38,9 +43,9 @@ def parse_cmdline():
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
-    parser.add_option("-N","--n-max", dest="n_max", default=10000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=10M, 0=off)")
-    parser.add_option("-n","--n-samples", dest="n_samples", default=1000000, type=int, help="TESTING: sub-sample n reads from N reads")
-    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="TESTING: re-sample every -r iterations of descent (default=5, 0 to disable)")
+    parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=15M, 0=off)")
+    parser.add_option("-n","--n-samples", dest="n_samples", default=5000000, type=int, help="bootstrap sample n reads at regular intervals during gradient descent or when stuck (default=5M)")
+    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="re-sample every -r iterations of descent (default=5, 0 to disable)")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
@@ -59,10 +64,11 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
-    parser.add_option("","--seed-k",dest="k_seed",default=7, type=int, help="kmer size used for seeding PSAM(s) (default=7)")
+    parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
+    parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
@@ -74,8 +80,9 @@ def parse_cmdline():
     parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
 
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
+    parser.add_option("", "--z-cut", dest="z_cut", default=5., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
-    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.72, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
+    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.8, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
     parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
 
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
@@ -90,6 +97,7 @@ def parse_cmdline():
     # parser.add_option("-m","--model",dest="model",default=False, action="store_true",help="SWITCH: thermodynamic model parameter fit")
     parser.add_option("","--no-structure",dest="no_structure",default=False, action="store_true",help="ignore secondary structure folding information (default=False)")
     parser.add_option("","--load-psam",dest="mdl_psam_init",default=None,help="start with affinity parameters from this PSAM file")
+    parser.add_option("","--fix-A0",dest="fix_A0",default=False, action="store_true",help="do not attempt to optimize A0 at all")
     parser.add_option("","--eps",dest="mdl_epsilon",default=1e-4, type=float, help="convergence threshold for relative error reduction (default=1e-4)")
     parser.add_option("","--tau",dest="mdl_tau",default=23, type=int, help="convergence estimation interval (default=13) [Note, this should be larger than the re-sampling interval -r]")
 
@@ -189,7 +197,7 @@ def vector_stats(v):
 
 
 def touch(fname, times=None):
-    print "touching", fname
+    # print "touching", fname
     with open(fname, 'a'):
         os.utime(fname, times)
 
@@ -198,7 +206,7 @@ class Run(object):
     def __init__(self, options, args):
         self.options = options
         self.args = args
-        if options.auto:
+        if not args:
             self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
         else:
             self.rbp_name = options.name
@@ -216,6 +224,7 @@ class Run(object):
 
         self._init_paths()
         self._init_logging()
+        self._init_RNG()
         self._init_signal_handler()
 
         from cska.comparison import RefComparison
@@ -224,11 +233,9 @@ class Run(object):
         else:
             self.ref = RefComparison(self.rbp_name, ref_file=self.options.ref_file)
 
-
     def _init_paths(self):
         """prepare and initialize outout paths"""
-        import datetime
-        self.run_folder = (self.options.run+"/").format(datestr=datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S"))
+        self.run_folder = self.options.run+"/"
         self.run_path = ensure_path(os.path.join(self.options.output, self.run_folder))
         
         # keep a symlink named "recent" always pointing to last run folder
@@ -258,7 +265,7 @@ class Run(object):
         path = os.path.dirname(os.path.realpath(__file__))
         git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
 
-        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t%(name)s\t%(message)s'.format(**locals())
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t{self.options.run}\t%(name)s\t%(message)s'.format(**locals())
         self.log_format = FORMAT
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
@@ -299,6 +306,13 @@ class Run(object):
             if sub == 'cache':
                 from cska.caching import CachedBase
                 CachedBase.debug_caching = True
+
+    def _init_RNG(self):
+        if self.options.seed:
+            self.logger.info("seeding RNG with {}".format(self.options.seed))
+            np.random.seed(self.options.seed)
+            import cska.cyska
+            cska.cyska.rand_seed(self.options.seed)
 
     def _init_signal_handler(self):
         import signal
@@ -386,7 +400,7 @@ class Run(object):
 
     def keep_best(self):
         if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best, k=6)
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best, rank=self.options.rank, k=6)
         return self.rbns
 
 
@@ -467,19 +481,40 @@ class Run(object):
         
         if not self.params:
             self.logger.error("unable to initiate model parameters. Did you skip a stage?")
+            raise ValueError("previous stage incomplete or missing/malformed model parameters")
 
         return self.params
         
 
-    def completed(self, stage):
-        comp = os.path.exists(os.path.join(self.run_path,'completed.{}'.format(stage)))
-        if comp:
-            self.logger.info("found that {} was already completed".format(stage))
-            if self.options.redo:
-                self.logger.warning("but ignored because --redo was specified!")
-                return False
+    def completed(self, stage, check_time=True):
+        stage_output = {
+            'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
+            'nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
+            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
+            'struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
+        }
+        
+        fout = stage_output[stage]
+        fflag = os.path.join(self.run_path,'completed.{}'.format(stage))
 
-        return comp
+        if not os.path.exists(fout):
+            self.logger.debug("output of stage {} has not been created yet".format(stage))
+            return False
+        
+        if not os.path.exists(fflag):
+            self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
+            return False
+
+        if os.path.getmtime(fflag) < os.path.getmtime(fout):
+            self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
+            return False
+        
+        self.logger.info("stage {} is already complete".format(stage))
+        if self.options.redo:
+            self.logger.warning("but ignored because --redo was specified!")
+            return False
+
+        return True
 
     def mark_complete(self, stage):
         touch(os.path.join(self.run_path,'completed.{}'.format(stage)))
@@ -493,7 +528,14 @@ class Run(object):
         #     m.save_logo(fname=m.consensus + '.svg')
 
         # self.params = SR.seeded_params(self.rbns.n_samples)
-        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh)
+        # TODO!
+        # SR.primer_analysis()
+        # sys.exit(0)
+        a5 = self.rbns.reads[0].adap5
+        a3 = self.rbns.reads[0].adap3 
+        # contaminants = [a5, a3, rev_comp(a5), rev_comp(a3)]
+        contaminants = []
+        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh, z_cut=self.options.z_cut, contaminants=contaminants)
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 
@@ -507,31 +549,63 @@ class Run(object):
 
     def calibrate_footprint(self):
         from cska.footprint import FootprintCalibration
+        from cska.params import ModelParametrization, ModelSetParams
+
         calibrated_set = []
         params = self.params.copy(sort=True)
-        for par in params:
+
+        def calibrate(par):
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
             cal.compute_kmer_acc_profiles()
 
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
             if res:
-                calibrated_set.append(res)
+                return res
             else:
-                calibrated_set.append(par)
+                return par
             
             cal.close()
 
-        from cska.params import ModelSetParams
+        def try_load(par):
+            # load from file
+            consensus = par.as_PSAM().consensus_ul
+            fname = os.path.join(
+                self.rbns.out_path, 
+                'footprint/calibrated_{}.tsv'.format(consensus)
+            )
+            print "trying to load", fname
+            if os.path.exists(fname):
+                return list(ModelParametrization.load(fname, self.rbns.n_samples))[0]
+            else:
+                print "not found"
+                return None
+
+        if self.options.fp_num:
+            # calibrate only ONE motif
+            self.logger.info("calibrating only motif number {}".format(self.options.fp_num))
+            if self.options.fp_num <= len(self.params.param_set):
+                calibrate(self.params.param_set[self.options.fp_num-1])
+            return None
+        
+        else:
+            for i, par in enumerate(params):
+                res = try_load(par)
+                if not res:
+                    res = calibrate(par)
+                calibrated_set.append(res)
+                
+        print "cal set", calibrated_set
         self.params = ModelSetParams(calibrated_set)
-        path = os.path.join(cal.path, 'calibrated.tsv')
+
+        path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
         self.params.save(path)
         return self.params
 
     def make_plots(self, plots):
         if plots == ["all",] : 
-            plots = ['seed', 'descent', 'scatter', 'fp', 'lit', 'logos']
+            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']
 
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
@@ -574,11 +648,12 @@ class Run(object):
             Z_thresh = self.options.Z_thresh, 
             run_name = name, 
             maxiter = self.options.grad_maxiter, 
-            maxtime = self.options.grad_maxtime, 
+            maxtime = self.options.grad_maxtime,
+            fix_A0 = self.options.fix_A0,
             eps = self.options.mdl_epsilon, 
             tau = self.options.mdl_tau,
             redo = self.options.redo,
-            # debug_grad = self.options.debug_grad,
+            debug_grad = self.options.debug_grad,
             resample_int = self.options.resample_int,
             excess_rbp = self.options.excess_rbp,
             linear_occ = self.options.linear_occ,
@@ -595,12 +670,6 @@ class Run(object):
 
 def main():
     options, args = parse_cmdline()
-    if options.seed:
-        print "seeding", options.seed
-        np.random.seed(options.seed)
-        import cska.cyska
-        cska.cyska.rand_seed(options.seed)
-
     run = Run(options, args)
 
     try:
@@ -610,7 +679,7 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
 
-        rbns = run.keep_best() # unless --best is specified this does nothing
+        rbns = run.keep_best() # unless --best is non-zero this does nothing
         run.flush_reads()
 
         if options.folding:
@@ -623,7 +692,7 @@ def main():
             run.mark_complete("seed")
 
         param_sources = [run.options.mdl_psam_init, 'seed/initial.tsv']
-        if (options.opt_full or options.opt_nostruct) and not run.completed('nostruct'):
+        if (options.opt_full or options.opt_nostruct) and (not run.completed('nostruct') or options.cont):
             run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
 
             if options.resume:
@@ -634,22 +703,24 @@ def main():
             if run.PSAM_gradient_descent('opt_nostruct'):
                 run.mark_complete("nostruct")
 
-        if (options.opt_full or options.opt_footprint) and not run.completed('footprint'):
+        if (options.opt_full or options.opt_footprint) and (not run.completed('footprint') or options.cont):
             run.logger.info("STAGE2: footprint parameter estimation")
+
             run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
             if run.calibrate_footprint():
                 run.mark_complete("footprint")
 
             run.flush_reads()
 
-        if (options.opt_full or options.opt_struct) and not run.completed('struct'):
+        if (options.opt_full or options.opt_struct) and (not run.completed('struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
+
             param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
             if options.resume:
-                param_sources.insert(1, 'opt_full/parameters.tsv')
+                param_sources.insert(1, 'opt_struct/parameters.tsv')
+            
             run.probe_params(*param_sources)
-
-            if run.PSAM_gradient_descent('opt_full'):
+            if run.PSAM_gradient_descent('opt_struct'):
                 run.mark_complete("struct")
 
         if options.plot:

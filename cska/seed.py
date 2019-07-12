@@ -17,19 +17,24 @@ class Alignment(object):
         for s,w in izip_longest(seqs, weights, fillvalue=1.):
             ofs, score = self.align(s)
 
+        self.ext_cost = np.ones(125)
+        self.ext_cost[:9] = 0.01
+        self.ext_cost[9:18] = [.01, .02, .03, .04, .05, .06, .07, .08, .1, ]
+        # print self.ext_cost
         self.seqs = []
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None, debug=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=4, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
         n = len(self.matrix)
         if not len(self.matrix):
-            return 0, 1 # offset, alignment score
+            return 0, 1  # offset, alignment score
         else:
             scores = []
+            Ms = self.max_score(k=len(seq))
             if contain:
                 assert n > l
                 d = n - l
@@ -37,7 +42,7 @@ class Alignment(object):
             else:
                 ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
             # print seq
-            if end_weight:
+            if end_weight == True:
                 func = np.mean
             else:
                 func = np.min
@@ -56,14 +61,21 @@ class Alignment(object):
                         end_avg = func(self.matrix[m_end:], axis=1).prod()
                 else:
                     start_avg = 0
-                    if m_start:
+                    if m_start and not end_weight is None:
                         start_avg = func(self.matrix[:m_start], axis=1).sum()
 
                     end_avg = 0.
-                    if m_end < n:
+                    if m_end < n and not end_weight is None:
                         end_avg = func(self.matrix[m_end:], axis=1).sum()
 
+                ext_n = max(0, -ofs) + max(0, (ofs + l) - n) # number of columns that would be added to matrix
+                ext_cost = 0
+                for i in range(n, n+ext_n):
+                    ext_cost += self.ext_cost[i]
 
+                ms0 = self.matrix[m_start:m_end].max(axis=1).sum()
+                ms = (ms0 + Ms) / 2. # favor alignments that overlap the highest weight region
+                # ms = Ms
                 n_cols = m_end - m_start
 
                 s_start = max(-ofs, 0)
@@ -86,17 +98,22 @@ class Alignment(object):
                     score = score * S if multiply else score + S
                 
                 # score += score/n_cols * .1 * abs(ofs)
+                score0 = score
                 if normalize:
-                    score /= self.max_score
-                
+                    score /= ms
+                    score0 /= ms0
+
+                score -= ext_cost
+                score0 -= ext_cost                
                 # score += .05 * abs(ofs)
 
-                scores.append(score)
+                scores.append( (score, score0) )
                 if debug:
-                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
+                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score, "ext_n", ext_n, "ext_cost", ext_cost, "ms", ms
+                    print "max_score", self.matrix[m_start:m_end].max(axis=1)
 
-            x = np.array(scores).argmax()
-            S = scores[x]
+            x = np.array(scores).T[0].argmax()
+            S = scores[x][0]
 
             return ofs_range[x], S
 
@@ -107,7 +124,7 @@ class Alignment(object):
         if ofs < 0:
             self.ofs = [o - ofs for o in self.ofs]
             matrix = np.zeros((len(self.matrix)-ofs,4))
-            matrix[-ofs:] =  self.matrix[:]
+            matrix[-ofs:] = self.matrix[:]
             self.matrix = matrix
             ofs = 0
         
@@ -115,20 +132,24 @@ class Alignment(object):
         if d > 0:
             matrix = np.zeros((len(self.matrix)+d,4))
             if len(self.matrix):
-                matrix[:len(self.matrix)] =  self.matrix[:]
+                matrix[:len(self.matrix)] = self.matrix[:]
             self.matrix = matrix
         
         self.ofs.append(ofs)
 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
+        m = self.matrix.max()
+        if m == 0:
+            m = np.inf
+
         for i in range(l):
             if bits[i] > 3:
                 continue # skip gaps
-            self.matrix[i+ofs, bits[i]] += weight
+            self.matrix[i+ofs, bits[i]] += weight #min(max(weight, self.matrix[i+ofs, bits[i]]), m)
         
         if normalize:
-            self.matrix /= self.max_score
+            self.matrix /= self.max_score(k=len(seq))
 
     def add(self, seq, weight=1.):
         ofs, score = self.align(seq)
@@ -140,10 +161,11 @@ class Alignment(object):
     def score(self):
         return self.matrix.max(axis=0).mean()
     
-    @property
-    def max_score(self):
+    def max_score(self, k=7):
         if len(self.matrix):
-            return self.matrix.max(axis=1).sum()
+            ma = self.matrix.max(axis=1)
+            slices = np.array([ma[i:i+k].sum() for i in range(len(self.matrix)-k+1)])
+            return slices.max()
         else:
             return 1.
 
@@ -162,15 +184,16 @@ class Alignment(object):
             spacer = " "*o
             buf.append("{w:3.3e}  {spacer}{s}".format(**locals()))
 
-        perc = 100. * self.score / self.max_score
-        buf.append("average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(self.score, self.max_score, perc))
+        ms = self.max_score(k=len(self.matrix))
+        perc = 100. * self.score / ms
+        buf.append("average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(self.score, ms, perc))
         return "\n".join(buf)
 
     def save_logo(self, fname):
         from cska.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1, n_max=0, pseudo=1, col_scale=True, A0=None):
+    def to_PSAM(self, keep_weight=1., n_max=0, pseudo=1, col_scale=True, A0=None):
         # print self
         # print "to PSAM"
         # print self.matrix
@@ -214,7 +237,7 @@ class Alignment(object):
 
         f, i, j = find_best()
 
-        m = self.matrix[i:j] + pseudo
+        m = self.matrix[i:j] 
         if col_scale:
             # add pseudo-scores to columns 
             # with fewer observations/lower score
@@ -225,7 +248,11 @@ class Alignment(object):
             inc = 1 - M / M.max() 
             m += inc[:,np.newaxis]
 
-        psam = m / m.max(axis=1)[:,np.newaxis]
+        psam = m / m.max(axis=1)[:, np.newaxis]
+        if pseudo:
+            psam += pseudo
+            psam /= psam.max(axis=1)[:, np.newaxis]
+
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
         
@@ -519,7 +546,47 @@ class SeedRefinement(object):
         from cska.params import ModelParametrization
         return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
 
-    def motifs_from_R(self, k=7, keep_weight=.95, n_max=11, m_max=5, thresh = .72, z_cut=4, n_min=5, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def primer_analysis(self, k=7):
+        from cska.seed import Alignment
+        import cska.cyska as cyska
+
+        dG = np.fromfile(
+            os.path.join(
+                os.path.dirname(__file__), '../adapters/7mer_adap3.dG'
+            ),
+            sep='\n'
+        )
+        print dG
+        low_dG = np.percentile(dG, 50)
+        mask = (dG <= low_dG)
+        print low_dG, len(mask)
+        g = dG[mask]
+
+        alns = []
+        R, R_err = self.rbns.R_value_matrix(k)
+        from scipy.stats import spearmanr, pearsonr
+        for j, r in enumerate(R):
+            print "sample", j
+            r_dG = np.log2(r[mask])
+            print pearsonr(g, r_dG)
+            print spearmanr(g, r_dG)
+
+            import cska.report
+            import matplotlib.pyplot as plt
+            plt.figure()
+            plt.plot(g, r_dG, '.')
+            plt.xlabel('dG')
+            plt.ylabel('log2 R')
+            plt.savefig('r_dG_{}.pdf'.format(j))
+            plt.close()
+
+        # R = R.mean(axis=0)
+        # Rns = np.percentile(R, q_ns)
+        # # print "non-specific quantile", Rns
+        # R_err = R_err.mean(axis=0)
+
+
+    def motifs_from_R(self, k=7, z_cut=4, n_min=20, n_min_psam=5, q_ns=5., **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -554,6 +621,7 @@ class SeedRefinement(object):
         # print "maxR", r0
         n = 0
         kmer_set = []
+        enriched = []
 
         for i in I:
             kmer = cyska.index_to_seq(i, k)
@@ -565,117 +633,136 @@ class SeedRefinement(object):
                 break
             
             kmer_set.append( (kmer, r) )
+            enriched.append( (r, kmer) )
         
         self.shelf['kmer_set'] = kmer_set
         n_enriched = len(kmer_set)
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
-        def make_psam(aln, **kwargs):
-            return aln.to_PSAM(
-                pseudo=0, 
-                keep_weight=keep_weight, 
-                A0=aln.max_weight/r0 * A0,
-                **kwargs
-            )
+        pb = PSAMBuilder(enriched, **kwargs)
+        psams = pb.aggregate(n_min=n_min_psam, **kwargs)
 
-        def get_motifs(alns):
-            psams = [make_psam(a) for a in alns]
-            return ",".join([p.consensus_ul for p in psams])
-
-        kmer, r = kmer_set.pop(0)
-        # print "STARTING from", kmer, r
-        aln = Alignment()
-        aln.blend(kmer, 0, r, normalize=False)
-        alns.append(aln)
-        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
-
-        def update_scores(alns, kmer_set):
-            scores = []
-            ofs = []
-            # print "re-aligning"
-            for kmer, r in kmer_set:
-                o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
-                ofs.append(o)
-                scores.append(s)
-
-            scores = np.array(scores)
-            ofs = np.array(ofs)
-            
-            return scores, ofs
-
-        def start_new(alns, kmer_set):
-            kmer, r = kmer_set[0]
-            current_motifs = get_motifs(alns)
-            self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
-            best_i = scores.max(axis=1).argmax()
-            self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
-            # print "starting NEW MOTIF", kmer, r, scores[0]
-            kmer_set.pop(0)
-            aln = Alignment()
-            aln.blend(kmer, 0, r, normalize=False)
-            alns.append(aln)
-
-            return alns, kmer_set
-
-        def blend_best(alns, kmer_set, scores, ofs):
-            # find best aligning kmer and add to best matching motif
-            mer_scores = scores.max(axis=1)
-            best_i = mer_scores.argmax()
-            # print "best matching kmer is", kmer_set[best_i]
-
-            kmer, r = kmer_set.pop(best_i)
-            j = scores[best_i].argmax()
-            s = scores[best_i, j]
-            o = ofs[best_i, j]
-
-            alns[j].blend(kmer, int(o), r, normalize=False)
-            # cons = alns[j].to_PSAM(pseudo=0).consensus
-            # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
-            # if cons == 'AUAGCAU':
-            #     print alns[j].matrix
-            #     print alns[j].align(kmer, normalize=True, debug=True)
-            return alns, kmer_set
-
-        while kmer_set:
-            # align all remaining enriched kmers to all motifs
-            scores, ofs = update_scores(alns, kmer_set)
-            if (scores < thresh).all() and len(alns) < m_max:
-                start_new(alns, kmer_set)
-            else:
-                blend_best(alns, kmer_set, scores, ofs)
-
-        keep = []
-        drop = []
-        orphan_set = []
-        for aln in alns:
-            if len(aln.seqs) >= n_min:
-                keep.append(aln)
-            else:
-                drop.append(aln)
-                ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
-                orphan_set.extend(ks)
-
-        orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-        print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
-        print "re-distributing kmers of weakest motfs", orphan_set
-        while orphan_set:
-            # align all remaining enriched kmers to all motifs
-            scores, ofs = update_scores(keep, orphan_set)
-            blend_best(keep, orphan_set, scores, ofs)
-
-        psams = [make_psam(aln, n_max=n_max) for aln in keep]
         maxlen = max([psam.n for psam in psams])
         motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
-        w = np.array([p.n for p in psams])
-        wm = w.max()
-
-        # second pass -> pad motifs to equal size
-        [p.pad_to_size(wm) for p in psams]
-        self.shelf['width'] = wm
-        self.shelf['n_psam'] = len(psams)
+        self.logger.info(
+            "done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(
+                len(psams), maxlen, len(kmer_set), z_cut, motifs, n_min_psam
+            )
+        )
+        
         self.shelf['psams'] = psams
+        self.shelf['width'] = psams[0].n
+        self.shelf['n_psam'] = len(psams)
+
         return psams
+
+
+        # def make_psam(aln, **kwargs):
+        #     return aln.to_PSAM(
+        #         pseudo=0, 
+        #         keep_weight=keep_weight, 
+        #         A0=aln.max_weight/r0 * A0,
+        #         **kwargs
+        #     )
+
+        # def get_motifs(alns):
+        #     psams = [make_psam(a) for a in alns]
+        #     return ",".join([p.consensus_ul for p in psams])
+
+        # kmer, r = kmer_set.pop(0)
+        # # print "STARTING from", kmer, r
+        # aln = Alignment()
+        # aln.blend(kmer, 0, r, normalize=False)
+        # alns.append(aln)
+        # self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
+
+        # def update_scores(alns, kmer_set):
+        #     scores = []
+        #     ofs = []
+        #     # print "re-aligning"
+        #     for kmer, r in kmer_set:
+        #         o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+        #         ofs.append(o)
+        #         scores.append(s)
+
+        #     scores = np.array(scores)
+        #     ofs = np.array(ofs)
+            
+        #     return scores, ofs
+
+        # def start_new(alns, kmer_set):
+        #     kmer, r = kmer_set[0]
+        #     current_motifs = get_motifs(alns)
+        #     self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+        #     best_i = scores.max(axis=1).argmax()
+        #     self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
+        #     # print "starting NEW MOTIF", kmer, r, scores[0]
+        #     kmer_set.pop(0)
+        #     aln = Alignment()
+        #     aln.blend(kmer, 0, r, normalize=False)
+        #     alns.append(aln)
+
+        #     return alns, kmer_set
+
+        # def blend_best(alns, kmer_set, scores, ofs):
+        #     # find best aligning kmer and add to best matching motif
+        #     mer_scores = scores.max(axis=1)
+        #     best_i = mer_scores.argmax()
+        #     # print "best matching kmer is", kmer_set[best_i]
+
+        #     kmer, r = kmer_set.pop(best_i)
+        #     j = scores[best_i].argmax()
+        #     s = scores[best_i, j]
+        #     o = ofs[best_i, j]
+
+        #     alns[j].blend(kmer, int(o), r, normalize=False)
+        #     # cons = alns[j].to_PSAM(pseudo=0).consensus
+        #     # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+        #     # if cons == 'AUAGCAU':
+        #     #     print alns[j].matrix
+        #     #     print alns[j].align(kmer, normalize=True, debug=True)
+        #     return alns, kmer_set
+
+        # while kmer_set:
+        #     # align all remaining enriched kmers to all motifs
+        #     scores, ofs = update_scores(alns, kmer_set)
+        #     if (scores < thresh).all() and len(alns) < m_max:
+        #         start_new(alns, kmer_set)
+        #     else:
+        #         blend_best(alns, kmer_set, scores, ofs)
+
+        # keep = []
+        # drop = []
+        # orphan_set = []
+        # for aln in alns:
+        #     if len(aln.seqs) >= n_min:
+        #         keep.append(aln)
+        #     else:
+        #         drop.append(aln)
+        #         ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
+        #         orphan_set.extend(ks)
+
+        # orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+        # print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
+        # print "re-distributing kmers of weakest motfs", orphan_set
+        # while orphan_set:
+        #     # align all remaining enriched kmers to all motifs
+        #     scores, ofs = update_scores(keep, orphan_set)
+        #     blend_best(keep, orphan_set, scores, ofs)
+
+        # psams = [make_psam(aln, n_max=n_max) for aln in keep]
+        # maxlen = max([psam.n for psam in psams])
+        # motifs = ",".join([p.consensus_ul for p in psams])
+        # self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
+        # w = np.array([p.n for p in psams])
+        # wm = w.max()
+
+        # # second pass -> pad motifs to equal size
+        # [p.pad_to_size(wm) for p in psams]
+        # self.shelf['width'] = wm
+        # self.shelf['n_psam'] = len(psams)
+        # self.shelf['psams'] = psams
+        # return psams
 
 
     def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
@@ -763,12 +850,491 @@ class SeedRefinement(object):
     # def store_params(self):
     #     self.opt.mdl.parameters.store(cska.ensure_path(os.path.join(self.opt.out_path, "affinity/"))
 
+from cska.pwm import PSAM, project_column
+class PSAMBuilder(object):
+    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, debug=False, **kwargs):
+        self.logger = logging.getLogger("opt.seed.PSAMBuilder")
+        self.debug = debug
+        self.keep_weight = keep_weight
+        self.n_max = n_max
+        self.thresh = thresh
+        self.A0 = A0
+        self.alns = []
+        for seq in contaminants:
+            ca = Alignment()
+            ca.blend(seq, 0, 1, normalize=False)
+            self.alns.append(ca)
+
+        self.n_contaminants = len(contaminants)
+
+        self.enriched = enriched
+        self.n_kmers = len(enriched)
+        # self.P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(enriched, reverse=True)]
+        # self.disc = [self.discrimination(p).sum() for p in self.P]
+        # self.maxR = [p.max() for p in self.P]
+        self.r0 = np.array([r for r, kmer in self.enriched]).max()
+        # self.ext_cost = np.array([np.Inf, 0., 0., 0., 0., 0., 0., 0.0, 0.1, .15, .2, .3, 1.5, 2., np.inf, np.inf, np.inf, np.inf, np.inf])
+        
+        # n = len(self.P)
+        # self.scores = np.zeros( (n, n) ) - np.Inf
+        # self.shifts = np.zeros( (n, n) ) + np.NaN
+        # self.merged = np.empty( (n, n), dtype=object )
+        
+        # self.align_debug = False
+        # if init:
+        #     self.fill_tables()
+        # self.align_debug = True #False
+
+    def make_psam(self, aln, **kwargs):
+        return aln.to_PSAM(
+            pseudo=1e-3, 
+            keep_weight=self.keep_weight, 
+            A0=aln.max_weight * self.A0,
+            **kwargs
+        )
+
+    def get_motifs(self):
+        return ",".join([a.to_PSAM().consensus_ul for a in self.alns])
+
+    def update_scores(self, alns, enriched, prev_scores=None, prev_ofs=None, col=None):
+        
+        scores = []
+        ofs = []
+        if col is None:
+            # print "re-aligning"
+            for r, kmer in enriched:
+                o, s = np.array([aln.align(kmer, normalize=True, end_weight=None) for aln in alns]).T
+                ofs.append(o)
+                scores.append(s)
+        else:
+            scores = prev_scores
+            ofs = prev_ofs
+
+            for i,(r, kmer) in enumerate(enriched):
+                o, s = alns[col].align(kmer, normalize=True, end_weight=None)
+                ofs[i, col] = o
+                scores[i, col] = s
+
+        scores = np.array(scores)
+        ofs = np.array(ofs)
+        # print "shapes", scores.shape, ofs.shape
+        if self.debug:
+            print "UPDATE", col
+            for j, i in enumerate(scores.max(axis=1).argsort()[::-1]):
+                # print "j,i", j, i, len(enriched), len(alns)
+                r, kmer = enriched[i]
+                al = alns[scores[i].argmax()]
+                print kmer, np.round(r/self.r0, 2), scores[i], "->", al.to_PSAM().consensus_ul, ofs[i]
+                if j > 2:
+                    break
+
+        return scores, ofs
+
+    def start_new(self, scores, ofs):
+        r, kmer = self.enriched[0]
+        # print "START NEW FROM", kmer
+        current_motifs = self.get_motifs()
+        self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+        best_i = scores.max(axis=1).argmax()
+        self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], self.enriched[best_i][1], scores[best_i], self.thresh))
+        # print "starting NEW MOTIF", kmer, r, scores[0]
+        self.enriched.pop(0)
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        self.alns.append(aln)
+
+        return 0
+
+    def blend_best(self, alns, enriched, scores, ofs):
+        # find best aligning kmer and add to best matching motif
+        mer_scores = scores.max(axis=1)
+        best_i = mer_scores.argmax()
+        # print "best matching kmer is", best_i, enriched[best_i]
+
+        r, kmer = enriched.pop(best_i)
+        j = scores[best_i].argmax()
+        s = scores[best_i, j]
+        o = ofs[best_i, j]
+
+        self.logger.debug("BEST ALIGNMENT out of {} is {} + {} shift={}".format(self.get_motifs(), alns[j].to_PSAM().consensus_ul, kmer, s))
+        if kmer == "augcacg":
+            alns[j].align(kmer, normalize=True, debug=True, end_weight=None)
+
+        if j >= self.n_contaminants:
+            alns[j].blend(kmer, int(o), r, normalize=False)
+        else:
+            self.logger.debug("dropping contaminant-matching kmer {}".format(kmer))
+        # cons = alns[j].to_PSAM(pseudo=0).consensus
+        # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+        # if cons == 'AUAGCAU':
+        #     print alns[j].matrix
+        #     print alns[j].align(kmer, normalize=True, debug=True)
+        return best_i, j
+
+    def fill_tables(self):
+        n = len(self.P)
+        
+        for i in range(n):
+            for j in range(i):
+                score, shift, N = self.align(self.P[i], self.P[j], debug=self.align_debug)
+                self.scores[i, j] = score
+                self.shifts[i, j] = shift 
+                self.merged[i, j] = N
+
+        # self.scores += self.scores.T
+
+    def discrimination(self, P):
+        D = (P.max(axis=1) / P.sum(axis=1) - 1./4.) / 0.75
+        w = (P.max(axis=1) / P.sum(axis=1).max()) **0
+        # print "disc weights", w
+        return D*w
+
+    def mean_discrimination(self):
+        d = np.array(self.disc)
+        r = np.array(self.maxR)
+
+        return (d*r).sum() / r.sum() # maxR-weighted mean
+
+    def align(self, P1, P2, max_shift=5, ws=-0.1, debug=False):
+        if len(P2) > len(P1):
+            P1, P2 = P2, P1
+        
+        d1 = self.discrimination(P1)
+        d2 = self.discrimination(P2)
+
+        D1 = d1.sum()
+        D2 = d2.sum()
+        if debug:
+            print "aligning", self.consensus(P1)
+            print P1
+            print "D1", d1, D1
+            print "with", self.consensus(P2)
+            print P2
+            print "D2", d2, D2
+
+        l1 = len(P1)
+        l2 = len(P2)
+        A1 = P1.max()
+        A2 = P2.max()
+        A = max(A1, A2)
+        # the first is longer or same length
+        shifts = range(- max_shift, max_shift + 1)
+        if debug:
+            print "shifts", max_shift, shifts
+        # shifts = [-1] # DEBUG!
+        normed1 = P1 / P1.max(axis=1)[:, np.newaxis]
+        normed2 = P2 / P2.max(axis=1)[:, np.newaxis]
+
+        scores = []
+        for s in shifts:
+            s1 = max(s,0)
+            e1 = min(s+l2, l1)
+            s2 = max(-s, 0)
+            e2 = min(l2, s2+l2)
+
+            M1 = P1[s1:e1]
+            M2 = P2[s2:e2]
+
+
+            N = np.zeros((max(s1 + l2, s2+l1), 4))
+            # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
+            N[s2:s2+l1] += P1
+            N[s1:s1+l2] += P2
+            
+            
+            w = N.sum(axis=1)
+            w /= w.sum()
+            normed = N / N.max(axis=1)[:, np.newaxis]
+            div = \
+                (np.fabs(normed[s2:s2+l1] - normed1).sum(axis=1) * w[s2:s2+l1]).sum() + \
+                (np.fabs(normed[s1:s1+l2] - normed2).sum(axis=1) * w[s1:s1+l2]).sum()
+
+            dN = self.discrimination(N)
+            DN = dN.sum()
+            # print "DN", dN, DN
+
+            # how much discrimination is in the overlap?
+            al1 = dN[s1:e1].sum() / D1
+            al2 = dN[s2:e2].sum() / D2
+
+            Ln = len(N)
+            L1 = len(P1)
+            L2 = len(P2)
+
+            # Ln = 1
+            # L1 = 1
+            # L2 = 1
+            # df = DN/Ln / (A1*D1/L1 + A2*D2/L2) * (A1+A2)
+            # df = DN / (A1*D1 + A2*D2) * (A1+A2)
+            df = 2 * DN / (D1 + D2)
+            
+            ss = 0
+            for x in range(l1, len(N)):
+                ss -= self.ext_cost[x]
+
+            # ss = - self.ext_cost[len(N)] * (len(N) - l1)
+            # if debug:
+            #     # print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
+            #     print "s={s} dN={dN} (fraction of mean={df})".format(**locals())
+            # if debug:
+            #     print "overlap buffer 1"
+            #     print N
+            # N[s2:s2+e1] /= (A2 + A1) # weighted mean
+
+            # amax - N.max(axis=1)
+            # N /= amax[:, np.newaxis]
+
+            # print "overlap buffer NORMED"
+            # print N
+            N1 = N[s2+s1:s2+s1+len(M1)]
+            N2 = N[s2+s1:s2+s1+len(M2)]
+            # if debug:
+            #     print "N1"
+            #     print N1
+            #     print "M1"
+            #     print M1
+            #     print "N2"
+            #     print N2
+            #     print "M2"
+            #     print M2
+            # dM1 = self.discrimination(M1) 
+            # dM2 = self.discrimination(M2) 
+            # x1 = np.fabs((dM1 - self.discrimination(N1)).sum()) / dM1.sum() # fraction of discrimination lost in overlapping region
+            # x2 = np.fabs((dM2 - self.discrimination(N2)).sum()) / dM2.sum()
+
+            # ss = ws * ((unal1 * A1) + (unal2 * A2)) / (A1 + A2)
+            # ss = ws * (unal1  + unal2)/ 2.
+            # score = (d1 * A1 + d2* A2)/(A1 + A2) + ss
+            # score = (x1 + x2) / 2. + ss
+            # keep = (A1 * al1 + A2 * al2)/ (A1 + A2)
+            # keep = al1 * al2
+            # score = df * keep + ss
+            score = (1./(div + 1.) + ss)
+            # print score
+            # r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
+            # r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
+            # score = (r1 * A1 + r2* A2)/(A1 + A2) + ss
+            # print "score", score
+            if debug:
+                print s, '->', np.round(score, 2), "div", np.round(div, 3), "ss", ss
+                # print s, '->', np.round(score,2), "df", np.round(df,2), "keep", np.round(keep, 3), "ss", ss, 'dN', np.round(dN.sum(),3), 'al1', al1, 'al2', al2 #d1, "M2", d2, "shift", ss, "unal1", unal1, "unal2", unal2, 
+            
+            # N *= (A2 + A1) / A
+            scores.append( (score, s, N) )
+        
+        best = sorted(scores, reverse=True)[0]
+        if debug:
+            print ">> best alignment <<", np.round(best[0], 5)
+            s = int(best[1])
+            si = max(-s, 0)
+            sj = max(s, 0)
+
+            print " "*si, self.consensus(P1)
+            print " "*sj, self.consensus(P2)
+
+        return best
+
+    def consensus(self, mat):
+        return "".join([project_column(col) for col in mat])
+
+    def find_match(self):
+        # tilt = .001 * np.log(self.maxR)
+        scores = np.array(self.scores)
+        # scores += tilt[:, np.newaxis]
+        # scores += tilt[np.newaxis, :]
+        i, j = np.unravel_index(scores.argmax(), scores.shape)
+        return i, j, self.scores[i, j], self.shifts[i, j], self.merged[i, j]
+
+    def drop(self, x, fill=-np.inf):
+        self.P.pop(x)
+        self.disc.pop(x)
+        self.maxR.pop(x)
+        for arr in [self.scores, self.shifts, self.merged]:
+            arr[x:-1, :] = arr[x+1:, :]
+            arr[:, x:-1] = arr[:, x+1:]
+            arr[-1, :] = fill
+            arr[:, -1] = fill
+
+    def add(self, new):
+        n = len(self.P)
+        self.P.append(new)
+        self.disc.append(self.discrimination(new).sum())
+        self.maxR.append(new.max())
+
+        for j in range(n):
+            score, shift, N = self.align(self.P[n], self.P[j], debug=self.align_debug)
+            self.scores[n, j] = score
+            self.shifts[n, j] = shift 
+            self.merged[n, j] = N
+
+    def aggregate(self, n_valid=5):
+        score_steps = []
+        mean_disc = []
+        mean_score = []
+        valid_sets = []
+
+        while len(self.P) > 1:
+            print "PSAMs", len(self.P)
+            i, j, score, shift, new = self.find_match()
+            
+            order = np.array(self.maxR).argsort()[::-1]
+            cons = np.array([self.consensus(p) for p in self.P])
+            for h, x in enumerate(order):
+                if x == i or x ==j:
+                    m = '*'
+                else:
+                    m = ' '
+                
+                y = self.scores[x,:].argmax()
+                z = self.scores[:,x].argmax()
+
+
+                if self.scores[x, y] > self.scores[z, x]:
+                    N = self.merged[x, y]
+                    score = self.scores[x, y]
+                    other = cons[y]
+                else:
+                    N = self.merged[z, x]
+                    score = self.scores[z, x]
+                    other = cons[z]
+                    y = z
+                    
+                nc = self.consensus(N) if N is not None else 'none'
+                print m, cons[x], np.round(self.maxR[x], 2), "+", other, '->', nc, 'score=', score
+
+                if len(self.P) == 20 and x == i:
+                #     print "<<< SHOULD"
+                #     self.align(self.P[order[h]], self.P[order[h+1]], debug=True)
+                    print "<<< IS", i, j, shift, self.consensus(self.P[i]), self.consensus(self.P[j])
+                    self.align(self.P[i], self.P[j], debug=True)
+
+            score_steps.append(score)
+            mean_disc.append(self.mean_discrimination())
+
+            S = np.array(self.scores).flatten()
+            mean_score.append(np.mean(S[np.isfinite(S)]))
+
+            # i, j, score, shift, new = self.find_match()
+            s = int(shift)
+            si = max(-s, 0)
+            sj = max(s, 0)
+
+            seq1 = self.consensus(self.P[i])
+            seq2 = self.consensus(self.P[j])
+            if len(seq2) > len(seq1):
+                seq1, seq2 = seq2, seq1
+            
+            print " "*(si+2), seq1
+            print " "*(sj+2), seq2
+            print "->", self.consensus(new)
+
+            self.drop(i)
+            self.drop(j)
+            self.add(new)
+
+            n = len(self.P)
+            if n <= n_valid:
+                # print "score matrix"
+                # print self.scores[:n, :n]
+                
+                from cska.params import ModelParametrization, ModelSetParams
+                from cska.pwm import PSAM
+                psams = [PSAM(np.round(p, 0), A0=p.max()) for p in self.P]
+                params = [ModelParametrization.from_PSAM(ps, n_samples=1) for ps in psams]
+                param_set = ModelSetParams(params, sort=True)
+                param_set.save_logos("seed_{}left.pdf".format(len(self.P)))
+
+                valid_sets.append(param_set)
+
+        mean_disc.append(np.array(self.disc).mean())
+        print "score history", score_steps
+        print "mean disc.", mean_disc
+        print "mean score", mean_score
+        
+        import cska.report
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        plt.plot(score_steps, label="score", linestyle='steps')
+        plt.plot(mean_disc, label="avg. discrimination", linestyle='steps')
+        plt.plot(mean_score, label="mean score", linestyle='steps')
+        plt.legend()
+        plt.savefig('scores.pdf')
+
+    def aggregate(self, n_min=5, m_max=5, **kwargs):
+        r, kmer = self.enriched.pop(0)
+        # self.logger.debug("STARTING from", kmer, r
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        self.alns = [aln, ]
+        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
+
+        prev_scores = None
+        prev_ofs = None
+        col = None
+        while self.enriched:
+            self.logger.debug("{} kmers left".format(len(self.enriched)))
+            # align all remaining enriched kmers to all motifs
+            scores, ofs = self.update_scores(self.alns, self.enriched, prev_scores=prev_scores, prev_ofs=prev_ofs, col=col)
+            if (scores < self.thresh).all() and (len(self.alns) - self.n_contaminants) < m_max:
+                i = self.start_new(scores, ofs)
+                n, m = scores.shape
+                prev_scores = np.zeros( (n-1, m+1), dtype=float)
+                prev_ofs = np.zeros( (n-1, m+1), dtype=int)
+                prev_scores[:i, :-1] = scores[:i, :]
+                prev_scores[i:, :-1] = scores[i+1:, :]
+                prev_ofs[:i, :-1] = ofs[:i, :]
+                prev_ofs[i:, :-1] = ofs[i+1:, :]
+                col = m
+
+            else:
+                i, j = self.blend_best(self.alns, self.enriched, scores, ofs)
+                # print "drop scores for kmer", i
+                n, m = scores.shape
+                prev_scores = np.zeros( (n-1, m), dtype=float)
+                prev_ofs = np.zeros( (n-1, m), dtype=int)
+                prev_scores[:i, :] = scores[:i, :]
+                prev_scores[i:, :] = scores[i+1:, :]
+                prev_ofs[:i, :] = ofs[:i, :]
+                prev_ofs[i:, :] = ofs[i+1:, :]
+                col = j
+
+        keep = list(self.alns)
+        if len(self.alns) > 1:
+            alns = sorted(self.alns[self.n_contaminants:], key=lambda a : len(a.seqs), reverse=True)
+            keep = [alns[0], ]
+            drop = []
+            orphan_set = []
+            for aln in alns[1:]:
+                if len(aln.seqs) >= n_min:
+                    keep.append(aln)
+                else:
+                    drop.append(aln)
+                    ks = [ (w*self.r0, kmer) for kmer, w in zip(aln.seqs, aln.weights)]
+                    orphan_set.extend(ks)
+
+            orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+            self.logger.info("need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set)))
+            self.logger.info("re-distributing kmers of weakest motifs {}".format(orphan_set))
+            while orphan_set:
+                # align all remaining enriched kmers to all motifs
+                scores, ofs = self.update_scores(keep, orphan_set)
+                self.blend_best(keep, orphan_set, scores, ofs)
+
+        psams = [self.make_psam(aln, n_max=self.n_max) for aln in keep]
+        w = np.array([p.n for p in psams])
+        wm = w.max()
+
+        # second pass -> pad motifs to equal size
+        [p.pad_to_size(wm) for p in psams]
+        return psams
+
+
 if __name__ == "__main__":
 
-    from cska.pwm import PSAM, project_column
     test_data = [
         (100, 'UGCAUGC'),
-        # (100, 'GCAUGCA'),
+        (100, 'GCAUGCA'),
         (90, 'UGCAUGU'),
         (80, 'GCAUGCA'),
         (79, 'GCAUGCU'),
@@ -794,118 +1360,27 @@ if __name__ == "__main__":
         (75, 'AGCAAUG'),
     ]
 
-    def align(P1, P2, max_shift=3, ws=0.2, debug=False):
-        if len(P2) > len(P1):
-            P1, P2 = P2, P1
-        
-        if debug:
-            print "aligning", consensus(P1), consensus(P2)
-
-        l1 = len(P1)
-        l2 = len(P2)
-        A1 = P1.max()
-        A2 = P2.max()
-        A = max(A1, A2)
-        # the first is longer or same length
-        shifts = range(- l2 + max_shift, l1 - max_shift)
-        # shifts = [-1] # DEBUG!
-        scores = []
-        for s in shifts:
-            s1 = max(s,0)
-            e1 = min(s+l2, l1)
-            s2 = max(-s, 0)
-            e2 = min(l2, s2+l2)
-
-            M1 = P1[s1:e1]
-            M2 = P2[s2:e2]
-            if debug:
-                print "s={s} l1={l1} l2={l2} M1={s1}:{e1} M2={s2}:{e2}".format(**locals())
-
-            N = np.zeros((l1 + abs(s), 4))
-            # print "len N", len(N), "s2+l1", s2+l1, "s1+l2", s1+l2
-            N[s2:s2+l1] += P1
-            N[s1:s1+l2] += P2
-            if debug:
-                print "overlap buffer 1"
-                print N
-            # N[s2:s2+e1] /= (A2 + A1) # weighted mean
-
-            # amax - N.max(axis=1)
-            # N /= amax[:, np.newaxis]
-
-            # print "overlap buffer NORMED"
-            # print N
-            N1 = N[s2+s1:s2+s1+len(M1)]
-            N2 = N[s2+s1:s2+s1+len(M2)]
-            if debug:
-                print "N1"
-                print N1
-                print "M1"
-                print M1
-                print "N2"
-                print N2
-                print "M2"
-                print M2
-            r1 = np.fabs(N1/(A1 + A2) - M1/A1).sum() / (M1.sum() / A1)
-            r2 = np.fabs(N2/(A1 + A2) - M2/A2).sum() / (M2.sum() / A2)
-            score = (r1 * A1 + r2* A2)/(A1 + A2) + ws * abs(s)
-            if debug:
-                print score, "rel. change M1", r1, "M2", r2, "shift", ws*abs(s)
-            
-            # N *= (A2 + A1) / A
-            scores.append( (score, s, N) )
-        
-        best = sorted(scores)
-        return best[0]
-
-    def consensus(mat):
-        return "".join([project_column(col) for col in mat])
-
-    P = [PSAM.from_kmer(mer, A0=R).matrix for R, mer in sorted(test_data, reverse=True)]
-
-    def find_match(P):
-        N = len(P)
-        maxR = np.array([p.max() for p in P]).max()
-        print "maxR", maxR
-        scores = np.ones( (N,N) ) * np.inf
-        shifts = np.zeros( (N,N) ) + np.NaN
-        news = {}
-        for i in range(N):
-            for j in range(i):
-                # print "aligning", consensus(P[i]), "with", consensus(P[j])
-                score, shift, N = align(P[i], P[j])
-                # print score, shift #, N
-                scores[i, j] = score
-                shifts[i, j] = shift 
-                news[(i,j)] = N
-
-        i, j = np.unravel_index(scores.argmin(), scores.shape)
-        return i, j, scores, shifts, news
-
-    while len(P) > 1:
-        i, j, scores, shifts, news = find_match(P)
-
-        print "best match is", i,j, consensus(P[i]), consensus(P[j]), "shift", shifts[i,j], "scores", scores[i, j]
-        # if i == x and j == y:
-        #     align(P[i], P[j], debug=True)
-
-        s = int(shifts[i, j])
-        si = max(-s, 0)
-        sj = max(s, 0)
-
-        print " "*si, consensus(P[i])
-        print " "*sj, consensus(P[j])
-        P.pop(i)
-        P.pop(j)
-        N = news[(i, j)]
-        print "replacing with"
-        print consensus(N)
-        print N
-        P.append(N)
-
-        print len(P), "left"
-
+    test_data_msi = [
+        (9, 'UAGUUAG'),
+        (6, 'UAGAUAG'),
+        (5.6, 'UUAGUUA'),
+        (5.2, 'UAGUUUA'), # <- 3
+        (5, 'AUAGUUA'),
+        (4.7, 'UAGGUAG'),
+        (4.3, 'UAGCUAG'),
+        (4.5, 'AGUUAGU'),
+        (4.1, 'UUAGUUU'), # <- 8
+        (4.2, 'AGUUUAG'), # <- 9
+        (4.0, 'UUUAGUU'),
+    ]
+    pb = PSAMBuilder(test_data_msi, init=False)
+    print "done building tables"
+    pb.align(pb.P[3], pb.P[8], debug=True)
+    pb.align(pb.P[3], pb.P[0], debug=True)
     sys.exit(0)
+
+    pb.aggregate()
+
 
     import logging
     logging.basicConfig(level=logging.DEBUG)
@@ -1011,7 +1486,8 @@ if __name__ == "__main__":
     #         jR = np.log2(joint / j0)
     #         I = jR[:,:,d].flatten().argsort()[::-1]
     #         # print I
-    #         for n in I[:10]:
+    #         for n in I[:10]:        data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
+
     #             i, j = np.unravel_index(n, joint.shape[:2])
     #             # print n, i, j
     #             print "most-co-enriched 3mers at d=", d, kmers[i], kmers[j], jR[i,j,d]

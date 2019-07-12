@@ -195,12 +195,16 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False, errors=[]):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
         self.ref_state = ref_state # used for simulations, where true values are known.
         self.predict_kwargs = predict_kwargs
+        self.fix_A0 = fix_A0
+        if fix_A0:
+            self.predict_kwargs['tune'] = False
+
         self.debug_grad = debug_grad
         self.model.opt = self # link model to this optimizer instance so it can find out R0 etc.
 
@@ -211,7 +215,7 @@ class GradientDescent(object):
         self.dec = dec
 
         # records
-        self.errors = []
+        self.errors = list(errors)
         # self.history = []
         self.ls_nfev = [0,]
         self.ls_step = [0,]
@@ -319,7 +323,7 @@ class GradientDescent(object):
         if len(self.errors) < self.tau:
             self.logger.debug("not enough data to estimate convergence (t={})".format(self.t))
             return self.status
-           
+        
         last_errs = np.array(self.errors[-self.tau:])
         rel_error = self.errors[-1] / self.errors[0]
         rel_err_dec = self.errors[-2] / self.errors[0] - rel_error
@@ -392,23 +396,27 @@ class GradientDescent(object):
                 if debug:
                     print "LOCAL GRAD, EMP. GRAD"
                     if self.debug_grad:
-                        for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
-                        # for lcl, emp_A0_res, ana_A0_res in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state)):
+                        # for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
+                        for lcl, emp in zip(local_grad, emp_grad(state)):
 
-                            print "ana_dA0", ana_A0_res['dE']
+                            # print "ana_dA0", ana_A0_res['dE']
                             print "LCL"
                             print lcl
-                            print "emp_dA0", emp_A0_res['dE']
+                            # print "emp_dA0", emp_A0_res['dE']
                             print "EMP"
                             print emp
                     else:
                         print local_grad
                 
                 local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
+                if self.fix_A0:
+                    local_grad.A0s[:] = 0.
+
                 descent = self.RMSprop( - local_grad ) #.unity()
                 # descent = self.momentum_grad( - local_grad).unity()
 
                 # print "ERRORS", self.errors
+                stuck = False
                 s, ls_data = self.line_search(state, descent, debug=debug)
                 if s == 0:
                     self.logger.warning("line_search could not decrease error! Resetting search direction to local gradient ...")
@@ -421,8 +429,7 @@ class GradientDescent(object):
                     self.past_sqg = 1
                     if s == 0:
                         self.logger.warning("line_search unable to reduce error using local gradient")
-                        self.status = "CONVERGED_NO_DECREASE_ALONG_GRADIENT"
-                        break
+                        stuck = True ## signal via callback to PSAMGradientDescent that we need a re-sample
 
                 self.ls_step.append(s)
                 self.ls_nfev.append(ls_data.res.nfev)
@@ -444,6 +451,8 @@ class GradientDescent(object):
                     self.print_state(state)
 
                 if callback:
+                    if stuck:
+                        state.stuck = True
                     state = callback(self, state)
 
                 # if state != self.last_state:

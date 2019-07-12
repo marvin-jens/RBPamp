@@ -153,6 +153,7 @@ class RowOptimization(object):
         res.a = res.x[0]
         res.A0 = res.x[1]
         punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
+        print "opt res", res
         return res, punp_expect
 
 
@@ -178,11 +179,11 @@ class FootprintCalibration(CachedBase):
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
         self.thresh = thresh
-        self.logger = logging.getLogger('opt.FootprintCalibration({})'.format(self.consensus))
+        self.logger = logging.getLogger('opt.FootprintCalibration({})'.format(self.consensus_ul))
         self.result_log = logging.getLogger('results.footprint')
 
         self.shelve = shelve.open(
-            os.path.join(self.path, "history"), 
+            os.path.join(self.path, "history_{self.consensus_ul}".format(self=self)), 
             protocol=-1, 
             flag='n' if redo else 'c'
         )
@@ -192,7 +193,7 @@ class FootprintCalibration(CachedBase):
         self._openen_cache = {}
         self._lacc_cache = {}
 
-        fp = os.path.join(self.path, 'footprints_{}.tsv'.format(self.consensus))
+        fp = os.path.join(self.path, 'footprints_{}.tsv'.format(self.consensus_ul))
         # if os.path.exists(fp):
         #     self.load_footprints(fp)
         # no need to load these, as we now keep pickled results from optimize()
@@ -250,6 +251,7 @@ class FootprintCalibration(CachedBase):
 
     def load_profile(self, k, s):
         key = "opt_profile_{k}_{s}".format(k=k, s=s)
+        # print "loading", key
         return self.load_shelve(key)
 
     def store_profile(self, k, s, value):
@@ -268,6 +270,7 @@ class FootprintCalibration(CachedBase):
 
         def _optimize(s):
             x = self.load_profile(acc_k, s)
+            # print "loaded", acc_k, s, '->', x
             if not x or from_scratch:
                 x = row.optimize(s)
 
@@ -320,11 +323,13 @@ class FootprintCalibration(CachedBase):
         self.params.acc_scale = a
         self.params.A0 = A0
         self.store_shelve("params_calibrated", self.params)
+        
 
         # for the optimum, also compute profile for a=1
         row = RowOptimization(self, k)
         res_a_one, punp_a_one = row.optimize_A0(s, a=1)
         self.store_shelve("opt_profile_a_one_{k}_{s}".format(**locals()), (punp_a_one, res_a_one))
+        self.params.save(os.path.join(self.path, 'calibrated_{self.consensus_ul}.tsv'.format(self=self)))
 
         return self.params
 

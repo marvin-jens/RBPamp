@@ -73,6 +73,15 @@ class ModelSetParams(object):
             par.A0 *= ratio
 
     @property
+    def A0s(self):
+        return np.array([par.A0 for par in self.param_set])
+    
+    @A0s.setter
+    def A0s(self, values):
+        for par, a in zip(self.param_set, values):
+            par.A0 = a
+
+    @property
     def acc_k(self):
         return self.param_set[0].A0
 
@@ -104,9 +113,11 @@ class ModelSetParams(object):
         i = 0
         for p in self.param_set:
             l = len(p.data)
+            # print "p.data", l
             p.data[:] = data[i:i+l]
             i += l
 
+        # print i, len(data)
         assert i == len(data)
         return self
     
@@ -221,6 +232,7 @@ class ModelSetParams(object):
         from cska.affinitylogo import plot_afflogo, nice_conc
 
         n = len(self.param_set)
+        # print "param_set size", n
         fig = plt.figure(figsize=(3, n*.75))
         if title:
             plt.suptitle(title)
@@ -232,8 +244,10 @@ class ModelSetParams(object):
             else:
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
+            num = 2 * i + 1
+            # print "subplot num", num
             ax = plot_afflogo(
-                fig.add_subplot(n*100 + 20 + (2*i+1)), 
+                fig.add_subplot(n, 2, num), 
                 params.as_PSAM().psam, 
                 # title = kdstr
             )
@@ -248,7 +262,9 @@ class ModelSetParams(object):
                     labelbottom=False
                 )
 
-            ax = fig.add_subplot(n*100 + 20 + (2*i+2))
+            num = 2 * i + 2
+            # print "subplot num", num
+            ax = fig.add_subplot(n, 2, num)
             ax.text(0, 0.5, kdstr)
             ax.tick_params(
                 axis='both',          # changes apply to the x-axis
@@ -260,14 +276,13 @@ class ModelSetParams(object):
                 labelleft=False,
             )
 
-
         plt.tight_layout()
         plt.savefig(fname)
         plt.close()
 
 
 class ModelParametrization(object):
-    def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1.):
+    def __init__(self, k, n_samples, nt=1, psam=[], A0=1., betas = [], data = [], acc_shift=0, acc_k=None, acc_scale=1., **kwargs):
         self.k = k
         self.nt = nt
         self.depth = 4**nt
