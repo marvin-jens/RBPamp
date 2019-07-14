@@ -64,7 +64,13 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
+    parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
+    parser.add_option("", "--z-cut", dest="z_cut", default=5., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
+    parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
+    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.8, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
+    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
+    parser.add_option("", "--seed-pseudo", dest="seed_pseudo", default=.1, type=float, help="'pseudo' affinity for non-cognate bases. Non-zero allows gradient descent to act on all bases (default=.1)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
@@ -79,11 +85,6 @@ def parse_cmdline():
     parser.add_option("","--excess-rbp",dest="excess_rbp",default=False, action="store_true",help="MODEL: pretend total RBP == free RBP")
     parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
 
-    parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
-    parser.add_option("", "--z-cut", dest="z_cut", default=5., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
-    parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
-    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.8, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
-    parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
 
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
     parser.add_option("", "--opt-footprint", dest="opt_footprint", default=False, action="store_true", help="perform footprint calibration (STAGE2: footprint stage)")
@@ -535,7 +536,15 @@ class Run(object):
         a3 = self.rbns.reads[0].adap3 
         # contaminants = [a5, a3, rev_comp(a5), rev_comp(a3)]
         contaminants = []
-        self.params = SR.seeded_multi_params(self.rbns.n_samples, max_motifs=self.options.max_motifs, k_seed=self.options.k_seed, thresh=self.options.seed_thresh, z_cut=self.options.z_cut, contaminants=contaminants)
+        self.params = SR.seeded_multi_params(
+            self.rbns.n_samples,
+            max_motifs = self.options.max_motifs,
+            k_seed = self.options.k_seed,
+            thresh = self.options.seed_thresh,
+            z_cut = self.options.z_cut,
+            contaminants = contaminants,
+            pseudo = self.options.seed_pseudo
+        )
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 

@@ -852,12 +852,13 @@ class SeedRefinement(object):
 
 from cska.pwm import PSAM, project_column
 class PSAMBuilder(object):
-    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, n_min=5, A0=0.01, debug=False, **kwargs):
+    def __init__(self, enriched, init=True, contaminants=[], keep_weight=.95, n_max=11, m_max=5, thresh=.72, pseudo=.1, n_min=5, A0=0.01, debug=False, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMBuilder")
         self.debug = debug
         self.keep_weight = keep_weight
         self.n_max = n_max
         self.thresh = thresh
+        self.pseudo = pseudo
         self.A0 = A0
         self.alns = []
         for seq in contaminants:
@@ -887,7 +888,7 @@ class PSAMBuilder(object):
 
     def make_psam(self, aln, **kwargs):
         return aln.to_PSAM(
-            pseudo=.1, 
+            pseudo=self.pseudo, 
             keep_weight=self.keep_weight, 
             A0=aln.max_weight * self.A0,
             **kwargs
