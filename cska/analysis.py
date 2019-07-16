@@ -372,14 +372,19 @@ class RBNSAnalysis(CachedBase):
         med_R = []
         enr_R = []
         for i in Rm_i:
-            print "checking kmer", index_to_seq(i, k), R[:, i]
-            med_R.append(np.max(R[:, i]))
+            print "checking kmer", index_to_seq(i, k)
+            for reads, r, sample_r in zip(self.reads[1:], R[:, i], R):
+                lo_quant = np.percentile(sample_r, 25)
+                print reads.name, r, lo_quant, 1./lo_quant
+
+            med_R.append(np.min(R[:, i]))
             enr_R.append((R[:, i] > 1).sum()/float(n_choices))
         
         enr_R = np.array(enr_R)
         med_R = np.array(med_R)
-        self.logger.debug("max enrichment observed for these kmers {}".format(med_R))
+        self.logger.debug("min enrichment observed for these kmers {}".format(med_R))
         self.logger.debug("samples that showed any enrichment for these kmers {}".format(enr_R))
+
         kmer_score = med_R * enr_R
         # print kmer_score.shape, kmer_score
         I = kmer_score.argsort()[::-1]
@@ -427,11 +432,20 @@ class RBNSAnalysis(CachedBase):
         # print "sample enrichments", R[:, kmer_i]
         # ranks = np.array([(r.argsort()[::-1] == kmer_i).argmax() for r in R])
         # print "ranks", ranks
-        kmer, kmer_i, sample_score = self.select_diagnostic_kmers(k=k, n=1)[0]
-        # sample_score = R[:, kmer_i]
-        # # sample_score = R[:, kmer_i] / (ranks + 1)
-        print "sample score", sample_score, len(sample_score), len(self.reads)
-        print "rank", rank
+        # kmer, kmer_i, sample_score = self.select_diagnostic_kmers(k=k, n=1)[0]
+        # # sample_score = R[:, kmer_i]
+        # # # sample_score = R[:, kmer_i] / (ranks + 1)
+        # print "sample score", sample_score, len(sample_score), len(self.reads)
+        # print "rank", rank
+
+        R = self.R_value_matrix(k)[0]
+        sample_score = []
+        for reads, sample_r in zip(self.reads[1:], R):
+            lo_q = np.percentile(sample_r, 25)
+            sample_score.append(1. / lo_q)
+        
+        sample_score = np.array(sample_score)
+
         sample_i = sample_score.argsort()[::-1]
         if rank is not None:
             print "sample_score", sample_score
