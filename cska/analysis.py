@@ -368,19 +368,19 @@ class RBNSAnalysis(CachedBase):
         Rm_i = sorted(set(R.argmax(axis=1)))
 
         n_choices = len(R)
-        # print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
-        min_R = []
+        self.logger.debug("highest enriched kmers {}".format([index_to_seq(i, k) for i in Rm_i]) )
+        med_R = []
         enr_R = []
         for i in Rm_i:
-            # print "checking kmer", index_to_seq(i, k), R[:, i]
-            min_R.append(R[:, i].min())
+            print "checking kmer", index_to_seq(i, k), R[:, i]
+            med_R.append(np.max(R[:, i]))
             enr_R.append((R[:, i] > 1).sum()/float(n_choices))
         
         enr_R = np.array(enr_R)
-        min_R = np.array(min_R)
-        # print "minimal enrichment observed for these kmers", min_R
-        # print "number of samples that showed any enrichment for these kmers", enr_R
-        kmer_score = min_R * enr_R
+        med_R = np.array(med_R)
+        self.logger.debug("max enrichment observed for these kmers {}".format(med_R))
+        self.logger.debug("samples that showed any enrichment for these kmers {}".format(enr_R))
+        kmer_score = med_R * enr_R
         # print kmer_score.shape, kmer_score
         I = kmer_score.argsort()[::-1]
         best = []
@@ -430,15 +430,25 @@ class RBNSAnalysis(CachedBase):
         kmer, kmer_i, sample_score = self.select_diagnostic_kmers(k=k, n=1)[0]
         # sample_score = R[:, kmer_i]
         # # sample_score = R[:, kmer_i] / (ranks + 1)
-        print "sample score", sample_score
+        print "sample score", sample_score, len(sample_score), len(self.reads)
+        print "rank", rank
         sample_i = sample_score.argsort()[::-1]
         if rank is not None:
             print "sample_score", sample_score
             print "sample_i", sample_i
             chosen = [sample_i[rank]]
+            for j in sample_i:
+                if j != chosen[0]:
+                    self.reads[j].cache_flush(deep=True)
         else:
             chosen = sorted(sample_i[:n])
-
+            print "chosen samples:", [self.reads[j+1].name for j in chosen]
+            print "dropped samples:", [self.reads[j+1].name for j in sorted(sample_i[n:])]
+            for j in sorted(sample_i[n:]):
+                r = self.reads[j+1]
+                print "dumping caches for", r.name
+                r.cache_flush(deep=True)
+                
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[chosen])
         self.reads = []
 

@@ -552,8 +552,11 @@ class Run(object):
 
     def flush_reads(self):
         # clean up memory usage
-        for reads in self.rbns.reads:
-            reads.cache_flush()
+        self.rbns.flush(all=True)
+        import gc
+        gc.collect()
+        # for reads in self.rbns.reads:
+        #     reads.cache_flush()
 
 
     def calibrate_footprint(self):
@@ -690,12 +693,15 @@ def main():
 
         rbns = run.keep_best() # unless --best is non-zero this does nothing
         run.flush_reads()
+        from cska.caching import _dump_cache_sizes
+        _dump_cache_sizes()
 
         if options.folding:
             run.fold_reads()
             run.logger.info("folding completed.")
 
         if (options.opt_full or options.opt_seed) and not run.completed("seed"):
+            # run.flush_reads()
             run.logger.info("STAGE0: initialize PSAM")
             run.seed_stage()
             run.mark_complete("seed")
