@@ -401,7 +401,7 @@ class Run(object):
 
     def keep_best(self):
         if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best, rank=self.options.rank, k=6)
+            self.rbns = self.rbns.keep_best_samples(n=self.options.best, rank=self.options.rank, k=7)
         return self.rbns
 
 
