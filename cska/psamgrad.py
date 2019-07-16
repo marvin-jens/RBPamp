@@ -6,7 +6,7 @@ import cska.cyska as cyska
 import numpy as np
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, fix_A0=False, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
@@ -73,6 +73,9 @@ class PSAMGradientDescent(object):
         if hasattr(self.shelve, 'resample_times') and not redo:
             self.resample_times = self.shelve['resample_times']
             self.last_resample = self.resample_times[-1]
+
+        if continuation:
+            past_errors = [] 
 
         print "PAST ERRORS", past_errors
         self.descent = cska.gradient.GradientDescent(

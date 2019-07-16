@@ -44,8 +44,6 @@ def parse_cmdline():
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=15M, 0=off)")
-    parser.add_option("-n","--n-samples", dest="n_samples", default=5000000, type=int, help="bootstrap sample n reads at regular intervals during gradient descent or when stuck (default=5M)")
-    parser.add_option("-r","--resample-interval", dest="resample_int", default=5, type=int, help="re-sample every -r iterations of descent (default=5, 0 to disable)")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
@@ -84,6 +82,8 @@ def parse_cmdline():
     parser.add_option("","--grad-maxtime",dest="grad_maxtime",default=11.5*3600, type=float, help="maximal time to spend for optimization in seconds (default=12 hours)")
     parser.add_option("","--excess-rbp",dest="excess_rbp",default=False, action="store_true",help="MODEL: pretend total RBP == free RBP")
     parser.add_option("","--linear-occ",dest="linear_occ",default=False, action="store_true",help="MODEL: pretend no saturation: occ = P/Kd")
+    parser.add_option("-n","--n-samples", dest="n_samples", default=5000000, type=int, help="bootstrap sample n reads at regular intervals during gradient descent or when stuck (default=5M)")
+    parser.add_option("-r","--resample-interval", dest="resample_int", default=1, type=int, help="re-sample/bootstrap reads every -r iterations of descent (default=1, 0 to disable)")
 
 
     parser.add_option("", "--opt-nostruct", dest="opt_nostruct", default=False, action="store_true", help="perform no-struct gradient descent (STAGE1: nostruct stage)")
@@ -669,6 +669,7 @@ class Run(object):
             resample_int = self.options.resample_int,
             excess_rbp = self.options.excess_rbp,
             linear_occ = self.options.linear_occ,
+            continuation = self.options.cont,
         )
         PGD.optimize(debug=self.options.debug_grad)
         self.params = PGD.descent.params

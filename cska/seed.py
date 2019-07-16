@@ -592,7 +592,9 @@ class SeedRefinement(object):
 
         alns = []
         R, R_err = self.rbns.R_value_matrix(k)
-        R = R.mean(axis=0)
+        # from scipy.stats.mstats import gmean
+        # R = gmean(R, axis=0) # geometric mean
+        R = np.mean(R, axis=0)
         Rns = np.percentile(R, q_ns)
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
