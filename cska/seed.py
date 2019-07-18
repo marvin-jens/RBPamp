@@ -25,7 +25,81 @@ class Alignment(object):
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=4, core_k=None, core_start=None, debug=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None, debug=False):
+        # TODO: handle core_k and core_start 
+        bits = cyska.seq_to_bits(seq)
+        l = len(seq)
+        n = len(self.matrix)
+        if not len(self.matrix):
+            return 0, 1 # offset, alignment score
+        else:
+            scores = []
+            if contain:
+                assert n > l
+                d = n - l
+                ofs_range = range(-d, d+1)
+            else:
+                ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
+            # print seq
+            if end_weight:
+                func = np.mean
+            else:
+                func = np.min
+
+            for ofs in ofs_range:
+                m_start = max(0, ofs)
+                m_end = min(n,ofs+l)
+                
+                if multiply:
+                    start_avg = 1.
+                    if m_start:
+                        start_avg = func(self.matrix[:m_start], axis=1).prod()
+                    
+                    end_avg = 1.
+                    if m_end < n:
+                        end_avg = func(self.matrix[m_end:], axis=1).prod()
+                else:
+                    start_avg = 0
+                    if m_start:
+                        start_avg = func(self.matrix[:m_start], axis=1).sum()
+
+                    end_avg = 1.
+                    if m_end < n:
+                        end_avg = func(self.matrix[m_end:], axis=1).sum()
+
+
+                n_cols = m_end - m_start
+
+                s_start = max(-ofs, 0)
+                s_end = s_start + n_cols
+                col_scores = []
+                # if end_weight:
+                #     score = start_avg*end_avg if multiply else start_avg + end_avg
+                # else:
+                #     score = 1 if multiply else 0
+                score = start_avg*end_avg if multiply else start_avg + end_avg
+
+                for i in range(n_cols):
+                    if bits[i+s_start] > 3:
+                        continue # skip gaps
+                    
+                    S = self.matrix[i+m_start, bits[i+s_start]]
+                    col_scores.append(S)
+                    score = score * S if multiply else score + S
+
+                scores.append(score)
+                if debug:
+                    print ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score
+
+            x = np.array(scores).argmax()
+            S = scores[x]
+            if normalize:
+                S /= self.max_score
+
+            return ofs_range[x], S
+
+
+    def align_old(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=4, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
@@ -161,11 +235,18 @@ class Alignment(object):
     def score(self):
         return self.matrix.max(axis=0).mean()
     
-    def max_score(self, k=7):
+    def max_score_old(self, k=7):
         if len(self.matrix):
             ma = self.matrix.max(axis=1)
             slices = np.array([ma[i:i+k].sum() for i in range(len(self.matrix)-k+1)])
             return slices.max()
+        else:
+            return 1.
+
+    @property
+    def max_score(self):
+        if len(self.matrix):
+            return self.matrix.max(axis=1).sum()
         else:
             return 1.
 
@@ -585,8 +666,120 @@ class SeedRefinement(object):
         # # print "non-specific quantile", Rns
         # R_err = R_err.mean(axis=0)
 
+    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+        from cska.seed import Alignment
+        import cska.cyska as cyska
 
-    def motifs_from_R(self, k=7, z_cut=4, n_min=20, n_min_psam=5, q_ns=5., **kwargs): # UNDO HERE!!!
+        alns = []
+        R, R_err = self.rbns.R_value_matrix(k)
+        R = R.mean(axis=0)
+        Rns = np.percentile(R, q_ns)
+        # print "non-specific quantile", Rns
+        R_err = R_err.mean(axis=0)
+
+        R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+
+        I = R.argsort()[::-1]
+        R_sort = R[I]
+        z = (R_sort - R_sort.mean())/R_sort.std()
+        # print R_sort[:10]
+        # print "z-scores", z.min(), z.max(), z.mean()
+        i_cut = (z < z_cut).argmax()
+        # print i_cut
+        R_cut = max(1, R[I[i_cut]])
+        # print i_cut, "R_values above z-cut", R_cut
+        
+        r0 = R[I[0]]
+        # print "maxR", r0
+        n = 0
+        kmer_set = []
+
+        for i in I:
+            kmer = cyska.index_to_seq(i, k)
+            n += 1
+            r = R[i] 
+            rerr = R_err[i]
+            # self.logger.debug( "{i}, {kmer}, {r}, +/- {rerr}, {R_cut}".format(**locals()))
+            if r - rerr <= R_cut and len(kmer_set) > n_min:
+                break
+            
+            kmer_set.append( (kmer, r) )
+        
+        n_enriched = len(kmer_set)
+        self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
+
+        def make_psam(aln, **kwargs):
+            return aln.to_PSAM(
+                pseudo=0, 
+                keep_weight=keep_weight, 
+                A0=aln.max_weight/r0 * A0,
+                **kwargs
+            )
+
+        def get_motifs(alns):
+            psams = [make_psam(a) for a in alns]
+            return ",".join([p.consensus_ul for p in psams])
+
+        kmer, r = kmer_set.pop(0)
+        # print "STARTING from", kmer, r
+        aln = Alignment()
+        aln.blend(kmer, 0, r, normalize=False)
+        alns.append(aln)
+        self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
+        while kmer_set:
+            self.logger.debug("{} kmers left".format(len(kmer_set)))
+            # align all remaining enriched kmers to all motifs
+            scores = []
+            ofs = []
+            # print "re-aligning"
+            for kmer, r in kmer_set:
+                o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
+                ofs.append(o)
+                scores.append(s)
+
+            scores = np.array(scores)
+            ofs = np.array(ofs)
+
+            if (scores < thresh).all() and len(alns) < m_max:
+                kmer, r = kmer_set[0]
+                current_motifs = get_motifs(alns)
+                self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
+                # print "starting NEW MOTIF", kmer, r, scores[0]
+                kmer_set.pop(0)
+                aln = Alignment()
+                aln.blend(kmer, 0, r, normalize=False)
+                alns.append(aln)
+            else:
+                # find best aligning kmer and add to best matching motif
+                mer_scores = scores.max(axis=1)
+                best_i = mer_scores.argmax()
+                self.logger.debug("best matching kmer is {} with score {:.3f}".format(kmer_set[best_i], mer_scores[best_i]) )
+
+                kmer, r = kmer_set.pop(best_i)
+                j = scores[best_i].argmax()
+                s = scores[best_i, j]
+                o = ofs[best_i, j]
+
+                alns[j].blend(kmer, int(o), r, normalize=False)
+                cons = alns[j].to_PSAM(pseudo=0).consensus
+                # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
+                # if cons == 'AUAGCAU':
+                #     print alns[j].matrix
+                #     print alns[j].align(kmer, normalize=True, debug=True)
+    
+
+        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) > n_min]
+        motifs = ",".join([p.consensus_ul for p in psams])
+        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
+        w = np.array([p.n for p in psams])
+        wm = w.max()
+
+        # second pass -> pad motifs to equal size
+        [p.pad_to_size(wm) for p in psams]
+        return psams
+
+
+    def motifs_from_R_new(self, k=8, z_cut=4, n_min=20, n_min_psam=5, q_ns=5., **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
         import cska.cyska as cyska
 
@@ -775,6 +968,7 @@ class SeedRefinement(object):
             params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
 
         param_set = ModelSetParams(params, sort=True)
+        # print "len param_set in seeded_multi_params()", len(param_set.param_set)
         self.store_logos(param_set)
         return param_set
 
