@@ -129,14 +129,18 @@ class ModelSetParams(object):
         return p
 
     @classmethod
-    def load(cls, fname, n_samples, max_motifs=4):
+    def load(cls, fname, n_samples, max_motifs=None):
         param_set = list(ModelParametrization.load(fname, n_samples))
-        if len(param_set) > max_motifs:
-            param_set = param_set[:max_motifs]
+        
+        if (not max_motifs is None):
+            max_motifs = len(param_set)
+        
+        param_set = param_set[:max_motifs]
         return cls(param_set)
 
     def save(self, fname):
         for i, params in enumerate(self.param_set):
+            print "calling params.save", i
             params.save(fname, append=(i > 0) )
 
     def __str__(self):
@@ -359,14 +363,11 @@ class ModelParametrization(object):
 
         with file(fname) as f:
             for line in f:
-                if line.startswith('#'):
+                if line.startswith('PSAM'):
                     if aff:
                         yield make_params()
                         aff = []
                         attrs = {}
-                    continue
-
-                if line.startswith('PSAM'):
                     # parse attributes
                     for kw in line.split()[1:]:
                         if not kw.strip():
@@ -375,6 +376,8 @@ class ModelParametrization(object):
                         attrs[k] = float(v)
 
                 elif line.startswith('seeded'):
+                    continue
+                elif line.startswith('#'):
                     continue
                 else:
                     parts = line.split('\t')
@@ -541,5 +544,6 @@ def test_save_load():
     print params
 
 if __name__ == "__main__":
-    test_logo()
+    print ModelSetParams.load("/home/mjens/engaging/RBNS/MSI1/cska/seed_z5.75_thresh_85/seed/initial.tsv", 1)
+    # test_logo()
     # test_save_load()
