@@ -666,18 +666,25 @@ class SeedRefinement(object):
         # # print "non-specific quantile", Rns
         # R_err = R_err.mean(axis=0)
 
-    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=8, keep_weight=.95, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, pseudo=1e-3, **kwargs): # UNDO HERE!!!
+        param_keys = ['k', 'keep_weight', 'n_max', 'm_max', 'thresh', 'z_cut', 'n_min', 'q_ns', 'pseudo', 'A0'] + kwargs.keys()
+        d = dict(locals())
+        d.update(kwargs)
+        param_str = ",".join(["{} = {}".format(key, d[key]) for key in sorted(param_keys)])
+        self.logger.info("Seed stage parameters '{}'".format(param_str))
+
         from cska.seed import Alignment
         import cska.cyska as cyska
 
         alns = []
         R, R_err = self.rbns.R_value_matrix(k)
-        R = R.mean(axis=0)
-        Rns = np.percentile(R, q_ns)
+        # from scipy.stats.mstats import gmean
+        # R = gmean(R, axis=0) # geometric mean
+        Rm = np.mean(R, axis=0)
+        Rns = np.percentile(Rm, q_ns)
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
-
-        R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+        R = Rm + Rns * ( (Rm - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
 
         I = R.argsort()[::-1]
         R_sort = R[I]
@@ -688,7 +695,15 @@ class SeedRefinement(object):
         # print i_cut
         R_cut = max(1, R[I[i_cut]])
         # print i_cut, "R_values above z-cut", R_cut
-        
+
+        self.shelf['R0'] = Rm
+        self.shelf['Rns'] = Rns
+        self.shelf['R'] = R
+        self.shelf['I'] = I
+        self.shelf['z'] = z
+        self.shelf['i_cut'] = i_cut
+        self.shelf['i_ns'] = (R_sort > Rns).argmax() - 1
+
         r0 = R[I[0]]
         # print "maxR", r0
         n = 0
@@ -705,12 +720,13 @@ class SeedRefinement(object):
             
             kmer_set.append( (kmer, r) )
         
+        self.shelf['kmer_set'] = kmer_set
         n_enriched = len(kmer_set)
         self.logger.debug("seeding PSAMs from {0} significantly enriched {1}-mers".format(n_enriched, k))
 
-        def make_psam(aln, **kwargs):
+        def make_psam(aln, pseudo=0,**kwargs):
             return aln.to_PSAM(
-                pseudo=0, 
+                pseudo=pseudo, 
                 keep_weight=keep_weight, 
                 A0=aln.max_weight/r0 * A0,
                 **kwargs
@@ -761,21 +777,67 @@ class SeedRefinement(object):
                 o = ofs[best_i, j]
 
                 alns[j].blend(kmer, int(o), r, normalize=False)
-                cons = alns[j].to_PSAM(pseudo=0).consensus
+                # cons = alns[j].to_PSAM(pseudo=0).consensus
                 # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
                 # if cons == 'AUAGCAU':
                 #     print alns[j].matrix
                 #     print alns[j].align(kmer, normalize=True, debug=True)
     
 
-        psams = [make_psam(aln, n_max=n_max) for aln in alns if len(aln.seqs) > n_min]
-        motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
+        keep = list(alns)
+        if len(alns) > 1:
+            alns = sorted(alns, key=lambda a : len(a.seqs), reverse=True)
+            keep = [alns[0], ]
+            drop = []
+            orphan_set = []
+            for aln in alns[1:]:
+                if len(aln.seqs) >= n_min:
+                    keep.append(aln)
+                else:
+                    drop.append(aln)
+                    ks = zip(aln.seqs, aln.weights)
+                    orphan_set.extend(ks)
+
+            orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
+            self.logger.info("need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set)))
+            self.logger.info("re-distributing kmers of weakest motifs {}".format(orphan_set))
+            while orphan_set:
+                # align all remaining enriched kmers to all motifs
+                scores = []
+                ofs = []
+                # print "re-aligning"
+                for kmer, r in orphan_set:
+                    o, s = np.array([aln.align(kmer, normalize=True) for aln in keep]).T
+                    ofs.append(o)
+                    scores.append(s)
+
+                scores = np.array(scores)
+                ofs = np.array(ofs)
+
+                mer_scores = scores.max(axis=1)
+                best_i = mer_scores.argmax()
+                self.logger.debug("best matching kmer is {} with score {:.3f}".format(orphan_set[best_i], mer_scores[best_i]) )
+
+                kmer, r = orphan_set.pop(best_i)
+                j = scores[best_i].argmax()
+                s = scores[best_i, j]
+                o = ofs[best_i, j]
+
+                keep[j].blend(kmer, int(o), r, normalize=False)
+
+        psams = [make_psam(aln, n_max=n_max, pseudo=pseudo) for aln in keep]
         w = np.array([p.n for p in psams])
         wm = w.max()
+        motifs = ",".join([p.consensus_ul for p in psams])
+        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), n, z_cut, motifs, n_min))
 
         # second pass -> pad motifs to equal size
         [p.pad_to_size(wm) for p in psams]
+
+        self.shelf['psams'] = psams
+        self.shelf['width'] = psams[0].n
+        self.shelf['n_psam'] = len(psams)
+
         return psams
 
 
@@ -787,15 +849,15 @@ class SeedRefinement(object):
         R, R_err = self.rbns.R_value_matrix(k)
         # from scipy.stats.mstats import gmean
         # R = gmean(R, axis=0) # geometric mean
-        R = np.mean(R, axis=0)
-        Rns = np.percentile(R, q_ns)
+        Rm = np.mean(R, axis=0)
+        Rns = np.percentile(Rm, q_ns)
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
 
-        self.shelf['R0'] = R
-        self.shelf['Rns'] = Rns
 
-        R = R + Rns * ( (R - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+        R = Rm + Rns * ( (Rm - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+        self.shelf['R0'] = Rm
+        self.shelf['Rns'] = Rns
         self.shelf['R'] = R
 
         I = R.argsort()[::-1]
@@ -851,113 +913,6 @@ class SeedRefinement(object):
 
         return psams
 
-
-        # def make_psam(aln, **kwargs):
-        #     return aln.to_PSAM(
-        #         pseudo=0, 
-        #         keep_weight=keep_weight, 
-        #         A0=aln.max_weight/r0 * A0,
-        #         **kwargs
-        #     )
-
-        # def get_motifs(alns):
-        #     psams = [make_psam(a) for a in alns]
-        #     return ",".join([p.consensus_ul for p in psams])
-
-        # kmer, r = kmer_set.pop(0)
-        # # print "STARTING from", kmer, r
-        # aln = Alignment()
-        # aln.blend(kmer, 0, r, normalize=False)
-        # alns.append(aln)
-        # self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
-
-        # def update_scores(alns, kmer_set):
-        #     scores = []
-        #     ofs = []
-        #     # print "re-aligning"
-        #     for kmer, r in kmer_set:
-        #         o, s = np.array([aln.align(kmer, normalize=True) for aln in alns]).T
-        #         ofs.append(o)
-        #         scores.append(s)
-
-        #     scores = np.array(scores)
-        #     ofs = np.array(ofs)
-            
-        #     return scores, ofs
-
-        # def start_new(alns, kmer_set):
-        #     kmer, r = kmer_set[0]
-        #     current_motifs = get_motifs(alns)
-        #     self.logger.debug("{0} R_est={1:.1f} does not match existing motifs ({2}). Seeding new motif".format(kmer, r, current_motifs))
-        #     best_i = scores.max(axis=1).argmax()
-        #     self.logger.debug("scores {0}:{1}, highest scores in set for {2}:{3} thresh={4}".format(kmer, scores[0], kmer_set[best_i][0], scores[best_i], thresh))
-        #     # print "starting NEW MOTIF", kmer, r, scores[0]
-        #     kmer_set.pop(0)
-        #     aln = Alignment()
-        #     aln.blend(kmer, 0, r, normalize=False)
-        #     alns.append(aln)
-
-        #     return alns, kmer_set
-
-        # def blend_best(alns, kmer_set, scores, ofs):
-        #     # find best aligning kmer and add to best matching motif
-        #     mer_scores = scores.max(axis=1)
-        #     best_i = mer_scores.argmax()
-        #     # print "best matching kmer is", kmer_set[best_i]
-
-        #     kmer, r = kmer_set.pop(best_i)
-        #     j = scores[best_i].argmax()
-        #     s = scores[best_i, j]
-        #     o = ofs[best_i, j]
-
-        #     alns[j].blend(kmer, int(o), r, normalize=False)
-        #     # cons = alns[j].to_PSAM(pseudo=0).consensus
-        #     # print "blended", kmer, r, "with", cons, scores[best_i], "ofs=", ofs[best_i]
-        #     # if cons == 'AUAGCAU':
-        #     #     print alns[j].matrix
-        #     #     print alns[j].align(kmer, normalize=True, debug=True)
-        #     return alns, kmer_set
-
-        # while kmer_set:
-        #     # align all remaining enriched kmers to all motifs
-        #     scores, ofs = update_scores(alns, kmer_set)
-        #     if (scores < thresh).all() and len(alns) < m_max:
-        #         start_new(alns, kmer_set)
-        #     else:
-        #         blend_best(alns, kmer_set, scores, ofs)
-
-        # keep = []
-        # drop = []
-        # orphan_set = []
-        # for aln in alns:
-        #     if len(aln.seqs) >= n_min:
-        #         keep.append(aln)
-        #     else:
-        #         drop.append(aln)
-        #         ks = [ (kmer, w*r0) for kmer, w in zip(aln.seqs, aln.weights)]
-        #         orphan_set.extend(ks)
-
-        # orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-        # print "need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set))
-        # print "re-distributing kmers of weakest motfs", orphan_set
-        # while orphan_set:
-        #     # align all remaining enriched kmers to all motifs
-        #     scores, ofs = update_scores(keep, orphan_set)
-        #     blend_best(keep, orphan_set, scores, ofs)
-
-        # psams = [make_psam(aln, n_max=n_max) for aln in keep]
-        # maxlen = max([psam.n for psam in psams])
-        # motifs = ",".join([p.consensus_ul for p in psams])
-        # self.logger.info("done assembling {0} motifs of width {1} from {2} kmers (at least {5} per motif) with z > {3}: {4}".format(len(psams), maxlen, n, z_cut, motifs, n_min))
-        # w = np.array([p.n for p in psams])
-        # wm = w.max()
-
-        # # second pass -> pad motifs to equal size
-        # [p.pad_to_size(wm) for p in psams]
-        # self.shelf['width'] = wm
-        # self.shelf['n_psam'] = len(psams)
-        # self.shelf['psams'] = psams
-        # return psams
 
 
     def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):

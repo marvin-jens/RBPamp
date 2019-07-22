@@ -239,13 +239,14 @@ class Run(object):
         self.run_folder = self.options.run+"/"
         self.run_path = ensure_path(os.path.join(self.options.output, self.run_folder))
         
-        # keep a symlink named "recent" always pointing to last run folder
-        recent_path = os.path.join(self.options.output, "recent")
-        try:
-            os.remove(recent_path)
-            os.symlink(self.run_folder, recent_path)
-        except OSError:
-            pass
+        if self.options.run != "recent":
+            # keep a symlink named "recent" always pointing to last run folder
+            recent_path = os.path.join(self.options.output, "recent")
+            try:
+                os.remove(recent_path)
+                os.symlink(self.run_folder, recent_path)
+            except OSError:
+                pass
         
         # where to put/find transparent pickle/unpickle objects
         from cska.caching import CachedBase
@@ -545,6 +546,8 @@ class Run(object):
             contaminants = contaminants,
             pseudo = self.options.seed_pseudo
         )
+        # print "len params in seed_stage", len(self.params.param_set)
+        # print self.params
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
         
 

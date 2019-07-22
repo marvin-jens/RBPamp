@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: future_fstrings -*-
 import os
 import numpy as np
 import logging
@@ -1025,43 +1025,49 @@ class FootprintCalibrationReport(object):
         self.out_path = out_path
         self.rbns = rbns
         self.logger = logging.getLogger('plot.FootprintCalibrationReport')
-        dbfile = os.path.join(os.path.dirname(fparams), 'history')
+        self.shelve = {}
         try:
-            self.shelve = shelve.open(dbfile, flag='r')
-            self.rbp_conc = self.shelve['rbp_conc']
-            self.params = ModelSetParams.load(fparams, len(self.rbp_conc))
-        except:
-            self.logger.error("could not open db '{}'. No data to plot!".format(dbfile))
-            self.shelve = {}
+            self.params = ModelSetParams.load(fparams, 1) # len(self.rbp_conc)
+            for par in self.params:
+                cons = par.as_PSAM().consensus_ul
+                dbfile = os.path.join(os.path.dirname(fparams), f'{cons}_history')
+                self.shelve[cons] = shelve.open(dbfile, flag='r')
+            
+            self.motifs = sorted(self.shelve.keys())
+            self.any_shelve = self.shelve[self.motifs[0]]
+            self.rbp_conc = self.any_shelve['rbp_conc']
+
+        except (OSError, IOError): # IOError:
+            self.logger.error("could not open db. No data to plot!")
             self.rbp_conc = []
             self.params = []
+            self.motifs = []
         
-        self.motifs = [par.as_PSAM().consensus_ul for par in self.params]
         if (self.rbp_conc == np.round(self.rbp_conc)).all():
             self.rbp_conc = np.array(self.rbp_conc, dtype=int)
 
     def baseline_error(self, motif):
-        punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
-        punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]        
+        punp_input = self.shelve[motif]["{motif}_punp_profiles".format(**locals())]
+        punp_naive = self.shelve[motif]["{motif}_naive_profiles".format(**locals())]        
         err0 = np.sum((punp_naive - punp_input[1:])**2)
         
         return err0
 
     def get_profile_data(self, motif, k, s):
         key = "{motif}_{k}_{s}".format(**locals())
-        if not key in self.shelve:
+        if not key in self.shelve[motif]:
             return None
 
-        opt = self.shelve[key]
-        punp_input = self.shelve["{motif}_punp_profiles".format(**locals())]
-        punp_naive = self.shelve["{motif}_naive_profiles".format(**locals())]
+        opt = self.shelve[motif][key]
+        punp_input = self.shelve[motif]["{motif}_punp_profiles".format(**locals())]
+        punp_naive = self.shelve[motif]["{motif}_naive_profiles".format(**locals())]
 
-        S = self.shelve["{motif}_opt_profile_{k}_{s}".format(**locals())]
+        S = self.shelve[motif]["{motif}_opt_profile_{k}_{s}".format(**locals())]
         if len(S) == 2:
             punp_predict, res = S
             onekey = '{motif}_opt_profile_a_one_{k}_{s}'.format(**locals())
-            if self.shelve.has_key(onekey):
-                punp_a_one, res_a_one = self.shelve[onekey]
+            if self.shelve[motif].has_key(onekey):
+                punp_a_one, res_a_one = self.shelve[motif][onekey]
             else:
                 punp_a_one = None
                 res_a_one = None
@@ -1262,8 +1268,8 @@ class FootprintCalibrationReport(object):
 
     def report(self):
         for motif, params in zip(self.motifs, self.params):
-            # self.kmer_acc_profiles(motif, params)
-            # self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
+            self.kmer_acc_profiles(motif, params)
+            self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
             self.plot_profile(motif, params.acc_k, params.acc_shift)
         
     def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
@@ -1279,8 +1285,8 @@ class FootprintCalibrationReport(object):
         for k in range(kmin, kmax + 1):
             for s in range(smin, smax + 1):
                 key = "{motif}_{k}_{s}".format(**locals())
-                if key in self.shelve:
-                    err, k, s, a, A0 = self.shelve[key]
+                if key in self.shelve[motif]:
+                    err, k, s, a, A0 = self.shelve[motif][key]
                     # print k,s, '->', err/err0, a
                     k_found.add(k)
                     s_found.add(s)
@@ -1368,9 +1374,9 @@ class FootprintCalibrationReport(object):
         print labels
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
 
-        for score, kmer in self.shelve['{}_high_affinity_kmers'.format(motif)]:
+        for score, kmer in self.shelve[motif]['{}_high_affinity_kmers'.format(motif)]:
             print "plotting kmer accessibility profiles for", kmer, score
-            all_data = self.shelve['{}_acc_data'.format(kmer)]
+            all_data = self.shelve[motif]['{}_acc_data'.format(kmer)]
             plt.figure(figsize=(2, 2))
             bins = np.linspace(0, maxU, num=30)
             counts = plt.hist(all_data, bins=bins, histtype='step', label=labels)[0]

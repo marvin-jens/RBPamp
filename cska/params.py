@@ -140,7 +140,7 @@ class ModelSetParams(object):
 
     def save(self, fname):
         for i, params in enumerate(self.param_set):
-            print "calling params.save", i
+            # print "calling params.save", i
             params.save(fname, append=(i > 0) )
 
     def __str__(self):
