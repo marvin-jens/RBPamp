@@ -12,11 +12,18 @@ else:
 cmdclass = { }
 ext_modules = [ ]
 
+
 if use_cython:
+    import numpy
+    cy_kw = dict(
+        include_dirs=[numpy.get_include(), ],
+        extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
+        extra_link_args=['-fopenmp']
+    )
     ext_modules += [
-        Extension("cska.cy_kmers", [ "cska/cython/kmers.pyx" ], extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], extra_link_args=['-fopenmp'], ),
-        Extension("cska.cy_model", [ "cska/cython/model.pyx" ], extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], extra_link_args=['-fopenmp'], ),
-        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.pyx" ], extra_compile_args=['-fopenmp', '-O3', '-march=native', '-mtune=native'], extra_link_args=['-fopenmp'], ),
+        Extension("cska.cy_kmers", [ "cska/cython/kmers.pyx" ], **cy_kw),
+        Extension("cska.cy_model", [ "cska/cython/model.pyx" ], **cy_kw ),
+        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.pyx" ], **cy_kw ),
         #Extension("cska.cy_cmpxchg", [ "cska/cython/test_cmpxchg.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
@@ -30,7 +37,7 @@ else:
 
 setup(
     name = "cska",
-    version = "0.9.5",
+    version = "0.9.10",
     description='A fast Cython implementation of the "Streaming K-mer Assignment" algorithm initially described in Lambert et al. 2014 (PMID: 24837674)',
     url = 'https://bitbucket.org/marjens/cska/',
     author = 'Marvin Jens',
