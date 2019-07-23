@@ -31,7 +31,7 @@ def parse_cmdline():
     parser.add_option("-o","--output", dest="output", default="cska", help="path where results are to be stored (default='cska')")
     parser.add_option("","--run-path", dest="run", default="run_{datestr}".format(datestr=datestr), help="pattern for run-folder name (default='run_{datestr}')")
     # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
-    parser.add_option("-b","--best", dest="best", default=3, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
+    parser.add_option("-b","--best", dest="best", default=4, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
     parser.add_option("","--rank", dest="rank", default=None, type=int, help="analyze x out of the n --best samples (by top R-value) default=None [off]")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--continue", dest="cont", default=False, action="store_true", help="add more iterations of optimization even if already completed")
@@ -64,11 +64,12 @@ def parse_cmdline():
     # seed motif analysis
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
-    parser.add_option("", "--z-cut", dest="z_cut", default=5., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
+    parser.add_option("", "--z-cut", dest="z_cut", default=4., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
     parser.add_option("", "--max-motifs", dest="max_motifs", default=5, type=int, help="maximal number of individual PSAMs (variant motifs) being fitted (default=5)")
-    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.8, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.72)")
+    parser.add_option("", "--seed-thresh", dest="seed_thresh", default=.75, type=float, help="score threshold for k-mer:PSAM alignment to trigger a new PSAM (default=.75)")
     parser.add_option("-w","--max-width",dest="max_width",default=11, type=int, help="maximum number of nucleotides in PSAM motif (number of columns) default=11)")
-    parser.add_option("", "--seed-pseudo", dest="seed_pseudo", default=.1, type=float, help="'pseudo' affinity for non-cognate bases. Non-zero allows gradient descent to act on all bases (default=.1)")
+    parser.add_option("", "--seed-pseudo", dest="seed_pseudo", default=.01, type=float, help="'pseudo' affinity for non-cognate bases. Non-zero allows gradient descent to act on all bases (default=.01)")
+    parser.add_option("", "--seed-keep-weight", dest="seed_keep_weight", default=.99, type=float, help="how much total PSAM weight to keep when building final --max-width nt wide matrix (default=.99)")
 
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
@@ -522,8 +523,8 @@ class Run(object):
         touch(os.path.join(self.run_path,'completed.{}'.format(stage)))
 
     def seed_stage(self):
-        from cska.seed import SeedRefinement
-        SR = SeedRefinement(self.rbns, km=self.options.k_seed, max_linear_k=self.options.max_width)
+        from cska.seed import PSAMSeeding
+        ps = PSAMSeeding(self.rbns)
         # print "enriched MOTIFs in this library"
         # for m in SR.analysis.motifs_from_R(7):
         #     print m
@@ -537,20 +538,19 @@ class Run(object):
         a3 = self.rbns.reads[0].adap3 
         # contaminants = [a5, a3, rev_comp(a5), rev_comp(a3)]
         contaminants = []
-        self.params = SR.seeded_multi_params(
+        self.params = ps.seeded_multi_params(
             self.rbns.n_samples,
             max_motifs = self.options.max_motifs,
             k_seed = self.options.k_seed,
             thresh = self.options.seed_thresh,
             z_cut = self.options.z_cut,
             contaminants = contaminants,
-            pseudo = self.options.seed_pseudo
+            pseudo = self.options.seed_pseudo,
+            keep_weight = self.options.seed_keep_weight
         )
         # print "len params in seed_stage", len(self.params.param_set)
         # print self.params
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
-        
-
         return self.params
 
     def flush_reads(self):
@@ -757,6 +757,10 @@ def main():
         exc = traceback.format_exc()
         run.logger.error(exc)
         sys.stderr.write(exc)
+        ex_type, ex_val, ex_tb = sys.exc_info()
+        if ex_type == MemoryError:
+            import cska.caching
+            cska.caching._dump_cache_sizes()
         
         # in case we have child processes, try to end them gracefully
         import cska.fold
