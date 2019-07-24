@@ -16,10 +16,6 @@ from copy import deepcopy
 # gc.set_debug(gc.DEBUG_LEAK)
 
 def dump_garbage():
-    """
-    show us what's the garbage about
-    """
-        
     # force collection
     print "\nGARBAGE:"
     gc.collect()
@@ -115,7 +111,7 @@ class RowOptimization(object):
         res.a = res.x
         res.A0 = A0
         punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
-        return res, punp_expect
+        return punp_expect, res
 
     def optimize_A0(self, acc_shift, a=1):
         self.logger.debug("optimize_A0({acc_shift}, a={a})".format(**locals()))
@@ -133,7 +129,7 @@ class RowOptimization(object):
         res.a = a
         res.A0 = res.x
         punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
-        return res, punp_expect
+        return punp_expect, res
 
     def optimize(self, acc_shift):
         self.logger.debug("optimize({acc_shift})".format(**locals()))
@@ -153,8 +149,8 @@ class RowOptimization(object):
         res.a = res.x[0]
         res.A0 = res.x[1]
         punp_expect = self.predict_profiles(acc_shift, res.a, res.A0)
-        print "opt res", res
-        return res, punp_expect
+        # print "opt res", res
+        return punp_expect, res
 
 
 
@@ -200,28 +196,33 @@ class FootprintCalibration(CachedBase):
 
         self.fp_file = file(fp, 'w')
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
+        self._partfunc_done = False
+
+    def prepare_partition_functions(self):
+        if self._partfunc_done:
+            return
 
         # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
-        self.logger.debug("evaluating partition function")
+        self.logger.info("evaluating partition function")
         from cska.params import ModelSetParams
-        self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params, ]), subsample=self.subsample) for reads in rbns.reads])
+        self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params, ]), subsample=self.subsample) for reads in self.rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
         
         Z1_read = self.Z1_in_noacc.sum(axis=1)
         thresh = self.thresh * Z1_read.max()
         self.I = Z1_read > thresh
         N = self.I.sum()
-        self.logger.debug("subsetting to {} reads with Z1 > {}".format(N, thresh) )
+        self.logger.info("subsetting to {} reads with Z1 > {}".format(N, thresh) )
         self.Z1 = self.Z1_in_noacc[self.I,:]
 
-        for reads in rbns.reads[1:]:
+        for reads in self.rbns.reads[1:]:
             reads.cache_flush()
             reads.acc_storage.cache_flush()
 
         self.punp_profiles, self.naive_profiles = self.compute_initial_profiles()
-        print "punp_profiles", self.punp_profiles
-        print "naive_profiles", self.naive_profiles
-        self.store_shelve("params_initial", params)
+        # print "punp_profiles", self.punp_profiles
+        # print "naive_profiles", self.naive_profiles
+        self.store_shelve("params_initial", self.params)
         self.store_shelve("punp_profiles", self.punp_profiles)
         self.store_shelve("naive_profiles", self.naive_profiles)
 
@@ -229,15 +230,19 @@ class FootprintCalibration(CachedBase):
         # self.plot_profiles(self.naive_profiles, 0, 0, None)
         self.err0 = np.sum((self.naive_profiles - self.punp_profiles[1:])**2)
         self.logger.debug("naive error: {}".format(self.err0))
+        self.store_shelve("err0", self.err0)
+        self.store_shelve("indices_threshold", self.I)
 
         un_opt = (self.err0, 0, 0, 0, self.params.A0)
         self.results[(0, 0)] = un_opt
         self.store_footprint(un_opt)
 
         self.logger.debug("done, freeing some memory")
-        for reads in rbns.reads[1:]:
+        for reads in self.rbns.reads[1:]:
             reads.cache_flush()
             reads.acc_storage.cache_flush()
+
+        self._partfunc_done = True
 
     def store_shelve(self, key, value):
         self.shelve["{0}_{1}".format(self.consensus_ul, key)] = value
@@ -252,7 +257,13 @@ class FootprintCalibration(CachedBase):
     def load_profile(self, k, s):
         key = "opt_profile_{k}_{s}".format(k=k, s=s)
         # print "loading", key
-        return self.load_shelve(key)
+        stored = self.load_shelve(key)
+        # if stored is None:
+        #     l = 'na'
+        # else:
+        #     l = len(stored)
+        # print "load_profile",k,s,"->" , l
+        return stored
 
     def store_profile(self, k, s, value):
         key = "opt_profile_{k}_{s}".format(k=k, s=s)
@@ -263,27 +274,49 @@ class FootprintCalibration(CachedBase):
         return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}".format(self=self)
 
     def optimize_row(self, acc_k, shift_range, from_scratch=False):
-        from multiprocessing.pool import ThreadPool
+        results = [self.load_profile(acc_k, s) for s in shift_range]
+
+        if from_scratch:
+            missing = list(shift_range)
+        else:
+            missing = [s for s, res in zip(shift_range, results) if res is None]      
+        self.logger.info("scanning missing footprints for acc_k={} shift_range={}".format(acc_k, missing))
+
+        new_results = []
+        if missing:
+            self.prepare_partition_functions()
+
+            def _optimize(s):
+                punp_expect, res = row.optimize(s)
+                return (punp_expect, res)
+
+            from multiprocessing.pool import ThreadPool
+            row = RowOptimization(self, acc_k)
+            pool = ThreadPool()
+
+            new_results = pool.map(_optimize, missing, chunksize=1)
+            pool.terminate()
+            pool.close()
+            pool.join()
         
-        row = RowOptimization(self, acc_k)
-        pool = ThreadPool()
+            # new_results = map(_optimize, missing)  # single-thread version for debugging
 
-        def _optimize(s):
-            x = self.load_profile(acc_k, s)
-            # print "loaded", acc_k, s, '->', x
-            if not x or from_scratch:
-                x = row.optimize(s)
+        for s, (punp_expect, res) in zip(missing, new_results):
+            results[shift_range.index(s)] = (punp_expect, res)
 
-            return (acc_k, s, x)
-
-        results = pool.map(_optimize, shift_range, chunksize=1)
-        # results = map(_optimize, shift_range)
-        pool.terminate()
-        pool.close()
-        pool.join()
         return results
-        # return map(_optimize, shift_range)
 
+    def optimize_a1(self, acc_k, s, from_scratch=False):
+        key = "opt_profile_a_one_{acc_k}_{s}".format(**locals())
+        res = self.load_shelve(key)
+        if res is None:
+            self.prepare_partition_functions()
+
+            row = RowOptimization(self, acc_k)
+            punp_a_one, res_a_one = row.optimize_A0(s, a=1)
+            self.store_shelve(key, (punp_a_one, res_a_one))
+
+        return self.load_shelve(key)
 
     def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False, heuristic=0):
         kmin, kmax = k_core_range
@@ -291,44 +324,43 @@ class FootprintCalibration(CachedBase):
             kmax = self.params.k + 2
 
         self.logger.debug("scanning acc_k = {} .. {}".format(kmin, kmax) )
+
         for acc_k in range(kmax, kmin - 1, -1):
             d = self.params.k - acc_k + 1
             shift_range = range(-pad, d + pad)
 
-            for k, s, (res, punp_predict) in self.optimize_row(acc_k, shift_range, from_scratch):
+            for s, (punp_predict, res) in zip(shift_range, self.optimize_row(acc_k, shift_range, from_scratch)):
                 err = res.fun
-                rel_err = err / self.err0
+                err0 = self.load_shelve('err0')
+                rel_err = err / err0
                 a = res.a
                 A0 = res.A0
 
                 if not res.success:
-                    self.logger.warning("unable to optimize footprint k={k}, s={s}.".format(**locals()))
+                    self.logger.warning("unable to optimize footprint k={acc_k}, s={s}.".format(**locals()))
                     a = 0.
                     A0 = self.params.A0
                     err = self.err0
                 
-                opt = (err, k, s, a, A0)
-                self.results[(k, s)] = opt
-                self.store_profile(k, s, (punp_predict, res))
+                opt = (err, acc_k, s, a, A0)
+                self.results[(acc_k, s)] = opt
+                self.store_profile(acc_k, s, (punp_predict, res))
                 self.store_footprint(opt)
-                self.result_log.info("{self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+                self.result_log.info("{self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
 
 
         results = sorted(self.results.values())
-        err, k, s, a, A0 = results[0]
-        rel_err = err/self.err0
-        self.result_log.critical("OPTIMUM {self.consensus} k={k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
-        self.params.acc_k = k
+        err, acc_k, s, a, A0 = results[0]
+        rel_err = err/err0
+        self.result_log.critical("OPTIMUM {self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+        self.params.acc_k = acc_k
         self.params.acc_shift = s
         self.params.acc_scale = a
         self.params.A0 = A0
         self.store_shelve("params_calibrated", self.params)
-        
 
         # for the optimum, also compute profile for a=1
-        row = RowOptimization(self, k)
-        res_a_one, punp_a_one = row.optimize_A0(s, a=1)
-        self.store_shelve("opt_profile_a_one_{k}_{s}".format(**locals()), (punp_a_one, res_a_one))
+        punp_a_one, res_a_one = self.optimize_a1(acc_k, s)
         self.params.save(os.path.join(self.path, 'calibrated_{self.consensus_ul}.tsv'.format(self=self)))
 
         return self.params
@@ -374,7 +406,6 @@ class FootprintCalibration(CachedBase):
         return punp_profiles, naive_profiles
 
     def compute_kmer_acc_profiles(self):
-        
         motif = self.consensus_ul
         psam = self.params.as_PSAM()
         highest_affinity = psam.highest_scoring_kmers()
@@ -433,6 +464,7 @@ class FootprintCalibration(CachedBase):
     def get_lacc_punp_cached(self, k):
         if not k in self._lacc_cache:
             self.logger.debug("get_lacc_punp_cached({}) not found".format(k))
+            I = self.load_shelve('indices_threshold')
             openen = self.get_input_openen_cached(k)
             openen_punp = self.get_input_openen_cached(1)
 
@@ -443,8 +475,8 @@ class FootprintCalibration(CachedBase):
                 acc0 = self.input_reads.sub_sampler.draw(data=acc0)
                 punp = self.input_reads.sub_sampler.draw(data=punp)
 
-            acc0 = acc0[self.I, :]
-            punp = punp[self.I, :]
+            acc0 = acc0[I, :]
+            punp = punp[I, :]
 
             lacc0 = np.log(acc0)
             self._lacc_cache = { k : (lacc0, punp) }  # always keep only one item!
