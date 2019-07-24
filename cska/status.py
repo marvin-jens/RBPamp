@@ -1,0 +1,54 @@
+# -*- coding: future_fstrings -*-
+from __future__ import print_function
+import os
+import datetime
+import logging
+
+class StateTracker(object):
+    def __init__(self, run, stage, startup=True):
+        self.run = run
+        self.rbp = run.rbp_name
+        self.stage = stage
+        self.fpath = os.path.join(self.run.run_path, f'{stage}.txt')
+        self.state_file = file(self.fpath, 'a')
+        self.logger = logging.getLogger(f'main.StateTracker({stage})')
+        if startup:
+            self.set("starting up")
+
+    def set(self, state):
+        ts = datetime.datetime.now().isoformat(' ')
+        cols = [self.rbp, self.stage, ts, state, self.run.version, self.run.git_commit, self.run.cmdline]
+        out = "\t".join([str(o) for o in cols])
+
+        self.state_file.write(out + '\n')
+        self.state_file.flush()
+        self.logger.info(f'set "{out}"')
+    
+    def is_completed(self, strict=False):
+        lines = file(self.fpath, 'r').readlines()
+        if not lines:
+            return False
+
+        last_state = lines[-1]
+
+        rbp, stage, ts, state, version, git, cmdline = last_state.rstrip().split('\t')
+        same_rbp = rbp == self.run.rbp_name
+        same_stage = stage == self.stage
+        same_version = version == self.run.version
+        same_git = git == self.run.git_commit
+
+        if not same_rbp and same_stage:
+            raise ValueError("RBP or stage mismatch")
+        
+        if not (same_version and same_git):
+            self.logger.warning(f"version and git revision mismatch detected found: {version}{git} but currently at {self.run.version}{self.run.git}")
+        
+            if strict:
+                return False
+        
+        if state.upper().startswith("COMPLETED"):
+            return True
+        else:
+            return False
+
+

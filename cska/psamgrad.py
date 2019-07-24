@@ -6,7 +6,7 @@ import cska.cyska as cyska
 import numpy as np
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, tracker=None, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
@@ -93,6 +93,7 @@ class PSAMGradientDescent(object):
         self.shelve["R_exp"] = self.R
         self.shelve["rbp_conc"] = self.descent.model.rbp_conc
         self.shelve.sync()
+        self.tracker = tracker
 
     def optimize(self, debug=False):
         def callback(descent, state):
@@ -123,6 +124,8 @@ class PSAMGradientDescent(object):
                 self.shelve["resample_times"] = self.resample_times
 
             self.shelve.sync()
+            if not self.tracker is None:
+                self.tracker.set("step {self.metrics}".format(self=self))
             return state
 
         self.descent.optimize(self.params, debug=debug, callback=callback)
@@ -149,6 +152,15 @@ class PSAMGradientDescent(object):
         self.shelve["errors"] = self.descent.errors
         self.shelve.sync()
         return state
+
+    @property
+    def metrics(self):
+        stats_first = self.shelve["stats_t0"]
+        stats_last = self.descent.last_state.stats
+        err_reduction = stats_first.error / stats_last.error # x-fold reduced
+
+        corr_last = stats_last.pearsonR.max()
+        return "t={} max_corr={:.4f} err_fold={:.2f}".format(self.descent.t + self.t_ofs, corr_last, err_reduction)
 
     def store_residuals(self, state):
         with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(self.descent.model.k)),'w') as f:

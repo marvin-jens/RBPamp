@@ -1,3 +1,4 @@
+# -*- coding: future_fstrings -*-
 __license__ = "MIT"
 __version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
@@ -225,9 +226,12 @@ class Run(object):
         CachedBase._do_not_unpickle= options.disable_unpickle
 
         self._init_paths()
+        self._init_invocation()
         self._init_logging()
         self._init_RNG()
         self._init_signal_handler()
+
+        self.state_trackers = {}
 
         from cska.comparison import RefComparison
         if self.options.compare:
@@ -258,17 +262,27 @@ class Run(object):
         if self.options.no_structure:
             self.fold_path = "NOSTRUCTURE"
 
+    def get_state_tracker(self, stage, **kwargs):
+        from cska.status import StateTracker
+        if not stage in self.state_trackers:
+            self.state_trackers[stage] = StateTracker(self, stage, **kwargs)
+        return self.state_trackers[stage]
+
+    def _init_invocation(self):
+        import socket
+        self.hostname = socket.gethostname()
+        import subprocess
+        path = os.path.dirname(os.path.realpath(__file__))
+        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
+        self.git_commit = git
+        self.cmdline = " ".join(sys.argv)
+        self.version = __version__
 
     def _init_logging(self):
         # set up logging
         self.log_path = os.path.join(self.run_path,"run.log")
-        import socket
-        hostname = socket.gethostname()
-        import subprocess
-        path = os.path.dirname(os.path.realpath(__file__))
-        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
 
-        FORMAT = '%(asctime)-20s\t%(levelname)s\t{hostname}\tgit {git}\t{self.rbp_name}\t{self.options.run}\t%(name)s\t%(message)s'.format(**locals())
+        FORMAT = '%(asctime)-20s\t%(levelname)s\t{self.hostname}\tgit {self.git_commit}\t{self.rbp_name}\t{self.options.run}\t%(name)s\t%(message)s'.format(**locals())
         self.log_format = FORMAT
         formatter = logging.Formatter(FORMAT)
         logging.basicConfig(level=logging.INFO, format=FORMAT)    
@@ -287,8 +301,8 @@ class Run(object):
 
         self.logger = logging.getLogger('CSKA')
         self.logger.setLevel(logging.INFO)
-        self.logger.info("version {}".format(__version__))
-        self.logger.info("invoked as '{}'".format(" ".join(sys.argv)) )
+        self.logger.info("version {}".format(self.version))
+        self.logger.info("invoked as '{}'".format(self.cmdline) )
         slurmid = os.getenv('SLURM_JOB_ID')
         if slurmid:
             self.logger.info("SLURM_JOB_ID={}".format(slurmid))
@@ -394,12 +408,15 @@ class Run(object):
 
 
     def compute_metrics(self, metrics):
+        tracker = self.get_state_tracker('metrics')
         self.logger.info("computing RBNS metrics '{0}'".format(metrics))
         kmin, kmax = self.options.metrics_k.split('-')
         for k in range(int(kmin), int(kmax) + 1):
+            tracker.set(k)
             self.rbns.compute_results(k, self.options, results=metrics)
             self.rbns.flush()
-
+        
+        tracker.set("COMPLETED")
 
     def keep_best(self):
         if self.options.best:
@@ -409,6 +426,8 @@ class Run(object):
 
     def fold_reads(self):
         self.logger.info("folding reads with '{0}' threads".format(self.options.parallel))
+        tracker = self.get_state_tracker('fold')
+
         from cska.fold import parallel_fold
         # prepare outout path
         if not os.path.exists(self.fold_path):
@@ -420,6 +439,7 @@ class Run(object):
 
         # fold the reads
         for reads in self.rbns.reads:
+            tracker.set(f'folding {reads.name}')
             n_complete = 0
             n_left = reads.N
             if self.options.resume:
@@ -444,7 +464,8 @@ class Run(object):
                 log_address = self.options.log_remote,
                 log_format = self.log_format, 
             )
-
+            tracker.set(f'{reads.name} done')
+        tracker.set('COMPLETED')
 
     def simulate(self):
         pass
@@ -489,40 +510,40 @@ class Run(object):
         return self.params
         
 
-    def completed(self, stage, check_time=True):
-        stage_output = {
-            'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
-            'nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
-            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
-            'struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
-        }
+    def completed(self, stage, strict=False):
+        # stage_output = {
+        #     'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
+        #     'nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
+        #     'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
+        #     'struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
+        # }
         
-        fout = stage_output[stage]
-        fflag = os.path.join(self.run_path,'completed.{}'.format(stage))
+        # fout = stage_output[stage]
+        # fflag = os.path.join(self.run_path,'completed.{}'.format(stage))
 
-        if not os.path.exists(fout):
-            self.logger.debug("output of stage {} has not been created yet".format(stage))
-            return False
+        # if not os.path.exists(fout):
+        #     self.logger.debug("output of stage {} has not been created yet".format(stage))
+        #     return False
         
-        if not os.path.exists(fflag):
-            self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
-            return False
+        # if not os.path.exists(fflag):
+        #     self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
+        #     return False
 
-        if os.path.getmtime(fflag) < os.path.getmtime(fout):
-            self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
-            return False
+        # if os.path.getmtime(fflag) < os.path.getmtime(fout):
+        #     self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
+        #     return False
         
-        self.logger.info("stage {} is already complete".format(stage))
-        if self.options.redo:
-            self.logger.warning("but ignored because --redo was specified!")
-            return False
+        # self.logger.info("stage {} is already complete".format(stage))
+        # if self.options.redo:
+        #     self.logger.warning("but ignored because --redo was specified!")
+        #     return False
 
-        return True
-
-    def mark_complete(self, stage):
-        touch(os.path.join(self.run_path,'completed.{}'.format(stage)))
+        # return True
+        return self.get_state_tracker(stage, startup=False).is_completed(strict=strict)
 
     def seed_stage(self):
+        tracker = self.get_state_tracker('seed')
+
         from cska.seed import PSAMSeeding
         ps = PSAMSeeding(self.rbns)
         # print "enriched MOTIFs in this library"
@@ -551,6 +572,8 @@ class Run(object):
         # print "len params in seed_stage", len(self.params.param_set)
         # print self.params
         self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        n = len(self.params.param_set)
+        tracker.set(f"COMPLETED seeding {n} PSAMs")
         return self.params
 
     def flush_reads(self):
@@ -563,6 +586,7 @@ class Run(object):
 
 
     def calibrate_footprint(self):
+        tracker = self.get_state_tracker('footprint')
         from cska.footprint import FootprintCalibration
         from cska.params import ModelParametrization, ModelSetParams
 
@@ -600,22 +624,27 @@ class Run(object):
             # calibrate only ONE motif
             self.logger.info("calibrating only motif number {}".format(self.options.fp_num))
             if self.options.fp_num <= len(self.params.param_set):
-                calibrate(self.params.param_set[self.options.fp_num-1])
+                tracker.set('calibrating motif {}'.format(self.options.fp_num))
+                res = calibrate(self.params.param_set[self.options.fp_num-1])
+                tracker.set('optimum k={res.acc_k} s={res.acc_shift} rel_err={res.rel_err}'.format(res=res))
             return None
         
         else:
             for i, par in enumerate(params):
                 res = try_load(par)
                 if not res:
+                    tracker.set('calibrating motif {}'.format(i+1))
                     res = calibrate(par)
+                    tracker.set('optimum k={res.acc_k} s={res.acc_shift} rel_err={res.rel_err}'.format(res=res))
                 calibrated_set.append(res)
                 
-        print "cal set", calibrated_set
         self.params = ModelSetParams(calibrated_set)
 
         path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
         self.params.save(path)
+        tracker.set('COMPLETED')
+
         return self.params
 
     def make_plots(self, plots):
@@ -652,6 +681,7 @@ class Run(object):
             funcs[plt]()
 
     def PSAM_gradient_descent(self, name="opt"):
+        tracker = self.get_state_tracker(name)
 
         from cska.psamgrad import PSAMGradientDescent
         PGD = PSAMGradientDescent(
@@ -673,11 +703,16 @@ class Run(object):
             excess_rbp = self.options.excess_rbp,
             linear_occ = self.options.linear_occ,
             continuation = self.options.cont,
+            tracker = tracker,
         )
         PGD.optimize(debug=self.options.debug_grad)
         self.params = PGD.descent.params
 
-        return PGD.descent.status.startswith('CONVERGED')
+        done = PGD.descent.status.startswith('CONVERGED')
+        if done:
+            tracker.set(f"COMPLETED with status {PGD.descent.status} {PGD.metrics}")
+        else:
+            tracker.set(PGD.descent.status)
 
     def estimate_errors(self):
         from cska.errors import PSAMErrorEstimator
@@ -708,10 +743,9 @@ def main():
             # run.flush_reads()
             run.logger.info("STAGE0: initialize PSAM")
             run.seed_stage()
-            run.mark_complete("seed")
 
         param_sources = [run.options.mdl_psam_init, 'seed/initial.tsv']
-        if (options.opt_full or options.opt_nostruct) and (not run.completed('nostruct') or options.cont):
+        if (options.opt_full or options.opt_nostruct) and (not run.completed('opt_nostruct') or options.cont):
             run.logger.info("STAGE1: PSAM optimization without secondary structure accessibility")
 
             if options.resume:
@@ -719,19 +753,16 @@ def main():
             run.probe_params(*param_sources)
 
             run.params.acc_k = 0  # disable accessibility
-            if run.PSAM_gradient_descent('opt_nostruct'):
-                run.mark_complete("nostruct")
+            run.PSAM_gradient_descent('opt_nostruct')
 
         if (options.opt_full or options.opt_footprint) and (not run.completed('footprint') or options.cont):
             run.logger.info("STAGE2: footprint parameter estimation")
 
             run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
-            if run.calibrate_footprint():
-                run.mark_complete("footprint")
-
+            run.calibrate_footprint()
             run.flush_reads()
 
-        if (options.opt_full or options.opt_struct) and (not run.completed('struct') or options.cont):
+        if (options.opt_full or options.opt_struct) and (not run.completed('opt_struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
 
             param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
@@ -739,8 +770,7 @@ def main():
                 param_sources.insert(1, 'opt_struct/parameters.tsv')
             
             run.probe_params(*param_sources)
-            if run.PSAM_gradient_descent('opt_struct'):
-                run.mark_complete("struct")
+            run.PSAM_gradient_descent('opt_struct')
 
         if options.plot:
             run.make_plots(options.plot.split(','))
