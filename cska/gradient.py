@@ -230,7 +230,7 @@ class GradientDescent(object):
         self.eps = eps
         self.tau = tau
 
-    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 1., maxiter=10, xatol=1e-1):
+    def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 5., maxiter=10, xatol=1e-1):
         from scipy.optimize import minimize_scalar
 
         e0 = state.error

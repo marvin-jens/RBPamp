@@ -26,11 +26,17 @@ class PartFuncModelState(object):
         self.Z1_read = None
         for par in self.params:
             key = (par.acc_k, par.acc_scale)
+            if par.acc_k:
+                ofs = self.mdl.openen[key].ofs - par.k + 1 + par.acc_shift
+            else:
+                ofs = -100000000
+
             Z1 = cyska.PSAM_partition_function(
                 self.mdl._seqm,
                 self.mdl._acc[key],
                 np.array(par.psam_matrix, dtype=np.float32),  # * params.A0,
-                openen_ofs=self.mdl.openen[key].ofs - par.k + 1 + par.acc_shift
+                openen_ofs=ofs,
+                noacc=par.acc_k < 1
             )
             Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1, clip=1E6)
             # self.Z1_read_motif.append(Z1_read)
@@ -300,15 +306,18 @@ class PartFuncModel(object):
             key = (par.acc_k, par.acc_scale)
             # these parameters don't change over the course of the optimization
             # load the matching kmer accessibilities and scale them only once!
-            openen = self.reads.acc_storage.get_raw(par.acc_k)  
+            if par.acc_k > 0:
+                openen = self.reads.acc_storage.get_raw(par.acc_k)  
+                acc = openen.acc
+                if par.acc_scale != 1.:
+                    self.logger.debug("scaling accessibilities by {}".format(par.acc_scale))
+                    acc = np.array(acc, dtype=np.float32)  # make a scaled *copy*
+                    cyska.pow_scale(acc, par.acc_scale)
+            else:
+                openen = None
+                acc = np.zeros((1, 1), dtype=np.float32) # This is a dummy and should cause a crash if ever used!
+
             self.openen[key] = openen
-            
-            acc = openen.acc
-            if par.acc_scale != 1.:
-                self.logger.debug("scaling accessibilities by {}".format(par.acc_scale))
-                acc = np.array(acc, dtype=np.float32)  # make a scaled *copy*
-                cyska.pow_scale(acc, par.acc_scale)
-            
             self.full_acc[key] = acc
             self.acc[key] = acc
             self._acc[key] = acc
@@ -328,17 +337,18 @@ class PartFuncModel(object):
 
         for par in self.params:
             key = (par.acc_k, par.acc_scale)
-            acc = sub.sub_sampler.draw(self.full_acc[key])
-            self.acc[key] = acc
-            self._acc[key] = acc
-            assert np.isfinite(acc).all()
+            if par.acc_k:
+                acc = sub.sub_sampler.draw(self.full_acc[key])
+                self.acc[key] = acc
+                self._acc[key] = acc
+                assert np.isfinite(acc).all()
 
         # in case a mask is set, this can be a subset
         self.indices = []
         self._seqm = self.seqm
         self._im = self.im
         self.N = np.float32(len(self._seqm))
-        self.logger.debug("initialized subsample of {} reads".format(self.N))
+        self.logger.info("initialized subsample of {} reads".format(self.N))
 
     def set_R0(self, R0):
         self.R0 = np.array(R0, dtype=np.float32)

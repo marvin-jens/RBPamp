@@ -224,13 +224,19 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     if n > 3:
                         z = 0. # skip N's
                     z = z * psam[d, n]
+
                 # add non-specific component (still reacts to accessbility)
                 z = z + non_specific
-                acc_i = i + openen_ofs
-                if 0 <= acc_i < L_acc:
-                    Z[j, i] = z * acc_matrix[j, i + openen_ofs]
-                else:
-                    Z[j, i] = 0 # no valid accessibility footprint
+
+                if not noacc:
+                    acc_i = i + openen_ofs
+                    if 0 <= acc_i < L_acc:
+                         z = z * acc_matrix[j, i + openen_ofs]
+                    else:
+                        z = 0 # no valid accessibility footprint
+
+                Z[j, i] = z
+
     elif alpha < 1:
         with nogil, parallel():
             for j in prange(N, schedule='static'):
@@ -241,14 +247,19 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     for d in range(k):
                         n = seqm[j, i + d]
                         z = z * psam[d, n]
+                    
                     # add non-specific component (still reacts to accessbility)
                     z = z + non_specific
-                    acc_i = i + openen_ofs
-                    if 0 <= acc_i < L_acc:
-                        # scale on the fly, expects log(acc) instead of acc!!!
-                        Z[j, i] = z * exp(acc_matrix[j, i + openen_ofs] * alpha) 
-                    else:
-                        Z[j, i] = 0 # no valid accessibility footprint
+
+                    if not noacc:
+                        acc_i = i + openen_ofs
+                        if 0 <= acc_i < L_acc:
+                            z = z * exp(acc_matrix[j, i + openen_ofs] * alpha) 
+                        else:
+                            z = 0 # no valid accessibility footprint
+
+                    Z[j, i] = z
+
     else:
         with nogil, parallel():
             for j in prange(N, schedule='static'):

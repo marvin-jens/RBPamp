@@ -571,7 +571,7 @@ class Run(object):
 
         def calibrate(par):
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
-            cal.compute_kmer_acc_profiles()
+            # cal.compute_kmer_acc_profiles()
 
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
