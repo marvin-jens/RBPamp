@@ -1030,7 +1030,7 @@ class FootprintCalibrationReport(object):
             self.params = ModelSetParams.load(fparams, 1) # len(self.rbp_conc)
             for par in self.params:
                 cons = par.as_PSAM().consensus_ul
-                dbfile = os.path.join(os.path.dirname(fparams), f'{cons}_history')
+                dbfile = os.path.join(os.path.dirname(fparams), f'history_{cons}')
                 self.shelve[cons] = shelve.open(dbfile, flag='r')
             
             self.motifs = sorted(self.shelve.keys())
@@ -1126,7 +1126,7 @@ class FootprintCalibrationReport(object):
 
             plt.legend(
                 bbox_to_anchor=(0., 1.02, 1., .202), 
-                loc=3, ncol=4, mode="expand", borderaxespad=0.,
+                loc=3, ncol=5, mode="expand", borderaxespad=0.,
                 frameon=False
             )
 
@@ -1147,7 +1147,6 @@ class FootprintCalibrationReport(object):
                     plt.plot(x, obs, sym, color=color, label="{} nM".format(conc) if with_label else None)
                 plt.plot(x, obs, '-', color=color, linewidth=lw)
 
-        plt.figure(figsize=(3,3))
         # mats = np.array([
         #     punp_input[1:], 
         #     punp_naive,
@@ -1181,30 +1180,34 @@ class FootprintCalibrationReport(object):
         #     list(fit_colors) + \
         #     list(vienna_colors)
 
-        print mats.shape
-        # m = mats[:, 0, :]
-        m = mats
-        print "-> heatmap shape", m.shape
-        hm = sns.clustermap(
-            m, 
-            figsize=(4,4), 
-            col_cluster=False, 
-            cmap='Spectral_r', 
-            xticklabels=[str(p) for p in range(-pad,0)] + list(motif) + [str(p) for p in range(1, pad+1)],
-            yticklabels=labels,
-            row_colors=rcolors,
-            method='centroid',
-            cbar_kws=dict(label=r"$P_{unpaired}$", aspect=10)
-            # metric='cosine'
-        )
-        make_rect(ax=hm.ax_heatmap, ofs=pad + .5, top=False)
-        # X = np.arange(len(punp_input[1])+1)
-        # Z = np.arange(len(mats)+1)
-        # plt.pcolor([X, Y], mats.T[0])
-        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}_heatmap.pdf'.format(**locals()))
-        self.logger.debug("saving plot: '{}'".format(fname))
-        hm.savefig(fname)
-        plt.close()
+
+        ## heatmap currently broken bc can't understand the row_colors ????
+        # print mats.shape
+        # # m = mats[:, 0, :]
+        # m = mats
+        # print "-> heatmap shape", m.shape
+
+        # plt.figure(figsize=(3,3))
+        # hm = sns.clustermap(
+        #     m, 
+        #     figsize=(4,4), 
+        #     col_cluster=False, 
+        #     cmap='Spectral_r', 
+        #     xticklabels=[str(p) for p in range(-pad,0)] + list(motif) + [str(p) for p in range(1, pad+1)],
+        #     yticklabels=labels,
+        #     row_colors=rcolors,
+        #     method='centroid',
+        #     cbar_kws=dict(label=r"$P_{unpaired}$", aspect=10)
+        #     # metric='cosine'
+        # )
+        # make_rect(ax=hm.ax_heatmap, ofs=pad + .5, top=False)
+        # # X = np.arange(len(punp_input[1])+1)
+        # # Z = np.arange(len(mats)+1)
+        # # plt.pcolor([X, Y], mats.T[0])
+        # fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}_heatmap.pdf'.format(**locals()))
+        # self.logger.debug("saving plot: '{}'".format(fname))
+        # hm.savefig(fname)
+        # plt.close()
 
         plt.figure(figsize=(6, 4))
         # fig1, axes = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
@@ -1374,7 +1377,11 @@ class FootprintCalibrationReport(object):
         print labels
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
 
-        for score, kmer in self.shelve[motif]['{}_high_affinity_kmers'.format(motif)]:
+        key = '{}_high_affinity_kmers'.format(motif)
+        if not key in self.shelve[motif]:
+            return
+
+        for score, kmer in self.shelve[motif][key]:
             print "plotting kmer accessibility profiles for", kmer, score
             all_data = self.shelve[motif]['{}_acc_data'.format(kmer)]
             plt.figure(figsize=(2, 2))
@@ -1406,6 +1413,7 @@ class FootprintCalibrationReport(object):
             sns.despine()
             plt.tight_layout()
             plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_scaled.pdf".format(kmer)))
+            plt.close()
 
             plt.figure(figsize=(2,2))
             for r, ra, lbl, color in zip(R, R_avg, labels[1:], data_colors):
@@ -1418,6 +1426,7 @@ class FootprintCalibrationReport(object):
             sns.despine()
             plt.tight_layout()
             plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_raw.pdf".format(kmer)))
+            plt.close()
 
 
 

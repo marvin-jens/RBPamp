@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+from __future__ import print_function
 import numpy as np
 import gc
 import os
@@ -17,19 +19,19 @@ from copy import deepcopy
 
 def dump_garbage():
     # force collection
-    print "\nGARBAGE:"
+    print("\nGARBAGE:")
     gc.collect()
 
-    print "\nGARBAGE OBJECTS:"
+    print("\nGARBAGE OBJECTS:")
     for x in gc.garbage:
         s = str(x)
         if len(s) > 80: s = s[:80]
-        print type(x),"\n  ", s
+        print(type(x),"\n  ", s)
 
 
 def dump_caches():
     for size, cache in get_cache_sizes():
-        print cache, size/1024.
+        print(cache, size/1024.)
 
 
 class RowOptimization(object):
@@ -95,7 +97,7 @@ class RowOptimization(object):
         if A0 is None:
             A0 = self.params.A0
         
-        self.logger.debug("optimize_a({acc_shift}, A0={A0})".format(**locals()))
+        self.logger.debug(f"optimize_a({acc_shift}, A0={A0})")
         def to_opt_a(a):
             punp_expect = self.predict_profiles(acc_shift, a, A0)
             err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
@@ -114,7 +116,7 @@ class RowOptimization(object):
         return punp_expect, res
 
     def optimize_A0(self, acc_shift, a=1):
-        self.logger.debug("optimize_A0({acc_shift}, a={a})".format(**locals()))
+        self.logger.debug(f"optimize_A0({acc_shift}, a={a})")
         def to_opt_A0(A0):
             punp_expect = self.predict_profiles(acc_shift, a, A0)
             err = np.sum((punp_expect - self.cal.punp_profiles[1:])**2)
@@ -132,7 +134,7 @@ class RowOptimization(object):
         return punp_expect, res
 
     def optimize(self, acc_shift):
-        self.logger.debug("optimize({acc_shift})".format(**locals()))
+        self.logger.debug(f"optimize({acc_shift})")
         def to_opt(args):
             a, A0 = args
             punp_expect = self.predict_profiles(acc_shift, a, A0)
@@ -175,11 +177,11 @@ class FootprintCalibration(CachedBase):
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
         self.thresh = thresh
-        self.logger = logging.getLogger('opt.FootprintCalibration({})'.format(self.consensus_ul))
+        self.logger = logging.getLogger(f'opt.FootprintCalibration({self.consensus_ul})')
         self.result_log = logging.getLogger('results.footprint')
 
         self.shelve = shelve.open(
-            os.path.join(self.path, "history_{self.consensus_ul}".format(self=self)), 
+            os.path.join(self.path, f"history_{self.consensus_ul}"), 
             protocol=-1, 
             flag='n' if redo else 'c'
         )
@@ -189,7 +191,7 @@ class FootprintCalibration(CachedBase):
         self._openen_cache = {}
         self._lacc_cache = {}
 
-        fp = os.path.join(self.path, 'footprints_{}.tsv'.format(self.consensus_ul))
+        fp = os.path.join(self.path, f'footprints_{self.consensus_ul}.tsv'
         # if os.path.exists(fp):
         #     self.load_footprints(fp)
         # no need to load these, as we now keep pickled results from optimize()
@@ -212,7 +214,7 @@ class FootprintCalibration(CachedBase):
         thresh = self.thresh * Z1_read.max()
         self.I = Z1_read > thresh
         N = self.I.sum()
-        self.logger.info("subsetting to {} reads with Z1 > {}".format(N, thresh) )
+        self.logger.info(f"subsetting to {N} reads with Z1 > {thresh}")
         self.Z1 = self.Z1_in_noacc[self.I,:]
 
         for reads in self.rbns.reads[1:]:
@@ -229,7 +231,7 @@ class FootprintCalibration(CachedBase):
         # self.logger.debug("plotting naive punp profiles")
         # self.plot_profiles(self.naive_profiles, 0, 0, None)
         self.err0 = np.sum((self.naive_profiles - self.punp_profiles[1:])**2)
-        self.logger.debug("naive error: {}".format(self.err0))
+        self.logger.debug(f"naive error: {self.err0}")
         self.store_shelve("err0", self.err0)
         self.store_shelve("indices_threshold", self.I)
 
@@ -271,7 +273,7 @@ class FootprintCalibration(CachedBase):
 
     @property
     def cache_key(self):
-        return "{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}".format(self=self)
+        return f"{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}"
 
     def optimize_row(self, acc_k, shift_range, from_scratch=False):
         results = [self.load_profile(acc_k, s) for s in shift_range]
@@ -280,7 +282,7 @@ class FootprintCalibration(CachedBase):
             missing = list(shift_range)
         else:
             missing = [s for s, res in zip(shift_range, results) if res is None]      
-        self.logger.info("scanning missing footprints for acc_k={} shift_range={}".format(acc_k, missing))
+        self.logger.info(f"scanning missing footprints for acc_k={acc_k} shift_range={missing}")
 
         new_results = []
         if missing:
@@ -323,7 +325,7 @@ class FootprintCalibration(CachedBase):
         if kmax is None:
             kmax = self.params.k + 2
 
-        self.logger.debug("scanning acc_k = {} .. {}".format(kmin, kmax) )
+        self.logger.debug(f"scanning acc_k = {kmin} .. {kmax}")
 
         for acc_k in range(kmax, kmin - 1, -1):
             d = self.params.k - acc_k + 1
@@ -337,7 +339,7 @@ class FootprintCalibration(CachedBase):
                 A0 = res.A0
 
                 if not res.success:
-                    self.logger.warning("unable to optimize footprint k={acc_k}, s={s}.".format(**locals()))
+                    self.logger.warning(f"unable to optimize footprint k={acc_k}, s={s}.")
                     a = 0.
                     A0 = self.params.A0
                     err = self.err0
@@ -347,13 +349,13 @@ class FootprintCalibration(CachedBase):
                 self.results[(acc_k, s)] = opt
                 self.store_profile(acc_k, s, (punp_predict, res))
                 self.store_footprint(opt)
-                self.result_log.info("{self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+                self.result_log.info(f"{self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}")
 
 
         results = sorted(self.results.values())
         err, acc_k, s, a, A0 = results[0]
         rel_err = err/err0
-        self.result_log.critical("OPTIMUM {self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}".format(**locals()) )
+        self.result_log.critical(f"OPTIMUM {self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}")
         self.params.acc_k = acc_k
         self.params.acc_shift = s
         self.params.acc_scale = a
@@ -363,7 +365,7 @@ class FootprintCalibration(CachedBase):
 
         # for the optimum, also compute profile for a=1
         punp_a_one, res_a_one = self.optimize_a1(acc_k, s)
-        self.params.save(os.path.join(self.path, 'calibrated_{self.consensus_ul}.tsv'.format(self=self)))
+        self.params.save(os.path.join(self.path, f'calibrated_{self.consensus_ul}.tsv'))
 
         return self.params
 
@@ -408,56 +410,29 @@ class FootprintCalibration(CachedBase):
         return punp_profiles, naive_profiles
 
     def compute_kmer_acc_profiles(self):
+        self.logger.debug("compute_kmer_acc_profiles")
         motif = self.consensus_ul
         psam = self.params.as_PSAM()
         highest_affinity = psam.highest_scoring_kmers()
         self.shelve['{}_high_affinity_kmers'.format(motif)] = highest_affinity
         
         for score, kmer in highest_affinity:
-            all_data = [reads.get_kmer_raw_unfolding_energy(kmer) for reads in self.rbns.reads]
-            self.shelve['{}_acc_data'.format(kmer)] = all_data
-
-        # import seaborn as sns
-        # import matplotlib.pyplot as plt
-        # labels=["input", "5 nM", "20 nM", "80 nM", "320 nM"]
-        # plt.figure(figsize=(3, 3))
-        # bins = np.linspace(0, 15, num=30)
-        # all_data = [data, data5, data2, data3, data4]
-        # counts = plt.hist(all_data, bins=bins, histtype='step', label=labels)[0]
-        # total = np.array([len(d) for d in all_data])
-        # R_avg = total[1:] / total[0]
-        # sns.despine()
-        # plt.tight_layout()
-        # plt.savefig("tt.pdf")
-
-        # plt.figure(figsize=(3,3))
-        # print counts
-        # R = counts[1:] / counts[0]
-        # print "R-value as function of bin", R
-        # acc = np.exp(- bins/reads.RT)
-        # am = (acc[1:] + acc[:-1])/2.
-        # for r, ra, lbl in zip(R, R_avg, labels[1:]):
-        #     patch = plt.semilogx(am, r, label=lbl)
-        #     plt.axhline(ra, color=patch[0].get_color(), linewidth=1, linestyle='dashed')
-
-
-        # plt.legend(loc='best')
-        # plt.xlabel("UGCAUGU accessibility")
-        # plt.ylabel("UGCAUGU enrichment over input")
-        # sns.despine()
-        # plt.tight_layout()
-        # plt.savefig("R_acc.pdf")
+            self.logger.debug(f"compute_kmer_acc_profiles({kmer})")
+            key = '{}_acc_data'.format(kmer)
+            if not key in self.shelve:
+                all_data = [reads.get_kmer_raw_unfolding_energy(kmer) for reads in self.rbns.reads]
+                self.shelve[key] = all_data
 
     def get_input_openen_cached(self, k):
         if not k in self._openen_cache:
-            self.logger.debug("get_input_openen_cached({}) not found".format(k))
+            self.logger.debug(f"get_input_openen_cached({k}) not found")
             self._openen_cache[k] = self.input_reads.acc_storage.get_raw(k, _do_not_cache=True)
             # self.input_reads.acc_storage.cache_flush() # free up memory
         
         for x in self._openen_cache.keys():
             # drop everything that's not p-unpaired or current k
             if x > 1 and x != k and k > 1:
-                self.logger.debug("get_input_openen_cached({}) dropping {}".format(k, x))
+                self.logger.debug(f"get_input_openen_cached({k}) dropping {x}")
                 self._openen_cache[x].cache_flush()
                 del self._openen_cache[x]
 
@@ -465,7 +440,7 @@ class FootprintCalibration(CachedBase):
 
     def get_lacc_punp_cached(self, k):
         if not k in self._lacc_cache:
-            self.logger.debug("get_lacc_punp_cached({}) not found".format(k))
+            self.logger.debug(f"get_lacc_punp_cached({k}) not found")
             I = self.load_shelve('indices_threshold')
             openen = self.get_input_openen_cached(k)
             openen_punp = self.get_input_openen_cached(1)

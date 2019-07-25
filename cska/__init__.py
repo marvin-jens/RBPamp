@@ -1,4 +1,5 @@
 # -*- coding: future_fstrings -*-
+from __future__ import print_function
 __license__ = "MIT"
 __version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
@@ -75,6 +76,7 @@ def parse_cmdline():
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
     parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
+    parser.add_option("","--top-kmer-acc", dest="top_kmer_acc", default=0, type=int, help="generate enrichment vs. accessibility data for top kmers (default=0 [off])")
     
     # affinity model optimization 
     # parser.add_option("","--seed-motif",dest="seed_motif",default="", help="DEBUGGING: override motif from seed analysis with this exact sequence.")
@@ -135,9 +137,9 @@ def parse_cmdline():
     options, args = parser.parse_args()
     
     if options.version:
-        print __version__
-        print __license__
-        print "by", ", ".join(__authors__)
+        print(__version__)
+        print(__license__)
+        print("by", ", ".join(__authors__))
         sys.exit(0)
 
     return options, args
@@ -177,7 +179,7 @@ def auto_detect(path='.', exts=["reads","txt"]):
         rbp_names[name].append( (conc, f) )
     
     hits = sorted([(len(rbp_names[name]), name) for name in rbp_names.keys()])[::-1]
-    # print "RBP name auto-detect", hits
+    # print("RBP name auto-detect", hits)
     rbp_name = hits[0][1]
 
     results = sorted(rbp_names[hits[0][1]])
@@ -188,15 +190,15 @@ def auto_detect(path='.', exts=["reads","txt"]):
 
 
 def vector_stats(v):
-    print getattr(v,"__name__", "no name"), type(v)
-    print "shape",v.shape
-    print "pos. values", (v > 0).sum()
-    print "0 values", (v == 0).sum()
-    print "neg. values", (v < 0).sum()
-    print "nan values", np.isnan(v).sum()
-    print "non-finite values", (~np.isfinite(v)).sum()
-    print "min max", v.min(), v.max()
-    print "mean median", np.mean(v), np.median(v)
+    print(getattr(v,"__name__", "no name"), type(v))
+    print("shape",v.shape)
+    print("pos. values", (v > 0).sum())
+    print("0 values", (v == 0).sum())
+    print("neg. values", (v < 0).sum())
+    print("nan values", np.isnan(v).sum())
+    print("non-finite values", (~np.isfinite(v)).sum())
+    print("min max", v.min(), v.max())
+    print("mean median", np.mean(v), np.median(v))
 
 
 def touch(fname, times=None):
@@ -606,7 +608,8 @@ class Run(object):
 
         def calibrate(par):
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
-            # cal.compute_kmer_acc_profiles()
+            if self.top_kmer_acc:
+                cal.compute_kmer_acc_profiles()
 
             kmin, kmax = self.options.footprint.split('-')
             res = cal.calibrate(k_core_range = [int(kmin), int(kmax)], from_scratch=self.options.redo)
@@ -624,11 +627,11 @@ class Run(object):
                 self.rbns.out_path, 
                 'footprint/calibrated_{}.tsv'.format(consensus)
             )
-            print "trying to load", fname
+            # print "trying to load", fname
             if os.path.exists(fname):
                 return list(ModelParametrization.load(fname, self.rbns.n_samples))[0]
             else:
-                print "not found"
+                # print "not found"
                 return None
 
         if self.options.fp_num:
@@ -643,6 +646,7 @@ class Run(object):
         else:
             for i, par in enumerate(params):
                 res = try_load(par)
+                res = None
                 if not res:
                     tracker.set('calibrating motif {}'.format(i+1))
                     res = calibrate(par)
