@@ -15,12 +15,12 @@ from cska.caching import CachedBase, cached, pickled
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
         self.matrix = []
-        for s,w in izip_longest(seqs, weights, fillvalue=1.):
-            ofs, score = self.align(s)
+        # for s, w in izip_longest(seqs, weights, fillvalue=1.):
+        #     ofs, score = self.align(s)
 
-        self.ext_cost = np.ones(125)
-        self.ext_cost[:9] = 0.01
-        self.ext_cost[9:18] = [.01, .02, .03, .04, .05, .06, .07, .08, .1, ]
+        # self.ext_cost = np.ones(125)
+        # self.ext_cost[:9] = 0.01
+        # self.ext_cost[9:18] = [.01, .02, .03, .04, .05, .06, .07, .08, .1, ]
         # print self.ext_cost
         self.seqs = []
         self.ofs = []
@@ -184,27 +184,27 @@ class Alignment(object):
         weblogo_save(self.matrix, fname)
 
     def to_PSAM(self, keep_weight=1., n_max=0, pseudo=0, col_scale=True, A0=None):
-        # print self
-        # print "to PSAM"
-        # print self.matrix
-
-        frac = self.matrix.sum(axis=1) 
-        F = self.matrix.sum()
-        n = len(self.matrix)
-
-        best = {n : (1 ,0 ,n)}
-        for i in range(n):
-            for j in range(i, n+1):
-                
-                f = frac[i:j].sum()/F
-                l = j-i
-                if l in best:
-                    if f < best[l][0]:
-                        continue
-
-                best[l] = (f, i, j)
-
+        matrix = np.array(self.matrix)
         def find_best():
+            if keep_weight == 1 and n_max == 0:
+                return (1, 0, len(matrix))
+
+            frac = matrix.sum(axis=1) 
+            F = matrix.sum()
+            n = len(matrix)
+
+            best = {n : (1 ,0 ,n)}
+            for i in range(n):
+                for j in range(i, n+1):
+                    
+                    f = frac[i:j].sum()/F
+                    l = j-i
+                    if l in best:
+                        if f < best[l][0]:
+                            continue
+
+                    best[l] = (f, i, j)
+
             bylength = sorted(best.keys())
             for l in bylength:
                 if n_max and l > n_max:
@@ -225,9 +225,9 @@ class Alignment(object):
                     # found the shortest motif that satisfies keep_weight
                     return f, i, j 
 
-        f, i, j = find_best()
 
-        m = self.matrix[i:j] 
+        f, i, j = find_best()
+        m = matrix[i:j] 
         if col_scale:
             # add pseudo-scores to columns 
             # with fewer observations/lower score
@@ -245,7 +245,6 @@ class Alignment(object):
 
         # A0 = m.max(axis=1).sum()
         from cska.pwm import PSAM
-        
         if A0 is None:
             A0 = self.max_weight
 
@@ -285,6 +284,7 @@ class PSAMSetBuilder(object):
         self.n_enriched = len(kmer_set)
         self.z_cut = z_cut
         self.r0 = np.array([r for kmer, r in self.kmer_set]).max()
+        print("PSB.r0", self.r0)
         self.logger.debug("building PSAMs from {0} significantly enriched {1}-mers".format(self.n_enriched, self.k))
 
     def new(self, kmer, r):
@@ -411,10 +411,6 @@ class PSAMSeeding(object):
         import shelve
         self.shelf = shelve.open(os.path.join(cska.ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
 
-    # def seeded_params(self, n_samples, **kwargs):
-    #     from cska.params import ModelParametrization
-    #     return ModelParametrization.from_PSAM(self.psam_lin, n_samples=n_samples, **kwargs)
-
     def primer_analysis(self, k=7):
         from cska.seed import Alignment
         import cska.cyska as cyska
@@ -448,7 +444,6 @@ class PSAMSeeding(object):
             plt.ylabel('log2 R')
             plt.savefig('r_dG_{}.pdf'.format(j))
             plt.close()
-
 
     def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., **kwargs): # UNDO HERE!!!
         from cska.seed import Alignment
@@ -485,7 +480,7 @@ class PSAMSeeding(object):
         self.shelf['i_ns'] = (R_sort > Rns).argmax() - 1
 
         r0 = R[I[0]]
-        # print "maxR", r0
+        print("maxR", r0)
         n = 0
         kmer_set = []
 
@@ -522,29 +517,6 @@ class PSAMSeeding(object):
         self.store_logos(param_set)
         return param_set
 
-
-    # def distance_xcorr_plot(self, fname="xcorr.pdf"):
-    #     self.logger.debug("generating xcorr plot")
-
-    #     ctrl = self.rbns.reads[0]
-    #     reads = self.rbns.reads[self.analysis.best_sample]
-        
-    #     spacing_w = self.analysis.bipartite_PSAM_spacings(psam_A = self.psam_A, psam_B = self.psam_B)
-    #     L = len(spacing_w)
-    #     x = np.arange(L) - L/2
-
-    #     pp.figure(figsize=(4,3))
-    #     pp.title('{0} -> {1} linear_motif_score={2:.3f}'.format(self.psam_A.consensus, self.psam_B.consensus, self.analysis.linear_motif_score))
-    #     pp.plot(x[L/2:], spacing_w[L/2:], '-.', linestyle='steps-mid', label=self.rbns.reads[self.analysis.best_sample].name)
-    #     # pp.plot(x, xctrl, '-.', linestyle='steps-mid', label='{0} -> {1}'.format(psam_A.consensus, psam_B.consensus))
-    #     pp.xlabel("distance [nt]")
-    #     pp.ylabel("cross affinity log2-enrichment")
-    #     pp.axvline(self.psam_A.n)
-    #     pp.legend()
-    #     pp.tight_layout()
-    #     pp.savefig(fname)
-    #     pp.close()
-
     def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
         path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
@@ -553,49 +525,6 @@ class PSAMSeeding(object):
         if not params is None:
             fname = os.path.join(path, 'seeded_{}.pdf'.format(rbp_name))
             params.save_logos(fname, title="{} seeded PSAMs".format(rbp_name))
-        # else:
-        #     self.psam_lin.save_logo(os.path.join(path, '{0}_linear.svg'.format(rbp_name)))
-        #     self.psam_A.save_logo(os.path.join(path, '{0}_motif_A.svg'.format(rbp_name)))
-        #     self.psam_B.save_logo(os.path.join(path, '{0}_motif_B.svg'.format(rbp_name)))
-        # self.distance_xcorr_plot(fname = os.path.join(path, '{0}_motif_xcorr.pdf'.format(rbp_name)))
-
-
-    # def linear_seed_params(self, A0=1., aff0=1e-6):
-    #     psam = self.psam_lin
-    #     psam.A0 = A0
-
-    #     return psam.kmer_affinity_table(aff0-aff0)
-
-    # def optimize(self, eps=1e-3, A0=1.):
-
-    #     from cska.optimize import ModelOptimization
-    #     # free some memory
-    #     self.opt.input_reads.cache_flush('__cached_get_index_matrix')
-    #     self.opt.input_reads.acc_storage.cache_flush('__cached_get_raw')
-
-    #     # create new optimizer and model
-    #     new_opt = ModelOptimization(k, self.opt.rbns_analysis,
-    #         mdl_params = params,
-    #         t0 = self.opt.t,
-    #         reporter = self.opt.reporter,
-    #         kmer_opt_global = not self.opt.param_local_fit,
-    #     )
-    #     new_opt.errors = self.opt.errors + new_opt.errors
-    #     new_opt.correlations = self.opt.correlations
-    #     new_opt.rel_improvements = self.opt.rel_improvements
-
-    #     # some plumbing to make reports/plots contiguous
-    #     self.opt.reporter.set_opt(new_opt)
-    #     self.opt.reporter.tick(0)
-    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="init")
-
-    #     self.opt = new_opt
-    #     self.opt.step_scale(min_scale=.01, max_scale=1000.)
-    #     self.opt.reporter.trigger_plots(self.opt.t, occasion="scale")
-
-    # def store_params(self):
-    #     self.opt.mdl.parameters.store(cska.ensure_path(os.path.join(self.opt.out_path, "affinity/"))
-
 
 
 if __name__ == "__main__":
