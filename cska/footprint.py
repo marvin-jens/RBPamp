@@ -341,6 +341,7 @@ class FootprintCalibration(CachedBase):
                     a = 0.
                     A0 = self.params.A0
                     err = self.err0
+                    rel_err = 1.
                 
                 opt = (err, acc_k, s, a, A0)
                 self.results[(acc_k, s)] = opt
@@ -357,6 +358,7 @@ class FootprintCalibration(CachedBase):
         self.params.acc_shift = s
         self.params.acc_scale = a
         self.params.A0 = A0
+        self.params.rel_err = rel_err
         self.store_shelve("params_calibrated", self.params)
 
         # for the optimum, also compute profile for a=1
