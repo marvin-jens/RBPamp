@@ -12,6 +12,7 @@ class StateTracker(object):
         self.fpath = os.path.join(self.run.run_path, f'{stage}.txt')
         self.state_file = file(self.fpath, 'a')
         self.logger = logging.getLogger(f'main.StateTracker({stage})')
+        self.completed_ts = None
         if startup:
             self.set("starting up")
 
@@ -41,12 +42,13 @@ class StateTracker(object):
             raise ValueError("RBP or stage mismatch")
         
         if not (same_version and same_git):
-            self.logger.warning(f"version and git revision mismatch detected found: {version}{git} but currently at {self.run.version}{self.run.git}")
+            self.logger.warning(f"results computed with: {version}-{git} but currently at {self.run.version}-{self.run.git_commit}")
         
             if strict:
                 return False
         
         if state.upper().startswith("COMPLETED"):
+            self.completed_ts = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S.%f")
             return True
         else:
             return False

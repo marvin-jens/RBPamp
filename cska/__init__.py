@@ -511,35 +511,46 @@ class Run(object):
         
 
     def completed(self, stage, strict=False):
-        # stage_output = {
-        #     'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
-        #     'nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
-        #     'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
-        #     'struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
-        # }
-        
-        # fout = stage_output[stage]
-        # fflag = os.path.join(self.run_path,'completed.{}'.format(stage))
+        stage_output = {
+            'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
+            'opt_nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
+            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
+            'opt_struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
+        }
+        import datetime
 
-        # if not os.path.exists(fout):
-        #     self.logger.debug("output of stage {} has not been created yet".format(stage))
-        #     return False
+        fout = stage_output[stage]
+        out_flag = os.path.exists(fout)
         
-        # if not os.path.exists(fflag):
-        #     self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
-        #     return False
-
-        # if os.path.getmtime(fflag) < os.path.getmtime(fout):
-        #     self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
-        #     return False
+        fcompleted = os.path.join(self.run_path,'completed.{}'.format(stage))
+        comp_flag = os.path.exists(fcompleted)
         
-        # self.logger.info("stage {} is already complete".format(stage))
-        # if self.options.redo:
-        #     self.logger.warning("but ignored because --redo was specified!")
-        #     return False
+        tracker = self.get_state_tracker(stage, startup=False)
+        state_flag = tracker.is_completed(strict=strict)
 
-        # return True
-        return self.get_state_tracker(stage, startup=False).is_completed(strict=strict)
+        if not out_flag:
+            self.logger.debug("output of stage {} has not been created yet".format(stage))
+            return False
+        
+        if not (comp_flag or state_flag):
+            self.logger.debug("some output of stage {} was created, but completed flag not set.".format(stage))
+            return False
+
+        mtime = os.path.getmtime(fout)
+        dmtime = datetime.datetime.fromtimestamp(mtime)
+        comp_uptodate = comp_flag and (os.path.getmtime(fcompleted) >= mtime)
+        state_uptodate = state_flag and (tracker.completed_ts >= dmtime)
+        # print(comp_uptodate, state_uptodate)
+        if not (comp_uptodate or state_uptodate):
+            self.logger.warning("a completed flag from a previous run was found and ignored for stage {}!".format(stage))
+            return False
+        
+        self.logger.info("stage {} is completed".format(stage))
+        if self.options.redo:
+            self.logger.warning("but ignored because --redo was specified!")
+            return False
+
+        return True
 
     def seed_stage(self):
         tracker = self.get_state_tracker('seed')
