@@ -181,7 +181,7 @@ class StateTrackerData(object):
         for rbp in self.rbps:
             if rbp in self.rbp_states:
                 (stage, status, ts, git) = self.rbp_states[rbp]
-                buf.append(f"{rbp}\t{stage}\t{git}\t{ts}\t{status}")
+                buf.append(f"{rbp:20s}\t{stage:20s}\t{git}\t{ts}\t{status}")
 
         return '\n'.join(buf)
      
