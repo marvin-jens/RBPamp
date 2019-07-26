@@ -1,4 +1,5 @@
 # -*- coding: future_fstrings -*-
+from __future__ import print_function
 import os
 import numpy as np
 import logging
@@ -105,7 +106,7 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
     if ax == None:
         ax = plt.gca()
     G = nx.DiGraph()
-    print x.shape, y.shape, len(labels), ax
+    print(x.shape, y.shape, len(labels), ax)
     
     data_nodes = []
     init_pos = {}
@@ -226,7 +227,7 @@ def density_scatter_plot(
         if plot_outliers and outlier_percentile > 0:
             data = np.vstack([x,y])
             if N <= dens_thresh:
-                print "plotting all data points"
+                print("plotting all data points")
                 out = np.arange(N)
             else:
                 dens_at_points = k(data)
@@ -242,13 +243,13 @@ def density_scatter_plot(
         
         if len(data_labels):
             if N < dens_thresh*.1:
-                print "just add the damn labels"
-                print x,y, data_labels
+                print("just add the damn labels")
+                print(x,y, data_labels)
                 repel_labels_nx(x, y, data_labels)
             else:
                 # annotate the most enriched and most off-diagonal k-mers
                 top = x.argsort()[::-1][:5]
-                print "top", top
+                print("top", top)
                 pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
 
                 repel_labels_nx(x[top], y[top], data_labels[top])
@@ -371,7 +372,7 @@ class RunReport(object):
         correlations = data[3+n_samples:3+2*n_samples]
         nfev, step = data[-2:]
 
-        print data.shape, errors.shape
+        # print data.shape, errors.shape
         descent = Container()
         # descent.history = history
         descent.ls_nfev = nfev
@@ -379,7 +380,7 @@ class RunReport(object):
         descent.history = []
         for err, corr in zip(errors.T, correlations.T):
             state = Container()
-            print err, corr
+            # print err, corr
             state.sample_errors = err
             state.correlations = (corr, 0)
             descent.history.append(state)
@@ -423,7 +424,7 @@ class SeedReport(object):
         pp.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
 
         top = np.linspace(0, len(kmers)-1, num=n_top, dtype=int)
-        print top, len(kmers), n_top
+        # print top, len(kmers), n_top
 
         for i, kmer in enumerate(kmers[top]):
             # print i, kmer
@@ -651,7 +652,7 @@ class GradientDescentReport(object):
             return [np.sqrt((g.data**2).sum()) for g in grad] 
 
         mags = np.array([mag(grad) for grad in self.read_grad()]).T
-        print "mags.shape", mags.shape
+        # print "mags.shape", mags.shape
         # with sns.axes_style("ticks", sns_style)
         plt.subplot(212)
         # plt.semilogy(mags.mean(axis=0), '-k', label="motif mean")
@@ -769,7 +770,7 @@ class GradientDescentReport(object):
             plt.figure()
             Z1m = reads.PSAM_partition_function(params, split=True)
             for z in Z1m:
-                print z.shape
+                # print z.shape
                 plt.hist(z.sum(axis=1), bins=bins, histtype='step', cumulative=True)
             plt.gca().set_xscale('log')
             plt.savefig("{reads.name}_affdist.pdf".format(reads=reads))
@@ -811,11 +812,11 @@ class GradientDescentReport(object):
 
         # self.results.info("R={R:.3f} {ppstr} rho={rho:.3f} {psstr}".format(**locals()))
         if debug:
-            print u">>> R={R} {ppstr}".format(**locals())
-            print u">>> rho={rho} {psstr}".format(**locals())
-            print "seq\tknown\tpredict\tlog-ratio"
+            print(u">>> R={R} {ppstr}".format(**locals()))
+            print(u">>> rho={rho} {psstr}".format(**locals()))
+            print("seq\tknown\tpredict\tlog-ratio")
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
-                print seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x)
+                print(seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x))
 
         class lcomp(object):
             pass
@@ -904,7 +905,7 @@ class GradientDescentReport(object):
             pp.figure(figsize=(2.5,2))
             for ei, ej in zip(errs[:-1], errs[1:]):
                 stat, pval = scipy.stats.mannwhitneyu(ei, ej)
-                print stat, pval
+                print(stat, pval)
 
             bplot = pp.boxplot(errs, patch_artist=True)
             for patch, color in zip(bplot['boxes'], err_cols):
@@ -1226,7 +1227,7 @@ class FootprintCalibrationReport(object):
         from itertools import izip_longest
         plt.subplot(223)
         plot_exp()
-        print "punp_a_one", punp_a_one
+        print("punp_a_one", punp_a_one)
         if not punp_a_one is None:
             for i, (one, color) in enumerate(zip(punp_a_one, vienna_colors)):
                 lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
@@ -1316,13 +1317,13 @@ class FootprintCalibrationReport(object):
         kmin, kmax = k_range
         smin, smax = s_range
 
-        print "s_range", s_range
-        print "k_range", k_range
+        print("s_range", s_range)
+        print("k_range", k_range)
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 
         for i, row in enumerate(1./mat_err.T):
-            print i, row
+            print(i, row)
 
         def make_rect(k,s):
             import matplotlib.patches as patches
@@ -1374,7 +1375,7 @@ class FootprintCalibrationReport(object):
         import seaborn as sns
         import matplotlib.pyplot as plt
         labels = self.rbns.sample_labels
-        print labels
+        print(labels)
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
 
         key = '{}_high_affinity_kmers'.format(motif)
@@ -1382,7 +1383,7 @@ class FootprintCalibrationReport(object):
             return
 
         for score, kmer in self.shelve[motif][key]:
-            print "plotting kmer accessibility profiles for", kmer, score
+            print("plotting kmer accessibility profiles for", kmer, score)
             all_data = self.shelve[motif]['{}_acc_data'.format(kmer)]
             plt.figure(figsize=(2, 2))
             bins = np.linspace(0, maxU, num=30)

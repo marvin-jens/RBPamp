@@ -1,5 +1,8 @@
 # -*- coding: future_fstrings -*-
 from __future__ import print_function
+__license__ = "MIT"
+__authors__ = ["Marvin Jens"]
+__email__ = "mjens@mit.edu"
 
 import sys
 import re
@@ -199,8 +202,8 @@ def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout):
     recv_socket.bind(address)
     
     import cska
-    states = StateTrackerData("z4t75p01k99", cska.dominguez_rbps)
-    states.load_logs('/home/mjens/engaging/RBNS/*/cska/z4t75p01k99/run.log')
+    states = StateTrackerData("z4t75p01k99fix", cska.dominguez_rbps)
+    states.load_logs('/home/mjens/engaging/RBNS/*/cska/z4t75p01k99fix/run.log')
 
     while True:
         os.system('clear')

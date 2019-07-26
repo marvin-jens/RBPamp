@@ -1,5 +1,6 @@
+# -*- coding: future_fstrings -*-
+from __future__ import print_function
 __license__ = "MIT"
-__version__ = "0.9.8"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -328,7 +329,7 @@ class RBNSReads(CachedBase):
         for i, par in enumerate(params):
             acc_k = getattr(par, "acc_k", None)
             acc_scale = getattr(par, "acc_scale", 1.)
-            print par.as_PSAM().consensus
+            # print par.as_PSAM().consensus
             if not acc_k:
                 self.logger.debug("acc_k=0 pretending everything is accessible")
                 acc = np.ones( (self.N, w), dtype=np.float32)
@@ -720,14 +721,14 @@ if __name__ == "__main__":
     
     acc = reads.acc_storage.get_raw(7).acc
     accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
-    print acc.shape
-    print accsub.shape
+    print(acc.shape)
+    print(accsub.shape)
     
     sub = reads.get_new_subsample()
     # acc = reads.acc_storage.get_raw(7).acc
     accsub = sub.sub_sampler.draw(sub.acc_storage.get_raw(7).acc)
-    print acc.shape
-    print accsub.shape
+    print(acc.shape)
+    print(accsub.shape)
 
 
     import sys
@@ -739,11 +740,11 @@ if __name__ == "__main__":
     mono = reads.kmer_frequencies(1)
     base = cyska.seq_to_index('auca')
     corr = (1 + 1./(20 + l -1))
-    print "corr ", corr
+    print("corr ", corr)
     for n in range(4):
         ext[base + n] *= corr / init[cyska.seq_to_index('uc')] * mono[0] # a
 
-    print "corr ", corr
+    print("corr ", corr)
     for s in ['augg','cugg','gugg','uugg']:
         n = cyska.seq_to_index(s)
         c = corr / init[cyska.seq_to_index('ug')] * mono[2] # G
@@ -757,7 +758,7 @@ if __name__ == "__main__":
     from scipy.stats import pearsonr
     import matplotlib.pyplot as pp
     R, p_val = pearsonr(np.log(obs), np.log(ext))
-    print R, p_val
+    print(R, p_val)
     pp.figure()
     pp.loglog(obs, ext, 'x')
     pp.xlabel("observed")
@@ -768,7 +769,7 @@ if __name__ == "__main__":
     lfc = np.log2(obs/ext)
     I = np.fabs(lfc).argsort()[::-1]
     for i in I[:20]:
-        print cyska.index_to_seq(i,k), obs[i], ext[i], lfc[i], 2**lfc[i], corr
+        print(cyska.index_to_seq(i,k), obs[i], ext[i], lfc[i], 2**lfc[i], corr)
         
     sys.exit(1)
     
@@ -776,9 +777,9 @@ if __name__ == "__main__":
     import cska.cyska as cyska
     adap5 = cyska.seq_to_bits(reads.adap5)
     adap3 = cyska.seq_to_bits(reads.adap3)
-    print adap5
-    print adap3
+    print(adap5)
+    print(adap3)
     
     padded = cyska.seqm_pad_adapters(reads.seqm, adap5, adap3, 5)
     for r in padded:
-        print r
+        print(r)

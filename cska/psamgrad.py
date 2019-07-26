@@ -1,3 +1,9 @@
+# -*- coding: future_fstrings -*-
+from __future__ import print_function
+__license__ = "MIT"
+__authors__ = ["Marvin Jens"]
+__email__ = "mjens@mit.edu"
+
 import os
 import logging
 import shelve
@@ -77,7 +83,7 @@ class PSAMGradientDescent(object):
         if continuation:
             past_errors = [] 
 
-        print "PAST ERRORS", past_errors
+        print("PAST ERRORS", past_errors)
         self.descent = cska.gradient.GradientDescent(
             self.model,
             params,
@@ -110,7 +116,7 @@ class PSAMGradientDescent(object):
                 + [descent.ls_nfev[-1], descent.ls_step[-1]]
 
             line = "\t".join([str(o) for o in out])
-            print line
+            print(line)
             self.track_file.write(line)
             self.track_file.write('\n')
             descent.params.save(os.path.join(self.out_path, 'parameters.tsv'))
@@ -140,9 +146,9 @@ class PSAMGradientDescent(object):
         Kd_first = 1/self.shelve["params_t0"].A0
         Kd_last = 1/self.descent.last_state.params.A0
 
-        self.logger.info("finished with status {0} and relative improvement of {1} ".format(self.descent.status, self.descent.error_reduction))
-        self.logger.info("optimized parameters {0}".format(self.descent.params))        
-        self.results.critical("GRAD err={stats_first.error:.2e} -> {stats_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps".format(**locals()))
+        self.logger.info(f"finished with status {self.descent.status} and relative improvement of {self.descent.error_reduction}")
+        self.logger.info(f"optimized parameters {self.descent.params}"
+        self.results.critical(f"GRAD err={stats_first.error:.2e} -> {stats_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps")
         self.track_file.close()
         
         state = self.descent.last_state
@@ -160,10 +166,11 @@ class PSAMGradientDescent(object):
         err_reduction = stats_first.error / stats_last.error # x-fold reduced
 
         corr_last = stats_last.pearsonR.max()
-        return "t={} max_corr={:.4f} err_fold={:.2f}".format(self.descent.t + self.t_ofs, corr_last, err_reduction)
+        t = self.descent.t + self.t_ofs
+        return f"t={t} max_corr={corr_last:.4f} err_fold={err_reduction:.2f}"
 
     def store_residuals(self, state):
-        with file(os.path.join(self.out_path, '{0}mer_residuals.tsv'.format(self.descent.model.k)),'w') as f:
+        with file(os.path.join(self.out_path, f'{self.descent.model.k}mer_residuals.tsv','w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
             for i in range(state.mdl.nA):

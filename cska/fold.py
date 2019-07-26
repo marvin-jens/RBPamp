@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+# -*- coding: future_fstrings -*-
+from __future__ import print_function
+__license__ = "MIT"
+__authors__ = ["Marvin Jens"]
+__email__ = "mjens@mit.edu"
+
 import sys
 import os
 import logging
@@ -518,7 +524,7 @@ class OpenenStorage(CachedBase):
         sink.write(vec.tobytes())
 
     def dummy_write(self, k, vec):
-        print "writing", k, vec
+        print("writing", k, vec)
 
     def write_set(self, krange, data):
         for k, vec in zip(krange, data):
@@ -987,16 +993,16 @@ def parallel_fold(reads, n_complete=0, n_parallel=8, skip_records=0, k_min=1, k_
 def test_discretization(N=10000):
     import matplotlib.pyplot as pp
     x = np.random.gamma(3, size=N)
-    print pp.hist(x, bins=100, normed=True)
+    print(pp.hist(x, bins=100, normed=True))
     #print hcounts, hbins
     
     disc = OpenenDiscretization(3, 20, np.uint8, 'gamma')
     counts = np.bincount(disc.discretize(x), minlength=256)
-    print disc.x.shape, disc.dx.shape, counts
+    print(disc.x.shape, disc.dx.shape, counts)
     y = counts/disc.dx
     y *= counts.sum() / np.trapz(y, disc.x)
 
-    print np.trapz(y, disc.x), len(x)
+    print(np.trapz(y, disc.x), len(x))
     pp.plot(disc.x, y)
     
     pp.show()
@@ -1034,11 +1040,11 @@ def test_vienna():
     ]
 
     U5a = seqs[0].index('TTTTT')
-    print U5a
+    print(U5a)
     U5b = U5a + 1
     for kr, data in V.process_sequences(seqs):
         
-        print data[0][U5a], data[0][U5b]
+        print(data[0][U5a], data[0][U5b])
         
     #for (krange, data), correct in zip(V.process_sequences(seqs), correct_data):
         #print data
@@ -1063,8 +1069,8 @@ if __name__ == "__main__":
     
     dopenen = openen.discretize()
     for i in range(10):
-        print dopenen.rbns_reads.seqm[i]
-        print dopenen.oem[i]
+        print(dopenen.rbns_reads.seqm[i])
+        print(dopenen.oem[i])
     
     
     sys.exit(0)
@@ -1081,7 +1087,7 @@ if __name__ == "__main__":
     L=40
     k=7
     disc = OpenenDiscretization(7,40,np.uint8)
-    print disc.bins
+    print(disc.bins)
     mid = 0.5*(disc.bins[1:] + disc.bins[:-1])
     pp.loglog(mid, disc.x)
     pp.show()
@@ -1096,28 +1102,28 @@ if __name__ == "__main__":
     #params = dist.fit(data)
     #print params
     bins = gamma_bins_k(8,dtype=np.uint8)
-    print "low bins",bins[:10]
-    print "low data",sorted(data)[:10]
-    print "low data->bins", np.digitize(sorted(data)[:10], bins) -1
+    print("low bins",bins[:10])
+    print("low data",sorted(data)[:10])
+    print("low data->bins", np.digitize(sorted(data)[:10], bins) - 1)
     
     dig = np.digitize(data, bins) -1
     
-    print dig.min(), dig.max()
-    print bins, np.bincount(dig)
+    print(dig.min(), dig.max())
+    print(bins, np.bincount(dig))
     
     mid = 0.5*(bins[1:] + bins[:-1]) # mid-points
-    print len(bins)
+    print(len(bins))
     x = np.arange(0, data.max(), .01)
     #pp.hist(data, bins=bins, normed=True)
     #pp.plot(x, dist.pdf(x, *params))
     pp.loglog(data, mid[dig],'ob')
     
     RMSD = np.sqrt(np.mean((mid[dig] - data)**2))
-    print "RMSD",RMSD
+    print("RMSD",RMSD)
     pp.show()
     sys.exit(1)
     
-    print make_bins(5)
+    print(make_bins(5))
     src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads')
     store = OpenenStorage()
     vienna = ViennaOpenen()
@@ -1129,7 +1135,7 @@ if __name__ == "__main__":
         store.store_set(krange, data)
         if n and not n % 1000:
             t1 = time.time()
-            print "{0:.2f} seqs/second".format(1000./(t1-t0))
+            print("{0:.2f} seqs/second".format(1000./(t1-t0)))
             t0 = t1
     
     #oa = OpenenHistCollection(name=sys.argv[1])
