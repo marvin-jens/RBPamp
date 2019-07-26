@@ -191,7 +191,7 @@ class FootprintCalibration(CachedBase):
         self._openen_cache = {}
         self._lacc_cache = {}
 
-        fp = os.path.join(self.path, f'footprints_{self.consensus_ul}.tsv'
+        fp = os.path.join(self.path, f'footprints_{self.consensus_ul}.tsv')
         # if os.path.exists(fp):
         #     self.load_footprints(fp)
         # no need to load these, as we now keep pickled results from optimize()
