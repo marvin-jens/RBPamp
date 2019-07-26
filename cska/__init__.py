@@ -147,8 +147,10 @@ def parse_cmdline():
 
 def ensure_path(full):
     path = os.path.dirname(full)
-    if not os.path.exists(path):
+    try:
         os.makedirs(path)
+    except OSError:
+        pass
 
     return full
 
