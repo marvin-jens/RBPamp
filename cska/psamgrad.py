@@ -95,7 +95,7 @@ class PSAMGradientDescent(object):
             fix_A0 = fix_A0,
             errors = past_errors
         )
-        self.logger.info("storing states in shelve '{}'".format(sname))
+        self.logger.info(f"storing states in shelve '{sname}'")
         self.shelve["R_exp"] = self.R
         self.shelve["rbp_conc"] = self.descent.model.rbp_conc
         self.shelve.sync()
@@ -103,11 +103,13 @@ class PSAMGradientDescent(object):
 
     def optimize(self, debug=False):
         def callback(descent, state):
-            self.shelve["params_t{}".format(descent.t + self.t_ofs)] = state.params
-            self.shelve["grad_t{}".format(descent.t + self.t_ofs - 1)] = descent.past_grad
-            self.shelve["stats_t{}".format(descent.t + self.t_ofs)] = state.stats
-            self.shelve["R_t{}".format(descent.t + self.t_ofs)] = state.R
-            self.shelve["linesearch_t{}".format(descent.t + self.t_ofs)] = (descent.ls_nfev[-1], descent.ls_step[-1])
+            t = descent.t + self.t_ofs
+            t1 = t -1
+            self.shelve[f"params_t{t}"] = state.params
+            self.shelve[f"grad_t{t1}"] = descent.past_grad
+            self.shelve[f"stats_t{t}"] = state.stats
+            self.shelve[f"R_t{t}"] = state.R
+            self.shelve[f"linesearch_t{t}"] = (descent.ls_nfev[-1], descent.ls_step[-1])
 
             # collect and write data on the gradient descent progress
             pR, pval = state.correlations
@@ -170,7 +172,7 @@ class PSAMGradientDescent(object):
         return f"t={t} max_corr={corr_last:.4f} err_fold={err_reduction:.2f}"
 
     def store_residuals(self, state):
-        with file(os.path.join(self.out_path, f'{self.descent.model.k}mer_residuals.tsv','w') as f:
+        with file(os.path.join(self.out_path, f"{self.descent.model.k}mer_residuals.tsv"),'w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
             for i in range(state.mdl.nA):
