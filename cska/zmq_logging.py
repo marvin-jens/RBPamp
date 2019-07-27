@@ -195,15 +195,15 @@ class StateTrackerData(object):
                 self.parse(line)
 
 
-def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout):
+def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k99fix", pattern="/home/mjens/engaging/RBNS/*/cska/{run}/run.log"):
     import os
     context = zmq.Context()
     recv_socket = context.socket(zmq.PULL)
     recv_socket.bind(address)
     
     import cska
-    states = StateTrackerData("z4t75p01k99fix", cska.dominguez_rbps)
-    states.load_logs('/home/mjens/engaging/RBNS/*/cska/z4t75p01k99fix/run.log')
+    states = StateTrackerData(run, cska.dominguez_rbps)
+    states.load_logs(pattern.format(**locals()))
 
     while True:
         os.system('clear')
@@ -222,21 +222,16 @@ if __name__ == "__main__":
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
     formatter = logging.Formatter(FORMAT)
 
-    if len(sys.argv) > 1:
-        logger = getLogger('', formatter=formatter)
-        logger.setLevel(logging.DEBUG)
-        l2 = logging.getLogger('meep')
-        # l2.setLevel(logging.DEBUG)
-        logger.warn(sys.argv[1])
-        logger.debug(sys.argv[1])
-        l2.debug('blup')
-    else:
-        import argparse
-        parser = argparse.ArgumentParser(description='Collect log messages from cska jobs on the cluster')
-        # TODO: configure interface we're listening on, where to write, filters etc...
-        # server_loop()
-        # opt_stats_loop()
-        state_tracker_loop()
+    import argparse
+    parser = argparse.ArgumentParser(description='Collect log messages from cska jobs on the cluster')
+    parser.add_argument('--run', dest='run', default='z4t75p01k99fix', help='which run to monitor')
+    parser.add_argument('--pattern', dest='pattern', default='/home/mjens/engaging/RBNS/*/cska/{run}/run.log', help='glob pattern to load log-files from')
+    parser.add_argument('--listen', dest='listen', default="tcp://*:8888", help='address and port to listen on (default="tcp://*:8888")')
+    args = parser.parse_args()
+    # TODO: configure interface we're listening on, where to write, filters etc...
+    # server_loop()
+    # opt_stats_loop()
+    state_tracker_loop(address = args.listen, run=args.run, pattern=args.pattern)
 
 
 
