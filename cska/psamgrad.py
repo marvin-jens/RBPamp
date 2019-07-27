@@ -28,10 +28,10 @@ class PSAMGradientDescent(object):
         self.t_ofs = 0
         past_errors = []
         if not os.path.exists(fname) or redo:
-            self.logger.info("tracking progress in new file '{}'".format(fname))
+            self.logger.info(f"tracking progress in new file '{fname}'")
             self.track_file = file(fname, 'w', 0)
-            MSE_samples = ["MSE{}".format(i) for i in range(params.n_samples)]
-            corr_samples = ["corr{}".format(i) for i in range(params.n_samples)]
+            MSE_samples = [f"MSE{i}" for i in range(params.n_samples)]
+            corr_samples = [f"corr{i}" for i in range(params.n_samples)]
             self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples), "\t".join(corr_samples)))
         else:
             lines = file(fname).readlines()
@@ -133,7 +133,7 @@ class PSAMGradientDescent(object):
 
             self.shelve.sync()
             if not self.tracker is None:
-                self.tracker.set("step {self.metrics}".format(self=self))
+                self.tracker.set(f"step {self.metrics}")
             return state
 
         self.descent.optimize(self.params, debug=debug, callback=callback)
@@ -149,7 +149,7 @@ class PSAMGradientDescent(object):
         Kd_last = 1/self.descent.last_state.params.A0
 
         self.logger.info(f"finished with status {self.descent.status} and relative improvement of {self.descent.error_reduction}")
-        self.logger.info(f"optimized parameters {self.descent.params}"
+        self.logger.info(f"optimized parameters {self.descent.params}")
         self.results.critical(f"GRAD err={stats_first.error:.2e} -> {stats_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps")
         self.track_file.close()
         
