@@ -610,7 +610,7 @@ class Run(object):
 
         def calibrate(par):
             cal = FootprintCalibration(self.rbns, par, thresh=1e-2)
-            if self.top_kmer_acc:
+            if self.options.top_kmer_acc:
                 cal.compute_kmer_acc_profiles()
 
             kmin, kmax = self.options.footprint.split('-')
