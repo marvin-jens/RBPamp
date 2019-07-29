@@ -1,5 +1,4 @@
 python==2.7.15
-future-fstrings==1.0.0
 Cython==0.26
 numpy==1.13.3
 pandas==0.22.0
@@ -9,3 +8,4 @@ seaborn==0.8.1
 svgpath2mpl==0.2.1
 simplejson==3.16.0
 weblogo==3.6.0
+future-fstrings==1.0.0
