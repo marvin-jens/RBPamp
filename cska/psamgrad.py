@@ -1,5 +1,6 @@
-# -*- coding: future_fstrings -*-
+# coding=future_fstrings
 from __future__ import print_function
+
 __license__ = "MIT"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
@@ -28,10 +29,10 @@ class PSAMGradientDescent(object):
         self.t_ofs = 0
         past_errors = []
         if not os.path.exists(fname) or redo:
-            self.logger.info(f"tracking progress in new file '{fname}'")
+            self.logger.info("tracking progress in new file '{}'".format((fname)))
             self.track_file = file(fname, 'w', 0)
-            MSE_samples = [f"MSE{i}" for i in range(params.n_samples)]
-            corr_samples = [f"corr{i}" for i in range(params.n_samples)]
+            MSE_samples = ["MSE{}".format((i)) for i in range(params.n_samples)]
+            corr_samples = ["corr{}".format((i)) for i in range(params.n_samples)]
             self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples), "\t".join(corr_samples)))
         else:
             lines = file(fname).readlines()
@@ -95,7 +96,7 @@ class PSAMGradientDescent(object):
             fix_A0 = fix_A0,
             errors = past_errors
         )
-        self.logger.info(f"storing states in shelve '{sname}'")
+        self.logger.info("storing states in shelve '{}'".format((sname)))
         self.shelve["R_exp"] = self.R
         self.shelve["rbp_conc"] = self.descent.model.rbp_conc
         self.shelve.sync()
@@ -105,11 +106,11 @@ class PSAMGradientDescent(object):
         def callback(descent, state):
             t = descent.t + self.t_ofs
             t1 = t -1
-            self.shelve[f"params_t{t}"] = state.params
-            self.shelve[f"grad_t{t1}"] = descent.past_grad
-            self.shelve[f"stats_t{t}"] = state.stats
-            self.shelve[f"R_t{t}"] = state.R
-            self.shelve[f"linesearch_t{t}"] = (descent.ls_nfev[-1], descent.ls_step[-1])
+            self.shelve["params_t{}".format((t))] = state.params
+            self.shelve["grad_t{}".format((t1))] = descent.past_grad
+            self.shelve["stats_t{}".format((t))] = state.stats
+            self.shelve["R_t{}".format((t))] = state.R
+            self.shelve["linesearch_t{}".format((t))] = (descent.ls_nfev[-1], descent.ls_step[-1])
 
             # collect and write data on the gradient descent progress
             pR, pval = state.correlations
@@ -133,7 +134,7 @@ class PSAMGradientDescent(object):
 
             self.shelve.sync()
             if not self.tracker is None:
-                self.tracker.set(f"step {self.metrics}")
+                self.tracker.set("step {}".format((self.metrics)))
             return state
 
         self.descent.optimize(self.params, debug=debug, callback=callback)
@@ -148,9 +149,9 @@ class PSAMGradientDescent(object):
         Kd_first = 1/self.shelve["params_t0"].A0
         Kd_last = 1/self.descent.last_state.params.A0
 
-        self.logger.info(f"finished with status {self.descent.status} and relative improvement of {self.descent.error_reduction}")
-        self.logger.info(f"optimized parameters {self.descent.params}")
-        self.results.critical(f"GRAD err={stats_first.error:.2e} -> {stats_last.error:.2e} ({err_reduction:.2f} -fold) corr={corr_first:.3f} -> {corr_last:.3f} Kd={Kd_first} -> {Kd_last} t={self.descent.t} steps")
+        self.logger.info("finished with status {} and relative improvement of {}".format((self.descent.status), (self.descent.error_reduction)))
+        self.logger.info("optimized parameters {}".format((self.descent.params)))
+        self.results.critical("GRAD err={:.2e} -> {:.2e} ({:.2f} -fold) corr={:.3f} -> {:.3f} Kd={} -> {} t={} steps".format((stats_first.error), (stats_last.error), (err_reduction), (corr_first), (corr_last), (Kd_first), (Kd_last), (self.descent.t)))
         self.track_file.close()
         
         state = self.descent.last_state
@@ -169,10 +170,10 @@ class PSAMGradientDescent(object):
 
         corr_last = stats_last.pearsonR.max()
         t = self.descent.t + self.t_ofs
-        return f"t={t} max_corr={corr_last:.4f} err_fold={err_reduction:.2f}"
+        return "t={} max_corr={:.4f} err_fold={:.2f}".format((t), (corr_last), (err_reduction))
 
     def store_residuals(self, state):
-        with file(os.path.join(self.out_path, f"{self.descent.model.k}mer_residuals.tsv"),'w') as f:
+        with file(os.path.join(self.out_path, "{}mer_residuals.tsv".format((self.descent.model.k))),'w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
             for i in range(state.mdl.nA):

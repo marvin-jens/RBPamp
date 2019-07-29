@@ -1,3 +1,6 @@
+# coding=future_fstrings
+from __future__ import print_function
+
 import numpy as np
 import logging
 
@@ -244,9 +247,9 @@ class ModelSetParams(object):
         for i, params in enumerate(self.param_set):
             kd = 1. / params.A0
             if (lo is None) or (hi is None):
-                kdstr = u"$K_d$ = {}".format(nice_conc(kd))
+                kdstr = "$K_d$ = {}".format(nice_conc(kd))
             else:
-                kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
+                kdstr = "$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
             num = 2 * i + 1
             # print "subplot num", num
@@ -405,8 +408,8 @@ class ModelParametrization(object):
         if not np.allclose(new.data, self.data):
             d = np.fabs(new.data - self.data)
             i = d.argmax()
-            print "OFFENDING PARAMETER:", i, new.data[i], self.data[i]
-            print self.data
+            print("OFFENDING PARAMETER:", i, new.data[i], self.data[i])
+            print(self.data)
             1/0
         return new
 
@@ -528,22 +531,22 @@ def test_logo():
 
     param_set = [ModelParametrization.from_PSAM(A), ModelParametrization.from_PSAM(B), ModelParametrization.from_PSAM(C)]
     for p in param_set:
-        print p
+        print(p)
     params0 = ModelSetParams(param_set)
-    print params0
+    print(params0)
     params0.save_logos('motifs.svg')
 
 def test_save_load():
     psam = np.identity(4)
-    print psam
+    print(psam)
 
     params = ModelParametrization(4, 3, psam=psam, A0=2.)
     params.save('bla.tsv')
 
     params = ModelParametrization.load('bla.tsv', 3)
-    print params
+    print(params)
 
 if __name__ == "__main__":
-    print ModelSetParams.load("/home/mjens/engaging/RBNS/MSI1/cska/seed_z5.75_thresh_85/seed/initial.tsv", 1)
+    print(ModelSetParams.load("/home/mjens/engaging/RBNS/MSI1/cska/seed_z5.75_thresh_85/seed/initial.tsv", 1))
     # test_logo()
     # test_save_load()

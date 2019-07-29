@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# coding=future_fstrings
+from __future__ import print_function
+
 import sys
 import os
 import numpy as np
@@ -139,7 +142,7 @@ class RefComparison(object):
             n = len(matrix)
             bits = cyska.seq_to_bits(seq)
 
-            ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
+            ofs_range = list(range(-l + min_overlap, n + 1 - min_overlap))
             alignments = []
             for ofs in ofs_range:
                 m_start = max(0, ofs)
@@ -200,18 +203,18 @@ if __name__ == "__main__":
     rbp_name, read_files, rbp_conc = auto_detect(os.path.join(run_folder,"../../"))
     rbp_conc2, R0, R0_err = read_kmer_matrix(os.path.join(run_folder,"metrics/{rbp_name}.R_value.{k_R}mer.tsv".format(**locals())))
 
-    print rbp_conc, rbp_conc2
-    print R0.shape
+    print(rbp_conc, rbp_conc2)
+    print(R0.shape)
 
     reads = RBNSReads(read_files[0], temp=4, rbp_conc=0, rbp_name=rbp_name, n_max=10000)
     from glob import glob
     pwm_file = list(glob(os.path.join(run_folder, 'meanfield/mean_field_*mer_PSAM.tsv')))[0]
     motif = PSAM.load(pwm_file)
-    print motif
+    print(motif)
     params = ModelParametrization(motif.n, len(rbp_conc2), psam=motif.psam, A0= motif.A0)
     # need: params
     # TODO: alias support in known_kds.csv
-    print params
+    print(params)
     mdl = PartFuncModel(reads, params, R0, rbp_conc=rbp_conc)
     descent = GradientDescent(mdl, params)
 

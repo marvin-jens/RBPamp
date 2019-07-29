@@ -1,3 +1,6 @@
+# coding=future_fstrings
+from __future__ import print_function
+
 __license__ = "MIT"
 __version__ = "0.9.6"
 __authors__ = ["Marvin Jens"]
@@ -6,7 +9,7 @@ __email__ = "mjens@mit.edu"
 import os
 import logging
 import numpy as np
-import cPickle as pickle
+import pickle as pickle
 import hashlib
 
 from collections import defaultdict
@@ -35,20 +38,20 @@ def args_to_key(argc, kwargs, self, func_name):
     argc_key = kwargs.get("_argc_key", "_".join([to_str(a) for a in argc]) )
     kw_key = kwargs.get("_kw_key", "__".join(["{0}={1}".format(k,to_str(v)) for k,v in sorted(kwargs.items()) ]))
     
-    key = "{self.cache_key}.{func_name}.{argc_key}.{kw_key}".format(**locals() )
+    key = f"{self.cache_key}.{func_name}.{argc_key}.{kw_key}"
     
     return key, kw
 
 def get_cache_sizes():
     cache_size = []
-    for k, d in cached_objects.items():
-        cache_size.append( (np.array(d.values()).sum(), k) )
+    for k, d in list(cached_objects.items()):
+        cache_size.append( (np.array(list(d.values())).sum(), k) )
 
     return sorted(cache_size)[::-1]
 
 def _dump_cache_sizes():
     for size, name in get_cache_sizes():
-        print "{name}\t{size}".format(**locals())
+        print(f"{name}\t{size}")
 
 class CachedBase(object):
     """
@@ -70,7 +73,7 @@ class CachedBase(object):
         self._cache_names = []
         self.cache_logger = logging.getLogger('cache.CachedBase')
         
-        for k,v in kwargs.items():
+        for k,v in list(kwargs.items()):
             if k.startswith('_'):
                 #print "setting",k,v
                 setattr(self, k, v)
@@ -79,13 +82,13 @@ class CachedBase(object):
 
     def __dump_cache_inventory(self):
         import sys
-        print "Cache inventory of", self.cache_key
+        print(f"Cache inventory of {self.cache_key}")
         for cache_name in sorted(self._cache_names):
             cache = getattr(self, cache_name)
-            print "cache '{} has {} entries:".format(cache_name, len(cache))
+            print("cache '{} has {} entries:".format(cache_name, len(cache)))
             for k in sorted(cache.keys()):
                 v = cache[k]
-                print "  '{}' : {:.2f}kb".format(k, sys.getsizeof(v) / 1024.)
+                print("  '{}' : {:.2f}kb".format(k, sys.getsizeof(v) / 1024.))
 
     def _store(self, cache_name, key, value):
         cache = getattr(self, cache_name)        
@@ -129,16 +132,16 @@ class CachedBase(object):
         for cache_name in cache_names:
             if deep:
                 cache = getattr(self, cache_name, dict())
-                for res in cache.values():
+                for res in list(cache.values()):
                     if isinstance(res, CachedBase):
                         res.cache_flush()
             self._clear(cache_name)
 
     def cache_debug(self):
         for name in self._cache_names:
-            print ">>>", self.cache_key, name
+            print(">>>", self.cache_key, name)
             for k,v in sorted(getattr(self, name).items()):
-                print "  '{0}' : '{1}'".format(k,v)
+                print("  '{0}' : '{1}'".format(k,v))
     
     def drop_pickle(self, func_name, *argc, **kwargs):
         func = getattr(self, func_name)
@@ -306,6 +309,6 @@ if __name__ == "__main__":
     b.get_nested(20)
 
     for size, name in get_cache_sizes():
-        print size, name
+        print(size, name)
                 
 

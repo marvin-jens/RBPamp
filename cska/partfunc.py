@@ -1,3 +1,6 @@
+# coding=future_fstrings
+from __future__ import print_function
+
 import logging
 import numpy as np
 import time
@@ -390,8 +393,8 @@ class PartFuncModel(object):
             a0s.append(A0)
 
             if debug:
-                print "R({0})={1} [R0={2}]".format(topmer, state.R[:, top], self.R0[:, top])
-                print A0, state.params.A0, "->", state.error, betas
+                print("R({0})={1} [R0={2}]".format(topmer, state.R[:, top], self.R0[:, top]))
+                print(A0, state.params.A0, "->", state.error, betas)
             
             R_err[A0] = state.error
             R_corr[A0] = np.array(state.correlations).max()
@@ -401,7 +404,7 @@ class PartFuncModel(object):
         res = minimize_logspaced(err, bounds=np.array((min_A0, max_A0)), n_samples=7, nested=2, options=dict(maxiter=maxiter), debug=debug)
 
         if debug:
-            print res
+            print(res)
     
         if min_A0 < res.x < max_A0:
             state.params.A0 = res.x
@@ -419,7 +422,7 @@ class PartFuncModel(object):
         if debug:
             self.logger.debug("spectrum of mean squared error {} {} {}".format(rerr.max(), rerr.min(), rerr.max() / rerr.min()))
 
-        from gradient import Tracked
+        from .gradient import Tracked
         state._A0_data = Tracked(a0=a0, rerr=rerr, rcorr=rcorr)  # asem=asem, 
         return state
 
@@ -428,14 +431,14 @@ class PartFuncModel(object):
             # unset mask
             self._seqm = self.seqm
             self._im = self.im
-            for key in self.acc.keys():
+            for key in list(self.acc.keys()):
                 self._acc[key] = self.acc[key]
 
             self.logger.debug("set_mask() unset")
         else:
             self._seqm = self.seqm[indices]
             self._im = self.im[indices]
-            for key in self.acc.keys():
+            for key in list(self.acc.keys()):
                 self._acc[key] = self.acc[key][indices]
 
             frac = float(len(self._seqm)) / len(self.seqm)

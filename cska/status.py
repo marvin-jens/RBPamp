@@ -1,5 +1,5 @@
 # -*- coding: future_fstrings -*-
-from __future__ import print_function
+
 __license__ = "MIT"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
@@ -13,9 +13,9 @@ class StateTracker(object):
         self.run = run
         self.rbp = run.rbp_name
         self.stage = stage
-        self.fpath = os.path.join(self.run.run_path, f'{stage}.txt')
+        self.fpath = os.path.join(self.run.run_path, '{}.txt'.format((stage)))
         self.state_file = file(self.fpath, 'a')
-        self.logger = logging.getLogger(f'main.StateTracker({stage})')
+        self.logger = logging.getLogger('main.StateTracker({})'.format((stage)))
         self.completed_ts = None
         if startup:
             self.set("starting up")
@@ -27,7 +27,7 @@ class StateTracker(object):
 
         self.state_file.write(out + '\n')
         self.state_file.flush()
-        self.logger.info(f'set "{out}"')
+        self.logger.info('set "{}"'.format((out)))
     
     def is_completed(self, strict=False):
         lines = file(self.fpath, 'r').readlines()
@@ -46,7 +46,7 @@ class StateTracker(object):
             raise ValueError("RBP or stage mismatch")
         
         if not (same_version and same_git):
-            self.logger.warning(f"results computed with: {version}-{git} but currently at {self.run.version}-{self.run.git_commit}")
+            self.logger.warning("results computed with: {}-{} but currently at {}-{}".format((version), (git), (self.run.version), (self.run.git_commit)))
         
             if strict:
                 return False

@@ -1,5 +1,6 @@
-# -*- coding: future_fstrings -*-
+# coding=future_fstrings
 from __future__ import print_function
+
 import os
 import numpy as np
 import logging
@@ -70,7 +71,7 @@ def pval_str(p):
     if p > 0:
         return "P < {0:.3e}".format(p)
     else:
-        return u"P ≈ 0"
+        return "P ≈ 0"
 
 def roundmax(x, m):
     i = int(x)
@@ -127,7 +128,7 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
     scale, shift_x = np.polyfit(pos_after[:,0], pos_before[:,0], 1)
     scale, shift_y = np.polyfit(pos_after[:,1], pos_before[:,1], 1)
     shift = np.array([shift_x, shift_y])
-    for key, val in pos.items():
+    for key, val in list(pos.items()):
         pos[key] = (val*scale) + shift
 
     for label, data_str in G.edges():
@@ -139,7 +140,7 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
                                     #connectionstyle="arc3", 
                                     color='k'), )
     # expand limits
-    all_pos = np.vstack(pos.values())
+    all_pos = np.vstack(list(pos.values()))
     x_span, y_span = np.ptp(all_pos, axis=0)
     mins = np.min(all_pos-x_span*0.15, 0)
     maxs = np.max(all_pos+y_span*0.15, 0)
@@ -536,7 +537,7 @@ class GradientDescentReport(object):
     def find_max_t(self, shelf):
         t = -1
         n_samples = None
-        while shelf.has_key("stats_t{}".format(t+1)):
+        while "stats_t{}".format(t+1) in shelf:
             stats = shelf["stats_t{}".format(t+1)]
             n = len(stats.rbp_free)
             if n_samples is None:
@@ -681,7 +682,7 @@ class GradientDescentReport(object):
 
             x = self.logR0[i]
             y = logRt[i]
-            label = u"{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
+            label = "{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
             # data_labels = self.opt.mdl.parameters.param_name
             density_scatter_plot(x, y, label=label, tick_exp=2, lim_max=maxR)
             pp.legend(loc='upper left', frameon=False)
@@ -812,8 +813,8 @@ class GradientDescentReport(object):
 
         # self.results.info("R={R:.3f} {ppstr} rho={rho:.3f} {psstr}".format(**locals()))
         if debug:
-            print(u">>> R={R} {ppstr}".format(**locals()))
-            print(u">>> rho={rho} {psstr}".format(**locals()))
+            print(">>> R={R} {ppstr}".format(**locals()))
+            print(">>> rho={rho} {psstr}".format(**locals()))
             print("seq\tknown\tpredict\tlog-ratio")
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
                 print(seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x))
@@ -1031,7 +1032,7 @@ class FootprintCalibrationReport(object):
             self.params = ModelSetParams.load(fparams, 1) # len(self.rbp_conc)
             for par in self.params:
                 cons = par.as_PSAM().consensus_ul
-                dbfile = os.path.join(os.path.dirname(fparams), f'history_{cons}')
+                dbfile = os.path.join(os.path.dirname(fparams), 'history_{}'.format((cons)))
                 self.shelve[cons] = shelve.open(dbfile, flag='r')
             
             self.motifs = sorted(self.shelve.keys())
@@ -1067,7 +1068,7 @@ class FootprintCalibrationReport(object):
         if len(S) == 2:
             punp_predict, res = S
             onekey = '{motif}_opt_profile_a_one_{k}_{s}'.format(**locals())
-            if self.shelve[motif].has_key(onekey):
+            if onekey in self.shelve[motif]:
                 punp_a_one, res_a_one = self.shelve[motif][onekey]
             else:
                 punp_a_one = None
@@ -1224,7 +1225,7 @@ class FootprintCalibrationReport(object):
             plt.plot(x, naive, '-', color=color, label=lbl if i == last else None)
         finalize_plot(fp=False)
 
-        from itertools import izip_longest
+        from itertools import zip_longest
         plt.subplot(223)
         plot_exp()
         print("punp_a_one", punp_a_one)
@@ -1253,7 +1254,7 @@ class FootprintCalibrationReport(object):
 
 
         plt.figure(figsize=(3, 3))
-        for i, (obs, naive, one, pred) in enumerate(izip_longest(punp_input[1:], punp_naive, punp_a_one, punp_expect, fillvalue=None)):
+        for i, (obs, naive, one, pred) in enumerate(zip_longest(punp_input[1:], punp_naive, punp_a_one, punp_expect, fillvalue=None)):
             plt.plot(obs, naive, 'v', color=naive_colors[i], label="no structure" if i==last else None, alpha=.75)
             if not one is None:
                 plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==last else None, alpha=.75)

@@ -1,3 +1,5 @@
+# coding=future_fstrings
+from __future__ import print_function
 __license__ = "MIT"
 __version__ = "0.9.6"
 __authors__ = ["Marvin Jens"]
@@ -30,7 +32,7 @@ class RBNSSample(CachedBase):
 
         self.MI = (freq * np.log2(freq / indep[:,:,np.newaxis])).sum(axis=(0,1))
 
-        print self.nt_freqs
+        print(self.nt_freqs)
 
     def nt_entropy_profile(self):
         freq = self.nt_freqs_profile
@@ -49,7 +51,7 @@ class RBNSSample(CachedBase):
 
     def MI_profile(self):
         im = self.reads.get_index_matrix(1)
-        print im.min(), im.max()
+        print(im.min(), im.max())
         counts = np.array(cyska.joint_freq_at_distance(im,1), dtype=np.float32)
         freq = counts / counts.sum(axis=(0,1))[np.newaxis, np.newaxis,:]
         indep = np.outer(self.nt_freqs, self.nt_freqs)
@@ -59,7 +61,7 @@ class RBNSSample(CachedBase):
         pp.figure()
         pp.plot(MI)
         pp.show()
-        print MI
+        print(MI)
 
 
 from cska.partfunc import PartFuncModel
@@ -298,9 +300,9 @@ class RBNSAnalysis(CachedBase):
 
     def DI_value_matrix(self, k):
         DI, DI_err = self._make_matrices("DI_values", k)
-        print DI.shape, 
+        print(DI.shape, end=' ') 
         for conc,di in zip(self.rbp_conc, DI):
-            print di.argmax(), di.argmin()
+            print(di.argmax(), di.argmin())
             self.logger.info("total mutual information between {0}mer-frequencies and pd/in variable @{2:.1f}nM is {1:.3e} bits".format(k, di.sum(), conc))
 
         return self._make_matrices("DI_values", k)
@@ -341,7 +343,7 @@ class RBNSAnalysis(CachedBase):
             X.append(x)
 
             xx = np.array([sub.fraction_of_reads_with_kmers(k) for sub in reads.subsamples])
-            print xx[:,xx.argsort(axis=1)[-10:]]
+            print(xx[:,xx.argsort(axis=1)[-10:]])
             err = np.sqrt(((xx - x[np.newaxis,:])**2).mean(axis=0) / reads.n_subsamples)
             
             X_err.append(err)
@@ -364,7 +366,7 @@ class RBNSAnalysis(CachedBase):
         # print "R-shape", R.shape
         Rm = R.max(axis=1)
         
-        from cyska import index_to_seq
+        from .cyska import index_to_seq
         Rm_i = sorted(set(R.argmax(axis=1)))
 
         n_choices = len(R)
@@ -372,10 +374,10 @@ class RBNSAnalysis(CachedBase):
         med_R = []
         enr_R = []
         for i in Rm_i:
-            print "checking kmer", index_to_seq(i, k)
+            print("checking kmer", index_to_seq(i, k))
             for reads, r, sample_r in zip(self.reads[1:], R[:, i], R):
                 lo_quant = np.percentile(sample_r, 25)
-                print reads.name, r, lo_quant, 1./lo_quant
+                print(reads.name, r, lo_quant, 1./lo_quant)
 
             med_R.append(np.min(R[:, i]))
             enr_R.append((R[:, i] > 1).sum()/float(n_choices))
@@ -448,19 +450,19 @@ class RBNSAnalysis(CachedBase):
 
         sample_i = sample_score.argsort()[::-1]
         if rank is not None:
-            print "sample_score", sample_score
-            print "sample_i", sample_i
+            print("sample_score", sample_score)
+            print("sample_i", sample_i)
             chosen = [sample_i[rank]]
             for j in sample_i:
                 if j != chosen[0]:
                     self.reads[j].cache_flush(deep=True)
         else:
             chosen = sorted(sample_i[:n])
-            print "chosen samples:", [self.reads[j+1].name for j in chosen]
-            print "dropped samples:", [self.reads[j+1].name for j in sorted(sample_i[n:])]
+            print("chosen samples:", [self.reads[j+1].name for j in chosen])
+            print("dropped samples:", [self.reads[j+1].name for j in sorted(sample_i[n:])])
             for j in sorted(sample_i[n:]):
                 r = self.reads[j+1]
-                print "dumping caches for", r.name
+                print("dumping caches for", r.name)
                 r.cache_flush(deep=True)
                 
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[chosen])
@@ -524,7 +526,7 @@ class RBNSAnalysis(CachedBase):
 
     def cooccurrence_tensor_analysis(self, k):
         kmers, indices, best_sample_i = self.select_significant_kmers(k)
-        print kmers
+        print(kmers)
         reads = self.reads[best_sample_i]
         inrds = self.reads[0] # input control
         
@@ -552,7 +554,7 @@ class RBNSAnalysis(CachedBase):
             "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
             # Recipe credited to George Sakkis
             pending = len(iterables)
-            nexts = cycle(iter(it).next for it in iterables)
+            nexts = cycle(iter(it).__next__ for it in iterables)
             while pending:
                 try:
                     for next in nexts:

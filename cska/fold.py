@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-# -*- coding: future_fstrings -*-
+# coding=future_fstrings
 from __future__ import print_function
+
 __license__ = "MIT"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
@@ -11,11 +12,11 @@ import logging
 import copy
 import time
 import numpy as np
-import cPickle as pickle
+import pickle as pickle
 from subprocess import PIPE, Popen
 from multiprocessing import Process, Event, JoinableQueue as Queue
 import multiprocessing
-from Queue import Empty
+from queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
 import cska.cyska as cyska
@@ -532,7 +533,7 @@ class OpenenStorage(CachedBase):
         self.n_sets += 1
         
     def close(self):
-        for sink in self.k_sinks.values():
+        for sink in list(self.k_sinks.values()):
             sink.close()
             
         self.logger.info("closed all files after writing {0} data sets".format(self.n_sets) )

@@ -1,4 +1,4 @@
-# -*- coding: future_fstrings -*-
+# coding=future_fstrings
 from __future__ import print_function
 import numpy as np
 import matplotlib
@@ -6,9 +6,9 @@ matplotlib.use('agg')
 import matplotlib.pyplot as pp
 import logging
 import os
-from itertools import izip_longest
+from itertools import zip_longest
 import cska.cyska as cyska
-from cyska import yield_kmers
+from .cyska import yield_kmers
 import cska
 from cska.caching import CachedBase, cached, pickled
 
@@ -38,9 +38,9 @@ class Alignment(object):
         if contain:
             assert n > l
             d = n - l
-            ofs_range = range(-d, d+1)
+            ofs_range = list(range(-d, d+1))
         else:
-            ofs_range = range(-l + min_overlap, n + 1 - min_overlap)
+            ofs_range = list(range(-l + min_overlap, n + 1 - min_overlap))
         # print seq
         if end_weight:
             func = np.mean
@@ -265,7 +265,7 @@ class PSAMSetBuilder(object):
     def __init__(self, kmer_set, k=8, keep_weight=.99, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, pseudo=1e-3, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMSetBuilder")
 
-        param_keys = ['k', 'keep_weight', 'n_max', 'm_max', 'thresh', 'z_cut', 'n_min', 'q_ns', 'pseudo', 'A0'] + kwargs.keys()
+        param_keys = ['k', 'keep_weight', 'n_max', 'm_max', 'thresh', 'z_cut', 'n_min', 'q_ns', 'pseudo', 'A0'] + list(kwargs.keys())
         d = dict(locals())
         d.update(kwargs)
         param_str = ", ".join(["{}={}".format(key, d[key]) for key in sorted(param_keys)])
@@ -352,7 +352,7 @@ class PSAMSetBuilder(object):
                     keep.append(aln)
                 else:
                     drop.append(aln)
-                    ks = zip(aln.seqs, aln.weights)
+                    ks = list(zip(aln.seqs, aln.weights))
                     orphan_set.extend(ks)
 
             orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)

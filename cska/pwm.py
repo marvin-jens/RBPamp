@@ -1,4 +1,6 @@
-#!/usr/bin/env python
+# coding=future_fstrings
+from __future__ import print_function
+
 import sys
 import os
 import numpy as np
@@ -165,8 +167,8 @@ class PSAM(object):
         self.psam /= M
         cond = (self.psam.max(axis=1) == 1).all()
         if not cond:
-            print "FCKP"
-            print self.psam
+            print("FCKP")
+            print(self.psam)
         assert cond
         
         self.A0 = A0
@@ -176,12 +178,12 @@ class PSAM(object):
         newm = np.zeros( (self.n - 1, 16) , dtype=np.float32)
         for i, a in enumerate(self.psam[:-1]):
             b = self.psam[i+1]
-            print "a",i,a, "b",b
+            print("a",i,a, "b",b)
             newm[i][0:4] = a[0] * b
             newm[i][4:8] = a[1] * b
             newm[i][8:12] = a[2] * b
             newm[i][12:] = a[3] * b
-            print "newm[i]", newm[i], project_column(newm[i])
+            print("newm[i]", newm[i], project_column(newm[i]))
     
         return PSAM(newm, A0=self.A0)
 
@@ -375,7 +377,7 @@ class PSAM(object):
         counts = self.psam
         if not title:
             from cska.affinitylogo import nice_conc
-            title = u"$K_d$ = {}".format(nice_conc(self.Kd))
+            title = "$K_d$ = {}".format(nice_conc(self.Kd))
 
         afflogo_save(self.psam, fname=fname, title=title, scale_width=False)
 
@@ -394,7 +396,7 @@ class PSAM(object):
         bylength = sorted(best)        
         for l in bylength:
             d,i,j = best[l]
-            print l, d, i,j, self.consensus[i:j]
+            print(l, d, i,j, self.consensus[i:j])
 
         if n:
             d, i, j = best[n]
@@ -438,7 +440,7 @@ if __name__ == "__main__":
     import cska.params
     psam = cska.params.ModelSetParams.load('/scratch2/RBNS/RBFOX3/cska/std/opt_nostruct/parameters.tsv', 1)[0].as_PSAM()
     for score, kmer in psam.highest_scoring_kmers():
-        print kmer, score
+        print(kmer, score)
     sys.exit(0)
     #psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU', 'AGCAUGU', 'CGCAUGU', 'GGCAUGU'], [1., 1., 1., 1., 1.])
     psam = PSAM.from_kmer_variants(['UGCAUGU', 'UGCACGU',], [1., .1, ])
@@ -446,13 +448,13 @@ if __name__ == "__main__":
     
     
     #.expand16()
-    print psam.consensus
+    print(psam.consensus)
     sys.exit(1)
     
     import sys
     psam = PSAM.load(sys.argv[1])
 
-    print psam
+    print(psam)
     # psam.kmer_affinity_table()
     params = psam.kmer_affinity_table(aff0=1e-6)
     # print len(kmers)
@@ -466,5 +468,5 @@ if __name__ == "__main__":
     import matplotlib.pyplot as pp
     pp.figure()
     pp.loglog(params, params_new)
-    print np.fabs(params - params_new).sum()
+    print(np.fabs(params - params_new).sum())
     pp.show()

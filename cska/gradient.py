@@ -1,3 +1,5 @@
+# coding=future_fstrings
+from __future__ import print_function
 import os
 import unittest
 import time
@@ -12,7 +14,7 @@ class Tracked(object):
     """
     def __init__(self, **kwargs):
         self._kw = kwargs
-        for k,v in kwargs.items():
+        for k,v in list(kwargs.items()):
             setattr(self, k,v)
 
 
@@ -114,7 +116,7 @@ def ana_grad_A0(state, eps=1e-3, _dE=True, _dR=False, _dq=False, _dPsi=False, _d
     ret = []
     for i, params in enumerate(state.params):
         norm = (params.A0/state.params.A0)
-        print "norm", norm
+        print("norm", norm)
         Z1m = state.Z1_read_motif[i] 
         dZ = Z1m / state.Z1_read
         # print "dZ", dZ.shape, dZ
@@ -165,7 +167,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
         samples = np.array([func_or_lookup(x) for x in sample_x])
             
         if debug:
-            print "logspaced sample", zip(sample_x, samples)
+            print("logspaced sample", list(zip(sample_x, samples)))
 
         i = samples.argmin()
         li = max(0, i -1)
@@ -174,7 +176,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
         brent_min = sample_x[li]
         brent_max = sample_x[ri]
         if debug:
-            print "search optimum between", brent_min, brent_max
+            print("search optimum between", brent_min, brent_max)
     
         return brent_min, brent_max
 
@@ -182,7 +184,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
         bmin, bmax = logsearch(bmin, bmax)
 
     if debug:
-        print "minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals())
+        print("minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals()))
 
     res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded', options=options) #, **kwargs)
     t1 = time.time()
@@ -262,7 +264,7 @@ class GradientDescent(object):
             new_err = new.error
             errors.append(new_err)
             if debug:
-                print s,"->", new_err - e0
+                print(s,"->", new_err - e0)
             return new_err - e0
 
         # assert np.fabs(err(0)) < 1e-6
@@ -353,15 +355,15 @@ class GradientDescent(object):
         return self.errors[-1] / self.errors[0]
 
     def print_state(self, state):
-        print ">>>>>>>>>PARAMS"
-        print state.params
+        print(">>>>>>>>>PARAMS")
+        print(state.params)
         s = 0
         if len(self.ls_step):
             s = self.ls_step[-1]
 
-        print "=" * 50
+        print("=" * 50)
         last_err = self.errors[-1]
-        print "step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals())
+        print("step={self.t} error={last_err:.5e} n_fev={self.model.n_fev} n_grad={self.model.n_grad} scale={s} corr={state.correlations[0]}".format(**locals()))
 
 
     def optimize(self, params, debug=False, callback=None):
@@ -378,7 +380,7 @@ class GradientDescent(object):
         self.last_state = state
 
         if debug:
-            print "INITIAL STATE AFTER FIRST EVAL kwargs=", self.predict_kwargs
+            print("INITIAL STATE AFTER FIRST EVAL kwargs=", self.predict_kwargs)
             self.print_state(state)
 
         if callback:
@@ -394,19 +396,19 @@ class GradientDescent(object):
                 # local_grad.A0 = 0.0046
 
                 if debug:
-                    print "LOCAL GRAD, EMP. GRAD"
+                    print("LOCAL GRAD, EMP. GRAD")
                     if self.debug_grad:
                         # for lcl, emp_A0_res, ana_A0_res, emp in zip(local_grad, emp_grad_A0(state), ana_grad_A0(state), emp_grad(state)):
                         for lcl, emp, ana_A0_res in zip(local_grad, emp_grad(state), ana_grad_A0(state)):
 
-                            print "ana_dA0", ana_A0_res['dE']
-                            print "LCL"
-                            print lcl
+                            print("ana_dA0", ana_A0_res['dE'])
+                            print("LCL")
+                            print(lcl)
                             # print "emp_dA0", emp_A0_res['dE']
-                            print "EMP"
-                            print emp
+                            print("EMP")
+                            print(emp)
                     else:
-                        print local_grad
+                        print(local_grad)
                 
                 local_grad.betas[:] = 0. # model.predict automatically finds optimal beta values!!!
                 if self.fix_A0:
@@ -446,7 +448,7 @@ class GradientDescent(object):
                 self.errors.append(state.error)
 
                 if debug:
-                    print ">>>>>>>>>UPDATE, scale=",s
+                    print(">>>>>>>>>UPDATE, scale=",s)
                     # print descent
                     self.print_state(state)
 
