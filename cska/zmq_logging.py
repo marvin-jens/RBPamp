@@ -227,11 +227,15 @@ if __name__ == "__main__":
     parser.add_argument('--run', dest='run', default='z4t75p01k99fix', help='which run to monitor')
     parser.add_argument('--pattern', dest='pattern', default='/home/mjens/engaging/RBNS/*/cska/{run}/run.log', help='glob pattern to load log-files from')
     parser.add_argument('--listen', dest='listen', default="tcp://*:8888", help='address and port to listen on (default="tcp://*:8888")')
+    parser.add_argument('--dump', dest='dump', default=False, action="store_true", help='just dump all log messages')
     args = parser.parse_args()
     # TODO: configure interface we're listening on, where to write, filters etc...
     # server_loop()
     # opt_stats_loop()
-    state_tracker_loop(address = args.listen, run=args.run, pattern=args.pattern)
+    if args.dump:
+        server_loop(address = args.listen)
+    else:
+        state_tracker_loop(address = args.listen, run=args.run, pattern=args.pattern)
 
 
 
