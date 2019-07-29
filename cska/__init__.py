@@ -236,6 +236,7 @@ class Run(object):
         self._init_signal_handler()
 
         self.state_trackers = {}
+        self.last_tracker = None
 
         from cska.comparison import RefComparison
         if self.options.compare:
@@ -270,7 +271,9 @@ class Run(object):
         from cska.status import StateTracker
         if not stage in self.state_trackers:
             self.state_trackers[stage] = StateTracker(self, stage, **kwargs)
-        return self.state_trackers[stage]
+        
+        self.last_tracker = self.state_trackers[stage]
+        return self.last_tracker
 
     def _init_invocation(self):
         import socket
@@ -802,6 +805,9 @@ def main():
     except:
         run.logger.error("Caught exception. Gathering traceback")
         exc = traceback.format_exc()
+        if self.last_tracker:
+            self.last_tracker.set(exc)
+
         run.logger.error(exc)
         sys.stderr.write(exc)
         ex_type, ex_val, ex_tb = sys.exc_info()
