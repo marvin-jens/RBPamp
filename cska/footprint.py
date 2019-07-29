@@ -320,6 +320,15 @@ class FootprintCalibration(CachedBase):
 
         return self.load_shelve(key)
 
+    # def get_err0(self):
+    #     if hasattr(self, "err0"):
+    #         return self.err0
+        
+    #     if not "err0" in self.shelve:
+    #         self.prepare_partition_functions()
+
+    #     return self.shelve["err0"]
+
     def calibrate(self, k_core_range=[3, None], plot=True, pad=5, from_scratch=False, heuristic=0):
         kmin, kmax = k_core_range
         if kmax is None:
@@ -342,7 +351,7 @@ class FootprintCalibration(CachedBase):
                     self.logger.warning(f"unable to optimize footprint k={acc_k}, s={s}.")
                     a = 0.
                     A0 = self.params.A0
-                    err = self.err0
+                    err = self.load_shelve('err0')
                     rel_err = 1.
                 
                 opt = (err, acc_k, s, a, A0)
