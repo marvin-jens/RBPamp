@@ -805,11 +805,12 @@ def main():
     except:
         run.logger.error("Caught exception. Gathering traceback")
         exc = traceback.format_exc()
+        run.logger.error(exc)
+        sys.stderr.write(exc)
+        
         if self.last_tracker:
             self.last_tracker.set(exc)
 
-        run.logger.error(exc)
-        sys.stderr.write(exc)
         ex_type, ex_val, ex_tb = sys.exc_info()
         if ex_type == MemoryError:
             import cska.caching
