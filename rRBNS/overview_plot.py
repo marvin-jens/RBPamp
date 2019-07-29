@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import sys
-
+import cska.report
 from cska import dominguez_rbps as dom_rbps
 # dom_rbps = "BOLL,CELF1,CNOT4,CPEB1,DAZ3,DAZAP1,EIF4G2,ELAVL4,ESRP1,EWSR1,FUBP1,FUBP3,FUS,A1CF,HNRNPA1,HNRNPA2B1,HNRNPC,HNRNPCL1,HNRNPD,HNRNPDL,HNRNPF,HNRNPH2,HNRNPK,HNRNPL,IGF2BP1,IGF2BP2,ILF2,KHDRBS2,KHDRBS3,KHSRP,MBNL1,MSI1,NOVA1,NUPL2,PABPN1L,PCBP1,PCBP2,PCBP4,PRR3,PTBP3,PUF60,PUM1,RALY,RBFOX2,RBFOX3,RBM15B,RBM22,RBM23,RBM25,RBM4,RBM41,RBM45,RBM4B,RBM6,RBMS2,RBMS3,RC3H1,SF1,SFPQ,SNRPA,SRSF10,SRSF11,SRSF2,SRSF4,SRSF5,SRSF8,SRSF9,TARDBP,TIA1,TRA2A,TRNAU1AP,UNK,ZCRB1,ZFP36,ZNF326".split(',')
 
@@ -65,6 +65,8 @@ df = pd.read_table(sys.argv[1])
 df = df.merge(extra, on='rbp')
 pf = df[ ['rbp', 'nostruct__err_perc', 'nostruct__best_corr', 'domain']].query('rbp in @dom_rbps')
 pf['fold_error'] = 100. / pf['nostruct__err_perc']
+x = pf[['rbp', 'fold_error']]
+print x.sort_values('fold_error')
 print "Final MEAN CORRELATION", pf['nostruct__best_corr'].mean()
 print "Initial mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['nostruct__err_initial'].values).mean()
 print "Final mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['nostruct__err_final'].values).mean()
@@ -72,7 +74,7 @@ print pf.query('rbp == "HNRNPL"')
 # print pf
 
 
-plt.figure(figsize=(4,1.5))
+plt.figure(figsize=(3, 1.5))
 bpcorr = sns.boxplot(
     data=pf,
     y='domain',
@@ -83,6 +85,8 @@ bpcorr = sns.boxplot(
     orient='h',
     flierprops = dict(marker='o')
 )
+# bpcorr.set_xticklabels(bpcorr.get_xticklabels(), rotation=90)
+
 print pf.groupby(['domain'])[ ['domain', 'nostruct__best_corr'] ]
 medians = pf.groupby(['domain'])['nostruct__best_corr'].median().values
 print "median correlations", medians
@@ -107,6 +111,8 @@ bperr = sns.boxplot(
     linewidth = .5,
     fliersize = 1,
 )
+bperr.set_xticklabels(bperr.get_xticklabels(), rotation=90)
+
 plt.tight_layout()
 sns.despine()
 plt.savefig('fit_err.pdf')
@@ -119,16 +125,22 @@ lmp = sns.lmplot(
     fit_reg=False,
     hue='domain',
     hue_order=domain_order,
-    legend=True,
+    legend=False,
     palette='viridis',
     markers=['o', '^', 's', '*', '>']
 )
-plt.gcf().set_size_inches(4, 3)
+plt.legend(loc='upper left')
+plt.gcf().set_size_inches(3, 3)
 
-rbp_annotate = ['HNRNPL', 'ZNF326' ]
-ann_ofs = [(-.2,-.1), (.0, 1)]
-for x, (dx, dy) in zip(pf.query('rbp in @rbp_annotate').itertuples(), ann_ofs):
+rbp_annotate = ['HNRNPL', 'ZNF326', 'ELAVL4', 'PUM1', 'RBFOX2', 'MBNL1']
+ann_ofs = {
+    'HNRNPL' : (-.2, 0),
+    'ZNF326' : (.0, 1),
+    'MBNL1' : (0, 1),
+}
+for x in pf.query('rbp in @rbp_annotate').itertuples():
     print x
+    dx, dy = ann_ofs.get(x.rbp, (-.1, 0) )
     plt.annotate(
         x.rbp,
         xy=(x.nostruct__best_corr, x.fold_error),
@@ -138,8 +150,9 @@ for x, (dx, dy) in zip(pf.query('rbp in @rbp_annotate').itertuples(), ann_ofs):
 
 plt.ylabel("fold model error reduction")
 plt.xlabel("max 6-mer correlation after fit")
+plt.axhline(1, color='k', linestyle='dashed')
+# sns.despine()
 plt.tight_layout()
-sns.despine()
 plt.savefig('fit_qual.pdf')
 plt.close()
 

@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+
 import re, glob, sys, os
 import numpy as np
 import shelve
@@ -27,6 +29,12 @@ class Results(object):
 
         parts = [fmt(k) for k in sorted(self._keys)]
         return "\n".join(parts)
+    
+    def get(self, k, default=None):
+        if k in self._keys:
+            return getattr(self, k)
+        
+        return default
 
     def __str__(self):
         return self._tostr()
@@ -36,7 +44,7 @@ class Results(object):
 # 1/0
 
 def get_descent(fname, err_thresh=.05):
-    # print fname
+    # print "get_descent", fname
     sname = os.path.join(os.path.dirname(fname), "history")
     try:
         shelf = shelve.open(sname, flag='r')
@@ -135,21 +143,147 @@ def get_params(fname):
 
     return res
 
+
+def n_PSAM_plot(nm, ns, nd, fname="n_PSAMs_bar.pdf"):
+    print "multi", nm
+    print "single", ns
+    print "KHDRBS2+3 (likely dimers)", nd
+    # vm = nm / float(nm.sum())
+    # vs = ns / float(ns.sum())
+
+    cmap = plt.get_cmap("tab20")
+    outer_colors = cmap(np.arange(len(nm)))
+
+    plt.figure(figsize=(2, 2))
+
+    # n = np.bincount(n_psams)
+    # plt.bar(np.arange(len(n)), n, width=0.8, color=outer_colors[1])
+    plt.bar(np.arange(len(ns)), ns, width=0.3, color=outer_colors[1], label="1 RBD")
+    plt.bar(np.arange(len(nm))+.3, nm, width=0.3, color=outer_colors[0], label="2+ RBDs")
+    plt.bar(np.arange(len(nd))+.6, nd, width=0.3, color=outer_colors[2], label="dimers")
+
+    # cs = np.cumsum(ns) / float(ns.sum())
+    # cm = np.cumsum(nm) / float(nm.sum())
+    # cd = np.cumsum(nd) / float(nd.sum())
+
+    # plt.plot(cs, "-", color=outer_colors[1], label="1 RBD")
+    # plt.plot(cm, "-", color=outer_colors[0], label="2 RBDs")
+    # plt.plot(cd, "-", color=outer_colors[2], label="3+ RBDs")
+    plt.ylabel("cumulative fraction")
+
+    plt.legend(loc='upper left')
+    plt.ylabel("count")
+    plt.xlabel("PSAMs per RBP")
+    sns.despine()
+    plt.tight_layout()
+    plt.xticks(np.arange(5), ["1","2","3","4","5"])
+    # plt.gca().set(aspect="equal")
+    plt.savefig(fname)
+    plt.close()
+
+
+
+def n_PSAM_significance(pattern, rbps, variant, plot=False):
+    from cska.params import ModelSetParams
+    # setup
+    multi = {}
+    dom_counts = {}
+    valid = {}
+    for line in file("/home/mjens/git/cska/rRBNS/domains.txt"):
+        rbp, domains = line.split('\t')
+        doms = domains.rstrip().split(',')
+        
+        dom_counts[rbp] = len(doms)
+        if dom_counts[rbp] > 1:
+            multi[rbp] = True
+        else:
+            multi[rbp] = False
+
+        if 'other' in domains or rbp.startswith('KHDRBS'):
+            valid[rbp] = False
+        else:
+            valid[rbp] = True
+    
+    # load PSAM count for valid rbps
+    n_psams = {}
+    valid_rbps = []
+    for rbp in rbps:
+        if valid[rbp]:
+            valid_rbps.append(rbp)
+
+        fname = pattern.format(rbp=rbp, variant=variant)
+        params = ModelSetParams.load(fname, 1)
+        n_psams[rbp] = len(params.param_set)
+        # if rbp == 'MSI1':
+        #     print params
+        #     print "<<<", len(params.param_set)
+        
+
+    n_multi = np.array([n_psams[rbp] for rbp in valid_rbps if multi[rbp] == True])
+    n_single = np.array([n_psams[rbp] for rbp in valid_rbps if dom_counts[rbp] == 1])
+    # n_multi = np.array([n_psams[rbp] for rbp in valid_rbps if dom_counts[rbp] == 2])
+    n_dimer = np.array([n_psams[rbp] for rbp in ['KHDRBS2', 'KHDRBS3']])
+    # n_dimer = np.array([n_psams[rbp] for rbp in valid_rbps if dom_counts[rbp] > 2])
+
+    def stars(p):
+        if p < .01:
+            return "**"
+        elif p < .05:
+            return "* "
+        else:
+            return "ns"
+
+    # print pattern
+    from scipy.stats import mannwhitneyu, ttest_ind
+    # print "multi domain mean PSAMs", n_multi.mean()
+    # print "single domain mean PSAMS", n_single.mean()
+    mwu = mannwhitneyu(n_multi, n_single)
+    tt = ttest_ind(n_multi, n_single)
+    # tt = mannwhitneyu(n_dimer, n_single) # abuse for 3+ domains
+
+    ratio = n_multi.mean() / n_single.mean()
+
+    mwu_p = mwu.pvalue
+    tt_p = tt.pvalue
+
+    mwu_s = stars(mwu_p)
+    tt_s = stars(tt_p)
+    print f"{variant:30s} multi/single={ratio:.3f} p_MWU={mwu_p:.3e} {mwu_s}  p_ttest={tt_p:.3e} {tt_s} "
+    # print "MWU", mwu
+    # print "t-test", tt
+
+    nm = np.bincount(n_multi)[1:]
+    ns = np.bincount(n_single)[1:]
+    nd = np.bincount(n_dimer)[1:]
+
+    if (mwu_p < .05 and tt_p < .05) or plot:
+        n_PSAM_plot(nm, ns, nd, fname=f"n_PSAM_{variant}.pdf")
+        # for rbp in rbps:
+        #     print "{} -> n_dom={} n_psam={}".format(rbp, dom_counts[rbp], n_psams[rbp])
+
+        # print "n_multi", n_multi
+        # print "n_single", n_single
+    return mwu, tt, nm, ns, ns
+
+
 def extract_error_corr(path):
     d = {}
     results = {}
+    errors = []
+
     for fname in glob.glob(path):
         rbp = fname.split('/')[-3]
         sys.stderr.write(fname+'\n')
-        print rbp
+        # print rbp
         try:
             res = Results(rbp=rbp)
             res.add_results(nostruct = get_descent(os.path.join(fname, "opt_nostruct/descent.tsv")))
             res.add_results(drop_initial = np.round(100. * (res.nostruct.err_drop - 1)) )
             # res.add_results(fp = get_footprint(os.path.join(fname, "footprint/footprints.tsv")))
             res.add_results(full = get_descent(os.path.join(fname, "opt_full/descent.tsv")))
-        except IndexError:
+        except (IndexError, AttributeError, ValueError):
             sys.stderr.write("error parsing data for {} \n".format(rbp))
+            errors.append(rbp)
             continue
         
         # res.add_results(params = get_params(os.path.join(fname, "opt_full/parameters.tsv")))
@@ -157,6 +291,10 @@ def extract_error_corr(path):
         #     print res.rbp, res.nostruct.Kd
         d[rbp] = (res.nostruct.err_final, res.nostruct.best_corr)
         results[rbp] = res
+    
+    if errors:
+        print "Errors occurred with the following rbps", errors
+
     return d, results
 
 def extract_results(path):
@@ -241,6 +379,7 @@ def compare_runs(runs, rbps):
     all_errs = []
     all_corrs = []
     for run in rkeys:
+        print ">>", run
         errs, corrs = np.array([runs[run][rbp] for rbp in rbps]).T
         merrs.append(np.mean(np.log10(errs)))
         mcorrs.append(np.mean(corrs))
@@ -248,7 +387,6 @@ def compare_runs(runs, rbps):
         all_errs.append(errs)
         all_corrs.append(corrs)
 
-        print ">>", run
         eperc = np.percentile(np.log10(errs), [5, 25, 50, 75, 95])
         cperc = np.percentile(corrs, [5, 25, 50, 75, 95])
         print "  log10 error quartiles", np.round(eperc, 2)
@@ -264,7 +402,7 @@ def compare_runs(runs, rbps):
     all_corrs = np.array(all_corrs)
     vc = np.std(all_corrs, axis=0)
     I = vc.argsort()[::-1]
-    for i in I[:5]:
+    for i in I[:15]:
         print rbps[i], np.round(vc[i], 2), np.round(all_corrs[:, i], 3), np.round(all_errs[:, i], 3)
 
 
@@ -273,36 +411,375 @@ def compare_runs(runs, rbps):
 
     print "-> run with lowest error {}, highest corr {}".format(rkeys[ie], rkeys[ic])
 
-d_std, res_std = load_or_make("RBNS/*/cska/std.72", redo=False  )
-d_ci, res_ci = load_or_make("RBNS/*/cska/CI", redo=False)
-d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/xsrbp")
-# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/std")
-d_linocc, res_linocc = load_or_make("RBNS/*/cska/linocc")
-d_dumb, res_dumb = load_or_make("RBNS/*/cska/dumb")
-# d_s, res_s = load_or_make("RBNS/*/cska/single")
-d_s, res_s = load_or_make("RBNS/*/cska/std.72.1")
-d_o, res_o = load_or_make("RBNS/*/cska/oneconc")
 
-runs = {
-    'std.72' : d_std,
-    'std.72.1' : d_s,
-    'CI' : d_ci,
-}
+
+def GC_acc_scale_plot():
+    params_full = [res_std[rbp].full.params for rbp in rbps]
+    gc = []
+    scale = []
+    for rbp, params in zip(rbps, params_full):
+        for par in params.param_set:
+            psam = par.as_PSAM()
+            print "\t".join([str(o) for o in [rbp, psam.consensus_ul, psam.fraction_GC, par.acc_scale, par.acc_k, par.acc_shift]])
+            if par.acc_k > 3 and par.acc_scale > 0:
+                gc.append(psam.fraction_GC)
+                scale.append(par.acc_scale)
+
+
+    plt.figure(figsize=(2,2))
+    x = np.array(gc)
+    y = np.array(scale)
+    print y
+
+    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
+    print slope, intercept, r_value, p_value, std_err
+    plt.plot(x, scale, '.')
+    plt.plot(x, (x*slope + intercept), '-r')
+    plt.xlabel("PSAM G+C content")
+    plt.ylabel("folding energy scale")
+    sns.despine()
+    plt.tight_layout()
+    plt.savefig("GC_scale.pdf")
+    plt.close()
+    
+
+def mdl_comp_struct_plot():
+    labels_s = ['PSAMs + structure', 'PSAMs only']
+    colors_s = ['r', 'k']
+
+    plt.figure(figsize=(2, 2))
+    _min = np.inf
+    _max = -np.inf
+    regressions = []
+
+    x = np.arange(len(err_full))
+    I = np.argsort(err_full)
+    for i, err in enumerate([err_full, err_nostruct]):
+        plt.semilogy(x, err[I], '.', color=colors_s[i], label=labels_s[i], alpha=1., markersize=1)
+
+        # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
+        # regressions.append( (slope, intercept) )
+        _min = min(_min, err.min())
+        _max = max(_max, err.max())
+
+    plt.legend(loc='lower center', ncol=1)
+    plt.xlabel("RBP index")
+    plt.ylabel("model error")
+    sns.despine()
+    plt.tight_layout()
+    plt.savefig("model_errors_struct.pdf")
+    plt.close()
+
+    plt.figure(figsize=(2, 2))
+    _min = np.inf
+    _max = -np.inf
+    regressions = []
+    import scipy.stats
+    x = np.arange(len(corr_full))
+    I = np.argsort(corr_full)
+    labels_s = ['PSAMs + structure', 'PSAMs only']
+    colors_s = ['r', 'k']
+    for i, corr in enumerate([corr_full, corr_nostruct]):
+        plt.plot(x, corr[I], '.', color=colors_s[i], label=labels_s[i], alpha=1., markersize=1)
+
+        # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
+        # regressions.append( (slope, intercept) )
+        _min = min(_min, err.min())
+        _max = max(_max, err.max())
+
+    plt.legend(loc='lower center', ncol=1)
+    plt.xlabel("RBP index")
+    plt.ylabel("6-mer correlation")
+    sns.despine()
+    plt.tight_layout()
+    plt.savefig("model_corrs_struct.pdf")
+    plt.close()
+
+def mdl_comparison_plot():
+    err_ratios = [err_xs / err_std, err_lo / err_std, err_d / err_std, (err_s / err_std)[n_psams > 1], err_o / err_std]
+    corr_ratios = [corr_xs / corr_std, corr_lo / corr_std, corr_d / corr_std, (corr_s / corr_std)[n_psams > 1], corr_o / corr_std]
+
+    labels = ["mass-action", "excess RBP", "linear occ.", "excess RBP +\nlinear occ.", "single PSAM"] #, "single\nconcentration"]
+    flatui = ["k", "#9b59b6", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71"]
+    flatui = ["k", "#9b59b6", "#3498db", "#e74c3c", "#95a5a6", "#34495e", "#2ecc71"]
+    colors = ['#e75621', '#27335d', '#f5a601', '#a8c784', '#639bbe']
+    colors = flatui
+    # import seaborn as sns
+    # colors = sns.color_palette(flatui)(np.linspace(0, 1, len(labels)))
+    # print "colors", colors
+    symbols = ['o', '^', 's', '*', '.']
+
+    plt.figure(figsize=(3, 3))
+    minerr = .5*min(err_s.min(), err_std.min())
+    maxerr = 2*max(err_s.max(), err_std.max())
+    
+    import matplotlib.cm as cm
+    colors = cm.viridis(np.linspace(0, 1, n_psams.max()))
+    plt.gca().set_xscale('log')
+    plt.gca().set_yscale('log')
+    plt.scatter(err_s, err_std, c=colors, marker='o')
+    lfc = np.log2(err_s / err_std)
+    for i in np.argsort(lfc):
+        if lfc[i] > - 0.2:
+            break
+        print "error lower in single PSAM", rbps[i], err_s[i], '<', err_std[i], 'n_psam', n_psams[i]
+
+    plt.plot([minerr, maxerr], [minerr, maxerr], '--k', linewidth=.5)
+    # plt.colorbar()
+    plt.xlabel("single PSAM")
+    plt.ylabel("PSAM set")
+    plt.xlim(minerr, maxerr)
+    plt.ylim(minerr, maxerr)
+    sns.despine()
+    plt.tight_layout()
+    plt.savefig("PSAM_set.pdf")
+    plt.close()
+    # sys.exit(0)
+
+
+
+
+    plt.figure(figsize=(3, 3))
+    # extract the sample errors after optimization for exacty the sample being used in the oneconc runs
+    single_conc = [res_o[rbp].nostruct.rbp_conc[0] for rbp in rbps]
+    es = np.array([res_std[rbp].nostruct.err_dict[conc] for (conc, rbp) in zip(single_conc, rbps)])
+    eo = np.array([res_o[rbp].nostruct.err_dict[conc] for (conc, rbp) in zip(single_conc, rbps)])
+
+    plt.plot(es[n_conc > 1], eo[n_conc > 1], symbols[4], color=colors[4], label="error of best sample after optimization")
+    plt.gca().set_xscale("log")
+    plt.gca().set_yscale("log")
+
+    _min = min(es.min(), eo.min())
+    _max = min(es.max(), eo.max())
+
+    _min *= 1 - np.sign(_min) * .05
+    _max *= 1 + np.sign(_max) * .05
+
+    plt.plot([_min, _max], [_min, _max], '--', color='gray', linewidth=.5)
+    plt.xlim(_min, _max)
+    plt.ylim(_min, _max)
+    plt.legend(loc='best')
+    plt.xlabel("best sample alone")
+    plt.ylabel("all samples together")
+    plt.tight_layout()
+    sns.despine()
+    plt.savefig("oneconc_vs_all.pdf")
+    plt.close()
+
+    for j in range(len(labels) - 1):
+        print "top proteins that benefit from", labels[j + 1]
+        for i in err_ratios[j].argsort()[:5]:
+            r = err_ratios[j][i]
+            if j == 3:
+                rbp = multi_psam_rbps[i]
+            else:
+                rbp = rbps[i]
+            if r < 1:
+                print rbp, "err_ratio", r, "corr_ratio", corr_ratios[j][i]
+
+
+    plt.figure(figsize=(4,2))
+    plt.subplot(121)
+    # print len(labels), err_ratios.shape, corr_ratios.shape
+    lerr = [np.log2(r) for r in err_ratios][:-1]
+    lcorr = [np.log2(r) for r in corr_ratios][:-1]
+    bplot = plt.boxplot(
+        lerr,
+        notch=True,  # notch shape
+        vert=True,  # vertical box alignment
+        patch_artist=True,  # fill with color
+        labels=labels[1:],  # will be used to label x-ticks
+    )
+    plt.ylabel("rel. error [log2]")
+    plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
+    plt.yticks([-2, -1,0,1,2,3], ["0.25", "0.5", "1", "2", "4", "8"])
+
+    plt.subplot(122)
+    bp2 = plt.boxplot(lcorr,
+        notch=True,  # notch shape
+        vert=True,  # vertical box alignment
+        patch_artist=True,  # fill with color
+        labels=labels[1:],  # will be used to label x-ticks
+    )
+    plt.ylabel("rel. correlation [log2]")
+    plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
+    plt.yticks([-3, -2, -1,0,1,2], ["0.125","0.25", "0.5", "1", "2", "4"])
+    plt.xticks(rotation=90)
+    # fill with colors
+    # colors = ['pink', 'lightblue', 'lightgreen', 'orange']
+    for bplot in (bplot, bp2):
+        for patch, color in zip(bplot['boxes'], colors):
+            patch.set_facecolor(color)
+
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    sns.despine()
+    plt.savefig("model_performance.pdf")
+    plt.close()
+
+    plt.figure(figsize=(2, 2))
+    # plt.gca().set_xscale("log")
+    # plt.gca().set_yscale("log")
+    # plt.gca().set_aspect(1.0)
+    _min = np.inf
+    _max = -np.inf
+    regressions = []
+    import scipy.stats
+    x = np.arange(len(err_std))
+    I = np.argsort(err_std)
+    for i, err in enumerate([err_std, err_xs, err_lo, err_d, err_s]):
+        plt.semilogy(x, err[I], '.', color=colors[i], label=labels[i], alpha=1., markersize=1)
+
+        # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
+        # regressions.append( (slope, intercept) )
+        _min = min(_min, err.min())
+        _max = max(_max, err.max())
+
+    w = np.fabs(_max - _min)
+    print "before", _min, _max, w
+
+    _min *= 1 - np.sign(_min) * .2
+    _max *= 1 + np.sign(_max) * .2
+
+    w = np.fabs(_max - _min)
+    print "after", _min, _max, w
+
+    # plt.plot([_min, _max], [_min, _max], '--', color='gray', )
+
+    # print "regressions", regressions
+    # for (slope, intercept), color in zip(regressions, colors):
+    #     x = np.linspace(np.log2(_min), np.log2(_max), 2)
+    #     plt.plot(2**x, 2**(x*slope + intercept), '-', color=color, linewidth=1)
+
+    # xmin, xmax = plt.xlim()
+    # ymin, ymax = plt.ylim()
+    # plt.xlim(min(xmin, ymin), max(xmax, ymax))
+    # plt.ylim(min(xmin, ymin), max(xmax, ymax))
+    # plt.ylim(_min, _max)
+    plt.legend(loc='upper center', ncol=2)
+    plt.xlabel("RBP index")
+    plt.ylabel("model error")
+    sns.despine()
+    plt.tight_layout()
+    plt.savefig("model_errors.pdf")
+    plt.close()
+
+    plt.figure(figsize=(2,2))
+    _min = np.inf
+    _max = -np.inf
+    x = np.arange(len(corr_std))
+    I = np.argsort(corr_std)
+    for i, corr in enumerate([corr_std, corr_xs, corr_lo, corr_d, corr_s]):
+    # for i, err in enumerate([err_std, err_xs, err_lo, err_d, err_s]):
+        plt.plot(x, corr[I], '.', color=colors[i], label=labels[i], alpha=1., markersize=1)    
+        # plt.plot(corr_std, corr, symbols[i], color=colors[i], label=labels[i])
+        _min = min(_min, corr.min())
+        _max = max(_max, corr.max())
+
+    _min *= 1 - np.sign(_min) * .1
+    _max *= 1 + np.sign(_max) * .1
+
+    _min = 0
+    _max = 1
+    # plt.plot([_min, _max], [_min, _max], '--', color='gray', linewidth=.5)
+    # plt.gca().set_xscale("log")
+    # plt.gca().set_yscale("log")
+
+    # plt.xlim(_min, _max)
+    # plt.ylim(_min, _max)
+    plt.legend(loc='best')
+    plt.xlabel("RBP index")
+    plt.ylabel("6-mer correlation")
+    plt.tight_layout()
+    sns.despine()
+    plt.savefig("model_corrs.pdf")
+    plt.close()
 
 from cska import dominguez_rbps as dom_rbps
-rbps = sorted(d_std.keys())
 rbps = np.array(dom_rbps)
 print len(rbps), "RBPs are being considered"
 
-compare_runs(runs, rbps)
-sys.exit(0)
+# i = (rbps == 'SRSF11').argmax()
+# rbps = list(rbps)
+# rbps.pop(i)
+# print rbps
+pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/seed/initial.tsv"
+# n_PSAM_significance(pattern, rbps, "sgd", plot=True)
+n_PSAM_significance(pattern, rbps, "CI", plot=True)
+# n_PSAM_significance(pattern, rbps, "seed_z4_thresh_8", plot=True)
+# n_PSAM_significance(pattern, rbps, "seed_z5_thresh_9")
+# n_PSAM_significance(pattern, rbps, "seed_z5_thresh_82")
+# n_PSAM_significance(pattern, rbps, "seed_z5_thresh_84")
+# n_PSAM_significance(pattern, rbps, "seed_z6_thresh_9")
+
+# n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85")
+# n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_85")
+# n_PSAM_significance(pattern, rbps, "seed_z6_thresh_85")
+# n_PSAM_significance(pattern, rbps, "seed_z5.25_thresh_85")
+# n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85")
+# n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_84")
+# n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_86")
+
+# n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85_m10")
+# n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85_m10")
+
+# n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75", plot=True)
+# n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01", plot=True)
+# n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01_nn", plot=True)
+# n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.10", plot=True)
+n_PSAM_significance(pattern, rbps, "z4t75p01k99fix", plot=True)
+
+# redo8 = False
+rbase = "std.8"
+rbase = "std.8.sgd"
+rbase = "sgd"
+rbase = "z4t75p01k99fix"
+redo8 = True
+d_std, res_std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8  )
+n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
+
+# n_PSAM_plot(n_psams)
+
+d_s, res_s = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8  )
+d_o, res_o = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8  )
+d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8)
+d_linocc, res_linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8)
+d_dumb, res_dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8)
+
+# d_std, res_std = load_or_make("RBNS/*/cska/std.72", redo=False  )
+# d_7, res_7 = load_or_make("RBNS/*/cska/std.7", redo=False  )
+d_ci, res_ci = load_or_make("RBNS/*/cska/CI", redo=False)
+# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/std")
+# d_s, res_s = load_or_make("RBNS/*/cska/single")
+# d_s, res_s = load_or_make("RBNS/*/cska/std.72.1")
+# d_s7, res_s7 = load_or_make("RBNS/*/cska/std.7.1")
+# d_o, res_o = load_or_make("RBNS/*/cska/std.8.s")
+
+
+# runs = {
+#     # 'std.7' : d_7,
+#     'sgd' : d_std,
+#     'sgd.1' : d_s,
+#     'sgd.s' : d_o,
+#     'sgd.xsrbp' : d_xsrbp,
+#     'sgd.linocc' : d_linocc,
+#     # 'std.7.1' : d_s7,
+#     # 'std.72' : d_std,
+#     # 'std.72.1' : d_s,
+#     'CI' : d_ci,
+# }
+
+
+# compare_runs(runs, rbps)
+# sys.exit(0)
 
 err_std, corr_std = np.array([d_std[rbp] for rbp in rbps]).T
+err_s, corr_s = np.array([d_s[rbp] for rbp in rbps]).T
+err_o, corr_o = np.array([d_o[rbp] for rbp in rbps]).T
+
 err_xs, corr_xs = np.array([d_xsrbp[rbp] for rbp in rbps]).T
 err_lo, corr_lo = np.array([d_linocc[rbp] for rbp in rbps]).T
 err_d, corr_d = np.array([d_dumb[rbp] for rbp in rbps]).T
-err_s, corr_s = np.array([d_s[rbp] for rbp in rbps]).T
-err_o, corr_o = np.array([d_o[rbp] for rbp in rbps]).T
 
 n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
 multi_psam_rbps = rbps[n_psams > 1]
@@ -311,310 +788,17 @@ n_conc = np.array([len(res_std[rbp].nostruct.rbp_conc) for rbp in rbps])
 # print np.array(rbps)[n_psams > 1]
 
 err_nostruct = np.array([res_std[rbp].nostruct.err_final for rbp in rbps])
-err_full = np.array([res_std[rbp].full.err_final for rbp in rbps])
+err_full = np.array([res_std[rbp].full.get("err_final", np.NaN) for rbp in rbps])
 
-corr_nostruct = np.array([res_std[rbp].nostruct.best_corr for rbp in rbps])
-corr_full = np.array([res_std[rbp].full.best_corr for rbp in rbps])
-
-
-params_full = [res_std[rbp].full.params for rbp in rbps]
-gc = []
-scale = []
-for rbp, params in zip(rbps, params_full):
-    for par in params.param_set:
-        psam = par.as_PSAM()
-        print "\t".join([str(o) for o in [rbp, psam.consensus_ul, psam.fraction_GC, par.acc_scale, par.acc_k, par.acc_shift]])
-        if par.acc_k > 3 and par.acc_scale > 0:
-            gc.append(psam.fraction_GC)
-            scale.append(par.acc_scale)
+corr_nostruct = np.array([res_std[rbp].nostruct.get("best_corr", np.NaN) for rbp in rbps])
+corr_full = np.array([res_std[rbp].full.get("best_corr", np.NaN) for rbp in rbps])
 
 
-plt.figure(figsize=(2,2))
-x = np.array(gc)
-y = np.array(scale)
-print y
+# n_PSAM_plot(n_psams)
+# GC_acc_scale_plot()
+# model_comp_struct_plot()
+mdl_comparison_plot()
 
-slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
-print slope, intercept, r_value, p_value, std_err
-plt.plot(x, scale, '.')
-plt.plot(x, (x*slope + intercept), '-r')
-plt.xlabel("PSAM G+C content")
-plt.ylabel("folding energy scale")
-sns.despine()
-plt.tight_layout()
-plt.savefig("GC_scale.pdf")
-sys.exit(0)
-
-## impact of secondary structure
-labels_s = ['PSAMs + structure', 'PSAMs only']
-colors_s = ['r', 'k']
-
-plt.figure(figsize=(2, 2))
-_min = np.inf
-_max = -np.inf
-regressions = []
-
-x = np.arange(len(err_full))
-I = np.argsort(err_full)
-for i, err in enumerate([err_full, err_nostruct]):
-    plt.semilogy(x, err[I], '.', color=colors_s[i], label=labels_s[i], alpha=1., markersize=1)
-
-    # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
-    # regressions.append( (slope, intercept) )
-    _min = min(_min, err.min())
-    _max = max(_max, err.max())
-
-plt.legend(loc='lower center', ncol=1)
-plt.xlabel("RBP index")
-plt.ylabel("model error")
-sns.despine()
-plt.tight_layout()
-plt.savefig("model_errors_struct.pdf")
-plt.close()
-
-
-plt.figure(figsize=(2, 2))
-_min = np.inf
-_max = -np.inf
-regressions = []
-import scipy.stats
-x = np.arange(len(corr_full))
-I = np.argsort(corr_full)
-labels_s = ['PSAMs + structure', 'PSAMs only']
-colors_s = ['r', 'k']
-for i, corr in enumerate([corr_full, corr_nostruct]):
-    plt.plot(x, corr[I], '.', color=colors_s[i], label=labels_s[i], alpha=1., markersize=1)
-
-    # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
-    # regressions.append( (slope, intercept) )
-    _min = min(_min, err.min())
-    _max = max(_max, err.max())
-
-plt.legend(loc='lower center', ncol=1)
-plt.xlabel("RBP index")
-plt.ylabel("6-mer correlation")
-sns.despine()
-plt.tight_layout()
-plt.savefig("model_corrs_struct.pdf")
-plt.close()
-
-
-def n_PSAM_plot(n_psams):
-    multi = {}
-    for line in file("/home/mjens/git/cska/rRBNS/domains.txt"):
-        rbp, domains = line.split('\t')
-        nd = domains.count(',')
-        if nd > 0:
-            multi[rbp] = True
-        # else:
-        #     print rbp, nd, domains.rstrip()
-    
-    mask = np.array([multi.get(rbp, False) for rbp in rbps])
-    for rbp, x, m in zip(rbps, n_psams, mask):
-        if not multi.get(rbp, False):
-            print "single-domain w multiple PSAMS", rbp, x
-
-    nm = np.bincount(n_psams[mask])[1:]
-    ns = np.bincount(n_psams[~mask])[1:]
-
-    from scipy.stats import mannwhitneyu
-    print "multi domain median PSAMs", np.median(n_psams[mask])
-    print "single domain median PSAMS", np.median(n_psams[~mask])
-    print mannwhitneyu(n_psams[mask], n_psams[~mask])
-
-    print "multi", nm
-    print "single", ns
-    # vm = nm / float(nm.sum())
-    # vs = ns / float(ns.sum())
-
-    cmap = plt.get_cmap("tab20c")
-    outer_colors = cmap(np.arange(len(nm)))
-
-    plt.figure(figsize=(3, 2))
-    plt.bar(np.arange(len(ns)), ns, width=0.4, color=outer_colors[0], label="single-domain")
-    plt.bar(np.arange(len(nm))+.45, nm, width=0.4, color=outer_colors[2], label="multi-domain")
-
-    plt.xlabel("PSAMs per RBP")
-    plt.ylabel("count")
-    plt.tight_layout()
-    sns.despine()
-    plt.xticks(np.arange(5), ["1","2","3","4","5"])
-    # plt.gca().set(aspect="equal")
-    plt.savefig("n_PSAMs_bar.pdf")
-    plt.close()
-
-n_PSAM_plot(n_psams)
-# print n_conc
-# print np.array(rbps)[n_conc == 1]
-
-err_ratios = [err_xs / err_std, err_lo / err_std, err_d / err_std, (err_s / err_std)[n_psams > 1], err_o / err_std]
-corr_ratios = [corr_xs / corr_std, corr_lo / corr_std, corr_d / corr_std, (corr_s / corr_std)[n_psams > 1], corr_o / corr_std]
-
-labels = ["mass-action", "excess RBP", "linear occ.", "excess RBP +\nlinear occ.", "single PSAM"] #, "single\nconcentration"]
-flatui = ["k", "#9b59b6", "#3498db", "#95a5a6", "#e74c3c", "#34495e", "#2ecc71"]
-flatui = ["k", "#9b59b6", "#3498db", "#e74c3c", "#95a5a6", "#34495e", "#2ecc71"]
-colors = ['#e75621', '#27335d', '#f5a601', '#a8c784', '#639bbe']
-colors = flatui
-# import seaborn as sns
-# colors = sns.color_palette(flatui)(np.linspace(0, 1, len(labels)))
-# print "colors", colors
-symbols = ['o', '^', 's', '*', '.']
-
-plt.figure(figsize=(3, 3))
-# extract the sample errors after optimization for exacty the sample being used in the oneconc runs
-single_conc = [res_o[rbp].nostruct.rbp_conc[0] for rbp in rbps]
-es = np.array([res_std[rbp].nostruct.err_dict[conc] for (conc, rbp) in zip(single_conc, rbps)])
-eo = np.array([res_o[rbp].nostruct.err_dict[conc] for (conc, rbp) in zip(single_conc, rbps)])
-
-plt.plot(es[n_conc > 1], eo[n_conc > 1], symbols[4], color=colors[4], label="error of best sample after optimization")
-plt.gca().set_xscale("log")
-plt.gca().set_yscale("log")
-
-_min = min(es.min(), eo.min())
-_max = min(es.max(), eo.max())
-
-_min *= 1 - np.sign(_min) * .05
-_max *= 1 + np.sign(_max) * .05
-
-plt.plot([_min, _max], [_min, _max], '--', color='gray', linewidth=.5)
-plt.xlim(_min, _max)
-plt.ylim(_min, _max)
-plt.legend(loc='best')
-plt.xlabel("best sample alone")
-plt.ylabel("all samples together")
-plt.tight_layout()
-sns.despine()
-plt.savefig("oneconc_vs_all.pdf")
-plt.close()
-
-for j in range(len(labels) - 1):
-    print "top proteins that benefit from", labels[j + 1]
-    for i in err_ratios[j].argsort()[:5]:
-        r = err_ratios[j][i]
-        if j == 3:
-            rbp = multi_psam_rbps[i]
-        else:
-            rbp = rbps[i]
-        if r < 1:
-            print rbp, "err_ratio", r, "corr_ratio", corr_ratios[j][i]
-
-
-plt.figure(figsize=(4,2))
-plt.subplot(121)
-# print len(labels), err_ratios.shape, corr_ratios.shape
-lerr = [np.log2(r) for r in err_ratios][:-1]
-lcorr = [np.log2(r) for r in corr_ratios][:-1]
-bplot = plt.boxplot(
-    lerr,
-    notch=True,  # notch shape
-    vert=True,  # vertical box alignment
-    patch_artist=True,  # fill with color
-    labels=labels[1:],  # will be used to label x-ticks
-)
-plt.ylabel("rel. error [log2]")
-plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
-plt.yticks([-2, -1,0,1,2,3], ["0.25", "0.5", "1", "2", "4", "8"])
-
-plt.subplot(122)
-bp2 = plt.boxplot(lcorr,
-    notch=True,  # notch shape
-    vert=True,  # vertical box alignment
-    patch_artist=True,  # fill with color
-    labels=labels[1:],  # will be used to label x-ticks
-)
-plt.ylabel("rel. correlation [log2]")
-plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
-plt.yticks([-3, -2, -1,0,1,2], ["0.125","0.25", "0.5", "1", "2", "4"])
-plt.xticks(rotation=90)
-# fill with colors
-# colors = ['pink', 'lightblue', 'lightgreen', 'orange']
-for bplot in (bplot, bp2):
-    for patch, color in zip(bplot['boxes'], colors):
-        patch.set_facecolor(color)
-
-plt.xticks(rotation=90)
-plt.tight_layout()
-sns.despine()
-plt.savefig("model_performance.pdf")
-plt.close()
-
-plt.figure(figsize=(2, 2))
-# plt.gca().set_xscale("log")
-# plt.gca().set_yscale("log")
-# plt.gca().set_aspect(1.0)
-_min = np.inf
-_max = -np.inf
-regressions = []
-import scipy.stats
-x = np.arange(len(err_std))
-I = np.argsort(err_std)
-for i, err in enumerate([err_std, err_xs, err_lo, err_d, err_s]):
-    plt.semilogy(x, err[I], '.', color=colors[i], label=labels[i], alpha=1., markersize=1)
-
-    # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(np.log2(err_std), np.log2(err))
-    # regressions.append( (slope, intercept) )
-    _min = min(_min, err.min())
-    _max = max(_max, err.max())
-
-w = np.fabs(_max - _min)
-print "before", _min, _max, w
-
-_min *= 1 - np.sign(_min) * .2
-_max *= 1 + np.sign(_max) * .2
-
-w = np.fabs(_max - _min)
-print "after", _min, _max, w
-
-# plt.plot([_min, _max], [_min, _max], '--', color='gray', )
-
-# print "regressions", regressions
-# for (slope, intercept), color in zip(regressions, colors):
-#     x = np.linspace(np.log2(_min), np.log2(_max), 2)
-#     plt.plot(2**x, 2**(x*slope + intercept), '-', color=color, linewidth=1)
-
-# xmin, xmax = plt.xlim()
-# ymin, ymax = plt.ylim()
-# plt.xlim(min(xmin, ymin), max(xmax, ymax))
-# plt.ylim(min(xmin, ymin), max(xmax, ymax))
-# plt.ylim(_min, _max)
-plt.legend(loc='upper center', ncol=2)
-plt.xlabel("RBP index")
-plt.ylabel("model error")
-sns.despine()
-plt.tight_layout()
-plt.savefig("model_errors.pdf")
-plt.close()
-
-plt.figure(figsize=(2,2))
-_min = np.inf
-_max = -np.inf
-x = np.arange(len(corr_std))
-I = np.argsort(corr_std)
-for i, corr in enumerate([corr_std, corr_xs, corr_lo, corr_d, corr_s]):
-# for i, err in enumerate([err_std, err_xs, err_lo, err_d, err_s]):
-    plt.plot(x, corr[I], '.', color=colors[i], label=labels[i], alpha=1., markersize=1)    
-    # plt.plot(corr_std, corr, symbols[i], color=colors[i], label=labels[i])
-    _min = min(_min, corr.min())
-    _max = max(_max, corr.max())
-
-_min *= 1 - np.sign(_min) * .1
-_max *= 1 + np.sign(_max) * .1
-
-_min = 0
-_max = 1
-# plt.plot([_min, _max], [_min, _max], '--', color='gray', linewidth=.5)
-# plt.gca().set_xscale("log")
-# plt.gca().set_yscale("log")
-
-# plt.xlim(_min, _max)
-# plt.ylim(_min, _max)
-plt.legend(loc='best')
-plt.xlabel("RBP index")
-plt.ylabel("6-mer correlation")
-plt.tight_layout()
-sns.despine()
-plt.savefig("model_corrs.pdf")
-plt.close()
 # 	#print "\t".join([rbp,str(1./float(score))])
 # 	print "\t".join([rbp, str(rerr), str(ferr), str(best_corr), str(steps)])
 
