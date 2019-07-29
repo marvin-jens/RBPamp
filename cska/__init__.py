@@ -1,4 +1,4 @@
-# -*- coding: future_fstrings -*-
+# coding=future_fstrings
 from __future__ import print_function
 __license__ = "MIT"
 __version__ = "0.9.10"
