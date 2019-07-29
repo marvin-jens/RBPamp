@@ -17,6 +17,7 @@ pipelines:
           - python setup.py build_ext --inplace # build Cython extensions
     - step:
         name: unittest
+        script:
           - python cska/__init__.py --version
           - python -m unittest discover tests/ # run unit tests
 
