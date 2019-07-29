@@ -808,8 +808,8 @@ def main():
         run.logger.error(exc)
         sys.stderr.write(exc)
         
-        if self.last_tracker:
-            self.last_tracker.set(exc)
+        if run.last_tracker:
+            run.last_tracker.set(exc)
 
         ex_type, ex_val, ex_tb = sys.exc_info()
         if ex_type == MemoryError:

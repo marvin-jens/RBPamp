@@ -69,9 +69,9 @@ def sane_colorbar(cb, nbins=4):
 
 def pval_str(p):
     if p > 0:
-        return "P < {0:.3e}".format(p)
+        return u"P < {0:.3e}".format(p)
     else:
-        return "P ≈ 0"
+        return u"P ≈ 0"
 
 def roundmax(x, m):
     i = int(x)
@@ -682,7 +682,7 @@ class GradientDescentReport(object):
 
             x = self.logR0[i]
             y = logRt[i]
-            label = "{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
+            label = u"{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
             # data_labels = self.opt.mdl.parameters.param_name
             density_scatter_plot(x, y, label=label, tick_exp=2, lim_max=maxR)
             pp.legend(loc='upper left', frameon=False)

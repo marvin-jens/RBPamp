@@ -6,7 +6,6 @@ matplotlib.use('agg')
 import matplotlib.pyplot as pp
 import logging
 import os
-from itertools import zip_longest
 import cska.cyska as cyska
 from .cyska import yield_kmers
 import cska

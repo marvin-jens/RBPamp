@@ -36,7 +36,11 @@ class StateTracker(object):
 
         last_state = lines[-1]
 
-        rbp, stage, ts, state, version, git, cmdline = last_state.rstrip().split('\t')
+        try:
+            rbp, stage, ts, state, version, git, cmdline = last_state.rstrip().split('\t')
+        except ValueError:
+            return False
+
         same_rbp = rbp == self.run.rbp_name
         same_stage = stage == self.stage
         same_version = version == self.run.version
