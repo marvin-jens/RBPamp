@@ -11,7 +11,7 @@ pipelines:
         name: build
         caches:
           - pip
-          - cy_modules
+          - cymodules
         script: # Modify the commands below to build your repository.
           - pip install -r requirements.txt # install required packages
           - python setup.py build_ext --inplace # build Cython extensions
@@ -22,4 +22,4 @@ pipelines:
 
 definitions:
   caches:
-    cy_modules: cska/cy
+    cymodules: cska/cy
