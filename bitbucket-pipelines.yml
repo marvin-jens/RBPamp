@@ -8,9 +8,18 @@ image: python:2.7.15
 pipelines:
   default:
     - step:
+        name: build
         caches:
           - pip
+          - cy_modules
         script: # Modify the commands below to build your repository.
           - pip install -r requirements.txt # install required packages
           - python setup.py build_ext --inplace # build Cython extensions
+    - step:
+        name: unittest
+          - python cska/__init__.py --version
           - python -m unittest discover tests/ # run unit tests
+
+definitions:
+  caches:
+    cy_modules: cska/cy
