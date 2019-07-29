@@ -1,5 +1,5 @@
 python==2.7.15
-Cython==0.26
+Cython==0.28.5
 numpy==1.13.3
 pandas==0.22.0
 pyzmq==17.1.2
@@ -8,4 +8,4 @@ seaborn==0.8.1
 svgpath2mpl==0.2.1
 simplejson==3.16.0
 weblogo==3.6.0
-future-fstrings==1.0.0
+future-fstrings==1.2.0
