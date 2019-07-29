@@ -21,17 +21,17 @@ if use_cython:
         extra_link_args=['-fopenmp']
     )
     ext_modules += [
-        Extension("cska.cy_kmers", [ "cska/cython/kmers.pyx" ], **cy_kw),
-        Extension("cska.cy_model", [ "cska/cython/model.pyx" ], **cy_kw ),
-        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.pyx" ], **cy_kw ),
+        Extension("cska.cy.cy_kmers", [ "cska/cython/kmers.pyx" ], **cy_kw),
+        Extension("cska.cy.cy_model", [ "cska/cython/model.pyx" ], **cy_kw ),
+        Extension("cska.cy.cy_fastrand", [ "cska/cython/fastrand.pyx" ], **cy_kw ),
         #Extension("cska.cy_cmpxchg", [ "cska/cython/test_cmpxchg.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
 else:
     ext_modules += [
-        Extension("cska.cy_kmers", [ "cska/cython/kmers.c" ]),
-        Extension("cska.cy_model", [ "cska/cython/model.c" ]),
-        Extension("cska.cy_fastrand", [ "cska/cython/fastrand.c" ]),
+        Extension("cska.cy.kmers", [ "cska/cython/kmers.c" ]),
+        Extension("cska.cy.model", [ "cska/cython/model.c" ]),
+        Extension("cska.cy.fastrand", [ "cska/cython/fastrand.c" ]),
     ]
 
 
@@ -60,13 +60,12 @@ setup(
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
         'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
     ],
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
 
-    install_requires=['cython','numpy','matplotlib', 'adjustText', 'zmq'],
+    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq'],
     scripts=['bin/cska'],
     package_dir='',
     packages=['cska'],
