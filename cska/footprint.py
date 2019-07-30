@@ -14,20 +14,17 @@ from cska.sc import SelfConsistency
 from scipy.optimize import minimize
 from time import time
 from copy import deepcopy
-# gc.enable()
+gc.enable()
 # gc.set_debug(gc.DEBUG_LEAK)
 
 def dump_garbage():
     # force collection
-    print("\nGARBAGE:")
     gc.collect()
-
-    print("\nGARBAGE OBJECTS:")
+    print("GARBAGE OBJECTS:")
     for x in gc.garbage:
         s = str(x)
         if len(s) > 80: s = s[:80]
         print(type(x),"\n  ", s)
-
 
 def dump_caches():
     for size, cache in get_cache_sizes():
@@ -163,6 +160,7 @@ class FootprintCalibration(CachedBase):
 
         # print ">>> before initialization"
         # dump_caches()
+        self.log_mem_usage("before init")
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
         self.params = params.copy()
         self.params.acc_k = 0
@@ -199,6 +197,14 @@ class FootprintCalibration(CachedBase):
         self.fp_file = file(fp, 'w')
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
         self._partfunc_done = False
+        self.log_mem_usage("after init")
+
+    def log_mem_usage(self, when='SIZE', n_max=10):
+        for size, cache in get_cache_sizes()[:n_max]:
+            s = size/1024.**2
+            if s < 1:
+                continue
+            self.logger.debug(f"MEM {when}: {cache} {s:.3f} MB")
 
     def prepare_partition_functions(self):
         if self._partfunc_done:
@@ -245,6 +251,7 @@ class FootprintCalibration(CachedBase):
             reads.acc_storage.cache_flush()
 
         self._partfunc_done = True
+        self.log_mem_usage("after prepare_partition_functions")
 
     def store_shelve(self, key, value):
         self.shelve["{0}_{1}".format(self.consensus_ul, key)] = value
@@ -339,7 +346,6 @@ class FootprintCalibration(CachedBase):
         for acc_k in range(kmax, kmin - 1, -1):
             d = self.params.k - acc_k + 1
             shift_range = range(-pad, d + pad)
-
             for s, (punp_predict, res) in zip(shift_range, self.optimize_row(acc_k, shift_range, from_scratch)):
                 err = res.fun
                 err0 = self.load_shelve('err0')
@@ -359,6 +365,8 @@ class FootprintCalibration(CachedBase):
                 self.store_profile(acc_k, s, (punp_predict, res))
                 self.store_footprint(opt)
                 self.result_log.info(f"{self.consensus} k={acc_k} s={s} a_opt={a} A0_opt={A0} err={err} rel_err={rel_err}")
+
+            self.log_mem_usage(f"after optimizing acc_k={acc_k}")
 
 
         results = sorted(self.results.values())
