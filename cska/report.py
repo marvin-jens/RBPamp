@@ -107,7 +107,7 @@ def repel_labels_nx(x, y, labels, k=0.15, ax=None):
     if ax == None:
         ax = plt.gca()
     G = nx.DiGraph()
-    print(x.shape, y.shape, len(labels), ax)
+    # print(x.shape, y.shape, len(labels), ax)
     
     data_nodes = []
     init_pos = {}
@@ -228,7 +228,7 @@ def density_scatter_plot(
         if plot_outliers and outlier_percentile > 0:
             data = np.vstack([x,y])
             if N <= dens_thresh:
-                print("plotting all data points")
+                # print("plotting all data points")
                 out = np.arange(N)
             else:
                 dens_at_points = k(data)
@@ -244,13 +244,13 @@ def density_scatter_plot(
         
         if len(data_labels):
             if N < dens_thresh*.1:
-                print("just add the damn labels")
-                print(x,y, data_labels)
+                # print("just add the damn labels")
+                # print(x,y, data_labels)
                 repel_labels_nx(x, y, data_labels)
             else:
                 # annotate the most enriched and most off-diagonal k-mers
                 top = x.argsort()[::-1][:5]
-                print("top", top)
+                # print("top", top)
                 pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
 
                 repel_labels_nx(x[top], y[top], data_labels[top])
@@ -1032,6 +1032,8 @@ class FootprintCalibrationReport(object):
             self.params = ModelSetParams.load(fparams, 1) # len(self.rbp_conc)
             for par in self.params:
                 cons = par.as_PSAM().consensus_ul
+                par.motif = cons
+                # print(f"{cons} acc_k={par.acc_k} s={par.acc_shift}")
                 dbfile = os.path.join(os.path.dirname(fparams), 'history_{}'.format((cons)))
                 self.shelve[cons] = shelve.open(dbfile, flag='r')
             
@@ -1067,10 +1069,16 @@ class FootprintCalibrationReport(object):
         S = self.shelve[motif]["{motif}_opt_profile_{k}_{s}".format(**locals())]
         if len(S) == 2:
             punp_predict, res = S
-            onekey = '{motif}_opt_profile_a_one_{k}_{s}'.format(**locals())
+            onekey = f'{motif}_opt_profile_a_one_{k}_{s}'
+            onekey2 = f'opt_profile_a_one_{k}_{s}'
             if onekey in self.shelve[motif]:
                 punp_a_one, res_a_one = self.shelve[motif][onekey]
+            elif onekey2 in self.shelve[motif]:
+                punp_a_one, res_a_one = self.shelve[motif][onekey2]
             else:
+                from pprint import pprint
+                # print(f'looking for a_one profile for {k} {s}')
+                # pprint(sorted(self.shelve[motif].keys()))
                 punp_a_one = None
                 res_a_one = None
         else:
@@ -1155,13 +1163,17 @@ class FootprintCalibrationReport(object):
         #     punp_expect,
         #     punp_a_one,
         # ])
-
-        mats = np.concatenate([
+        data = [
             punp_input, 
             punp_naive,
             punp_expect,
             punp_a_one,
-        ])
+        ]
+        # print(data)
+        # n_samples = np.array([d.shape for d in data])
+        # print(n_samples)
+
+        mats = np.concatenate([d for d in data if not d is None])
 
         labels = \
             ["EXP input",] + ["EXP {}nM".format(conc) for conc in self.rbp_conc] + \
@@ -1225,10 +1237,10 @@ class FootprintCalibrationReport(object):
             plt.plot(x, naive, '-', color=color, label=lbl if i == last else None)
         finalize_plot(fp=False)
 
-        from itertools import zip_longest
+        # from itertools import zip_longest
         plt.subplot(223)
         plot_exp()
-        print("punp_a_one", punp_a_one)
+        # print("punp_a_one", punp_a_one)
         if not punp_a_one is None:
             for i, (one, color) in enumerate(zip(punp_a_one, vienna_colors)):
                 lbl = "RNAfold (a=1): err={rerr:.1f}%".format(rerr = 100. * res_a_one.fun/err0)
@@ -1254,7 +1266,7 @@ class FootprintCalibrationReport(object):
 
 
         plt.figure(figsize=(3, 3))
-        for i, (obs, naive, one, pred) in enumerate(zip_longest(punp_input[1:], punp_naive, punp_a_one, punp_expect, fillvalue=None)):
+        for i, (obs, naive, one, pred) in enumerate(zip(punp_input[1:], punp_naive, punp_a_one, punp_expect)):
             plt.plot(obs, naive, 'v', color=naive_colors[i], label="no structure" if i==last else None, alpha=.75)
             if not one is None:
                 plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==last else None, alpha=.75)
@@ -1272,10 +1284,10 @@ class FootprintCalibrationReport(object):
 
 
     def report(self):
-        for motif, params in zip(self.motifs, self.params):
-            self.kmer_acc_profiles(motif, params)
-            self.matrix_plots(motif, highlight=(params.acc_k, params.acc_shift))
-            self.plot_profile(motif, params.acc_k, params.acc_shift)
+        for params in self.params:
+            self.kmer_acc_profiles(params.motif, params)
+            self.matrix_plots(params.motif, highlight=(params.acc_k, params.acc_shift))
+            self.plot_profile(params.motif, params.acc_k, params.acc_shift)
         
     def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
         kmin, kmax = k_range
@@ -1318,13 +1330,13 @@ class FootprintCalibrationReport(object):
         kmin, kmax = k_range
         smin, smax = s_range
 
-        print("s_range", s_range)
-        print("k_range", k_range)
+        # print("s_range", s_range)
+        # print("k_range", k_range)
         n_shift = smax - smin + 1
         n_k = kmax - kmin + 1
 
-        for i, row in enumerate(1./mat_err.T):
-            print(i, row)
+        # for i, row in enumerate(1./mat_err.T):
+        #     print(i, row)
 
         def make_rect(k,s):
             import matplotlib.patches as patches
@@ -1376,7 +1388,7 @@ class FootprintCalibrationReport(object):
         import seaborn as sns
         import matplotlib.pyplot as plt
         labels = self.rbns.sample_labels
-        print(labels)
+        # print(labels)
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
 
         key = '{}_high_affinity_kmers'.format(motif)
