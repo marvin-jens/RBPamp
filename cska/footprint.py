@@ -1,6 +1,7 @@
 # -*- coding: future_fstrings -*-
 from __future__ import print_function
 import numpy as np
+# from cska.npwrap import npmonitored
 import gc
 import os
 import sys
@@ -160,14 +161,15 @@ class FootprintCalibration(CachedBase):
 
         # print ">>> before initialization"
         # dump_caches()
+        self.params = params.copy()
+        self.consensus = self.params.as_PSAM().consensus
+        self.consensus_ul = self.params.as_PSAM().consensus_ul
+        self.logger = logging.getLogger(f'opt.FootprintCalibration({self.consensus_ul})')
         self.log_mem_usage("before init")
         self.path = ensure_path(os.path.join(rbns.out_path, 'footprint/'))
-        self.params = params.copy()
         self.params.acc_k = 0
         self.params.acc_scale = 0
         self.params.non_specific = 0
-        self.consensus = self.params.as_PSAM().consensus
-        self.consensus_ul = self.params.as_PSAM().consensus_ul
         self.rbns = rbns
         self.input_reads = rbns.reads[0]
         self.subsample = subsample
@@ -175,7 +177,6 @@ class FootprintCalibration(CachedBase):
         self.rbp_conc = rbns.rbp_conc
         self.pad = pad
         self.thresh = thresh
-        self.logger = logging.getLogger(f'opt.FootprintCalibration({self.consensus_ul})')
         self.result_log = logging.getLogger('results.footprint')
 
         self.shelve = shelve.open(
@@ -206,6 +207,7 @@ class FootprintCalibration(CachedBase):
                 continue
             self.logger.debug(f"MEM {when}: {cache} {s:.3f} MB")
 
+    # @npmonitored
     def prepare_partition_functions(self):
         if self._partfunc_done:
             return
@@ -282,6 +284,7 @@ class FootprintCalibration(CachedBase):
     def cache_key(self):
         return f"{self.params}.{self.rbp_conc}.{self.input_reads.cache_key}.{self.subsample}.{self.thresh}"
 
+    # @npmonitored
     def optimize_row(self, acc_k, shift_range, from_scratch=False):
         results = [self.load_profile(acc_k, s) for s in shift_range]
 
