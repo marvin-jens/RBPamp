@@ -8,14 +8,14 @@ __email__ = "mjens@mit.edu"
 dominguez_rbps = "BOLL,CELF1,CNOT4,CPEB1,DAZ3,DAZAP1,EIF4G2,ELAVL4,ESRP1,EWSR1,FUBP1,FUBP3,FUS,A1CF,HNRNPA1,HNRNPA2B1,HNRNPC,HNRNPCL1,HNRNPD,HNRNPDL,HNRNPF,HNRNPH2,HNRNPK,HNRNPL,IGF2BP1,IGF2BP2,ILF2,KHDRBS2,KHDRBS3,KHSRP,MBNL1,MSI1,NOVA1,NUPL2,PABPN1L,PCBP1,PCBP2,PCBP4,PRR3,PTBP3,PUF60,PUM1,RALY,RBFOX2,RBFOX3,RBM15B,RBM22,RBM23,RBM25,RBM4,RBM41,RBM45,RBM4B,RBM6,RBMS2,RBMS3,RC3H1,SF1,SFPQ,SNRPA,SRSF10,SRSF11,SRSF2,SRSF4,SRSF5,SRSF8,SRSF9,TARDBP,TIA1,TRA2A,TRNAU1AP,UNK,ZCRB1,ZFP36,ZNF326".split(',')
 
 import sys
-import itertools
-import numpy as np
+import os
 import copy
 import time
-import os
+import itertools
+import traceback
 import logging
 import collections
-import traceback
+import numpy as np
 import matplotlib
 matplotlib.use('agg')
 
@@ -343,7 +343,15 @@ class Run(object):
         import inspect
 
         def sigterm_handler(signal, frame):
-            self.logger.error("Received signal {} while executing {}.".format(signal, inspect.getframeinfo(frame)))
+            msg = "Received signal {} while executing {}.".format(signal, inspect.getframeinfo(frame))
+            print(msg)
+            self.logger.error(msg)
+            
+            if self.last_tracker:
+                self.last_tracker.set(msg)
+
+            import cska.fold
+            cska.fold.interrupt()
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, sigterm_handler)
@@ -739,6 +747,9 @@ class Run(object):
         est = PSAMErrorEstimator(os.path.join(self.run_path, 'opt_nostruct/'))
         est.estimate()
 
+# import cska.npwrap as npw
+# @npw.npmonitored
+
 def main():
     options, args = parse_cmdline()
     run = Run(options, args)
@@ -754,7 +765,7 @@ def main():
         run.flush_reads()
         from cska.caching import _dump_cache_sizes
         _dump_cache_sizes()
-
+        # npw.report_sizes('main startup')
         if options.folding:
             run.fold_reads()
             run.logger.info("folding completed.")
