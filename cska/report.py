@@ -420,6 +420,7 @@ class SeedReport(object):
         kmer_set = self.shelf['kmer_set']
         kmers = np.array([kmer for kmer, r in kmer_set])
         I = R.argsort()
+        k = len(kmers[0])
         # pp.fill_between(np.arange(len(R)), R[I], color='k')
         pp.fill_between(np.arange(Nk-i_cut), R[I][:Nk-i_cut], color='.75')
         pp.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
@@ -434,14 +435,14 @@ class SeedReport(object):
             pp.annotate(
                 kmer.upper(),
                 (Nk-j, R[I][Nk-j-1]),
-                xytext=(Nk/2-i*1000, R.max() * (Rw ** i)),
+                xytext=(Nk/4.-i*4**(k-2), R.max() * (Rw ** i)),
                 arrowprops=dict(arrowstyle='-'),
                 # fontfamily='monospace',
             )
         pp.text(Nk/2-5000, R.max() * (Rw ** n_top), "...")
 
         pp.legend(loc='best', frameon=False)
-        pp.ylabel("7-mer enrichment")
+        pp.ylabel(f"{k}-mer enrichment")
         plt.xlabel("rank")
         plt.tight_layout()
         plt.gca().set_yscale('log')
