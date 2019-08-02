@@ -747,13 +747,13 @@ class Run(object):
         est = PSAMErrorEstimator(os.path.join(self.run_path, 'opt_nostruct/'))
         est.estimate()
 
-# import cska.npwrap as npw
-# @npw.npmonitored
-
 def main():
     options, args = parse_cmdline()
     run = Run(options, args)
 
+    # import cska.track_allocations
+    # track = cska.track_allocations.AllocationTracker(1000000)
+    # with track:
     try:
         rbns = run.select_reads()
         # first, compute RBNS metrics
@@ -832,6 +832,8 @@ def main():
         fold.interrupt()
     else:
         run.logger.info("run completed.")
+    
+    # track.write_html("allocations.html")
 
 if __name__ == '__main__':
     main()
