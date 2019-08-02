@@ -541,7 +541,7 @@ def extrapolate_kmer_freqs(UINT64_t k, FLOAT32_t [:] init, FLOAT32_t [:,:] p_tra
     cdef UINT64_t shift_init = (k - l) * 2
     cdef UINT64_t MAX_TRANS = 4**l - 1
     
-    cdef FLOAT32_t [:] freqs = np.empty(Nk, dtype=np.float32) 
+    cdef FLOAT32_t [:] freqs = np.empty(Nk, dtype=np.float32)
     
     cdef FLOAT32_t f, q
     cdef int special = seq_to_index('aucc')
@@ -1439,12 +1439,19 @@ def kmer_flank_profiles(np.ndarray[UINT8_t, ndim=2] seq_matrix, str kmer, int k_
 
     return _profile.reshape( (4**k_flank, 2*l) ), _mask.reshape( (N, l) )
 
+def acc_scale_Z1(FLOAT32_t [:, :] Z1, FLOAT32_t [:, :] lacc, FLOAT32_t a, int ofs=0):
+    cdef UINT64_t N = Z1.base.shape[0]
+    cdef UINT64_t L = Z1.base.shape[1]
+    cdef FLOAT32_t [:, :] Z1_scaled = np.empty(Z1.base.shape, dtype=np.float32)
+    cdef int j, i
 
-# @cython.boundscheck(True) #, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.boundscheck(True)
-# @cython.wraparound(True)
+    # for j in prange(N, schedule='static', nogil=True, num_threads=8):
+    for j in range(N):
+        for i in range(L):
+            Z1_scaled[j, i] = Z1[j, i] * exp(lacc[j, i + ofs] * a)
+
+    return Z1_scaled.base
+
 def acc_footprints(FLOAT32_t [:, :] Z1, FLOAT32_t [:,:] acc, int w, int k, int ofs=0, int pad=5, row_w=None, int n_threads = 1):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef UINT64_t L = Z1.base.shape[1]
