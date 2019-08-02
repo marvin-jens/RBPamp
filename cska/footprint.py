@@ -49,8 +49,6 @@ class RowOptimization(object):
     def predict_profiles(self, acc_shift, a, A0):
         from time import time
         t0 = time()
-        # scale accessibilities
-        acc1 = np.exp(self.lacc0 * np.float32(a))
         
         # select shifted accessibilities
         self.params.acc_shift = acc_shift
@@ -59,8 +57,11 @@ class RowOptimization(object):
             self.logger.warning("ofs underflow")
 
         # compute partition function with scaled acc.
-        Z1_acc = self.Z1 * acc1[:, ofs:ofs + self.zw]
-
+        # # scale accessibilities
+        # acc1 = np.exp(self.lacc0 * np.float32(a))
+        # Z1_acc = self.Z1 * acc1[:, ofs:ofs + self.zw]
+        assert len(self.Z1) == len(self.lacc0) # make sure the subsetting was done on both!
+        Z1_acc = cyska.acc_scale_Z1(self.Z1, self.lacc0, a, ofs)
         # aggregate to read-level
         t1 = time()
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(Z1_acc, clip=1E6)
@@ -75,6 +76,8 @@ class RowOptimization(object):
         t4 = time()
 
         # compute base-p_unpaired profiles
+        assert len(self.Z1) == len(self.punp1)
+
         punp_expect = cyska.acc_footprints(
             self.Z1,
             self.punp1,
@@ -88,7 +91,8 @@ class RowOptimization(object):
         t_prof = time() - t4
 
         times = 1000 * np.array([t1-t0, t2-t1, t3-t2, t4-t3, t_prof])
-        self.logger.debug("t_partfunc={:.2f} t_Zread={:.2f} t_sc={:.2f} t_psi={:.2f} t_prof={:.2f}".format(*times))
+        N = len(self.Z1)
+        self.logger.debug(f"N={N} t_partfunc={times[0]:.2f} t_Zread={times[1]:.2f} t_sc={times[2]:.2f} t_psi={times[3]:.2f} t_prof={times[4]:.2f}")
         return np.array(punp_expect)
 
     def optimize_a(self, acc_shift, A0=None):
@@ -189,6 +193,7 @@ class FootprintCalibration(CachedBase):
         self.results = {}
         self._openen_cache = {}
         self._lacc_cache = {}
+        self._punp_input = None
 
         fp = os.path.join(self.path, f'footprints_{self.consensus_ul}.tsv')
         # if os.path.exists(fp):
@@ -219,10 +224,17 @@ class FootprintCalibration(CachedBase):
         self.Z1_in_noacc = self.Z1_full[0]
         
         Z1_read = self.Z1_in_noacc.sum(axis=1)
+        self.logger.debug("Z1_read percentiles 5,25,50,75,95,99", np.percentile(Z1_read, [5, 25, 50, 75, 95, 99]))
         thresh = self.thresh * Z1_read.max()
         self.I = Z1_read > thresh
         N = self.I.sum()
-        self.logger.info(f"subsetting to {N} reads with Z1 > {thresh}")
+        kept_ratio = N/float(len(Z1_read))
+        if kept_ratio > .5:
+            self.logger.warning(f"motif-based thresholding would keep {kept_ratio:.2f} of reads. Choosing median instead")
+            self.I = Z1_read > np.median(Z1_read)
+            N = self.I.sum()
+        else:
+            self.logger.info(f"subsetting to {N} reads with Z1 > {thresh}")
         self.Z1 = self.Z1_in_noacc[self.I,:]
 
         for reads in self.rbns.reads[1:]:
@@ -299,17 +311,29 @@ class FootprintCalibration(CachedBase):
             self.prepare_partition_functions()
 
             def _optimize(s):
-                punp_expect, res = row.optimize(s)
-                return (punp_expect, res)
+                try:
+                    punp_expect, res = row.optimize(s)
+                    return (punp_expect, res)
+                except KeyboardInterrupt:
+                    pass
 
             from multiprocessing.pool import ThreadPool
             row = RowOptimization(self, acc_k)
             pool = ThreadPool()
-
-            new_results = pool.map(_optimize, missing, chunksize=1)
-            pool.terminate()
-            pool.close()
-            pool.join()
+            # new_results = pool.map(_optimize, missing, chunksize=1)
+            # using map_async instead of pool.map makes it possible to catch KeyboardInterrupt exceptions
+            p = pool.map_async(_optimize, missing)
+            try:
+                new_results = p.get(0xFFFF)
+            except KeyboardInterrupt:
+                pool.terminate()
+                pool.close()
+                pool.join()
+                raise
+            else:
+                pool.terminate()
+                pool.close()
+                pool.join()
         
             # new_results = map(_optimize, missing)  # single-thread version for debugging
 
@@ -404,25 +428,31 @@ class FootprintCalibration(CachedBase):
             reads.weighted_accessibility_profile(z, self.params.k, pad=self.pad, subsample=self.subsample)[0]
             for reads, z in zip(self.rbns.reads, self.Z1_full)])
 
+        for reads in self.rbns.reads:
+            reads.cache_flush(deep=True)
+
         # print "right here", punp_profiles
         # 1/0
         # predict profiles w/o accessibility footprint
+
+        # these are computed without thresholding, so on the full set of reads!
         Z1_read, Z1_read_max = cyska.clipped_sum_and_max(self.Z1_in_noacc, clip=1E6) # aggregate to read-level
         sc = SelfConsistency(Z1_read, self.input_reads.rna_conc, bins=1000)
         rbp_free = sc.free_rbp_vector(self.rbp_conc, Z_scale=self.params.A0)
         psi = cyska.p_bound(Z1_read, rbp_free*self.params.A0)
 
-        openen_punp = self.get_input_openen_cached(1)
-        punp_acc = openen_punp.acc
-        if self.subsample:
-            punp_acc = self.input_reads.sub_sampler.draw(data=punp_acc)
+        punp_openen = self.get_input_openen_cached(1)
+        punp_acc = punp_openen.acc
+        # if self.subsample:
+        #     punp_acc = self.input_reads.sub_sampler.draw(data=punp_acc)
 
+        assert len(self.Z1_in_noacc) == len(punp_acc)
         naive_profiles = cyska.acc_footprints(
             self.Z1_in_noacc, 
             punp_acc, 
             self.params.k, 
             1, 
-            openen_punp.ofs - self.params.k + 1, 
+            punp_openen.ofs - self.params.k + 1, 
             pad=self.pad, 
             row_w = np.ascontiguousarray(psi.T),
         )
@@ -458,24 +488,31 @@ class FootprintCalibration(CachedBase):
 
         return self._openen_cache[k]
 
+    def get_punp_cached(self):
+        if self._punp_input is None:
+            openen_punp = self.get_input_openen_cached(1)
+            I = self.load_shelve('indices_threshold')
+            punp = openen_punp.acc[I, :]
+            self._punp_input = punp
+
+        return self._punp_input
+
     def get_lacc_punp_cached(self, k):
         if not k in self._lacc_cache:
-            self.logger.debug(f"get_lacc_punp_cached({k}) not found")
             I = self.load_shelve('indices_threshold')
+            self.logger.debug(f"get_lacc_punp_cached({k}) not found")
             openen = self.get_input_openen_cached(k)
-            openen_punp = self.get_input_openen_cached(1)
 
-            acc0 = openen.acc
-            punp = openen_punp.acc
-
-            if self.subsample:
-                acc0 = self.input_reads.sub_sampler.draw(data=acc0)
-                punp = self.input_reads.sub_sampler.draw(data=punp)
-
-            acc0 = acc0[I, :]
-            punp = punp[I, :]
-
+            acc0 = openen.acc[I, :]
             lacc0 = np.log(acc0)
+
+            # if self.subsample:
+            #     acc0 = self.input_reads.sub_sampler.draw(data=acc0)
+            #     punp = self.input_reads.sub_sampler.draw(data=punp)
+
+            # acc0 = acc0[I, :]
+            # punp = punp[I, :]
+            punp = self.get_punp_cached()
             self._lacc_cache = { k : (lacc0, punp) }  # always keep only one item!
         
         return self._lacc_cache[k]
