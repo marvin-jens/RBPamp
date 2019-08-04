@@ -73,6 +73,19 @@ def pval_str(p):
     else:
         return u"P ≈ 0"
 
+def pval_stars(p, levels=[.0001, .001, .01, .05,]):
+    if (p < 0) or (p > 1):
+        raise ValueError(f'P-value {p} outside [0, 1] range')
+
+    import bisect
+    x = bisect.bisect_right(levels, p)
+    n = len(levels)
+
+    if x == n:
+        return 'n.s.'
+    else:
+        return '*'*(n-x)
+
 def roundmax(x, m):
     i = int(x)
     remain = x - i
@@ -583,7 +596,7 @@ class GradientDescentReport(object):
         return res
 
     def plot_report(self):
-        pp.figure(figsize=(2, 4))
+        pp.figure(figsize=(2, 3))
 
         pp.subplot(211)
         errors = (self.read_sample_errors()**2).mean(axis=2)
@@ -678,7 +691,7 @@ class GradientDescentReport(object):
 
         maxR = max(self.logR0.max(), logRt.max())
         for i in range(self.n_samples):
-            pp.figure(figsize=(3, 3))
+            pp.figure(figsize=(4, 4))
             # pp.title("{0}mer R-value scatter plot {1}".format(self.k_mer, title))
 
             x = self.logR0[i]
@@ -814,8 +827,8 @@ class GradientDescentReport(object):
 
         # self.results.info("R={R:.3f} {ppstr} rho={rho:.3f} {psstr}".format(**locals()))
         if debug:
-            print(">>> R={R} {ppstr}".format(**locals()))
-            print(">>> rho={rho} {psstr}".format(**locals()))
+            print(u">>> R={R} {ppstr}".format(**locals()))
+            print(u">>> rho={rho} {psstr}".format(**locals()))
             print("seq\tknown\tpredict\tlog-ratio")
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
                 print(seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x))
@@ -1446,14 +1459,23 @@ class FootprintCalibrationReport(object):
 
 
 if __name__ == "__main__":
+    pass
+    # print(pval_stars(.8))
+    # print(pval_stars(.04999))
+    # print(pval_stars(.00999))
+    # print(pval_stars(.000999))
+    # print(pval_stars(.0000999))
+    # print(pval_stars(.00000999))
+    # print(pval_stars(0))
+    # print(pval_stars(-1))
     # rep = RunReport('/scratch/data/RBNS/MBNL1/cska/1M')
     # descent = rep.load_descent('opt_nostruct/descent.tsv')
     # print descent.params
-    # print descent.history
-    grep = GradientDescentReport('cska/recent/opt_nostruct/history')
-    grep.plot_report()
-    grep.plot_scatter(t=0)
-    grep.plot_scatter(t=-1)
+    # # print descent.history
+    # grep = GradientDescentReport('cska/recent/opt_nostruct/history')
+    # grep.plot_report()
+    # grep.plot_scatter(t=0)
+    # grep.plot_scatter(t=-1)
 
     # N = 4**6
     # x = np.array(np.random.random(N))
