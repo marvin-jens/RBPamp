@@ -247,9 +247,9 @@ class ModelSetParams(object):
         for i, params in enumerate(self.param_set):
             kd = 1. / params.A0
             if (lo is None) or (hi is None):
-                kdstr = "$K_d$ = {}".format(nice_conc(kd))
+                kdstr = u"$K_d$ = {}".format(nice_conc(kd))
             else:
-                kdstr = "$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
+                kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
             num = 2 * i + 1
             # print "subplot num", num
