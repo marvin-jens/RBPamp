@@ -5,7 +5,7 @@ __version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
-dominguez_rbps = "BOLL,CELF1,CNOT4,CPEB1,DAZ3,DAZAP1,EIF4G2,ELAVL4,ESRP1,EWSR1,FUBP1,FUBP3,FUS,A1CF,HNRNPA1,HNRNPA2B1,HNRNPC,HNRNPCL1,HNRNPD,HNRNPDL,HNRNPF,HNRNPH2,HNRNPK,HNRNPL,IGF2BP1,IGF2BP2,ILF2,KHDRBS2,KHDRBS3,KHSRP,MBNL1,MSI1,NOVA1,NUPL2,PABPN1L,PCBP1,PCBP2,PCBP4,PRR3,PTBP3,PUF60,PUM1,RALY,RBFOX2,RBFOX3,RBM15B,RBM22,RBM23,RBM25,RBM4,RBM41,RBM45,RBM4B,RBM6,RBMS2,RBMS3,RC3H1,SF1,SFPQ,SNRPA,SRSF10,SRSF11,SRSF2,SRSF4,SRSF5,SRSF8,SRSF9,TARDBP,TIA1,TRA2A,TRNAU1AP,UNK,ZCRB1,ZFP36,ZNF326".split(',')
+dominguez_rbps = "BOLL,CELF1,CNOT4,CPEB1,DAZ3,DAZAP1,EIF4G2,ELAVL4,ESRP1,EWSR1,FUBP1,FUBP3,FUS,A1CF,HNRNPA0,HNRNPA1,HNRNPA2B1,HNRNPC,HNRNPCL1,HNRNPD,HNRNPDL,HNRNPF,HNRNPH2,HNRNPK,HNRNPL,IGF2BP1,IGF2BP2,ILF2,KHDRBS2,KHDRBS3,KHSRP,MBNL1,MSI1,NOVA1,NUPL2,PABPN1L,PCBP1,PCBP2,PCBP4,PRR3,PTBP3,PUF60,PUM1,RALY,RBFOX2,RBFOX3,RBM15B,RBM22,RBM23,RBM25,RBM4,RBM41,RBM45,RBM4B,RBM6,RBMS2,RBMS3,RC3H1,SF1,SFPQ,SNRPA,SRSF10,SRSF11,SRSF2,SRSF4,SRSF5,SRSF8,SRSF9,TARDBP,TIA1,TRA2A,TRNAU1AP,UNK,ZCRB1,ZFP36,ZNF326".split(',')
 
 import sys
 import os
@@ -676,6 +676,8 @@ class Run(object):
         return self.params
 
     def make_plots(self, plots):
+        tracker = self.get_state_tracker('plots')
+
         if plots == ["all",] : 
             plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']
 
@@ -692,7 +694,7 @@ class Run(object):
 
         grep = report.GradientDescentReport(path=plot_path, comp=self.ref, rbns=self.rbns)
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
-        grep.load(os.path.join(self.run_path, 'opt_full/history'), "full model")
+        grep.load(os.path.join(self.run_path, 'opt_struct/history'), "full model")
 
         funcs = {
             'seed' : srep.plot_R_dist,
@@ -706,7 +708,11 @@ class Run(object):
         }
 
         for plt in plots:
+            tracker.set(plt)
             funcs[plt]()
+
+        tracker.set('COMPLETED')
+
 
     def PSAM_gradient_descent(self, name="opt"):
         tracker = self.get_state_tracker(name)
