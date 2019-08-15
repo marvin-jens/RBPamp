@@ -141,16 +141,19 @@ class ModelSetParams(object):
         param_set = param_set[:max_motifs]
         return cls(param_set)
 
-    def save(self, fname):
-        for i, params in enumerate(self.param_set):
-            # print "calling params.save", i
-            params.save(fname, append=(i > 0) )
+    def save(self, fname, comment=""):
+        with file(fname, 'w') as f:
+            if comment:
+                f.write(f"# {comment}\n")
+
+            f.write(str(self))
 
     def __str__(self):
-        buf = ["# ModelSetParams with {} PSAMs\n".format(len(self.param_set))]
+        buf = ["# ModelSetParams with {} PSAMs".format(len(self.param_set))]
         for i, params in enumerate(self.param_set):
             buf.append("# PSAM {}".format(i))
             buf.append(str(params))
+            buf.append('')
         
         return "\n".join(buf)
 
@@ -233,18 +236,47 @@ class ModelSetParams(object):
 
         return ModelSetParams(new)
 
-    def save_logos(self, fname, lo=None, hi=None, title=""):
+    def save_logos(self, fname, lo=None, hi=None, title="", minimal=False, align=False, logo_height=1.4):
         # TODO: add error estimates to Kd 
         import matplotlib.pyplot as plt
         from cska.affinitylogo import plot_afflogo, nice_conc
 
         n = len(self.param_set)
-        # print "param_set size", n
-        fig = plt.figure(figsize=(3, n*.75))
+        print("param_set size", n)
+        fig, (lax, rax) = plt.subplots(1, 2, figsize=(3, n*.4), sharey=False, gridspec_kw=dict(wspace=0.02, left=.02, right=.98, top=.98, bottom=0.02))
         if title:
             plt.suptitle(title)
 
-        for i, params in enumerate(self.param_set):
+        # lax.set_aspect(3)
+        # rax.set_aspect(3)
+        # lax.tick_params(axis='x', which='both', bottom=False, top=False)
+        # lax.tick_params(axis='y', which='both', left=False, right=False)
+        # rax.tick_params(axis='x', which='both', bottom=False, top=False)
+        rax.tick_params(axis='y', which='both', left=False, right=False, labelleft=False)
+        #     ax.tick_params(
+            #         axis='x',          # changes apply to the x-axis
+            #         which='both',      # both major and minor ticks are affected
+            #         bottom=False,      # ticks along the bottom edge are off
+            #         top=False,         # ticks along the top edge are off
+            #         labelbottom=False
+            #     )
+
+        psams = [params.as_PSAM() for params in self.param_set]
+        offsets = [0]
+        p0 = psams[0]
+        xmin = 0
+        xmax = len(p0.psam)
+        for p1 in psams[1:]:
+            if align:
+                ofs, score = p0.align(p1.consensus)
+            else:
+                ofs = 0
+            offsets.append(ofs)
+
+            xmin = min(xmin, ofs)
+            xmax = max(xmax, ofs + len(p1.psam))
+
+        for i, (params, psam, x0) in enumerate(zip(self.param_set, psams, offsets)):
             kd = 1. / params.A0
             if (lo is None) or (hi is None):
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd))
@@ -252,37 +284,48 @@ class ModelSetParams(object):
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
             num = 2 * i + 1
+            y0 = (n-i-1) * logo_height
+            print(i, y0, x0)
             # print "subplot num", num
-            ax = plot_afflogo(
-                fig.add_subplot(n, 2, num), 
-                params.as_PSAM().psam, 
+            plot_afflogo(
+                lax, 
+                psam.psam,
+                minimal=minimal,
+                y0 = y0,
+                x0 = x0,
                 # title = kdstr
             )
             # print ax
-            if i < n-1:
-                ax.set_xlabel('')
-                ax.tick_params(
-                    axis='x',          # changes apply to the x-axis
-                    which='both',      # both major and minor ticks are affected
-                    bottom=False,      # ticks along the bottom edge are off
-                    top=False,         # ticks along the top edge are off
-                    labelbottom=False
-                )
+            # if i < n-1:
+            #     ax.set_xlabel('')
+            #     ax.tick_params(
+            #         axis='x',          # changes apply to the x-axis
+            #         which='both',      # both major and minor ticks are affected
+            #         bottom=False,      # ticks along the bottom edge are off
+            #         top=False,         # ticks along the top edge are off
+            #         labelbottom=False
+            #     )
 
-            num = 2 * i + 2
             # print "subplot num", num
-            ax = fig.add_subplot(n, 2, num)
-            ax.text(0, 0.5, kdstr)
-            ax.tick_params(
-                axis='both',          # changes apply to the x-axis
-                which='both',      # both major and minor ticks are affected
-                bottom=False,      # ticks along the bottom edge are off
-                top=False,         # ticks along the top edge are off
-                left=False,
-                labelbottom=False,
-                labelleft=False,
-            )
+            rax.text(0, y0 + .5, kdstr)
+            # ax.tick_params(
+            #     axis='both',          # changes apply to the x-axis
+            #     which='both',      # both major and minor ticks are affected
+            #     bottom=False,      # ticks along the bottom edge are off
+            #     top=False,         # ticks along the top edge are off
+            #     left=False,
+            #     labelbottom=False,
+            #     labelleft=False,
+            # )
 
+        
+        lax.set_ylim(0,n*logo_height)
+        rax.set_ylim(0,n*logo_height)
+        print("ylim",0, n*logo_height)
+        print("xlim",xmin, xmax)
+        lax.set_xlim(xmin, xmax)
+        rax.set_xlim(0, 1)
+        rax.axis('off')
         plt.tight_layout()
         plt.savefig(fname)
         plt.close()
@@ -354,14 +397,19 @@ class ModelParametrization(object):
 
         aff = []
         attrs = {}
+        rbp_name = ''
         def make_params():
             psam = np.array(aff, dtype=np.float32)
             psam = np.where(psam > 0, psam, mina)
             params = cls(len(psam), n_samples, psam=psam, A0=attrs.get('A0', 1))
+            for k, v in attrs.items():
+                setattr(params, k, v)
             params.acc_k = int(attrs.get('acc_k', len(psam)))
             params.acc_shift = int(attrs.get('acc_shift', 0))
             params.acc_scale = attrs.get('acc_scale', 1)
             params.betas[:] = beta0
+            if rbp_name:
+                params.rbp_name = rbp_name
             return params
 
         with file(fname) as f:
@@ -375,13 +423,23 @@ class ModelParametrization(object):
                     for kw in line.split()[1:]:
                         if not kw.strip():
                             continue
+
+                        if not '=' in kw:
+                            rbp_name = kw
+                            continue
+
                         k,v = kw.split('=')
                         attrs[k] = float(v)
 
                 elif line.startswith('seeded'):
                     continue
+
                 elif line.startswith('#'):
                     continue
+
+                elif not line.strip():
+                    continue
+
                 else:
                     parts = line.split('\t')
                     aff.append(parts[:4])
@@ -467,15 +525,20 @@ class ModelParametrization(object):
         from cska.pwm import project_column
         import cska.cyska as cyska
         buf = []
-        buf.append("PSAM A0={self.A0} n={self.k} acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}".format(self=self))
-        buf.append("#\t{}\tcons".format("\t".join(cyska.yield_kmers(self.nt))))
+        rbp_name = getattr(self, 'rbp_name', '')
+        buf.append(f"PSAM {rbp_name} A0={self.A0} n={self.k} acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}")
+        rel_err = ''
+        if hasattr(self, 'rel_err'):
+            buf[0] += f' rel_err={self.rel_err}'
+
+        buf.append("#\t{}\tconsensus".format("\t".join(cyska.yield_kmers(self.nt))))
         
         for row in self.psam_matrix:
             buf.append("\t".join(["{0:>10.5f}".format(x) for x in row] + [project_column(row)]))
 
         # buf.append("BACKGROUND")
-        for i, beta in enumerate(self.betas):
-            buf.append('# beta{0}={1:.3e}'.format(i, beta))
+        # for i, beta in enumerate(self.betas):
+        #     buf.append('# beta{0}={1:.3e}'.format(i, beta))
         
         return '\n'.join(buf)
 
@@ -547,6 +610,11 @@ def test_save_load():
     print(params)
 
 if __name__ == "__main__":
-    print(ModelSetParams.load("/home/mjens/engaging/RBNS/MSI1/cska/seed_z5.75_thresh_85/seed/initial.tsv", 1))
+    params = ModelSetParams.load('cska/z4t75p01k99fix/footprint/calibrated.tsv', 1)
+    print(params)
+
+    # for rbp in ['MSI1', 'UNK', 'HNRNPA0', 'NOVA1', 'IGF2BP1']:
+    #     params = ModelSetParams.load(f"/home/mjens/engaging/RBNS/{rbp}/cska/z4t75p01k99fix/seed/initial.tsv", 1)
+    #     params.save_logos(f'{rbp}.pdf', minimal=True, align=True)
     # test_logo()
-    # test_save_load()
+    #test_save_load()
