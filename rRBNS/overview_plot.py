@@ -132,11 +132,12 @@ lmp = sns.lmplot(
 plt.legend(loc='upper left')
 plt.gcf().set_size_inches(3, 3)
 
-rbp_annotate = ['HNRNPL', 'ZNF326', 'ELAVL4', 'PUM1', 'RBFOX2', 'MBNL1']
+rbp_annotate = ['HNRNPL', 'ZNF326', 'PUM1', 'RBFOX2', 'MBNL1', 'SRSF2', 'TIA1']
 ann_ofs = {
-    'HNRNPL' : (-.2, 0),
+    'HNRNPL' : (-.1, 0),
     'ZNF326' : (.0, 1),
     'MBNL1' : (0, 1),
+    'SRSF2' : (.05, 1),
 }
 for x in pf.query('rbp in @rbp_annotate').itertuples():
     print x
@@ -150,7 +151,7 @@ for x in pf.query('rbp in @rbp_annotate').itertuples():
 
 plt.ylabel("fold model error reduction")
 plt.xlabel("max 6-mer correlation after fit")
-plt.axhline(1, color='k', linestyle='dashed')
+plt.ylim(1, pf['fold_error'].max()+.5)
 # sns.despine()
 plt.tight_layout()
 plt.savefig('fit_qual.pdf')
