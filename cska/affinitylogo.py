@@ -290,7 +290,7 @@ def plot_seqlogo(ax, pfm, info=False, charwidth=1.0, **kwargs):
         ax.yaxis.set_major_locator(ticker.FixedLocator([0., 1., 2.]))
 
 
-def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="", **kwargs):
+def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="", minimal=False, x0=0, y0=0, **kwargs):
     matrix = np.array(matrix)   # work on local copy!
     d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75
     matrix *= d[:, np.newaxis]
@@ -300,32 +300,36 @@ def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_
     letters = np.array(list('ACGU'))
     for i, row in enumerate(matrix):
         order = row.argsort()
-        bottom = 0
+        bottom = y0
         for letter, a in zip(letters[order], row[order]):
             if a > 0:
                 patch = _get_glyph(glyphs[letter], colors[letter],
-                               i*charwidth, bottom, charwidth, a)
+                               x0 + i*charwidth, bottom, charwidth, a)
                 bottom += a
                 ax.add_artist(patch)
 
-    ax.set_xlim([0, seqlen * charwidth])
+    ax.set_xlim([x0, x0 + seqlen * charwidth])
     # ax.set_ylim([matrix.min(), matrix.sum(axis=1).max()])
-    ax.set_ylim(0, 1)
+    # ax.set_ylim(0, 1 + y0)
     
-    # major ticks
-    ax.tick_params(which='major', direction='out')
-    ax.xaxis.set_major_locator(ticker.FixedLocator(np.arange(0, seqlen)))
-    ax.xaxis.set_major_formatter(ticker.NullFormatter())
-    ax.yaxis.set_major_locator(ticker.FixedLocator([0., .5, 1.]))
+    
+    # ax.set_aspect(3)
+    if not minimal:
+        # major ticks
+        ax.tick_params(which='major', direction='out')
+        ax.xaxis.set_major_locator(ticker.FixedLocator(np.arange(x0, x0 + seqlen)))
+        ax.xaxis.set_major_formatter(ticker.NullFormatter())
+        ax.yaxis.set_major_locator(ticker.FixedLocator([0., .5, 1.]))
 
-    # minor ticks
-    ax.tick_params(which='minor', length=0)
-    ax.xaxis.set_minor_locator(ticker.FixedLocator(np.arange(0, seqlen) + 0.5))
-    ax.xaxis.set_minor_formatter(ticker.FixedFormatter(np.arange(1, seqlen+1)))
-    
-    ax.set_aspect(3)
-    ax.set_xlabel('position [nt]')
-    ax.set_ylabel('preference')
+        # minor ticks
+        ax.tick_params(which='minor', length=0)
+        ax.xaxis.set_minor_locator(ticker.FixedLocator(np.arange(x0, x0 + seqlen) + 0.5))
+        ax.xaxis.set_minor_formatter(ticker.FixedFormatter(np.arange(1 + x0, x0 + seqlen + 1)))
+
+        ax.set_xlabel('position [nt]')
+        ax.set_ylabel('preference')
+    else:
+        ax.axis('off')
 
     if title:
         ax.set_title(title)
