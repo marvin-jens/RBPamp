@@ -50,6 +50,16 @@ matplotlib.rc('legend',
     columnspacing=.5,
     edgecolor='k'
 )
+bpkw = dict(
+    medianprops=dict(color='red'),
+    boxprops=dict(linewidth=.5,),
+    whiskerprops=dict(linewidth=.5,),
+    capprops=dict(linewidth=.5,),
+    flierprops=dict(marker='.', markerfacecolor='k', markersize=3),
+    notch=False,  # notch shape
+    vert=True,  # vertical box alignment
+    patch_artist=True,  # fill with color
+)
 
 import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
@@ -596,39 +606,48 @@ class GradientDescentReport(object):
         return res
 
     def plot_report(self):
-        pp.figure(figsize=(2, 3))
+        pp.figure(figsize=(3, 4))
 
-        pp.subplot(211)
+        artists = []
+        labels = []
+        pp.subplot(312)
         errors = (self.read_sample_errors()**2).mean(axis=2)
         m_err = errors.mean(axis=1)
         # pp.semilogy(m_err, 'k-', label='sample mean')
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(errors.T)))
 
         for i, err in enumerate(errors.T):
-            pp.semilogy(err, color=data_colors[i], label='{0} nM'.format(self.rbp_conc[i]))
+            a = pp.semilogy(err, color=data_colors[i])
+            artists.append(a[0])
+            labels.append('{0} nM'.format(self.rbp_conc[i]))
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
-                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 )#, linestyle='dashed')
 
-        pp.legend(loc='upper right', frameon=False)
-        pp.ylabel("mean squared model error")
-        pp.xlabel('iteration #')
+        # pp.legend(loc='upper right', frameon=False)
+        pp.ylabel("model error")
+        # pp.xlabel('gradient descent step')
+        # pp.gca().get_xaxis().set_visible(False)
         sns.despine()
 
-        pp.subplot(212)
+        pp.subplot(313)
         corr, pval = self.read_correlations()
         for i, c in enumerate(corr.T):
             pp.plot(c, color=data_colors[i], label='{0} nM'.format(self.rbp_conc[i]))
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
-                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 , linestyle='dashed')
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 )
 
-        pp.legend(loc='lower right', frameon=False)
+        # pp.legend(loc='lower right', frameon=False)
         pp.ylabel("k-mer correlation")
-        plt.xlabel("iteration #")
+        plt.xlabel('gradient descent step')
         sns.despine()
+
+        pp.subplot(311)
+        pp.legend(artists, labels, ncol=5, loc='lower center')
+        pp.axis('off')
         plt.tight_layout()
         pp.savefig(os.path.join(self.path,"descent_report.pdf"))
         pp.close()
@@ -739,7 +758,7 @@ class GradientDescentReport(object):
         plt.savefig(fname)
         plt.close()
 
-    def plot_motifs(self, t=-1, title=""):
+    def plot_motifs(self, t=42, title=""):
         from cska.params import ModelSetParams
 
         shelf_i, shelf_t = self.map_t_shelf(t)
@@ -754,42 +773,227 @@ class GradientDescentReport(object):
             lo = ModelSetParams(p_mid.lo.param_set, sort=True)
             hi = ModelSetParams(p_mid.hi.param_set, sort=True)
         
-        params.save_logos(os.path.join(self.path,"motifs_t{0}.pdf".format(t)), lo=lo, hi=hi, title=title)
+        params.save_logos(os.path.join(self.path, f"motifs_t{t}.pdf"), lo=lo, hi=hi, title=title)
+        params.save_logos(os.path.join(self.path, f"minimal_motifs_t{t}.pdf"), lo=lo, hi=hi, title=title, minimal=True, align=True)
 
-    def plot_affinity_dists(self, t=-1, title="", k_fit=6):
+    def make_affinity_dist_plots(self):
         from cska.params import ModelSetParams
 
-        shelf_i, shelf_t = self.map_t_shelf(t)
-        est = self.error_estimators[shelf_i]
-        p_mid = est.estimate(save=False, t_ref=shelf_t)
-        if p_mid is None:
-            params = ModelSetParams(self.get('params', t), sort=True) # re-initialize in case it's not sorted
-        else:
-            params = ModelSetParams(p_mid.param_set, sort=True)
+        for i, name in enumerate(self.epoch_names):
+            t = self.shelf_map[i+1] - 1
+            shelf_i, shelf_t = self.map_t_shelf(t)
+            print(f"shelf_i={shelf_i} shelf_t={shelf_t}")
+            est = self.error_estimators[shelf_i]
+            p_mid = est.estimate(save=False, t_ref=shelf_t)
+            if p_mid is None:
+                params = ModelSetParams(self.get('params', t), sort=True) # re-initialize in case it's not sorted
+            else:
+                params = ModelSetParams(p_mid.param_set, sort=True)
+
+            self.plot_affinity_dists(params, name=name)
+
+    def plot_affinity_dists(self, params, k_fit=6, name=""):
+        from cska.partfunc import PartFuncModel
+        gradient = np.linspace(.3, 1., len(self.rbns.reads) -1)
+        data_colors = plt.get_cmap("YlOrBr")(gradient) # highest conc == darkest color
+        print("epoch name", name)
+        name = name.replace(' ','_')
+        inr = self.rbns.reads[0]
+        # evaluate partition function on all samples
+        states = []
+        for reads in self.rbns.reads:
+            mdl = PartFuncModel(
+                reads,
+                params,
+                self.rbns.R_value_matrix(k_fit)[0],
+                rbp_conc = self.rbns.rbp_conc
+            )
+            state = mdl.predict(params, keep_Z1_motif=False)
+            states.append(state)
+                
+        max_A = max([s.Z1_read.max() for s in states]) * params.A0
+        min_A = min([np.percentile(s.Z1_read, 1) for s in states]) * params.A0
+        bins = 10 ** np.linspace(np.log10(min_A), np.log10(1.1*max_A), 100)
+        sround = lambda x,p: float(f'%.{p-1}e'%x)
+
+        xticks = [sround(t, 1) for t in np.percentile(bins, [25, 50, 75])]
+        xtick_labels = [str(t) for t in xticks]
+        print(f"xticks {xticks}")
+        print(xtick_labels)
+        ref = states[0]
+        w = np.ones(len(ref.Z1_read)) * (inr.rna_conc / inr.N)
+        # print(w)
+        ## plot affinity distribution of binding sites in RNA pool
+        plt.figure(figsize=(5,1.5))
+        ax = plt.subplot(131)
+        ax.set_xscale('log')
+        A_binned = ax.hist(
+            ref.Z1_read * params.A0, 
+            bins=bins, 
+            histtype='step', 
+            weights=w, 
+        )[0]
+        # ax.legend(loc='upper right')
+        ax.set_ylabel('conc in RNA pool [nM]')
+        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+        plt.locator_params(axis='x', numticks=3)
+        # plt.xticks(xticks, xtick_labels)
+        
+        A_binned = np.array(A_binned)
+
+        x = (bins[1:] + bins[:-1])/2
+        ax = plt.subplot(132)
+        ax.set_xscale('log')
+        for free, color, reads in zip(ref.rbp_free, data_colors, self.rbns.reads[1:]):
+            pb = 1 / (1 + 1 / (x * free))
+            ax.plot(x, pb, color=color, label=reads.name, solid_capstyle='round')
+        
+        # ax.legend(loc='lower right')
+        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+        ax.set_ylabel('occupancy')
+        plt.locator_params(axis='x', numticks=3)
+        complex_binned = []
+        ## plot predicted affinity distribution of bound sequences
+        ax = plt.subplot(133)
+        ax.set_xscale('log')
+        complex_conc, non_specific = ref.concentrations
+        for reads, psi, cc, color in zip(self.rbns.reads[1:], ref.psi, complex_conc, data_colors):
+            b_binned = ax.hist(
+                ref.Z1_read * params.A0,
+                bins, bins,
+                histtype='step',
+                weights=psi * cc / psi.sum(),
+                color=color,
+                label=reads.name
+            )[0]
+            complex_binned.append(np.array(b_binned))
+
+        # ax.legend(loc='upper left')
+        ax.set_ylabel('pred. bound [nM]')
+        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+        # plt.xticks(xticks, xtick_labels)
+        plt.locator_params(axis='x', numticks=3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.path, f'affdist_{self.rbns.rbp_name}_{name}.pdf'))
+        plt.close()
+
+        n = len(complex_binned)
+        plt.figure(figsize=(2, n*1.7))
+        ## plot decomposition of observed affinity distribution into directly bound and non-specific
+        zs_binned = [np.histogram(state.Z1_read * params.A0, bins=bins)[0] for state in states[1:]]
+        
+        from scipy.optimize import minimize
+        spbase = n*100+11
         
 
-        # from cska.partfunc import PartFuncModel
-        # mdl = PartFuncModel(
-        #     self.rbns.reads[0],
-        #     params,
-        #     self.rbns.R_value_matrix(k_fit)[0],
-        #     rbp_conc = self.rbns.rbp_conc
-        # )
-        # state = mdl.predict(params)
-        # print state.psi
-        # np.histogram()
+        for i,(b_binned, zs, reads, color) in enumerate(zip(complex_binned, zs_binned, self.rbns.reads[1:], data_colors)):
+            ax = plt.subplot(spbase+i)
+            ax.set_xscale('log')
+            # print(b_binned.shape, zs.shape, A_binned.shape)
+            def err(args):
+                scale, bg = args
+                pred = b_binned + A_binned * bg
+                return ((scale * zs - pred)**2).sum()
+
+            res = minimize(err, (.001, .5), bounds=[(1e-6, 1.), (1e-6, 1.)], method='L-BFGS-B')
+            scale, bg = res.x
+            print(res)
+            total = (bg * A_binned + b_binned).sum()
+            bg_perc = 100. * (bg * A_binned).sum() / total
+            print(f"inferred total conc. of pull-down RNA: {total:.3f} nM. background={bg_perc} %")
+
+            ax.plot(x, zs *scale, '.', color='red', label=reads.name)
+            # plt.plot(x, bg * A_binned + b_binned, '^', color=color, label='bound + background')
+            ax.fill_between(x, bg * A_binned, bg * A_binned + b_binned, color=color, label='specific')
+            ax.fill_between(x, bg * A_binned, color='gainsboro', label='non-specific')
+
+            # ax.legend(loc='upper center', ncol=3)
+            ax.set_ylabel('est. concentration [nM]')
+            ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+            # plt.xticks(xticks, xtick_labels)
+            plt.locator_params(axis='x', numticks=3)
+            ymax = max(zs.max() * scale, (bg * A_binned + b_binned).max())
+            plt.ylim(0, ymax*1.2)
+    
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.path, f'affmatch_{self.rbns.rbp_name}_{name}.pdf'))
+        plt.close()
+    
+        # x = np.sort(ref.Z1_read) * params.A0
+        # y = (1 - np.arange(1,len(x)+1)/float(len(x))) * inr.rna_conc
+
+        # 
+    
+        #     # plt.plot(x, y, label=par.as_PSAM().consensus_ul)
+        #     # plt.plot(x, y, label=reads.name)
+        #     a = plt.hist(
+        #         state.Z1_read, 
+        #         bins=bins, 
+        #         histtype='step', 
+        #         weights=np.ones(len(state.Z1_read)) * (inr.rna_conc / inr.N), 
+        #         alpha=.75,
+        #         label=reads.name
+        #     )
+        #     # print(a)
+        #     # print(a.color)
+        #     if reads.rbp_conc == 0:
+        #         # this is the input sample
+        #         N_reads = len(state.Z1_read)
+        #         print(state.params.betas)
+        #         cplx, nsc = state.concentrations
+        #         for cc, ns, rbpc, psi, color in zip(cplx, nsc, self.rbns.rbp_conc, state.psi, data_colors)[:]:
+        #             plt.hist(state.Z1_read,
+        #                 bins=bins,
+        #                 histtype='step',
+        #                 weights=psi * cc / psi.sum(),
+        #                 label=f"pred. complex {rbpc} nM RBP",
+        #                 alpha=.75,
+        #                 color=color
+        #             )
+        #             # plt.hist(state.Z1_read,
+        #             #     bins=bins,
+        #             #     histtype='step',
+        #             #     weights=np.ones(N_reads) * ns / float(N_reads),
+        #             #     label=f"n.s @{rbpc} nM RBP",
+        #             #     alpha=.75,
+        #             #     color=color
+        #             # )
+
+                    
+
+       
+        # plt.legend(loc='upper right')
+        # plt.ylabel('conc in RNA pool [nM]')
+        # plt.xlabel(f'{self.rbns.rbp_name} affinity > x [1/nM]')
+        # plt.tight_layout()
+        # plt.savefig(f"{self.rbns.rbp_name}_affdist.pdf")
+        # plt.close()
+
+        # plt.figure()
+        # plt.gca().set_xscale('log')
+        # # plt.gca().set_yscale('log')
+
+        # for zb, reads in zip(zs_binned[1:], self.rbns.reads[1:]):
+        #     plt.plot((bins[1:] + bins[:-1])/2, (zb+1)/(zs_binned[0]+1), label=reads.name)
+
+        # plt.legend(loc='upper left')
+        # plt.ylabel('enrichment')
+        # plt.xlabel(f'{self.rbns.rbp_name} affinity > x [1/nM]')
+        # plt.tight_layout()
+        # plt.savefig(f"{self.rbns.rbp_name}_aff_R.pdf")
+        # plt.close()
+    
         
-        bins = 10 ** np.linspace(np.log10(1e-6), np.log10(10), 100)
-        for reads in self.rbns.reads:
-            import matplotlib.pyplot as plt
-            plt.figure()
-            Z1m = reads.PSAM_partition_function(params, split=True)
-            for z in Z1m:
-                # print z.shape
-                plt.hist(z.sum(axis=1), bins=bins, histtype='step', cumulative=True)
-            plt.gca().set_xscale('log')
-            plt.savefig("{reads.name}_affdist.pdf".format(reads=reads))
-            plt.close()
+        # for reads in self.rbns.reads:
+        #     import matplotlib.pyplot as plt
+        #     plt.figure()
+        #     Z1m = reads.PSAM_partition_function(params, split=True)
+        #     for z in Z1m:
+        #         # print z.shape
+        #         plt.hist(z.sum(axis=1), bins=bins, histtype='step', cumulative=True)
+        #     plt.gca().set_xscale('log')
+        #     plt.savefig("{reads.name}_affdist.pdf".format(reads=reads))
+        #     plt.close()
 
         
 
@@ -886,49 +1090,72 @@ class GradientDescentReport(object):
             # matplotlib.rc('ytick.major', width = .1)
 
 
-            pp.figure(figsize=(3,3))
-            pp.title("comparison to {0} literature affinities".format(self.comp.n))
+            pp.figure(figsize=(4, 2.5))
+            ax = plt.subplot(121)
+            ax.set_aspect(1)
+            ax.set_xscale("log", nonposx='clip')
+            ax.set_yscale("log", nonposy='clip')
+
+            # pp.title("comparison to {0} literature affinities".format(self.comp.n))
 
             errs = []
             err_cols = []
             err_titles = []
-            for res, title, color in zip(data, titles, ['gray', 'blue', 'red']):
+            artists = []
+            labels = []
+            for res, title, color in zip(data, titles, ['gray', '#3b8bc2', '#c83737']):
                 if res == None:
                     continue
 
-                pp.errorbar(res.x, res.y, xerr=res.x_err, yerr=res.y_err, fmt='.', ecolor='k', mfc=color, mec=color, elinewidth=.5, capsize=3, capthick=.5, label=title + "\n" + res.label)
+                a = pp.errorbar(
+                    res.x,
+                    res.y,
+                    xerr=res.x_err,
+                    yerr=res.y_err,
+                    fmt='.',
+                    ecolor='k',
+                    mfc=color,
+                    mec=color,
+                    elinewidth=.5,
+                    capsize=3,
+                    markersize=4,
+                    capthick=.5
+                )
 
                 errs.append(np.fabs(res.lfc))
                 err_cols.append(color)
                 err_titles.append(title)
+                artists.append(a)
+                labels.append(title + "\n" + res.label)
             
             pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
-            ax = pp.gca()
-            ax.set_xscale("log", nonposx='clip')
-            ax.set_yscale("log", nonposy='clip')
 
-            pp.legend(loc='lower right', shadow=False, fancybox=False)
             pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
             pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
             sns.despine(trim=False)
+
+            plt.subplot(122)
+            plt.axis('off')
+            pp.legend(tuple(artists), tuple(labels), loc='lower right')
             pp.tight_layout()
 
             pp.savefig(os.path.join(self.path,"literature_comparison.pdf".format(t)))
             pp.close()
 
             import scipy.stats
-            pp.figure(figsize=(2.5,2))
+            pp.figure(figsize=(2,2))
             for ei, ej in zip(errs[:-1], errs[1:]):
                 stat, pval = scipy.stats.mannwhitneyu(ei, ej)
-                print(stat, pval)
+                print("error lower than previous? ", stat, pval)
 
-            bplot = pp.boxplot(errs, patch_artist=True)
+            bplot = pp.boxplot(errs, **bpkw)
             for patch, color in zip(bplot['boxes'], err_cols):
                 patch.set_facecolor(color)
 
-            pp.xticks(1 + np.arange(len(errs)), err_titles)
+            pp.xticks(1 + np.arange(len(errs)), err_titles, rotation=90)
             pp.ylabel(r"$|\log_2 \frac{K_d\; predicted}{K_d \; measured}|$")
-            pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
+            pp.ylim(0, 1.1 * np.array(errs).max())
+            # pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
             sns.despine(trim=False)
             pp.tight_layout()
             pp.savefig(os.path.join(self.path,"literature_errors.pdf".format(t)))
