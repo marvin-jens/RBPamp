@@ -403,8 +403,9 @@ class FootprintCalibration(CachedBase):
         self.params.acc_k = acc_k
         self.params.acc_shift = s
         self.params.acc_scale = a
-        self.params.A0 = A0
         self.params.rel_err = rel_err
+        self.params.A0 = A0
+        self.params.rbp_name = self.input_reads.rbp_name
         self.store_shelve("params_calibrated", self.params)
 
         # for the optimum, also compute profile for a=1
