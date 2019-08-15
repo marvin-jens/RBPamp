@@ -297,16 +297,16 @@ class PSAM(object):
         A.matrix = self.psam
         
         ofs, score = A.align(kmer, multiply=True)
-        frac = score / (self.n - abs(ofs) )
+        # frac = score / (self.n - abs(ofs) )
 
-        if ofs == 0:
-            cat = ("match", kmer, frac)
-        elif ofs < 0:
-            cat = ("left-shift", kmer[:-ofs], frac )
-        elif ofs > 0:
-            cat = ("right-shift", kmer[-ofs:], frac )
+        # if ofs == 0:
+        #     cat = ("match", kmer, frac)
+        # elif ofs < 0:
+        #     cat = ("left-shift", kmer[:-ofs], frac )
+        # elif ofs > 0:
+        #     cat = ("right-shift", kmer[-ofs:], frac )
         
-        return cat
+        return ofs, score
             
     def score(self, kmer):
         p = PSAM.from_kmer(kmer)
