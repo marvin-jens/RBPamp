@@ -285,6 +285,10 @@ class Run(object):
         self.cmdline = " ".join(sys.argv)
         self.version = __version__
 
+    @property
+    def mini_run_info(self):
+        return f"runinfo: version={self.version} git={self.git_commit} cmdline={self.cmdline}"
+
     def _init_logging(self):
         # set up logging
         self.log_path = os.path.join(self.run_path,"run.log")
@@ -658,19 +662,19 @@ class Run(object):
         
         else:
             for i, par in enumerate(params):
-                res = try_load(par)
-                res = None
-                if not res:
-                    tracker.set('calibrating motif {}'.format(i+1))
-                    res = calibrate(par)
-                    tracker.set('optimum k={res.acc_k} s={res.acc_shift} rel_err={res.rel_err}'.format(res=res))
+                # res = try_load(par)
+                # res = None
+                # if not res:
+                tracker.set('calibrating motif {}'.format(i+1))
+                res = calibrate(par)
+                tracker.set('optimum k={res.acc_k} s={res.acc_shift} rel_err={res.rel_err}'.format(res=res))
                 calibrated_set.append(res)
                 
         self.params = ModelSetParams(calibrated_set)
 
         path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
-        self.params.save(path)
+        self.params.save(path, comment=self.mini_run_info)
         tracker.set('COMPLETED')
 
         return self.params
@@ -703,7 +707,7 @@ class Run(object):
             'fp' : fprep.report,
             'lit' : grep.plot_literature,
             'logos' : grep.plot_logos,
-            'aff' : grep.plot_affinity_dists, # EXPERIMENTAL
+            'aff' : grep.make_affinity_dist_plots,
             'afit' : grep.plot_param_error_scatter, # EXPERIMENTAL
         }
 
