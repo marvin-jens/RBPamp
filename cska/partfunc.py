@@ -129,6 +129,20 @@ class PartFuncModelState(object):
         self.error = self.sample_errors.mean()
         # print "self.error", self.error
 
+    @property
+    def concentrations(self):
+        N_reads = self.mdl.reads.N
+        l = self.mdl.reads.L + self.mdl.k - 1
+        z = self.mdl.reads.rna_conc / (N_reads * l)
+        complex_formed = self.Q * z
+        non_specific = (self.W - self.Q) * z
+        complex_rbp = self.mdl.rbp_conc - self.rbp_free
+        ratio = complex_formed / non_specific
+        print(f"complex formed {complex_formed} nM, non_specific {non_specific} nM")
+        print(f"complex from free RBP {complex_rbp}")
+        print(f"specific signal ratio {ratio}")
+
+        return complex_formed, non_specific
 
     @property
     def beta_estimators(self):
