@@ -283,50 +283,29 @@ class ModelSetParams(object):
             else:
                 kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
-            num = 2 * i + 1
             y0 = (n-i-1) * logo_height
-            print(i, y0, x0)
-            # print "subplot num", num
+            # print(i, y0, x0)
             plot_afflogo(
                 lax, 
                 psam.psam,
                 minimal=minimal,
                 y0 = y0,
                 x0 = x0,
-                # title = kdstr
             )
-            # print ax
-            # if i < n-1:
-            #     ax.set_xlabel('')
-            #     ax.tick_params(
-            #         axis='x',          # changes apply to the x-axis
-            #         which='both',      # both major and minor ticks are affected
-            #         bottom=False,      # ticks along the bottom edge are off
-            #         top=False,         # ticks along the top edge are off
-            #         labelbottom=False
-            #     )
-
-            # print "subplot num", num
             rax.text(0, y0 + .5, kdstr)
-            # ax.tick_params(
-            #     axis='both',          # changes apply to the x-axis
-            #     which='both',      # both major and minor ticks are affected
-            #     bottom=False,      # ticks along the bottom edge are off
-            #     top=False,         # ticks along the top edge are off
-            #     left=False,
-            #     labelbottom=False,
-            #     labelleft=False,
-            # )
-
         
         lax.set_ylim(0,n*logo_height)
         rax.set_ylim(0,n*logo_height)
-        print("ylim",0, n*logo_height)
-        print("xlim",xmin, xmax)
+        # print("ylim",0, n*logo_height)
+        # print("xlim",xmin, xmax)
         lax.set_xlim(xmin, xmax)
         rax.set_xlim(0, 1)
         rax.axis('off')
-        plt.tight_layout()
+        try:
+            plt.tight_layout()
+        except ValueError:
+            logging.warning("ModelSetParams.save_logos() tight_layout error silenced")
+
         plt.savefig(fname)
         plt.close()
 
