@@ -76,6 +76,8 @@ def parse_cmdline():
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
     parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
+    parser.add_option("","--footprint-min-overlap", dest="fp_min_ov", default=.2, type=float, help="minimum overlap between footprint and PSAM as fraction of footprint (default=.2)")
+    parser.add_option("","--footprint-min-scale", dest="fp_min_a", default=.05, type=float, help="minimum footprint scaling factor to keep footprint. 0=accessibility has no effect, 1=RNAfold  (default=.05)")
     parser.add_option("","--top-kmer-acc", dest="top_kmer_acc", default=0, type=int, help="generate enrichment vs. accessibility data for top kmers (default=0 [off])")
     
     # affinity model optimization 
@@ -670,12 +672,34 @@ class Run(object):
                 tracker.set('optimum k={res.acc_k} s={res.acc_shift} rel_err={res.rel_err}'.format(res=res))
                 calibrated_set.append(res)
                 
-        self.params = ModelSetParams(calibrated_set)
 
         path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
+        cal_params = ModelSetParams(calibrated_set)
+        cal_params.save(path, comment=self.mini_run_info)
+
+        def overlap(par):
+            ov_nt = min(par.acc_k + min(par.acc_shift, 0), min((par.k - par.acc_shift), par.acc_k))
+            return ov_nt / float(par.acc_k)
+
+        # filter for minimum sanity checks to decide if we want to keep a footprint
+        par_keep = []
+
+        n = len(calibrated_set)
+        n_fp = 0
+        for par_fp, par in zip(calibrated_set, params):
+            if overlap(par_fp) > self.options.fp_min_ov and par_fp.acc_scale > self.options.fp_min_a:
+                par_keep.append(par_fp)
+                n_fp += 1
+            else:
+                par_keep.append(par)
+
+        self.params = ModelSetParams(par_keep)
+        path = os.path.join(self.rbns.out_path, 'footprint', 'parameters.tsv')
+        self.logger.info("storing filtered footprint optimized model in '{}'".format(path))
         self.params.save(path, comment=self.mini_run_info)
-        tracker.set('COMPLETED')
+
+        tracker.set(f'COMPLETED with {n_fp}/{n} footprints kept.')
 
         return self.params
 
