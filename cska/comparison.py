@@ -55,8 +55,8 @@ class RefComparison(object):
             self.seqs.append(seq)           
             self.logger.debug("{seq}".format(**locals()) )
 
-            self.Kd.append(kd)
-            self.Kd_err.append(kd_err)
+            self.Kd.append(float(kd))
+            self.Kd_err.append(float(kd_err))
             a = 1./float(kd)
             self.affinities.append(a)
             self.affinity_errs.append(a**2 * float(kd_err))
