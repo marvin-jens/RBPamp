@@ -257,6 +257,30 @@ def seq_set_kmer_count(np.ndarray[UINT8_t, ndim=2] seq_matrix, UINT64_t k):
     return _counts
 
 
+def seq_to_kmer_count(seq, UINT64_t k):
+    # store k-mer counts here
+    cdef UINT32_t [:] counts = np.zeros(4**k, dtype = np.uint32)
+    cdef UINT64_t L = len(seq)
+    cdef unsigned char* cseq = seq
+    cdef UINT8_t n, b
+    cdef UINT32_t index = 0
+    cdef UINT32_t max_index = 4**k - 1
+    cdef int last_invalid=-1, x
+    
+    for x in range(L):
+        n = cseq[x]
+        b = letter_to_bits[n]
+        index = ((index << 2) | b) & max_index
+        if b > 3:
+            last_invalid = x
+
+        if x >= (k-1):
+            if x - last_invalid >= k:
+                counts[index] += 1
+
+    return counts.base
+
+
 def seq_set_kmer_count_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k):
     # largest index in array of DNA/RNA k-mer counts
     cdef UINT64_t MAX_INDEX = 4**k - 1
