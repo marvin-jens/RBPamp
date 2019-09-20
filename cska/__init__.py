@@ -603,7 +603,7 @@ class Run(object):
         )
         # print "len params in seed_stage", len(self.params.param_set)
         # print self.params
-        self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'))
+        self.params.save(os.path.join(self.run_path, 'seed/initial.tsv'), comment=self.mini_run_info)
         n = len(self.params.param_set)
         tracker.set(f"COMPLETED seeding {n} PSAMs")
         return self.params
@@ -773,6 +773,9 @@ class Run(object):
         done = PGD.descent.status.startswith('CONVERGED')
         if done:
             tracker.set(f"COMPLETED with status {PGD.descent.status} {PGD.metrics}")
+            path = os.path.join(self.rbns.out_path, name, 'optimized.tsv')
+            self.logger.info(f"storing gradient-descent optimized model in '{path}'")
+            self.params.save(path, comment=self.mini_run_info)
         else:
             tracker.set(PGD.descent.status)
 
