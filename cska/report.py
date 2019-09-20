@@ -178,15 +178,19 @@ def density_scatter_plot(
     plot_kw = dict(style='.', color='#4495c3'), 
     contour=False, 
     plot_outliers=True,
-    label="none", data_labels=[],
+    label=None, data_labels=[],
     dens_thresh=1000,
     x_ref=True,
     tick_exp=0,
     lim_max=None,
     lim_min=None,
+    sym=True,
+    ax=None,
     ):
     from scipy.stats import kde
     import seaborn as sns
+    if ax is None:
+        ax = plt.gca()
     # Evaluate a gaussian kde on a regular grid of nbins x nbins over data extents
     t0 = time.time()
     N = len(x)
@@ -209,6 +213,10 @@ def density_scatter_plot(
     m += np.log10(3./4.)
     M += np.log(4./3.)
 
+    if sym:
+        xmin, xmax = m,M
+        ymin, ymax = m,M
+
     nbins = density_kw['nbins']
     t1 = time.time()
     #Z = zi.reshape((len(yi), len(xi)))
@@ -218,7 +226,7 @@ def density_scatter_plot(
     with sns.axes_style("ticks", sns_style):
         if N > dens_thresh:
             k = kde.gaussian_kde([x,y])
-            xi, yi = np.mgrid[m:M:nbins*1j, m:M:nbins*1j]
+            xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
             zi = k(np.vstack([xi.flatten(), yi.flatten()]))
             zi[zi < 1e-3] = np.nan
 
@@ -226,9 +234,9 @@ def density_scatter_plot(
             z_max = np.nanmax(zi)
             # print "zmin/max", z_min, z_max
             # pca().set_facecolor('w')
-            pm = pp.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
+            pm = ax.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
             pm.set_rasterized(True)
-            cb = sane_colorbar(pp.colorbar(pm, shrink=.3, aspect=20)) #orientation='horizontal', fraction=.05)
+            cb = sane_colorbar(plt.colorbar(pm, ax=ax, shrink=.3, aspect=10)) #orientation='horizontal', fraction=.05)
             cb.set_label('density')
             zt = np.array([z_min, (z_max + z_min)/2., z_max])
             ztr = np.round(zt, 1)
@@ -242,9 +250,9 @@ def density_scatter_plot(
             # cb.update_ticks()
 
             if contour:
-                pp.contour(xi, yi, zi.reshape(xi.shape))
+                ax.contour(xi, yi, zi.reshape(xi.shape))
             
-            pp.grid(False)
+            ax.grid(False)
 
         t2 = time.time()
 
@@ -260,7 +268,7 @@ def density_scatter_plot(
 
             out_x = x[out]
             out_y = y[out]
-            pp.plot(out_x, out_y, plot_kw['style'], color=plot_kw['color'], markersize=3, label=label, rasterized=True)
+            ax.plot(out_x, out_y, plot_kw['style'], color=plot_kw['color'], markersize=3, label=label, rasterized=True)
 
 
         t3 = time.time()
@@ -274,7 +282,7 @@ def density_scatter_plot(
                 # annotate the most enriched and most off-diagonal k-mers
                 top = x.argsort()[::-1][:5]
                 # print("top", top)
-                pp.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
+                ax.plot(x[top], y[top], 'o', markersize=6, markerfacecolor='none', markeredgecolor='red', label="most enriched", alpha=.75 )
 
                 repel_labels_nx(x[top], y[top], data_labels[top])
                 # for _x, _y, mer in zip(x[top], y[top], data_labels[top]):
@@ -283,7 +291,7 @@ def density_scatter_plot(
                 #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='red', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
                     
                 off = np.fabs(x-y).argsort()[::-1][:10]
-                pp.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
+                ax.plot(x[off], y[off], 'o', markersize=6, markerfacecolor='none', markeredgecolor='blue', alpha=.75, label="highest error" )
 
                 repel_labels_nx(x[off], y[off], data_labels[off])
                 # for _x, _y, mer in zip(x[off], y[off], data_labels[off]):
@@ -291,24 +299,29 @@ def density_scatter_plot(
                 #     mer = mer.upper().replace('T','U')
                 #     pp.annotate(mer, xy=(_x, _y), xytext=(_x-.05*xmax, _y), arrowprops=dict(facecolor='blue', arrowstyle="->, head_length = .2, head_width = .2"), horizontalalignment='right', verticalalignment='center', fontsize=6)
 
-        # draw guides through zero and the diagonal
-        mM = np.array([m,M])
-        mM = (mM - mM.mean()) *.95 + mM.mean()
-        pp.plot(mM, mM, '-k', linewidth=.5, alpha=.3)
         # pp.plot([0,0],mM, '-k', linewidth=.5, alpha=.3)
         # pp.plot(mM,[0,0], '-k', linewidth=.5, alpha=.3)
         
-        pp.xlim(m,M)
-        pp.ylim(m,M)
+        if sym:
+            # draw guides through zero and the diagonal
+            mM = np.array([m,M])
+            mM = (mM - mM.mean()) *.95 + mM.mean()
+            ax.plot(mM, mM, '-k', linewidth=.5, alpha=.3)
+
+            ax.set_xlim(m,M)
+            ax.set_ylim(m,M)
+
         if tick_exp:
-            xlocs, labels = pp.xticks()
+            xlocs = ax.get_xticks()
             xlocs = xlocs[1:-1]
-            pp.xticks(xlocs, [roundmax(tick_exp**l, 1) for l in xlocs])
+            ax.set_xticks(xlocs)
+            ax.set_xticklabels([roundmax(tick_exp**l, 1) for l in xlocs])
 
             # ylocs, labels = pp.yticks()
             # ylocs = ylocs[1:-1]
             ylocs = xlocs
-            pp.yticks(ylocs, [roundmax(tick_exp**l, 1) for l in ylocs])
+            ax.set_yticks(ylocs)
+            ax.set_yticklabels([roundmax(tick_exp**l, 1) for l in ylocs])
 
         t4 = time.time()
         logger = logging.getLogger('timing.density_plot')
@@ -318,7 +331,7 @@ def density_scatter_plot(
         t_label = 1000. * (t4-t3)
         logger.debug('KDE={t_kde:.2f}ms pcolormesh={t_mesh:.2f}ms outliers={t_out:.2f}ms labels={t_label:.2f}ms'.format(**locals()) )
         
-        sns.despine(trim=True)
+        # sns.despine(trim=True)
 
 
 
@@ -591,6 +604,7 @@ class GradientDescentReport(object):
 
     def read_sample_errors(self):
         errors = [self.get('stats', t).errors for t in self.t]
+        print([e.shape for e in errors])
         return np.array(errors, dtype=float)
 
     def read_correlations(self):
@@ -895,7 +909,7 @@ class GradientDescentReport(object):
                 pred = b_binned + A_binned * bg
                 return ((scale * zs - pred)**2).sum()
 
-            res = minimize(err, (.001, .5), bounds=[(1e-6, 1.), (1e-6, 1.)], method='L-BFGS-B')
+            res = minimize(err, (.001, .5), bounds=[(1e-6, 1.), (1e-6, 1.)], method='L-BFGS-B') #, options=dict(eps=1e-4))
             scale, bg = res.x
             print(res)
             total = (bg * A_binned + b_binned).sum()
