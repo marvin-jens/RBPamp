@@ -16,7 +16,6 @@ import pickle as pickle
 from subprocess import PIPE, Popen
 from multiprocessing import Process, Event, JoinableQueue as Queue
 import multiprocessing
-# from queue import Empty
 from collections import defaultdict
 from cska.caching import CachedBase, cached, pickled
 import cska.cyska as cyska
