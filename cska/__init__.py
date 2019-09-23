@@ -833,7 +833,7 @@ def main():
         if (options.opt_full or options.opt_struct) and (not run.completed('opt_struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
 
-            param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
+            param_sources = [run.options.mdl_psam_init, 'footprint/parameters.tsv']
             if options.resume:
                 param_sources.insert(1, 'opt_struct/parameters.tsv')
             
