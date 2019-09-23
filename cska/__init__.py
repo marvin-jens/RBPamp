@@ -534,9 +534,9 @@ class Run(object):
     def completed(self, stage, strict=False):
         stage_output = {
             'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
-            'opt_nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/parameters.tsv'),
-            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
-            'opt_struct' : os.path.join(self.rbns.out_path, 'opt_struct/parameters.tsv'),
+            'opt_nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/optimized.tsv'),
+            'footprint' : os.path.join(self.rbns.out_path, 'footprint/parameters.tsv'),
+            'opt_struct' : os.path.join(self.rbns.out_path, 'opt_struct/optimized.tsv'),
         }
         import datetime
 
@@ -673,7 +673,7 @@ class Run(object):
                 calibrated_set.append(res)
                 
 
-        path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
+        path = os.path.join(self.rbns.out_path, 'footprint', 'parameters.tsv')
         self.logger.info("storing footprint optimized model in '{}'".format(path))
         cal_params = ModelSetParams(calibrated_set)
         cal_params.save(path, comment=self.mini_run_info)
@@ -695,7 +695,7 @@ class Run(object):
                 par_keep.append(par)
 
         self.params = ModelSetParams(par_keep)
-        path = os.path.join(self.rbns.out_path, 'footprint', 'parameters.tsv')
+        path = os.path.join(self.rbns.out_path, 'footprint', 'calibrated.tsv')
         self.logger.info("storing filtered footprint optimized model in '{}'".format(path))
         self.params.save(path, comment=self.mini_run_info)
 
@@ -715,7 +715,7 @@ class Run(object):
         srep = report.SeedReport(path=plot_path, rbns=self.rbns)
 
         fprep = report.FootprintCalibrationReport(
-            os.path.join(self.run_path, 'footprint/calibrated.tsv'),
+            os.path.join(self.run_path, 'footprint/parameters.tsv'),
             out_path=plot_path,
             rbns=self.rbns
         )
@@ -826,14 +826,14 @@ def main():
         if (options.opt_full or options.opt_footprint) and (not run.completed('footprint') or options.cont):
             run.logger.info("STAGE2: footprint parameter estimation")
 
-            run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/parameters.tsv')
+            run.probe_params(run.options.mdl_psam_init, 'opt_nostruct/optimized.tsv')
             run.calibrate_footprint()
             run.flush_reads()
 
         if (options.opt_full or options.opt_struct) and (not run.completed('opt_struct') or options.cont):
             run.logger.info("STAGE3: PSAM optimization with accessibility footprint")
 
-            param_sources = [run.options.mdl_psam_init, 'footprint/parameters.tsv']
+            param_sources = [run.options.mdl_psam_init, 'footprint/calibrated.tsv']
             if options.resume:
                 param_sources.insert(1, 'opt_struct/parameters.tsv')
             
