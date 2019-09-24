@@ -512,7 +512,13 @@ class GradientDescentReport(object):
 
         descent_file = os.path.join(os.path.dirname(fname), "descent.tsv")
         lines = list(file(descent_file))
-        max_t = int(lines[-1].split('\t')[0])
+        try:
+            max_t = int(lines[-1].split('\t')[0])
+        except ValueError:
+            self.logger.error("Empty or malformed file '{}'. No data to plot!".format(fname))
+            # empty file or only header
+            return
+
         # print "max_t found in", descent_file, max_t
 
         t = np.arange(max_t) + self.t_ofs
