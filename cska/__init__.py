@@ -707,7 +707,7 @@ class Run(object):
         tracker = self.get_state_tracker('plots')
 
         if plots == ["all",] : 
-            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']
+            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']  #, 'aff'
 
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
