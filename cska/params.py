@@ -236,10 +236,13 @@ class ModelSetParams(object):
 
         return ModelSetParams(new)
 
-    def save_logos(self, fname, lo=None, hi=None, title="", minimal=False, align=False, logo_height=1.4):
+    def save_logos(self, fname, lo=None, hi=None, title="", minimal=False, align=False, logo_height=1.4, savefig=None):
         # TODO: add error estimates to Kd 
         import matplotlib.pyplot as plt
         from cska.affinitylogo import plot_afflogo, nice_conc
+
+        if savefig is None:
+            savefig = plt.savefig
 
         n = len(self.param_set)
         print("param_set size", n)
@@ -306,7 +309,7 @@ class ModelSetParams(object):
         except ValueError:
             logging.warning("ModelSetParams.save_logos() tight_layout error silenced")
 
-        plt.savefig(fname)
+        savefig(fname)
         plt.close()
 
 

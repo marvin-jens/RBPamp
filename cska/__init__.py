@@ -724,6 +724,7 @@ class Run(object):
         grep.load(os.path.join(self.run_path, 'opt_nostruct/history'), "no structure")
         grep.load(os.path.join(self.run_path, 'opt_struct/history'), "full model")
 
+        vignette = report.Vignette(path=plot_path, rbns=self.rbns, grad_report=grep, fp_report=fprep)
         funcs = {
             'seed' : srep.plot_R_dist,
             'descent' : grep.plot_report,
@@ -739,6 +740,7 @@ class Run(object):
             tracker.set(plt)
             funcs[plt]()
 
+        vignette.render()
         tracker.set('COMPLETED')
 
 
