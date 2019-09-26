@@ -239,7 +239,7 @@ def density_scatter_plot(
             cb = sane_colorbar(plt.colorbar(pm, ax=ax, shrink=.3, aspect=10)) #orientation='horizontal', fraction=.05)
             cb.set_label('density')
             zt = np.array([z_min, (z_max + z_min)/2., z_max])
-            ztr = np.round(zt, 1)
+            ztr = np.round(zt, 2)
             cb.outline.set_linewidth(.5)
             # cb.ax.yaxis.set_ticks_position('right')
             cb.set_ticks(zt)
@@ -431,12 +431,54 @@ class RunReport(object):
 
 
 
-
-class SeedReport(object):
-    def __init__(self, path='.', rbns=None):
-        import shelve
+class ReportBase(object):
+    def __init__(self, path='.', rbns=None, fmts=['svg', 'pdf'], dpi=300, **kw):
         self.path = path
-        self.logger = logging.getLogger("SeedReport")
+        self.fmts = fmts
+        self.dpi = dpi
+        from cska import ensure_path
+        for fmt in self.fmts:
+            ensure_path(os.path.join(self.path, fmt+'/'))
+
+    def savefig(self, name, fig=None):
+        if not fig:
+            fig = plt
+        
+        for fmt in self.fmts:
+            fname = os.path.join(self.path, fmt, f'{name}.{fmt}')
+            if hasattr(self, 'logger'):
+                self.logger.debug(f'saving plot "{fname}"')
+
+            fig.savefig(fname, dpi=self.dpi)
+
+
+class Vignette(object):
+    def __init__(self, path='.', grad_report=None, fp_report=None, rbns=None):
+        self.path = path
+        self.rbns = rbns
+        self.grad_report = grad_report
+        self.fp_report = fp_report
+        from jinja2 import Template
+        ftemplate = os.path.join(os.path.dirname(__file__), 'vignette.html')
+        self.dst = os.path.join(path, f'{rbns.rbp_name}_vignette.html')
+        self.template = Template(file(ftemplate, 'r').read())
+
+    def render(self, **kw):
+        context = dict(
+            rbns=self.rbns,
+            t_nostruct=self.grad_report.epochs[0][1],
+            t_struct=self.grad_report.t[-1]
+        )
+        context.update(kw)
+
+        file(self.dst, 'w').write(self.template.render(**context))
+
+class SeedReport(ReportBase):
+    def __init__(self, path='.', **kw):
+        super(SeedReport, self).__init__(path=path, **kw)
+
+        import shelve
+        self.logger = logging.getLogger("plot.SeedReport")
         spath = os.path.join(self.path, '../seed/history')
         # print spath
         try:
@@ -445,7 +487,7 @@ class SeedReport(object):
             self.logger.error("could not open database {}".format(spath))
 
     def plot_R_dist(self, n_top=5):
-        pp.figure(figsize=(2,1.8))
+        plt.figure(figsize=(2,1.8))
         R = self.shelf['R0']
         Rw = (R.min() / R.max()) **.15
         Nk = len(R)
@@ -458,8 +500,8 @@ class SeedReport(object):
         I = R.argsort()
         k = len(kmers[0])
         # pp.fill_between(np.arange(len(R)), R[I], color='k')
-        pp.fill_between(np.arange(Nk-i_cut), R[I][:Nk-i_cut], color='.75')
-        pp.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
+        plt.fill_between(np.arange(Nk-i_cut), R[I][:Nk-i_cut], color='.75')
+        plt.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
 
         top = np.linspace(0, len(kmers)-1, num=n_top, dtype=int)
         # print top, len(kmers), n_top
@@ -468,28 +510,31 @@ class SeedReport(object):
             # print i, kmer
             # pp.text(Nk/2, R.max() * (Rw ** i), kmer.upper(), fontdict=dict(family='fixed'))
             j = top[i]
-            pp.annotate(
+            plt.annotate(
                 kmer.upper(),
                 (Nk-j, R[I][Nk-j-1]),
                 xytext=(Nk/4.-i*4**(k-2), R.max() * (Rw ** i)),
                 arrowprops=dict(arrowstyle='-'),
                 # fontfamily='monospace',
             )
-        pp.text(Nk/2-5000, R.max() * (Rw ** n_top), "...")
+        plt.text(Nk/2-5000, R.max() * (Rw ** n_top), "...")
 
-        pp.legend(loc='best', frameon=False)
-        pp.ylabel(f"{k}-mer enrichment")
+        plt.legend(loc='best', frameon=False)
+        plt.ylabel(f"{k}-mer enrichment")
         plt.xlabel("rank")
         plt.tight_layout()
         plt.gca().set_yscale('log')
         sns.despine()
-        pp.savefig(os.path.join(self.path,"seed_report.pdf"))
-        pp.close()
+        self.savefig("seed_report")
+        plt.close()
 
 
-class GradientDescentReport(object):
-    def __init__(self, path='.', comp=None, rbns=None):
+class GradientDescentReport(ReportBase):
+    def __init__(self, path='.', comp=None, rbns=None, **kw):
         self.logger = logging.getLogger('plot.GradientDescentReport')
+        
+        super(GradientDescentReport, self).__init__(path=path, **kw)
+
         self.comp = comp
         self.rbns = rbns
         self.shelves = []
@@ -499,7 +544,6 @@ class GradientDescentReport(object):
         self.epoch_names = []
         self.epochs = []
         self.error_estimators = []
-        self.path = path
 
     def load(self, fname, epoch_name):
         import shelve
@@ -669,7 +713,7 @@ class GradientDescentReport(object):
         pp.legend(artists, labels, ncol=5, loc='lower center')
         pp.axis('off')
         plt.tight_layout()
-        pp.savefig(os.path.join(self.path,"descent_report.pdf"))
+        self.savefig("descent_report")
         pp.close()
 
 
@@ -718,7 +762,7 @@ class GradientDescentReport(object):
         plt.xlabel("iteration #")
         plt.tight_layout()
         sns.despine()
-        pp.savefig(os.path.join(self.path,"descent_linesearch.pdf"))
+        self.savefig("descent_linesearch")
         pp.close()
 
     def plot_scatter(self, t=-1, title=""):
@@ -743,9 +787,9 @@ class GradientDescentReport(object):
             pp.ylabel("predicted {}-mer enrichment".format(self.k_mer))
             pp.gca().set(aspect="equal")
             pp.tight_layout()
-            fname = os.path.join(self.path,"scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t))
+            name = "scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t)
             try:
-                pp.savefig(fname, dpi=300)
+                self.savefig(name)
             except ValueError as err:
                 self.logger.warning("caught '{}' while trying to save {}".format(err, fname))
 
@@ -774,8 +818,7 @@ class GradientDescentReport(object):
         sns.despine()
         pp.tight_layout()
 
-        fname = os.path.join(self.path, "param_{0}_error_scatter.pdf".format(param_i))
-        plt.savefig(fname)
+        self.savefig(f"param_{param_i}_error_scatter")
         plt.close()
 
     def plot_motifs(self, t=42, title=""):
@@ -793,8 +836,11 @@ class GradientDescentReport(object):
             lo = ModelSetParams(p_mid.lo.param_set, sort=True)
             hi = ModelSetParams(p_mid.hi.param_set, sort=True)
         
-        params.save_logos(os.path.join(self.path, f"motifs_t{t}.pdf"), lo=lo, hi=hi, title=title)
-        params.save_logos(os.path.join(self.path, f"minimal_motifs_t{t}.pdf"), lo=lo, hi=hi, title=title, minimal=True, align=True)
+        def sf(fname, **kw):
+            self.savefig(fname, **kw)
+
+        params.save_logos(f"motifs_t{t}", lo=lo, hi=hi, title=title, savefig=sf)
+        params.save_logos(f"minimal_motifs_t{t}", lo=lo, hi=hi, title=title, minimal=True, align=True, savefig=sf)
 
     def make_affinity_dist_plots(self):
         from cska.params import ModelSetParams
@@ -894,7 +940,7 @@ class GradientDescentReport(object):
         # plt.xticks(xticks, xtick_labels)
         plt.locator_params(axis='x', numticks=3)
         plt.tight_layout()
-        plt.savefig(os.path.join(self.path, f'affdist_{self.rbns.rbp_name}_{name}.pdf'))
+        self.savefig(f'affdist_{self.rbns.rbp_name}_{name}')
         plt.close()
 
         n = len(complex_binned)
@@ -936,7 +982,7 @@ class GradientDescentReport(object):
             plt.ylim(0, ymax*1.2)
     
         plt.tight_layout()
-        plt.savefig(os.path.join(self.path, f'affmatch_{self.rbns.rbp_name}_{name}.pdf'))
+        self.savefig(f'affmatch_{self.rbns.rbp_name}_{name}')
         plt.close()
     
         # x = np.sort(ref.Z1_read) * params.A0
@@ -1159,7 +1205,7 @@ class GradientDescentReport(object):
             pp.legend(tuple(artists), tuple(labels), loc='lower right')
             pp.tight_layout()
 
-            pp.savefig(os.path.join(self.path,"literature_comparison.pdf".format(t)))
+            self.savefig("literature_comparison")
             pp.close()
 
             import scipy.stats
@@ -1178,7 +1224,7 @@ class GradientDescentReport(object):
             # pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
             sns.despine(trim=False)
             pp.tight_layout()
-            pp.savefig(os.path.join(self.path,"literature_errors.pdf".format(t)))
+            self.savefig("literature_errors")
             pp.close()
 
     # def plot_A0_fit(self, t=-1):
@@ -1276,8 +1322,8 @@ class GradientDescentReport(object):
     #     pp.close()
 
 
-class FootprintCalibrationReport(object):
-    def __init__(self, fparams, out_path='.', rbns=None):
+class FootprintCalibrationReport(ReportBase):
+    def __init__(self, fparams, out_path='.', rbns=None, **kw):
         """
         fparams is path to calibrated.tsv params file
         expects database 'history' in same folder to retrieve
@@ -1285,6 +1331,8 @@ class FootprintCalibrationReport(object):
         """ 
         from cska.params import ModelSetParams
         import shelve
+        super(FootprintCalibrationReport, self).__init__(path=out_path, **kw)
+
         self.out_path = out_path
         self.rbns = rbns
         self.logger = logging.getLogger('plot.FootprintCalibrationReport')
@@ -1519,10 +1567,7 @@ class FootprintCalibrationReport(object):
         plt.tight_layout()
         # sns.despine(trim=True)
         # sparse_y(plt.gca())
-        fname = os.path.join(self.out_path, '{motif}_{acc_k}_{acc_shift}.pdf'.format(**locals()))
-        self.logger.debug("saving plot: '{}'".format(fname))
-        # plt.show()
-        plt.savefig(fname)
+        self.savefig(f'{motif}_{acc_k}_{acc_shift}')
         plt.close()
 
 
@@ -1540,7 +1585,7 @@ class FootprintCalibrationReport(object):
         plt.ylabel(r"expected $P_{unpaired}$")
         sns.despine()
         plt.tight_layout()
-        plt.savefig(fname+"bla.pdf")
+        self.savefig(f'{motif}_{acc_k}_{acc_shift}_scatter')
         plt.close()
 
 
@@ -1642,7 +1687,8 @@ class FootprintCalibrationReport(object):
         # plt.ylim(kmin, kmax + 1)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.out_path, '{motif}_footprint.pdf'.format(motif=motif)))
+        self.savefig(f'{motif}_footprint')
+        plt.close()
 
 
     def kmer_acc_profiles(self, motif, params, maxU=15, n_bins=30):
@@ -1666,7 +1712,7 @@ class FootprintCalibrationReport(object):
             R_avg = total[1:] / total[0]
             sns.despine()
             plt.tight_layout()
-            plt.savefig(os.path.join(self.out_path, "{}_energy_hist.pdf".format(kmer)))
+            self.savefig(f"{kmer}_energy_hist")
             plt.close()
 
             # print counts
@@ -1687,7 +1733,7 @@ class FootprintCalibrationReport(object):
             plt.ylabel("enrichment over input".format())
             sns.despine()
             plt.tight_layout()
-            plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_scaled.pdf".format(kmer)))
+            self.savefig(f"{kmer}_R_vs_acc_scaled")
             plt.close()
 
             plt.figure(figsize=(2,2))
@@ -1700,7 +1746,7 @@ class FootprintCalibrationReport(object):
             plt.ylabel("enrichment over input".format())
             sns.despine()
             plt.tight_layout()
-            plt.savefig(os.path.join(self.out_path, "{}_R_vs_acc_raw.pdf".format(kmer)))
+            self.savefig(f"{kmer}_R_vs_acc_raw")
             plt.close()
 
 

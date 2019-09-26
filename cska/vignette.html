@@ -1,0 +1,15 @@
+<html>
+<head>
+    <title>{{ rbns.rbp_name }} Results</title>
+</head>
+<body>
+    <h2>PSAM sets</h2>
+    <h3>R-values</h3>
+    <img src="svg/seed_report.svg"/>
+    <h3>initial</h3>
+    <img src="svg/motifs_t0.svg"/>
+    <h3>sequence only optimization</h3>
+    Sequence-only gradient descent converged after {{ t_nostruct }} steps.
+    <img src="svg/motifs_t{{ t_nostruct }}.svg"/>
+</body>
+</html>
