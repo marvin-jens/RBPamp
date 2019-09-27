@@ -279,8 +279,13 @@ class Run(object):
         self.hostname = socket.gethostname()
         import subprocess
         path = os.path.dirname(os.path.realpath(__file__))
-        git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
-        self.git_commit = git
+        gc_name = os.path.join(path, "git_commit")
+        if os.path.exists(gc_name):
+            self.git_commit = file(gc_name, 'r').read()
+        else:
+            git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
+            self.git_commit = git
+
         self.cmdline = " ".join(sys.argv)
         self.version = __version__
 
