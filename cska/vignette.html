@@ -1,15 +1,47 @@
+<!DOCTYPE html>
 <html>
 <head>
     <title>{{ rbns.rbp_name }} Results</title>
+    <!-- <meta name="pdfkit-orientation" content="Landscape"/> -->
 </head>
-<body>
-    <h2>PSAM sets</h2>
-    <h3>R-values</h3>
-    <img src="svg/seed_report.svg"/>
-    <h3>initial</h3>
-    <img src="svg/motifs_t0.svg"/>
-    <h3>sequence only optimization</h3>
-    Sequence-only gradient descent converged after {{ t_nostruct }} steps.
-    <img src="svg/motifs_t{{ t_nostruct }}.svg"/>
+<body style="background-color : white;">
+    <h1>{{ rbns.rbp_name }} </h1>
+    <p>
+        <h3>Enriched 8-mers</h3>
+        <img src="svg/seed_report.svg" width=33%/>
+    </p>
+
+    <p>
+        <h3>PSAM sets (initial, optimized, with footprint)</h3>
+        <img src="svg/motifs_t0.svg" width=30% />
+        <img src="svg/motifs_t{{ t_nostruct }}.svg" width=30% />
+        <img src="svg/motifs_t{{ t_struct }}.svg"width=30% />
+    </p>
+    <p>
+        <h3>Gradient descent</h3>
+        <img src="svg/descent_report.svg" width=33%/>
+        <ul>
+         <li>Sequence-only converged after {{ t_nostruct }} steps.</li>
+         <li>Accessibility-footprint aware converged after {{ t_struct }} steps.</li>
+        </ul>
+    </p>
+    
+    <h3 style="page-break-before: always;">6-mer scatter plos</h3>
+    {% for conc in rbp_conc %}
+    <p>
+        <h4> {{rbns.rbp_name}} concentration={{conc}} nM</h4>
+        <img src="svg/scatter_6mers_{{conc}}nM_t0.svg" width=30% />
+        <img src="svg/scatter_6mers_{{conc}}nM_t{{ t_nostruct }}.svg" width=30% />
+        <img src="svg/scatter_6mers_{{conc}}nM_t{{ t_struct }}.svg" width=30% />
+    </p>
+    {% endfor %}
+    <h3 style="page-break-before: always;">Secondary structure accessibility analysis</h3>
+    {% for motif in fp_motifs %}
+    <p>
+        <img src="svg/{{motif}}_profiles.svg" width=50% />
+        <img src="svg/{{motif}}_scatter.svg" width=20% />
+        <img src="svg/{{motif}}_footprint.svg" width=20% />
+    </p>
+    {% endfor %}
 </body>
 </html>

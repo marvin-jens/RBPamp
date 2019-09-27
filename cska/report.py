@@ -467,11 +467,21 @@ class Vignette(object):
         context = dict(
             rbns=self.rbns,
             t_nostruct=self.grad_report.epochs[0][1],
-            t_struct=self.grad_report.t[-1]
+            t_struct=self.grad_report.t[-1],
+            rbp_conc=self.grad_report.rbp_conc,
+            fp_motifs=self.fp_report.motifs,
         )
         context.update(kw)
+        print("context", context)
 
         file(self.dst, 'w').write(self.template.render(**context))
+    
+    def make_pdf(self, **kw):
+        self.render()
+        import pdfkit
+        # kw['options'] = dict(orientation='Landscape')ls
+        pdfkit.from_file(self.dst, self.dst.replace('html', 'pdf'), **kw) 
+
 
 class SeedReport(ReportBase):
     def __init__(self, path='.', **kw):
@@ -598,7 +608,7 @@ class GradientDescentReport(ReportBase):
 
         for i, name in enumerate(self.epoch_names):
             t0, t = self.epochs[i]
-            # print "epoch", t0, t, name
+            # print("epoch", t0, t, name)
             self.plot_scatter(t0, title="before {}".format(name))
             self.plot_scatter(t, title="after {}".format(name))
 
@@ -787,7 +797,7 @@ class GradientDescentReport(ReportBase):
             pp.ylabel("predicted {}-mer enrichment".format(self.k_mer))
             pp.gca().set(aspect="equal")
             pp.tight_layout()
-            name = "scatter_{0}mers_{1}nM_t{2}.pdf".format(self.k_mer, self.rbp_conc[i], t)
+            name = "scatter_{0}mers_{1}nM_t{2}".format(self.k_mer, self.rbp_conc[i], t)
             try:
                 self.savefig(name)
             except ValueError as err:
@@ -1567,7 +1577,7 @@ class FootprintCalibrationReport(ReportBase):
         plt.tight_layout()
         # sns.despine(trim=True)
         # sparse_y(plt.gca())
-        self.savefig(f'{motif}_{acc_k}_{acc_shift}')
+        self.savefig(f'{motif}_profiles')
         plt.close()
 
 
@@ -1585,7 +1595,7 @@ class FootprintCalibrationReport(ReportBase):
         plt.ylabel(r"expected $P_{unpaired}$")
         sns.despine()
         plt.tight_layout()
-        self.savefig(f'{motif}_{acc_k}_{acc_shift}_scatter')
+        self.savefig(f'{motif}_scatter')
         plt.close()
 
 

@@ -24,7 +24,7 @@ def parse_cmdline():
     datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
 
     from optparse import OptionParser
-    usage = "usage: %prog [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]"
+    usage = "usage: %prog [options] [path_to_RBNS_splitreads]"
 
     parser = OptionParser(usage=usage)
     # basic options
@@ -215,13 +215,10 @@ class Run(object):
     def __init__(self, options, args):
         self.options = options
         self.args = args
-        if not args:
-            self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
-        else:
-            self.rbp_name = options.name
-            self.reads_files = args
-            self.rbp_concentrations = [float(c) for c in options.rbp_conc.split(',')]
+        if args:
+            os.chdir(args[0])
         
+        self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
         if not len(self.reads_files):
             raise ValueError("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
 
@@ -707,7 +704,7 @@ class Run(object):
         tracker = self.get_state_tracker('plots')
 
         if plots == ["all",] : 
-            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp']  #, 'aff'
+            plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp', 'vig']  #, 'aff'
 
         import cska.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
@@ -728,19 +725,20 @@ class Run(object):
         funcs = {
             'seed' : srep.plot_R_dist,
             'descent' : grep.plot_report,
-            'scatter' : grep.plot_scatter,
+            'scatter' : grep.plot_scatter_all,
             'fp' : fprep.report,
             'lit' : grep.plot_literature,
             'logos' : grep.plot_logos,
             'aff' : grep.make_affinity_dist_plots,
             'afit' : grep.plot_param_error_scatter, # EXPERIMENTAL
+            'vig' : vignette.render,
+            'vigpdf' : vignette.make_pdf,
         }
 
         for plt in plots:
             tracker.set(plt)
             funcs[plt]()
 
-        vignette.render()
         tracker.set('COMPLETED')
 
 
