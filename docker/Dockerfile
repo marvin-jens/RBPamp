@@ -1,9 +1,18 @@
-# Intermediate, just to pull source code!
-FROM ubuntu as intermediate
+# Make an intermediate image, just to get source code and compile cython code
+FROM ubuntu:bionic as git_and_build
+# install git and minimal dependencies to compile Cython modules
+RUN apt-get update && \
+  apt-get install --no-install-recommends -y \
+  git \
+  ssh \
+  python-numpy \
+  python-pip \
+  python2.7-dev \
+  build-essential
 
-# install git
-RUN apt-get update
-RUN apt-get install -y git
+RUN python2 -c "import numpy; print numpy.__version__"
+RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org 'Cython==0.29.13'
+RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org 'setuptools==41.2.0'
 
 # add credentials on build
 ARG SSH_PRIVATE_KEY
@@ -16,28 +25,42 @@ RUN cat /root/.ssh/id_rsa
 # make sure your domain is accepted
 RUN touch /root/.ssh/known_hosts
 RUN ssh-keyscan bitbucket.org >> /root/.ssh/known_hosts
-
+# Pull source code
+WORKDIR /
+RUN pwd
 RUN git clone git@bitbucket.org:marjens/cska.git
 
-# Here's the actual build of the image. Does not expose my SSH_KEY!!!
+WORKDIR /cska
+RUN git describe --always > git_commit
+RUN python2 -c "import numpy; print numpy.__version__"
+RUN python2 -m pip list
+RUN python setup.py build_ext --inplace
+RUN rm -rf /cska/build
 
-# Use an official Python runtime as a parent image
-# FROM  madnight/docker-alpine-wkhtmltopdf
-# RUN apk update && apk add py2-pip
-
-FROM python:2.7-slim
+## The final image. Start fresh
+FROM ubuntu:bionic
 RUN pwd
-RUN apt-get update && apt-get -y install libblas3 liblapack3 build-essential zlib1g-dev # wkhtmltopdf
-COPY --from=intermediate /cska /cska
+COPY --from=git_and_build /cska /cska
+RUN apt-get update && apt-get install  --no-install-recommends -y \
+    python-pip \
+    python-numpy \
+    python-scipy \
+    python-matplotlib
 
 WORKDIR /
-COPY requirements.txt /req.txt
-RUN python --version
-RUN python2 --version
-RUN pip install --trusted-host pypi.python.org "numpy==1.16.5"
+RUN python2 -c "import numpy; print numpy.__version__"
+
 RUN pwd
-RUN pip install --trusted-host pypi.python.org -r req.txt
+COPY run_req.txt /req.txt
+RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org "setuptools==41.2.0"
+RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org -r req.txt
 ENV PYTHONPATH "/cska"
-WORKDIR /cska
-RUN python setup.py build_ext --inplace
-ENTRYPOINT ["python", "/cska/bin/cska"]
+RUN mkdir target
+WORKDIR /target
+RUN rm -rf /var/lib/apt/lists
+RUN rm -rf /usr/lib/gcc/x86_64-linux-gnu
+# RUN apt-get purge ar gcc g++ perl manpages mime-support libpython-dev libpython2-dev
+RUN apt-get purge gcc g++ perl manpages
+RUN apt-get clean && apt-get autoremove
+# ENTRYPOINT ["python", "/cska/bin/cska"]
+CMD ["bash"]
