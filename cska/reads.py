@@ -15,13 +15,20 @@ from cska.caching import cached, pickled, CachedBase
 import cska.fold
 from cska.subsampling import SubSampler
 
+default_adap5="gggaguucuacaguccgacgauc"
+default_adap3="uggaauucucgggugucaagg"
+
+def get_RT(temp):
+    "RT in kcal/mol for temp in degree Celsius"
+    return (temp + 273.15) * 8.314459848/4.184E3 
+
 class RBNSReads(CachedBase):
     def __init__(
         self, 
         fname, 
         rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22,
         format='raw', chunklines=2000000, n_max=0,
-        adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg",
+        adap5=default_adap5, adap3=default_adap3,
         storage_kw=dict(disc_mode='linear'),
         acc_storage_path='cska/acc',
         acc_storage=None,
@@ -37,7 +44,7 @@ class RBNSReads(CachedBase):
         self.rbp_conc = rbp_conc
         self.rna_conc = rna_conc
         self.temp = temp
-        self.RT = (self.temp + 273.15) * 8.314459848/4.184E3 # RT in kcal/mol
+        self.RT = get_RT(temp)
         self.adap5 = adap5
         self.adap3 = adap3
         self.l5 = len(adap5)
