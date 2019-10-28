@@ -182,6 +182,7 @@ def density_scatter_plot(
     dens_thresh=1000,
     x_ref=True,
     tick_exp=0,
+    margin=.05,
     lim_max=None,
     lim_min=None,
     sym=True,
@@ -195,10 +196,17 @@ def density_scatter_plot(
     t0 = time.time()
     N = len(x)
     
-    xmin = x.min() if lim_min is None else lim_min
-    xmax = x.max() if lim_max is None else lim_max
-    ymin = y.min() if lim_min is None else lim_min
-    ymax = y.max() if lim_max is None else lim_max
+    w = x.max() - x.min()
+    h = y.max() - y.min()
+    _xmin = x.min() - w * margin
+    _xmax = x.max() + w * margin
+    _ymin = y.min() - h * margin
+    _ymax = y.max() + h * margin
+
+    xmin = _xmin if lim_min is None else lim_min
+    xmax = _xmax if lim_max is None else lim_max
+    ymin = _ymin if lim_min is None else lim_min
+    ymax = _ymax if lim_max is None else lim_max
     
     if N > dens_thresh and x_ref:
         # use experiment as reference
@@ -680,7 +688,7 @@ class GradientDescentReport(ReportBase):
         return res
 
     def plot_report(self):
-        pp.figure(figsize=(3, 4))
+        pp.figure(figsize=(2.5, 4))
 
         artists = []
         labels = []
@@ -730,7 +738,7 @@ class GradientDescentReport(ReportBase):
 
         nfev, step = self.read_linesearch()
 
-        pp.figure(figsize=(3, 4))
+        pp.figure(figsize=(2, 4))
         pp.subplot(211)
         pp.semilogy(nfev, label='no. function evaluations during line-search')
         pp.semilogy(step, label='step size')
