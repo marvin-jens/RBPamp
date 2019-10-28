@@ -132,9 +132,11 @@ class ModelSetParams(object):
         return p
 
     @classmethod
-    def load(cls, fname, n_samples, max_motifs=None):
+    def load(cls, fname, n_samples, max_motifs=None, sort=False):
         param_set = list(ModelParametrization.load(fname, n_samples))
-        
+        if sort:
+            param_set = sorted(param_set, key=lambda par :  - par.A0)
+
         if (not max_motifs is None):
             max_motifs = len(param_set)
         
