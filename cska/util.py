@@ -1,8 +1,8 @@
 import numpy as np
 
-def load_model(fname):
+def load_model(fname, sort=True):
     from cska.params import ModelSetParams
-    params = ModelSetParams.load(fname, 1)
+    params = ModelSetParams.load(fname, 1, sort=sort)
     return params
 
 def eval_model(params, seq, m=None):
