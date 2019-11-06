@@ -83,7 +83,7 @@ def pval_str(p):
     else:
         return u"P ≈ 0"
 
-def pval_stars(p, levels=[.0001, .001, .01, .05,]):
+def pval_stars(p, levels=[0.000001, 0.00001, .0001, .001, .01, .05,]):
     if (p < 0) or (p > 1):
         raise ValueError(f'P-value {p} outside [0, 1] range')
 
