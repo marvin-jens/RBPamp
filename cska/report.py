@@ -233,32 +233,41 @@ def density_scatter_plot(
     import matplotlib
     with sns.axes_style("ticks", sns_style):
         if N > dens_thresh:
-            k = kde.gaussian_kde([x,y])
-            xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
-            zi = k(np.vstack([xi.flatten(), yi.flatten()]))
-            zi[zi < 1e-3] = np.nan
+            from scipy.linalg import LinAlgError
+            try:
+                k = kde.gaussian_kde([x,y])
+            except LinAlgError:
+                logging.error(LinAlgError)
+                # KDE failed. Fall back to scatter plot with a trick!
+                plot_outliers=True
+                outlier_percentile = 1e-9
+                dens_thresh = N + 1
+            else:
+                xi, yi = np.mgrid[xmin:xmax:nbins*1j, ymin:ymax:nbins*1j]
+                zi = k(np.vstack([xi.flatten(), yi.flatten()]))
+                zi[zi < 1e-3] = np.nan
 
-            z_min = np.nanmin(zi)
-            z_max = np.nanmax(zi)
-            # print "zmin/max", z_min, z_max
-            # pca().set_facecolor('w')
-            pm = ax.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
-            pm.set_rasterized(True)
-            cb = sane_colorbar(plt.colorbar(pm, ax=ax, shrink=.3, aspect=10)) #orientation='horizontal', fraction=.05)
-            cb.set_label('density')
-            zt = np.array([z_min, (z_max + z_min)/2., z_max])
-            ztr = np.round(zt, 2)
-            cb.outline.set_linewidth(.5)
-            # cb.ax.yaxis.set_ticks_position('right')
-            cb.set_ticks(zt)
-            cb.ax.set_yticklabels([str(z) for z in ztr])
-            cb.ax.tick_params(axis='y', direction='out', length=3, width=.5, )
-            # cb.ax.yaxis.set_major_locator(matplotlib.ticker.AutoLocator())
-            # cb.locator = matplotlib.ticker.MaxNLocator(nbins=4)
-            # cb.update_ticks()
+                z_min = np.nanmin(zi)
+                z_max = np.nanmax(zi)
+                # print "zmin/max", z_min, z_max
+                # pca().set_facecolor('w')
+                pm = ax.pcolormesh(xi, yi, zi.reshape(xi.shape), cmap=density_kw['cmap'], edgecolors='None', linewidth=0, rasterized=True, vmin=0, vmax=z_max)
+                pm.set_rasterized(True)
+                cb = sane_colorbar(plt.colorbar(pm, ax=ax, shrink=.3, aspect=10)) #orientation='horizontal', fraction=.05)
+                cb.set_label('density')
+                zt = np.array([z_min, (z_max + z_min)/2., z_max])
+                ztr = np.round(zt, 2)
+                cb.outline.set_linewidth(.5)
+                # cb.ax.yaxis.set_ticks_position('right')
+                cb.set_ticks(zt)
+                cb.ax.set_yticklabels([str(z) for z in ztr])
+                cb.ax.tick_params(axis='y', direction='out', length=3, width=.5, )
+                # cb.ax.yaxis.set_major_locator(matplotlib.ticker.AutoLocator())
+                # cb.locator = matplotlib.ticker.MaxNLocator(nbins=4)
+                # cb.update_ticks()
 
-            if contour:
-                ax.contour(xi, yi, zi.reshape(xi.shape))
+                if contour:
+                    ax.contour(xi, yi, zi.reshape(xi.shape))
             
             ax.grid(False)
 
