@@ -596,6 +596,7 @@ class Run(object):
         self.params = ps.seeded_multi_params(
             self.rbns.n_samples,
             max_motifs = self.options.max_motifs,
+            n_max = self.options.max_width,
             k_seed = self.options.k_seed,
             thresh = self.options.seed_thresh,
             z_cut = self.options.z_cut,
