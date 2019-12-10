@@ -30,12 +30,12 @@ class PSAMGradientDescent(object):
         past_errors = []
         if not os.path.exists(fname) or redo:
             self.logger.info("tracking progress in new file '{}'".format((fname)))
-            self.track_file = file(fname, 'w', 0)
+            self.track_file = open(fname, 'w', buffering=1)
             MSE_samples = ["MSE{}".format((i)) for i in range(params.n_samples)]
             corr_samples = ["corr{}".format((i)) for i in range(params.n_samples)]
             self.track_file.write('# t\tA0\tMSE\t{0}\t{1}\tnfev\tstep\n'.format("\t".join(MSE_samples), "\t".join(corr_samples)))
         else:
-            lines = file(fname).readlines()
+            lines = open(fname).readlines()
             try:
                 self.t_ofs = int(lines[-1].split('\t')[0]) + 1
                 past_errors = [float(l.split('\t')[2]) for l in lines[1:]]
@@ -43,7 +43,7 @@ class PSAMGradientDescent(object):
                 pass
                 
             self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
-            self.track_file = file(fname, 'a', 0)
+            self.track_file = open(fname, 'a', buffering=1)
         
         from cska.partfunc import PartFuncModel
         # from cska.meanfield import MeanFieldModel, InvMeanFieldModel
@@ -173,7 +173,7 @@ class PSAMGradientDescent(object):
         return "t={} max_corr={:.4f} err_fold={:.2f}".format((t), (corr_last), (err_reduction))
 
     def store_residuals(self, state):
-        with file(os.path.join(self.out_path, "{}mer_residuals.tsv".format((self.descent.model.k))),'w') as f:
+        with open(os.path.join(self.out_path, "{}mer_residuals.tsv".format((self.descent.model.k))),'w') as f:
             f.write('#kmer\tlog2(R_pred/R_obs)\n')
             res = np.log2(state.R/state.mdl.R0)
             for i in range(state.mdl.nA):

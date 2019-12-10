@@ -1,5 +1,5 @@
 # -*- coding: future_fstrings -*-
-
+from __future__ import print_function
 import re, glob, sys, os
 import numpy as np
 import shelve
@@ -165,9 +165,9 @@ def get_params(fname):
 
 
 def n_PSAM_plot(nm, ns, nd, fname="n_PSAMs_bar.pdf"):
-    print "multi", nm
-    print "single", ns
-    print "KHDRBS2+3 (likely dimers)", nd
+    print("multi", nm)
+    print("single", ns)
+    print("KHDRBS2+3 (likely dimers)", nd)
     # vm = nm / float(nm.sum())
     # vs = ns / float(ns.sum())
 
@@ -268,7 +268,7 @@ def n_PSAM_significance(pattern, rbps, variant, plot=False):
 
     mwu_s = stars(mwu_p)
     tt_s = stars(tt_p)
-    print f"{variant:30s} multi/single={ratio:.3f} p_MWU={mwu_p:.3e} {mwu_s}  p_ttest={tt_p:.3e} {tt_s} "
+    print(f"{variant:30s} multi/single={ratio:.3f} p_MWU={mwu_p:.3e} {mwu_s}  p_ttest={tt_p:.3e} {tt_s} ")
     # print "MWU", mwu
     # print "t-test", tt
 
@@ -313,7 +313,7 @@ def extract_error_corr(path):
         results[rbp] = res
     
     if errors:
-        print "Errors occurred with the following rbps", errors
+        print("Errors occurred with the following rbps", errors)
 
     return d, results
 
@@ -326,7 +326,7 @@ def extract_results(path):
         try:
             res = Results(rbp=rbp)
             res.add_results(nostruct = get_descent(os.path.join(fname, "opt_nostruct/descent.tsv")))
-            res.add_results(full = get_descent(os.path.join(fname, "opt_full/descent.tsv")))
+            res.add_results(full = get_descent(os.path.join(fname, "opt_struct/descent.tsv")))
             res.add_results(drop_initial = np.round(100. * (res.nostruct.err_drop - 1)) )
             res.add_results(drop_full = np.round(100. * (res.nostruct.err_final / res.full.err_final - 1)) )
         except IndexError:
@@ -350,32 +350,20 @@ def extract_results(path):
 
     sys.stderr.write("n_stable={}\n".format(stable))
 
-        # print rbp
-        # 
-        # if not lines:
-        # 	continue
-        # cols0 = lines[0].split('\t')
-        # cols1 = lines[-1].split('\t')
-        # n = (len(cols0) - 3)/2
-        # #print cols1
-        # #print n
-        # rerr = float(cols1[2]) / float(cols0[2])
-        # ferr = float(cols1[2])
-        # steps = int(cols1[0])
-        # 
-        
-        # yield rbp, rerr, ferr, best_corr, steps
-
-
+def load_fp_calibrated_params(pattern, rbps, variant, plot=False):
+    from cska.params import ModelSetParams
     
-# pattern = "RBNS/*/cska/multi_10M_2"
-# # pattern = "RBNS/*/cska/mparams1M_samples"
-# pattern = "RBNS/*/cska/recent"
-# pattern = "RBNS/*/cska/CI"
+    # load PSAM count for valid rbps
+    params = {}
+    for rbp in rbps:
+        fname = pattern.format(rbp=rbp, variant=variant)
+        params[rbp] = ModelSetParams.load(fname, 1)
+
+    return params
 
 def load_or_make(pattern, base = "/home/mjens/engaging/", redo=False):
     import cPickle as pickle
-    pf = "{key}.pkl".format(key=pattern.__hash__())
+    pf = "{key:x}.pkl".format(key=pattern.__hash__())
     if os.path.exists(pf) and not redo:
         res = pickle.load(file(pf, 'rb'))
     else:
@@ -399,7 +387,7 @@ def compare_runs(runs, rbps):
     all_errs = []
     all_corrs = []
     for run in rkeys:
-        print ">>", run
+        print(">>", run)
         errs, corrs = np.array([runs[run][rbp] for rbp in rbps]).T
         merrs.append(np.mean(np.log10(errs)))
         mcorrs.append(np.mean(corrs))
@@ -409,27 +397,27 @@ def compare_runs(runs, rbps):
 
         eperc = np.percentile(np.log10(errs), [5, 25, 50, 75, 95])
         cperc = np.percentile(corrs, [5, 25, 50, 75, 95])
-        print "  log10 error quartiles", np.round(eperc, 2)
-        print "  correlation quartiles", np.round(cperc, 2)
+        print("  log10 error quartiles", np.round(eperc, 2))
+        print("  correlation quartiles", np.round(cperc, 2))
         # mean corr {:.3f}".format(run, merrs[-1], mcorrs[-1]) 
 
     rkeys = np.array(rkeys)
     merrs = np.array(merrs)
     mcorrs = np.array(mcorrs)
 
-    print ">> most variable RBPs"
+    print(">> most variable RBPs")
     all_errs = np.array(all_errs)
     all_corrs = np.array(all_corrs)
     vc = np.std(all_corrs, axis=0)
     I = vc.argsort()[::-1]
     for i in I[:15]:
-        print rbps[i], np.round(vc[i], 2), np.round(all_corrs[:, i], 3), np.round(all_errs[:, i], 3)
+        print(rbps[i], np.round(vc[i], 2), np.round(all_corrs[:, i], 3), np.round(all_errs[:, i], 3))
 
 
     ie = merrs.argmin()
     ic = mcorrs.argmax()
 
-    print "-> run with lowest error {}, highest corr {}".format(rkeys[ie], rkeys[ic])
+    print("-> run with lowest error {}, highest corr {}".format(rkeys[ie], rkeys[ic]))
 
 
 
@@ -440,7 +428,7 @@ def GC_acc_scale_plot():
     for rbp, params in zip(rbps, params_full):
         for par in params.param_set:
             psam = par.as_PSAM()
-            print "\t".join([str(o) for o in [rbp, psam.consensus_ul, psam.fraction_GC, par.acc_scale, par.acc_k, par.acc_shift]])
+            print("\t".join([str(o) for o in [rbp, psam.consensus_ul, psam.fraction_GC, par.acc_scale, par.acc_k, par.acc_shift]]))
             if par.acc_k > 3 and par.acc_scale > 0:
                 gc.append(psam.fraction_GC)
                 scale.append(par.acc_scale)
@@ -449,10 +437,10 @@ def GC_acc_scale_plot():
     plt.figure(figsize=(2,2))
     x = np.array(gc)
     y = np.array(scale)
-    print y
+    # print y
 
     slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
-    print slope, intercept, r_value, p_value, std_err
+    # print slope, intercept, r_value, p_value, std_err
     plt.plot(x, scale, '.')
     plt.plot(x, (x*slope + intercept), '-r')
     plt.xlabel("PSAM G+C content")
@@ -485,6 +473,26 @@ def add_significance(data, labels, y, x0=1, ref=0, name="differences", ax=None):
         ax.text(i + x0, y, stars, horizontalalignment='center', verticalalignment='center')
 
 
+def plot_and_regress(x, y, ax=None, logy=False, **kw):
+    if ax is None:
+        ax = plt.gca()
+    from scipy.stats import linregress
+    if logy:
+        y = np.log10(y)
+    ax.plot(x, y, '.', **kw)
+    a, b, r, p, stderr = linregress(x, y)
+    print(f"slope={a:.3f} intercept={b:.3f} rvalue={r:.3f} pvalue={p:.3e}")
+    ax.plot(x, a*x+b, '-', color='maroon', label=f'r={r:.2f} P < {p:.2e}')
+    if logy:
+        set_ylogticks(ax)
+
+def set_ylogticks(ax):
+    yl = np.array([.05, 0.1, .2, .4, .6])
+    y = np.log10(yl)
+    ax.set_yticks(y)
+    ax.set_yticklabels(yl)
+
+    
 class ModelComparisons(object):
     def __init__(self, variant_dict, rbps=cska.dominguez_rbps, labels=None):
         self.logger = logging.getLogger('ModelComparisons')
@@ -505,6 +513,33 @@ class ModelComparisons(object):
         self.n_conc = np.array([len(self.res_std[rbp].nostruct.rbp_conc) for rbp in self.rbps])
         self.err_std_fp = np.array([self.res_std[rbp].full.get("err_final", np.NaN) for rbp in self.rbps])
         self.corr_std_fp = np.array([self.res_std[rbp].full.get("best_corr", np.NaN) for rbp in self.rbps])
+        self.load_domains()
+
+        self.rbp_domain = np.array([self.dom_type[rbp] for rbp in self.rbps])
+
+    def load_domains(self, fname='domains.txt'):
+
+        self.dom_type = {}
+        self.domains = {}
+
+        def _domain(dom):
+            if type(dom) == float:
+                return 'NA'
+            from collections import defaultdict
+            ds = defaultdict(int)
+            for d in dom.split(','):
+                ds[d] += 1
+            # tbl = np.array(sorted([(v,k) for k,v in ds.items()]))[::-1]
+            if len(ds.keys()) == 1:
+                return ds.keys()[0]
+                # return "{} {}".format(ds.values()[0], ds.keys()[0]) # only one domain type
+            else:
+                return "mixed"
+
+        for line in file(fname):
+            rbp, doms = line.rstrip().split('\t')
+            self.domains[rbp] = doms.split(',')
+            self.dom_type[rbp] = _domain(doms)
 
     def left_out_sample_data(self, min_corr=.1):
         assert "single" in self.variants
@@ -557,22 +592,64 @@ class ModelComparisons(object):
 
         return comparable_rbps, np.array(mean_errs), np.array(mean_corrs)
 
+    def delta_barplot(self, ax, y0, y1, name='delta', func = lambda y0, y1 : y0 - y1, ax_test=None, xticks=[10, 30, 50, 70]):
+        delta = func(y0, y1)
+        I = delta.argsort()
+        N = len(delta)
 
-    def left_out_single_conc_plot(self):
-        I = full.argsort()
-        x = np.arange(len(I))
-        plt.figure(figsize=(3, 3))
-        plt.gca().set_yscale('log')
-        plt.plot(x, full[I], '.k')
-        plt.plot(x, single[I], '^r')
-        plt.xlabel('RBP index')
-        plt.ylabel("model error of left-out samples")
-        plt.tight_layout()
-        plt.savefig('left_out.pdf')
-        print("single > full", (single > full).sum(), "single <= full", (single <= full).sum(), "N=", len(I))
-        from scipy.stats import binom_test
-        print("binomial test P-value", binom_test((single > full).sum(), len(I)))
-        plt.close()
+        x = np.arange(N)
+        ax.bar(x, delta[I], width=1., linewidth=0, color=np.where(delta[I] > 0, 'k', 'r'))
+        
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticks)
+
+        # statistical testing.
+        gt = (y1 > y0).sum()
+        le = (y1 <= y0).sum()
+
+        from scipy.stats import binom_test, mannwhitneyu, ttest_ind, ttest_1samp
+        bt = binom_test(gt, N)
+        mwu = mannwhitneyu(y0, y1)
+        tt = ttest_ind(y0, y1)
+        tt1 = ttest_1samp(delta, 0)
+
+        print(f"{name} gt={gt} le={le} N={N}")
+        print(f"binomial test P-value for '{name}' {bt}")
+        print(f"MWU P-value for '{name}' {mwu}")
+        print(f"ttest P-value for '{name}' {tt}")
+        print(f"ttest P-value for delta mean != 0 '{name}' {tt1}")
+
+        ax.axhline(0, color='k', linewidth=.5)
+        if ax_test:
+            ax_test.bar(
+                [0, 1],
+                [gt, le],
+                color=['r', 'k']
+            )
+            ax_test.set_ylabel("# RBPs")
+            ax_test.set_xticks([0, 1])
+            ax_test.set_xlim(-1, 8)
+            ax_test.set_xticklabels(["lower", "higher"], rotation=90)
+
+        return mwu, tt, tt1, bt
+
+
+    # def left_out_single_conc_plot(self):
+
+    #     I = full.argsort()
+    #     x = np.arange(len(I))
+    #     plt.figure(figsize=(3, 3))
+    #     plt.gca().set_yscale('log')
+    #     plt.plot(x, full[I], '.k')
+    #     plt.plot(x, single[I], '^r')
+    #     plt.xlabel('RBP index')
+    #     plt.ylabel("model error of left-out samples")
+    #     plt.tight_layout()
+    #     plt.savefig('left_out.pdf')
+    #     print("single > full", (single > full).sum(), "single <= full", (single <= full).sum(), "N=", len(I))
+    #     from scipy.stats import binom_test
+    #     print("binomial test P-value", binom_test((single > full).sum(), len(I)))
+    #     plt.close()
 
     def single_multi_scatter(self):
         plt.figure(figsize=(3, 3))
@@ -588,7 +665,7 @@ class ModelComparisons(object):
         for i in np.argsort(lfc):
             if lfc[i] > - 0.2:
                 break
-            print "error lower in single PSAM", rbps[i], err_s[i], '<', err_std[i], 'n_psam', n_psams[i]
+            print("error lower in single PSAM", rbps[i], err_s[i], '<', err_std[i], 'n_psam', n_psams[i])
 
         plt.plot([minerr, maxerr], [minerr, maxerr], '--k', linewidth=.5)
         # plt.colorbar()
@@ -601,49 +678,72 @@ class ModelComparisons(object):
         plt.savefig("PSAM_set.pdf")
         plt.close()
 
-    def single_multi_PSAMS(self):
+    def single_multi_PSAMS(self, corr_ymin=None, corr_ymax=None):
         assert "single" in self.variants
-        fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(2, 2, gridspec_kw=dict(width_ratios=[1, 1]), figsize=(3.5, 3), sharex='col')
+        fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(2, 2, gridspec_kw=dict(width_ratios=[1, 1]), figsize=(3.5, 2.5), sharex='col')
         
         ## per RBP errors as dots/triangles. Upper left panel
         emulti = self.err_std[self.n_psams > 1]
         esingle = self.err_single[self.n_psams > 1]
-        I = emulti.argsort()
+
+        self.delta_barplot(
+            ax_err, 
+            emulti, 
+            esingle,
+            name = "multi PSAM error",
+            func = lambda y0, y1 : np.log2(y0/y1),
+            # ax_test=ax_es
+        )
+
+        # I = emulti.argsort()
         
-        ax_err.set_yscale('log')
-        sa = ax_err.plot(esingle[I], '^r', markersize=2, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, ))
-        ma = ax_err.plot(emulti[I], '.k', markersize=3, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5))
-        ax_err.legend((ma[0], sa[0]), ("multiple PSAMs", "single PSAM"), loc='lower right')
+        # ax_err.set_yscale('log')
+        # sa = ax_err.plot(esingle[I], '^r', markersize=2, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, ))
+        # ma = ax_err.plot(emulti[I], '.k', markersize=3, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5))
+        # ax_err.legend((ma[0], sa[0]), ("multiple PSAMs", "single PSAM"), loc='lower right')
         ax_err.set_ylabel('model error')
 
         ## per RBP CHANGE in error. Upper right panel
         nrange = range(1, self.n_psams.max()+1)
+        domains = ['RRM', 'KH', 'ZNF', 'mixed', 'other']
         n_psam_masks = [self.n_psams == n for n in nrange]
-        labels = [f'{n}' for n in nrange]
-        lerr_multi = [np.log10(np.array(self.err_std[mask])) for mask in n_psam_masks]
-        lerr_single = [np.log10(np.array(self.err_single[mask])) for mask in n_psam_masks]
+        domain_masks = [self.rbp_domain == dom for dom in domains]
 
-        deltas=[s-m for m, s in zip(lerr_multi, lerr_single)]
+        labels = [f'{n}' for n in nrange]
+        lerr_multi = [np.log2(np.array(self.err_std[mask])) for mask in n_psam_masks]
+        lerr_single = [np.log2(np.array(self.err_single[mask])) for mask in n_psam_masks]
+
+        deltas=[m-s for m, s in zip(lerr_multi, lerr_single)]
         sns.swarmplot(
             data=deltas,
             ax =ax_ebp,
             size=1.5,
         )
         ax_ebp.plot(np.arange(len(deltas)), [np.mean(d) for d in deltas], '_', color='red', markersize=10, solid_capstyle='round')
-        add_significance(deltas, labels, 0.6, x0=0, ref=None, ax=ax_ebp, name='log2 error ratio single vs. multi PSAM')
+        add_significance(deltas, labels, 0.2, x0=0, ref=None, ax=ax_ebp, name='log2 error ratio single vs. multi PSAM')
         ax_ebp.set_ylabel(u'Δ($\log_2$ model error)')
 
         ## per RBP correlations as dots/triangles. Lower left panel
         cmulti = self.corr_std[self.n_psams > 1]
         csingle = self.corr_single[self.n_psams > 1]
-        I = cmulti.argsort()
+
+        self.delta_barplot(
+            ax_corr, 
+            cmulti, 
+            csingle,
+            name = "multi PSAM correlation",
+            # func = lambda y0, y1 : np.log2(y0/y1), 
+            # ax_test=ax_es
+        )
+
+        # I = cmulti.argsort()
         
-        sa = ax_corr.plot(csingle[I],'^r',  markersize=2, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, markeredgewidth=0))
-        ma = ax_corr.plot(cmulti[I],'.k', markersize=3, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, markeredgewidth=0))
+        # sa = ax_corr.plot(csingle[I],'^r',  markersize=2, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, markeredgewidth=0))
+        # ma = ax_corr.plot(cmulti[I],'.k', markersize=3, markeredgewidth=0) #, color='blue', markersize=6, alpha=.5, markeredgewidth=0))
 
         ax_corr.set_ylabel('6-mer correlation')
-        ax_corr.set_xticks([10,30,50,70])
-        ax_corr.set_xticklabels([10,30,50,70])
+        if corr_ymax:
+            ax_corr.set_ylim(corr_ymin, corr_ymax)
         # ax_corr.set_xticklabels(rbps[I], rotation=90)
         ax_corr.set_xlabel('RBP index')
 
@@ -651,110 +751,97 @@ class ModelComparisons(object):
         corr_multi = [np.array(self.corr_std[mask]) for mask in n_psam_masks]
         corr_single = [np.array(self.corr_single[mask]) for mask in n_psam_masks]
 
-        deltas=[s-m for m, s in zip(corr_multi, corr_single)]
+        deltas=[m-s for m, s in zip(corr_multi, corr_single)]
+        from scipy.stats import ttest_1samp
+        print("multiple_PSAM effects as function of no. of PSAMS")
+        for i, d in enumerate(deltas):
+            tt = ttest_1samp(d, 0)
+            print(f"{i+1} PSAM(s) -> {tt}")
+
+        ## by DOMAIN
+        corr_multi = [np.array(self.corr_std[mask]) for mask in domain_masks]
+        corr_single = [np.array(self.corr_single[mask]) for mask in domain_masks]
+
+        ddeltas=[m-s for m, s in zip(corr_multi, corr_single)]
+        from scipy.stats import ttest_1samp
+        print("multiple_PSAM effects as function of domain type")
+        for i, d in enumerate(ddeltas):
+            tt = ttest_1samp(d, 0)
+            print(f"{domains[i]} PSAM(s) -> {tt}")
+        
+        sns.set_palette(sns.color_palette("GnBu_d"))
         sns.swarmplot(
             data=deltas,
-            ax =ax_cbp,
+            ax=ax_cbp,
             size=1.5,
         )
         ax_cbp.plot(np.arange(len(deltas)), [np.mean(d) for d in deltas], '_', color='red', markersize=10)
-        add_significance(deltas, labels, .05, x0=0, ref=None, ax=ax_cbp, name='correlation difference single vs. multi PSAM')
+        add_significance(deltas, labels, .3, x0=0, ref=None, ax=ax_cbp, name='correlation difference single vs. multi PSAM')
         ax_cbp.set_xlabel('# PSAMs')
         ax_cbp.set_xticklabels("12345")
+        ax_ebp.axhline(0, color='k', linewidth=.5)
+        ax_cbp.axhline(0, color='k', linewidth=.5)
+        # ax_cbp.set_xlabel('RNA-binding domain')
+        # ax_cbp.set_xticklabels(domains)
         ax_cbp.set_ylabel(u'Δ(correlation)')
-        ax_cbp.set_ylim(-.3, .1)
-        ax_err.set_yticks([1e-3, 1e-2,1e-1])
-        ax_err.set_yticklabels([0.001, 0.01, 0.1])
-        ax_corr.set_yticks([.6,.7,.8,.9,1.])
-        ax_corr.set_yticklabels([.6,.7,.8,.9,1.])
+        # ax_cbp.set_ylim(-.05, .4)
+        # ax_err.set_yticks([1e-3, 1e-2,1e-1])
+        # ax_err.set_yticklabels([0.001, 0.01, 0.1])
+        # ax_corr.set_yticks([.6,.7,.8,.9,1.])
+        # ax_corr.set_yticklabels([.6,.7,.8,.9,1.])
 
         plt.tight_layout()
         plt.savefig('PSAM_set_grouped.pdf')
         plt.close()
 
-    def oneconc(self):
+    def oneconc(self, corr_ymin=None, corr_ymax=None):
         assert "oneconc" in self.variants
         fig, ((ax_err, ax_es), (ax_corr, ax_cs)) = plt.subplots(
             2, 2, 
-            gridspec_kw=dict(width_ratios=[3, 1]), 
-            figsize=(2.5, 2.5), 
+            gridspec_kw=dict(width_ratios=[1, 1]), 
+            figsize=(3.5, 2.5), 
             sharex='col'
         )
 
         comparable_rbps, mean_errs, mean_corrs = self.left_out_sample_data()
-
-        full, single = mean_errs.T
         assert len(comparable_rbps) == len(mean_errs) == len(mean_corrs)
-        I = full.argsort()
-        ax_err.set_yscale('log')
-        ax_err.plot(full[I], '.k', markersize=3, markeredgewidth=0, label='2 to 4 RBP conc.')
-        ax_err.plot(single[I], '^r', markersize=2, markeredgewidth=0, label='single, best RBP conc.')
-        ax_err.set_xticks([10,30,50])
-        ax_err.set_xticklabels([10,30,50])
-        ax_err.set_xlabel('RBP index')
-        ax_err.set_ylabel("mean left-out\nmodel error")
-        y = np.linspace(-3, -1, 3)
-        ax_err.set_yticks(10**y)
-        ax_err.set_yticklabels(10**y)
 
-        sgtf = (single > full).sum()
-        slef = (single <= full).sum()
-        
-        ## not significant via MWU
-        # lerr = [np.log10(full), np.log10(single)]
-        labels = ["2 to 4 conc.", "single best conc."]
-        # add_significance(lerr, labels, y=-.5, name="multi vs single conc. predict left-out samples: error differences", ax=ax_es)
-
-        N = len(I)
-        print(f"single > full {sgtf} single <= full {slef} N={N}")
-        from scipy.stats import binom_test
-        bt = binom_test(sgtf, N)
-        print("binomial test P-value for mean left-out error of single conc optimization > multi conc.", bt)
-        ax_es.bar(
-            [0, 1],
-            [sgtf, slef],
-            color=['k', 'r']
+        full_err, single_err = mean_errs.T
+        self.delta_barplot(
+            ax_err, 
+            full_err, 
+            single_err,
+            name = "left-out model error",
+            func = lambda y0, y1 : np.log2(y0/y1), 
+            ax_test=ax_es,
+            xticks=[10, 30, 50]
         )
+        ax_err.set_xlabel('RBP index')
+        ax_err.set_ylabel("left-out\nmodel error log2 ratio")
         ax_es.set_ylabel("# RBPs")
         ax_es.set_xticks([0, 1])
-        # ax_cs.set_xlim(-1,2)
         ax_es.set_xticklabels(["single > multi", "single <= multi"])
 
 
-        full, single = mean_corrs.T
-        I = full.argsort()
-        # ax_lo.set_yscale('log')
-        ax_corr.plot(full[I], '.k', markersize=3, markeredgewidth=0, label='2 to 4 RBP conc.')
-        ax_corr.plot(single[I], '^r', markersize=2, markeredgewidth=0, label='single, best RBP conc.')
-        ax_corr.set_xlabel('RBP index')
-        ax_corr.set_xticks([10,30,50])
-        ax_corr.set_xticklabels([10,30,50])
-        ax_corr.set_ylabel("mean left-out\n6-mer correlation")
-
-        sgtf = (single > full).sum()
-        slef = (single <= full).sum()
-        N = len(I)
-        print(f"single > full {sgtf} single <= full {slef} N={N}")
-        from scipy.stats import binom_test
-        print("binomial test P-value for mean left-out error of single conc optimization > multi conc.", binom_test(sgtf, N))
-
-        ax_cs.bar(
-            [0, 1],
-            [sgtf, slef],
-            color=['k', 'r']
+        full_corr, single_corr = mean_corrs.T
+        self.delta_barplot(
+            ax_corr, 
+            full_corr, 
+            single_corr,
+            name = "left-out correlation",
+            ax_test=ax_cs,
+            xticks=[10, 30, 50]
         )
+        ax_corr.set_xlabel('RBP index')
+        ax_corr.set_ylabel(u"Δ(correlation)")
+        ax_corr.set_yticks([0,0.3,0.6])
+        ax_corr.set_yticklabels([0,0.3,0.6])
+        if corr_ymax:
+            ax_corr.set_ylim(corr_ymin, corr_ymax)
+
         ax_cs.set_ylabel("# RBPs")
-
-        # bplot = ax_cs.boxplot(
-        #     list(corrs),
-        #     labels=labels,  # will be used to label x-ticks
-        #     **bpkw
-        # )
-        # add_significance(corrs, labels, y=.05, name="multi vs single conc. predict left-out samples: correlation differences", ax=ax_cs)
-
         ax_cs.set_xticks([0, 1])
-        # ax_cs.set_xlim(-1,2)
-        ax_cs.set_xticklabels(["single >\nmulti", "single <=\nmulti"], rotation=90)
+        ax_cs.set_xticklabels(["lower", "higher"], rotation=90)
 
         plt.tight_layout()
         sns.despine()
@@ -766,7 +853,9 @@ class ModelComparisons(object):
         self, 
         models=["std", "xsrbp", "linocc", "dumb", ], 
         labels = ["mass-action", "excess RBP", "linear occ.", "excess RBP +\nlinear occ."], 
-        symbols = ['.', '^', '.', '*', '.']
+        symbols = ['.', '^', '.', '*', '.'],
+        plot_kw = [{'zorder' : 3000},{},{},{},{}],
+        corr_ymin=None, corr_ymax=None
         ):
 
         for m in models:
@@ -787,191 +876,464 @@ class ModelComparisons(object):
         colors = ['black', '#f98e23', '#1f77b4', '#c44802', 'teal']
         # symbols = ['.', '^', 'v', 's']
 
-        fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(
-            2, 2, 
-            gridspec_kw=dict(width_ratios=[3, 2]),
-            figsize=(3., 2.5),
-            sharex='col'
-        )
+        for variant in ['xsrbp', 'linocc', 'dumb']:
+            fig, ((ax_err, ax_es), (ax_corr, ax_cs)) = plt.subplots(
+                2, 2, 
+                gridspec_kw=dict(width_ratios=[1, 1]), 
+                figsize=(3.5, 2.5), 
+                sharex='col'
+            )
+            self.delta_barplot(
+                ax_err, 
+                self.err_std, 
+                getattr(self, f"err_{variant}"),
+                name = variant,
+                func = lambda y0, y1 : np.log2(y0/y1),
+                ax_test=ax_es
+            )
+            self.delta_barplot(
+                ax_corr, 
+                self.corr_std, 
+                getattr(self, f"corr_{variant}"),
+                name = variant,
+                ax_test=ax_cs
+            )
+            ax_err.set_xlabel('RBP index')
+            ax_err.set_ylabel("model error log2 ratio")
 
-        lerr = np.log10(np.array([self.err_std, self.err_xsrbp, self.err_linocc, self.err_dumb])) #
-        bplot = ax_ebp.boxplot(
-            list(lerr),
-            labels=labels,  # will be used to label x-ticks
-            **bpkw
-        )
-        add_significance(lerr, labels, y=-.5, name="model error differences", ax=ax_ebp)
-        ax_ebp.set_xticks([])
-        # ax_ebp.set_ylabel("model error")
+            ax_corr.set_xlabel('RBP index')
+            ax_corr.set_ylabel(u"Δ(correlation)")
+            if corr_ymax:
+                ax_corr.set_ylim(corr_ymin, corr_ymax)
+
+
+            # ax_corr.set_yticks([0,0.3,0.6])
+            # ax_corr.set_yticklabels([0,0.3,0.6])
+
+            sns.despine()
+            plt.tight_layout()
+
+            plt.savefig(f"{variant}_impact.pdf")
+
+        return
+
+        # fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(
+        #     2, 2, 
+        #     gridspec_kw=dict(width_ratios=[3, 2]),
+        #     figsize=(3., 2.5),
+        #     sharex='col'
+        # )
+
+        # lerr = np.log10(np.array([self.err_std, self.err_xsrbp, self.err_linocc, self.err_dumb])) #
+        # bplot = ax_ebp.boxplot(
+        #     list(lerr),
+        #     labels=labels,  # will be used to label x-ticks
+        #     **bpkw
+        # )
+        # add_significance(lerr, labels, y=-.5, name="model error differences", ax=ax_ebp)
+        # ax_ebp.set_xticks([])
+        # # ax_ebp.set_ylabel("model error")
         
-        y = np.linspace(-3, -1, 3)
-        ax_ebp.set_yticks(y)
-        # ax_ebp.set_ylim(-3, 0)
-        ax_ebp.set_yticklabels(10.0**y)
+        # y = np.linspace(-3, -1, 3)
+        # ax_ebp.set_yticks(y)
+        # # ax_ebp.set_ylim(-3, 0)
+        # ax_ebp.set_yticklabels(10.0**y)
 
-        corr = np.array([self.corr_std, self.corr_xsrbp, self.corr_linocc, self.corr_dumb])
-        bp2 = ax_cbp.boxplot(
-            list(corr),
-            labels=labels,  # will be used to label x-ticks
-            **bpkw
-        )
-        add_significance(corr, labels, y=1., name="correlation differences", ax=ax_cbp)
-        ax_cbp.set_xticks([])
-        # ax_cbp.set_ylabel("6-mer correlation")
-        # plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
-        ax_cbp.set_yticks([.6, .8, 1.])
-        ax_cbp.set_yticklabels(["0.6", "0.8", '1'])
-
-        # fill with colors
-        for bplot in (bplot, bp2):
-            for patch, color in zip(bplot['boxes'], colors):
-                patch.set_facecolor(color)
-
-        regressions = []
-        import scipy.stats
-        x = np.arange(len(self.err_std))
-        I = np.argsort(self.err_std)
-        for i, err in enumerate([self.err_std, self.err_xsrbp, self.err_linocc, self.err_dumb]):
-            ax_err.semilogy(x, err[I], symbols[i], color=colors[i], label=labels[i], alpha=1., markersize=3, markeredgewidth=0)
-
-        ax_err.set_xticks([10,30,50,70])
-        ax_err.set_xticklabels([10,30,50,70])
-        ax_err.set_yticks(10**y)
-        ax_err.set_yticklabels(10.0**y)
-
-        ax_err.set_xlabel("RBP index")
-        ax_err.set_ylabel("model error")
-
-        x = np.arange(len(self.corr_std))
-        I = np.argsort(self.corr_std)
-        for i, corr in enumerate([self.corr_std, self.corr_xsrbp, self.corr_linocc, self.corr_dumb]):
-            ax_corr.plot(x, corr[I], symbols[i], color=colors[i], label=labels[i], markersize=3, markeredgewidth=0)
-
-        ax_corr.legend(loc='best')
-        ax_corr.set_xlabel("RBP index")
-        ax_corr.set_ylabel("6-mer correlation")
-        plt.tight_layout()
-        sns.despine()
-        plt.savefig("model_comparison.pdf")
-        plt.close()
-
-    def mdl_comp_struct_plot(self):
-        fig, ((ax_err, ax_es), (ax_corr, ax_cs)) = plt.subplots(
-            2, 2, 
-            gridspec_kw=dict(width_ratios=[3, 1]), 
-            figsize=(2.5, 2.5), 
-            sharex='col'
-        )
-        labels = ['PSAMs only', 'PSAMs + footprint']
-        # plotting the one-marker-per-RBP panels
-        x = np.arange(len(self.err_std))
-        I = np.argsort(self.err_std)
-        ax_err.set_yscale('log')
-        ax_err.plot(x, self.err_std[I], '.k', label="PSAMs only", markersize=3, markeredgewidth=0)
-        ax_err.plot(x, self.err_std_fp[I], '^r', label="PSAMs + footprint", markersize=2, markeredgewidth=0)
-
-        x = np.arange(len(self.corr_std))
-        I = np.argsort(self.corr_std)
-        ax_corr.plot(x, self.corr_std[I], '.k', label="PSAMs only", markersize=3, markeredgewidth=0)
-        ax_corr.plot(x, self.corr_std_fp[I], '^r', label="PSAMs + footprint", markersize=2, markeredgewidth=0)
-
-        # statistics
-        # # lerr = np.log10(np.array([self.err_std, self.err_std_fp])) #
-        # # bplot = ax_ebp.boxplot(
-        # #     list(lerr),
-        # #     # labels=labels,  # will be used to label x-ticks
-        # #     **bpkw
-        # # )
-        # # add_significance(lerr, labels, y=-.5, name="model error", ax=ax_ebp)
-
-        # # corr = [self.corr_std, self.corr_std_fp]
-        # # bp2 = ax_cbp.boxplot(
-        # #     list(corr),
-        # #     labels=labels,  # will be used to label x-ticks
-        # #     **bpkw
-        # # )
-        # # add_significance(corr, labels, y=1., name="6mer correlation", ax=ax_cbp)
-        # # # fill with colors
-        # # for bplot in (bplot, bp2):
-        # #     for patch, color in zip(bplot['boxes'], ['k', 'r']):
-        # #         patch.set_facecolor(color)
-        N = len(I)
-        efpgt = (self.err_std_fp > self.err_std).sum()
-        efple = N - efpgt
-
-        cfpgt = (self.corr_std_fp > self.corr_std).sum()
-        cfple = N - cfpgt
-        print(f"model error: PSAM+FP > PSAM={efpgt} PSAM+FP <= PSAM={efple} N={N}")
-        print(f"correlation: PSAM+FP > PSAM={cfpgt} PSAM+FP <= PSAM={cfple} N={N}")
-        
-        from scipy.stats import binom_test
-        bte = binom_test(efpgt, N)
-        print("binomial test P-value for PSAM+FP vs PSAM error", bte)
-        ax_es.bar(
-            [0, 1],
-            [efpgt, efple],
-            color=['r', 'k']
-        )
-        btc = binom_test(cfpgt, N)
-        print("binomial test P-value for PSAM+FP vs PSAM error", btc)
-        ax_cs.bar(
-            [0, 1],
-            [cfpgt, cfple],
-            color=['r', 'k']
-        )
-
-        # legends and labels
-
-        # ax_err.legend(loc='lower center', ncol=1)
-        # ax_corr.legend(loc='lower center', ncol=1)
-        ax_err.set_xlabel("RBP index")
-        ax_err.set_ylabel('model error')
-        ax_err.set_yticks([1e-3, 1e-2,1e-1])
-        ax_err.set_yticklabels([0.001, 0.01, 0.1])
-        ax_corr.set_xticks([10,30,50,70])
-        ax_corr.set_xticklabels([10,30,50,70])
-        ax_corr.set_xlabel("RBP index")
-        ax_corr.set_ylabel('6-mer correlation')
-        # ax_cs.set_ylim(-.3, .1)
-        ax_corr.set_yticks([.6,.7,.8,.9,1.])
-        ax_corr.set_yticklabels([.6,.7,.8,.9,1.])
-
-        ax_es.set_ylabel("# RBPs")
-        ax_cs.set_ylabel("# RBPs")
-        ax_es.set_xticks([0, 1])
-        ax_cs.set_xticks([0, 1])
-        # ax_es.set_xticklabels(["PSAM+FP > PSAM", "PSAM+FP <= PSAM"], rotation=90)
-        ax_cs.set_xticklabels(["PSAM+FP >\nPSAM", "PSAM+FP <=\nPSAM"], rotation=90)
-
-
+        # corr = np.array([self.corr_std, self.corr_xsrbp, self.corr_linocc, self.corr_dumb])
+        # bp2 = ax_cbp.boxplot(
+        #     list(corr),
+        #     labels=labels,  # will be used to label x-ticks
+        #     **bpkw
+        # )
+        # add_significance(corr, labels, y=1., name="correlation differences", ax=ax_cbp)
         # ax_cbp.set_xticks([])
+        # # ax_cbp.set_ylabel("6-mer correlation")
+        # # plt.axhline(0, color='gray', linewidth=.5, linestyle='dashed')
         # ax_cbp.set_yticks([.6, .8, 1.])
         # ax_cbp.set_yticklabels(["0.6", "0.8", '1'])
 
-        # y = np.linspace(-3, -1, 3)
-        # ax_ebp.set_xticks([])
-        # ax_ebp.set_yticks(y)
-        # ax_ebp.set_yticklabels(10.0**y)
+        # # fill with colors
+        # for bplot in (bplot, bp2):
+        #     for patch, color in zip(bplot['boxes'], colors):
+        #         patch.set_facecolor(color)
+
+        # regressions = []
+        # import scipy.stats
+        # x = np.arange(len(self.err_std))
+        # I = np.argsort(self.err_std)
+        # for i, err in enumerate([self.err_std, self.err_xsrbp, self.err_linocc, self.err_dumb]):
+        #     ax_err.semilogy(x, err[I], symbols[i], color=colors[i], label=labels[i], alpha=1., markersize=3, markeredgewidth=0, **plot_kw[i])
+
+        # ax_err.set_xticks([10,30,50,70])
+        # ax_err.set_xticklabels([10,30,50,70])
+        # ax_err.set_yticks(10**y)
+        # ax_err.set_yticklabels(10.0**y)
+
+        # ax_err.set_xlabel("RBP index")
+        # ax_err.set_ylabel("model error")
+
+        # x = np.arange(len(self.corr_std))
+        # I = np.argsort(self.corr_std)
+        # for i, corr in enumerate([self.corr_std, self.corr_xsrbp, self.corr_linocc, self.corr_dumb]):
+        #     ax_corr.plot(x, corr[I], symbols[i], color=colors[i], label=labels[i], markersize=3, markeredgewidth=0, **plot_kw[i])
+
+        # ax_corr.legend(loc='best')
+        # ax_corr.set_xlabel("RBP index")
+        # ax_corr.set_ylabel("6-mer correlation")
+        # plt.tight_layout()
+        # sns.despine()
+        # plt.savefig("model_comparison.pdf")
+        # plt.close()
+
+    def mdl_comp_struct_plot(self, corr_ymin=None, corr_ymax=None):
+        fig, ((ax_err, ax_es), (ax_corr, ax_cs), ) = plt.subplots(
+            2, 2, 
+            gridspec_kw=dict(width_ratios=[1, 1]), 
+            figsize=(3.5, 2.5), 
+            sharex='col'
+        )
+        labels = ['PSAMs only', 'PSAMs + footprint']
+
+        self.delta_barplot(
+            ax_err, 
+            self.err_std_fp,
+            self.err_std, 
+            name = "footprint",
+            func = lambda y0, y1 : np.log2(y0/y1),
+            ax_test=ax_es
+        )
+        self.delta_barplot(
+            ax_corr, 
+            self.corr_std_fp,
+            self.corr_std, 
+            name = "footprint",
+            ax_test=ax_cs
+        )
+        ax_err.set_xlabel('RBP index')
+        ax_err.set_ylabel("model error log2 ratio")
+
+        ax_corr.set_xlabel('RBP index')
+        ax_corr.set_ylabel(u"Δ(correlation)")
+        if corr_ymax:
+            ax_corr.set_ylim(corr_ymin, corr_ymax)
+
+
+        # # plotting the one-marker-per-RBP panels
+        # x = np.arange(len(self.err_std))
+        # I = np.argsort(self.err_std)
+        # ax_err.set_yscale('log')
+        # ax_err.plot(x, self.err_std[I], '.k', label="PSAMs only", markersize=3, markeredgewidth=0)
+        # ax_err.plot(x, self.err_std_fp[I], '^r', label="PSAMs + footprint", markersize=2, markeredgewidth=0)
+
+        # x = np.arange(len(self.corr_std))
+        # I = np.argsort(self.corr_std)
+        # ax_corr.plot(x, self.corr_std[I], '.k', label="PSAMs only", markersize=3, markeredgewidth=0)
+        # ax_corr.plot(x, self.corr_std_fp[I], '^r', label="PSAMs + footprint", markersize=2, markeredgewidth=0)
+
+        # # # lerr = np.log10(np.array([self.err_std, self.err_std_fp])) #
+        # # # bplot = ax_ebp.boxplot(
+        # # #     list(lerr),
+        # # #     # labels=labels,  # will be used to label x-ticks
+        # # #     **bpkw
+        # # # )
+        # # # add_significance(lerr, labels, y=-.5, name="model error", ax=ax_ebp)
+
+        # # # corr = [self.corr_std, self.corr_std_fp]
+        # # # bp2 = ax_cbp.boxplot(
+        # # #     list(corr),
+        # # #     labels=labels,  # will be used to label x-ticks
+        # # #     **bpkw
+        # # # )
+        # # # add_significance(corr, labels, y=1., name="6mer correlation", ax=ax_cbp)
+        # # # # fill with colors
+        # # # for bplot in (bplot, bp2):
+        # # #     for patch, color in zip(bplot['boxes'], ['k', 'r']):
+        # # #         patch.set_facecolor(color)
+        # N = len(I)
+        # efpgt = (self.err_std_fp > self.err_std).sum()
+        # efple = N - efpgt
+
+        # cfpgt = (self.corr_std_fp > self.corr_std).sum()
+        # cfple = N - cfpgt
+        # print(f"model error: PSAM+FP > PSAM={efpgt} PSAM+FP <= PSAM={efple} N={N}")
+        # print(f"correlation: PSAM+FP > PSAM={cfpgt} PSAM+FP <= PSAM={cfple} N={N}")
+        
+        # from scipy.stats import binom_test
+        # bte = binom_test(efpgt, N)
+        # print("binomial test P-value for PSAM+FP vs PSAM error", bte)
+        # ax_es.bar(
+        #     [0, 1],
+        #     [efpgt, efple],
+        #     color=['r', 'k']
+        # )
+        # btc = binom_test(cfpgt, N)
+        # print("binomial test P-value for PSAM+FP vs PSAM error", btc)
+        # ax_cs.bar(
+        #     [0, 1],
+        #     [cfpgt, cfple],
+        #     color=['r', 'k']
+        # )
+
+        # # legends and labels
+
+        # # ax_err.legend(loc='lower center', ncol=1)
+        # # ax_corr.legend(loc='lower center', ncol=1)
+        # ax_err.set_xlabel("RBP index")
+        # ax_err.set_ylabel('model error')
+        # ax_err.set_yticks([1e-3, 1e-2,1e-1])
+        # ax_err.set_yticklabels([0.001, 0.01, 0.1])
+        # ax_corr.set_xticks([10,30,50,70])
+        # ax_corr.set_xticklabels([10,30,50,70])
+        # ax_corr.set_xlabel("RBP index")
+        # ax_corr.set_ylabel('6-mer correlation')
+        # # ax_cs.set_ylim(-.3, .1)
+        # ax_corr.set_yticks([.6,.7,.8,.9,1.])
+        # ax_corr.set_yticklabels([.6,.7,.8,.9,1.])
+
+        # ax_es.set_ylabel("# RBPs")
+        # ax_cs.set_ylabel("# RBPs")
+        # ax_es.set_xticks([0, 1])
+        # ax_cs.set_xticks([0, 1])
+        # # ax_es.set_xticklabels(["PSAM+FP > PSAM", "PSAM+FP <= PSAM"], rotation=90)
+        # ax_cs.set_xticklabels(["PSAM+FP >\nPSAM", "PSAM+FP <=\nPSAM"], rotation=90)
+
+
+        # # ax_cbp.set_xticks([])
+        # # ax_cbp.set_yticks([.6, .8, 1.])
+        # # ax_cbp.set_yticklabels(["0.6", "0.8", '1'])
+
+        # # y = np.linspace(-3, -1, 3)
+        # # ax_ebp.set_xticks([])
+        # # ax_ebp.set_yticks(y)
+        # # ax_ebp.set_yticklabels(10.0**y)
 
         sns.despine()
         plt.tight_layout()
         plt.savefig("footprint_vs_seqonly.pdf")
         plt.close()
 
+    def footprint_effect(self):
+        fig, (ax_kd_change, ax_kd_vs_GC) = plt.subplots(
+            2, 1, 
+            # gridspec_kw=dict(width_ratios=[3, 1]), 
+            figsize=(2.5, 2.5), 
+            # sharex='col'
+        )
+        kd_no = np.array([self.res_std[rbp].nostruct.Kd for rbp in self.rbps])
+        kd_struct = np.array([self.res_std[rbp].full.Kd for rbp in self.rbps])
+        kd_lfc = np.log2(kd_struct/kd_no)
+        ax_kd_change.hist(kd_lfc, bins=10)
+        ax_kd_change.set_xlabel(r'$\log_2 \frac{K_d^{fp}}{K_d}$')
+        ax_kd_change.set_ylabel('count')
+
+        # statistics
+        gc = np.array([self.params_GC[rbp].mean() for rbp in self.rbps])
+        plot_and_regress(gc, kd_lfc)
+        ax_kd_vs_GC.plot(gc, kd_lfc, '.')
+        ax_kd_vs_GC.set_xlabel('mean GC preference')
+        ax_kd_vs_GC.set_ylabel(r'$\log_2 \frac{K_d^{fp}}{K_d}$')
+
+        sns.despine()
+        plt.tight_layout()
+        plt.savefig("footprint_Kd_effects.pdf")
+        plt.close()
+
+    def footprint_plot(self):
+        pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/footprint/parameters.tsv"
+        params_dict = load_fp_calibrated_params(pattern, self.rbps, "z4t75p01k99fix", plot=True)
+        self.fp_cal_params = params_dict
+        self.params_GC = {}
+
+        rel_errors = []
+        acc_scales = []
+        acc_k = []
+        acc_shift = []
+        GC = []
+        OV = []
+
+        mean_rel_errors = []
+        mean_acc_scales = []
+        mean_GC = []
+        min_overlap = []
+        mean_overlap = []
+        mean_acc_k = []
+
+        n_all_improve = 0
+        n_all_bad = 0
+        n_overlap = 0
+        motif_rbps = []
+        for rbp in self.rbps:
+            re = []
+            sc = []
+            gc = []
+            ov = []
+            k = []
+            s = []
+            print(rbp)
+            for par in params_dict[rbp].param_set:
+                re.append(par.rel_err)
+                sc.append(par.acc_scale)
+                gc.append(par.as_PSAM().fraction_GC)
+                k.append(par.acc_k)
+                s.append(par.acc_shift)
+                overlap = min(par.acc_k + min(par.acc_shift, 0), min((par.k - par.acc_shift), par.acc_k))
+                print(f"acc_k={par.acc_k}, acc_shift={par.acc_shift}, n={par.k} -> overlap={overlap}nt")
+                ov.append(overlap/float(par.acc_k))
+
+            re = np.array(re)
+            sc = np.array(sc)
+            gc = np.array(gc)
+            ov = np.array(ov)
+            k = np.array(k)
+            s = np.array(s)
+
+            rel_errors.append(re)
+            acc_scales.append(sc)
+            GC.append(gc)
+            self.params_GC[rbp] = gc
+
+            OV.append(ov)
+            acc_k.append(k)
+            acc_shift.append(s)
+
+            motif_rbps.extend([rbp] * len(re))
+
+            mean_rel_errors.append(re.mean())
+            mean_acc_scales.append(sc.mean())
+            mean_GC.append(gc.mean())
+            min_overlap.append(ov.min())
+            mean_overlap.append(ov.mean())
+            mean_acc_k.append(k.mean())
+
+            if (re < 1).all():
+                n_all_improve += 1
+            
+            if (re >= 1).all():
+                print("all bad", rbp)
+                n_all_bad += 1
+            
+            if (ov >= .5).all():
+                n_overlap += 1
+
+        mean_rel_errors = np.array(mean_rel_errors)
+        mean_acc_scales = np.array(mean_acc_scales)
+        mean_GC = np.array(mean_GC)
+        min_overlap = np.array(min_overlap)
+        mean_overlap = np.array(mean_overlap)
+        mean_acc_k = np.array(mean_acc_k)
+
+        print(mean_rel_errors)
+        print(mean_acc_scales)
+        print(mean_GC)
+        print(mean_acc_k)
+        print(mean_overlap)
+
+        all_rel_err = np.concatenate(rel_errors)
+        all_acc_k = np.concatenate(acc_k)
+        all_acc_s = np.concatenate(acc_shift)
+        all_acc_a = np.concatenate(acc_scales)
+        all_ov = np.concatenate(OV)
+        all_GC = np.concatenate(GC)
+
+        MIN_a = .05
+        MIN_ov = .2
+        M = (all_acc_a > MIN_a) & (all_ov > MIN_ov) # (all_rel_err < .8) &
+        print(M.sum(), "motifs make the cut out of", len(M))
+        motif_rbps = np.array(motif_rbps)
+        from collections import defaultdict
+        failcount = defaultdict(int)
+        for r in motif_rbps[~M]:
+            failcount[r] += 1
+        
+        print("RBPs with failed motifs", failcount)
+
+        fig, ((ax_ov_hist, ax_hist_scale, ax_hist_err, ), (ax_k_shift, ax_k_scale, ax_err_scale), (ax31, ax32, ax_hist_k)) = plt.subplots(
+            3, 3, 
+            figsize=(6, 5),
+            # gridspec_kw=dict(width_ratios=[1, 1]),
+        )
+        ax_hist_err.hist([all_rel_err[M], all_rel_err[~M]], bins=20, histtype='stepfilled', stacked=True)
+        # ax_hist_err.hist(all_rel_err[~M], bins=20, histtype='stepfilled')
+        ax_hist_err.set_xlabel(r'$P_{unpaired}$ error ratio')
+        ax_hist_err.set_ylabel('# motifs')
+
+        ax_hist_scale.hist([all_acc_a[M], all_acc_a[~M]], bins=20, histtype='stepfilled', stacked=True)
+        ax_hist_scale.set_xlabel('FP scale')
+        ax_hist_scale.axvline(MIN_a, color='r')
+        ax_hist_scale.set_ylabel('# motifs')
+
+        size_bins = np.arange(4,13) + .5
+        # kcount = np.bincount(all_acc_k, minlength=14)
+        ax_hist_k.hist([all_acc_k[M], all_acc_k[~M]], bins=size_bins, histtype='stepfilled', stacked=True)
+        ax_hist_k.set_xlabel('FP size [nt]')
+        ax_hist_k.set_xticks([6,8,10,12])
+        ax_hist_k.set_ylabel('# motifs')
+
+
+        print(f"RBPs with fp working {n_all_improve}, not working {n_all_bad}. overlap >= .5 for every motif {n_overlap}")
+
+        I = mean_rel_errors.argsort()[::-1]
+        for i in I:
+            print(self.rbps[i], mean_acc_k[i], mean_acc_scales[i], mean_rel_errors[i], rel_errors[i], mean_overlap[i])
+
+
+        m = (mean_rel_errors < .8) & (mean_acc_scales < .8) & (mean_overlap > .3)
+        # ax_k_shift.plot(all_acc_k[M], all_ov[M], '.', alpha=.1)
+        h = ax_k_shift.hist2d(all_acc_k[M], all_ov[M], bins=[size_bins, np.linspace(0,1,10)])
+        plt.colorbar(h[3], ax=ax_k_shift, fraction=.1, shrink=.5, label='# motifs')
+        ax_k_shift.set_xticks([6,8,10,12])
+        ax_k_shift.set_xticklabels([6,8,10,12])
+        ax_k_shift.set_xlabel('FP size [nt]')
+        ax_k_shift.set_ylabel('FP-motif overlap')
+        # ax_k_shift.colorbar()
+
+        plot_and_regress(all_acc_k[M], all_acc_a[M], ax=ax_k_scale, alpha=.1, logy=True)
+        # plot_and_regress(all_rel_err[M], all_acc_a[M], ax=ax_err_scale, logy=False)
+        ax_k_scale.legend(loc='upper center')
+        ax_k_scale.set_xlabel('FP size [nt]')
+        ax_k_scale.set_xticks([6,8,10,12])
+        ax_k_scale.set_ylabel('FP scale [log]')
+
+
+        plot_and_regress(all_rel_err[M], all_acc_a[M], ax=ax_err_scale, logy=True)
+        ax_err_scale.legend(loc='upper right')
+        ax_err_scale.set_xlabel(r'$P_{unpaired}$ error ratio')
+        ax_err_scale.set_ylabel('FP scale [log]')
+
+        plot_and_regress(all_GC[M], all_rel_err[M], ax=ax31)
+        ax31.legend()
+        ax31.set_xlabel("GC")
+        ax31.set_ylabel("rel_err")
+
+        plot_and_regress(all_GC[M], all_acc_a[M], ax=ax32, logy=True)
+        ax32.legend()
+        ax32.set_xlabel("GC")
+        ax32.set_ylabel('FP scale [log]')
+
+        ax_ov_hist.hist([all_ov[M], all_ov[~M]], bins=10, histtype='stepfilled', stacked=True)
+        ax_ov_hist.set_xlabel('FP-motif overlap')
+        ax_ov_hist.set_ylabel('# motifs')
+        ax_ov_hist.axvline(MIN_ov, color='r')
+
+        fig.tight_layout()
+        fig.savefig('fp_hists.pdf')
+        plt.close()
 
 
 from cska import dominguez_rbps as dom_rbps
-dom_rbps.pop(dom_rbps.index('HNRNPA0'))
+# dom_rbps.pop(dom_rbps.index('HNRNPA0'))
 rbps = np.array(dom_rbps)
-print len(rbps), "RBPs are being considered"
 
-# i = (rbps == 'SRSF11').argmax()
-# rbps = list(rbps)
-# rbps.pop(i)
+
+
+i = (rbps == 'HNRNPA0').argmax()
+rbps = list(rbps)
+rbps.pop(i)
 # print rbps
-# pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/seed/initial.tsv"
+print(len(rbps), "RBPs are being considered")
+pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/seed/initial.tsv"
 # n_PSAM_significance(pattern, rbps, "z4t75p01k99fix", plot=True)
-
+# sys.exit(0)
 # # n_PSAM_significance(pattern, rbps, "sgd", plot=True)
 # # n_PSAM_significance(pattern, rbps, "CI", plot=True)
 # # n_PSAM_significance(pattern, rbps, "seed_z4_thresh_8", plot=True)
@@ -1023,12 +1385,25 @@ MC = ModelComparisons(variant_dict=dict(
     dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8),
     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
-))
-# MC.left_out_single_conc_plot()
-# MC.single_multi()
-# MC.oneconc()
-# MC.variant_plot()
-MC.mdl_comp_struct_plot()
+), rbps=rbps)
+
+for rbp, n in zip(MC.rbps, MC.n_psams):
+    print(rbp, n)
+# MC.left_out_single_conc_plot() ## This one is deprecated!
+
+# cymin = -.1
+# cymax = .9
+cymin = None
+cymax = None
+
+MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
+MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
+MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
+MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
+# MC.footprint_plot()
+# MC.footprint_effect()
+
+
 # d_std, res_std = load_or_make("RBNS/*/cska/std.72", redo=False  )
 # d_7, res_7 = load_or_make("RBNS/*/cska/std.7", redo=False  )
 # d_ci, res_ci = load_or_make("RBNS/*/cska/CI", redo=False)
@@ -1039,6 +1414,7 @@ MC.mdl_comp_struct_plot()
 # d_o, res_o = load_or_make("RBNS/*/cska/std.8.s")
 
 sys.exit(0)
+
 d_s_eval, res_s_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8  )
 d_std_eval, res_std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8  )
 
@@ -1082,7 +1458,7 @@ corr_nostruct = np.array([res_std[rbp].nostruct.get("best_corr", np.NaN) for rbp
 corr_full = np.array([res_std[rbp].full.get("best_corr", np.NaN) for rbp in rbps])
 
 
-left_out_single_conc_plot()
+# left_out_single_conc_plot()
 # n_PSAM_plot(n_psams)
 # GC_acc_scale_plot()
 # mdl_comp_struct_plot()

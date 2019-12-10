@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import logging
 # from cska import timed
@@ -13,7 +14,7 @@ class SubSampler(object):
 
     # @timed
     def new_indices(self):
-        from cyska import fast_randint
+        from .cyska import fast_randint
         self.n += 1
         self.logger.debug('sample {self.n}: subsampling {self.n_samples} out of {self.n_total} sequences. replacement={self.replace}'.format(self=self) )
         if self.replace:

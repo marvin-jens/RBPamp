@@ -549,22 +549,8 @@ class RBNSAnalysis(CachedBase):
     def write_kmer_matrix(self, out_path, kmers, values, errors, order=[], err_str='error', header=None):
         self.logger.info("writing data matrix '{out_path}'".format(out_path=out_path) )
 
-        def roundrobin(*iterables):
-            from itertools import cycle, islice
-            "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
-            # Recipe credited to George Sakkis
-            pending = len(iterables)
-            nexts = cycle(iter(it).next for it in iterables)
-            while pending:
-                try:
-                    for next in nexts:
-                        yield next()
-                except StopIteration:
-                    pending -= 1
-                    nexts = cycle(islice(nexts, pending))
-
         if header == None:
-            header = ['# kmer'] + list(roundrobin(['{0}nM'.format(c) for c in self.rbp_conc], [err_str for c in self.rbp_conc]))
+            header = ['# kmer'] + ['{0}nM\nerr'.format(c) for c in self.rbp_conc]
 
         if not len(order):
             order = np.arange(len(kmers))

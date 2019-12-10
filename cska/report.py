@@ -1,6 +1,6 @@
 # coding=future_fstrings
 from __future__ import print_function
-
+from __future__ import unicode_literals
 import os
 import numpy as np
 import logging
@@ -79,9 +79,9 @@ def sane_colorbar(cb, nbins=4):
 
 def pval_str(p):
     if p > 0:
-        return u"P < {0:.3e}".format(p)
+        return "P < {0:.3e}".format(p)
     else:
-        return u"P ≈ 0"
+        return "P ≈ 0"
 
 def pval_stars(p, levels=[0.000001, 0.00001, .0001, .001, .01, .05,]):
     if (p < 0) or (p > 1):
@@ -412,7 +412,7 @@ class RunReport(object):
 
     def load_descent(self, fname):
         data = []
-        for line in file(os.path.join(self.path, fname)):
+        for line in open(os.path.join(self.path, fname)):
             if line.startswith("#"):
                 continue
             row = line.split('\t')
@@ -478,7 +478,7 @@ class Vignette(object):
         from jinja2 import Template
         ftemplate = os.path.join(os.path.dirname(__file__), 'vignette.html')
         self.dst = os.path.join(path, f'{rbns.rbp_name}_vignette.html')
-        self.template = Template(file(ftemplate, 'r').read())
+        self.template = Template(open(ftemplate, 'r').read())
 
     def render(self, **kw):
         context = dict(
@@ -491,7 +491,7 @@ class Vignette(object):
         context.update(kw)
         print("context", context)
 
-        file(self.dst, 'w').write(self.template.render(**context))
+        open(self.dst, 'w').write(self.template.render(**context))
     
     def make_pdf(self, **kw):
         self.render()
@@ -582,7 +582,7 @@ class GradientDescentReport(ReportBase):
             return
 
         descent_file = os.path.join(os.path.dirname(fname), "descent.tsv")
-        lines = list(file(descent_file))
+        lines = list(open(descent_file))
         try:
             max_t = int(lines[-1].split('\t')[0])
         except ValueError:
@@ -697,7 +697,7 @@ class GradientDescentReport(ReportBase):
         return res
 
     def plot_report(self):
-        pp.figure(figsize=(2.5, 4))
+        pp.figure(figsize=(2, 4))
 
         artists = []
         labels = []
@@ -708,7 +708,8 @@ class GradientDescentReport(ReportBase):
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(errors.T)))
 
         for i, err in enumerate(errors.T):
-            a = pp.semilogy(err, color=data_colors[i])
+            lerr = np.log10(err)
+            a = pp.plot(lerr, color=data_colors[i])
             artists.append(a[0])
             labels.append('{0} nM'.format(self.rbp_conc[i]))
 
@@ -717,7 +718,7 @@ class GradientDescentReport(ReportBase):
                 pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 )#, linestyle='dashed')
 
         # pp.legend(loc='upper right', frameon=False)
-        pp.ylabel("model error")
+        pp.ylabel("model error (log10)")
         # pp.xlabel('gradient descent step')
         # pp.gca().get_xaxis().set_visible(False)
         sns.despine()
@@ -729,15 +730,17 @@ class GradientDescentReport(ReportBase):
 
         if len(self.epoch_names) > 1:
             for i, name in enumerate(self.epoch_names):
-                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5 )
+                print(name)
+                pp.axvline(self.shelf_map[i+1], color='k', linewidth=.5, ) #label='accessibility\nfootprint' )
 
         # pp.legend(loc='lower right', frameon=False)
+        pp.ylim(0.75, 1)
         pp.ylabel("k-mer correlation")
         plt.xlabel('gradient descent step')
         sns.despine()
 
         pp.subplot(311)
-        pp.legend(artists, labels, ncol=5, loc='lower center')
+        pp.legend(artists, labels, ncol=3, loc='lower center')
         pp.axis('off')
         plt.tight_layout()
         self.savefig("descent_report")
@@ -806,7 +809,7 @@ class GradientDescentReport(ReportBase):
 
             x = self.logR0[i]
             y = logRt[i]
-            label = u"{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
+            label = "{0} nM R={1:.3f} ({2})".format(self.rbp_conc[i], stats.pearsonR[i], pval_str(stats.pearsonP[i]))
             # data_labels = self.opt.mdl.parameters.param_name
             density_scatter_plot(x, y, label=label, tick_exp=2, lim_max=maxR)
             pp.legend(loc='upper left', frameon=False)
@@ -907,12 +910,15 @@ class GradientDescentReport(ReportBase):
         max_A = max([s.Z1_read.max() for s in states]) * params.A0
         min_A = min([np.percentile(s.Z1_read, 1) for s in states]) * params.A0
         bins = 10 ** np.linspace(np.log10(min_A), np.log10(1.1*max_A), 100)
-        sround = lambda x,p: float(f'%.{p-1}e'%x)
+        x = (bins[1:] + bins[:-1])/2
 
-        xticks = [sround(t, 1) for t in np.percentile(bins, [25, 50, 75])]
-        xtick_labels = [str(t) for t in xticks]
-        print(f"xticks {xticks}")
-        print(xtick_labels)
+        sround = lambda x,p: float(f'%.{p-1}e' % x)
+        xticks = [x[5], x[50], x[95]]
+        xtick_labels = [sround(t, 1) for t in xticks]
+        xticks = [float(l) for l in xtick_labels]
+        print("xticks", xtick_labels)
+
+
         ref = states[0]
         w = np.ones(len(ref.Z1_read)) * (inr.rna_conc / inr.N)
         # print(w)
@@ -929,22 +935,26 @@ class GradientDescentReport(ReportBase):
         # ax.legend(loc='upper right')
         ax.set_ylabel('conc in RNA pool [nM]')
         ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
-        plt.locator_params(axis='x', numticks=3)
-        # plt.xticks(xticks, xtick_labels)
+        # plt.locator_params(axis='x', numticks=3)
+
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xtick_labels)
         
         A_binned = np.array(A_binned)
 
-        x = (bins[1:] + bins[:-1])/2
         ax = plt.subplot(132)
         ax.set_xscale('log')
+        print("RBP free", ref.rbp_free)
         for free, color, reads in zip(ref.rbp_free, data_colors, self.rbns.reads[1:]):
             pb = 1 / (1 + 1 / (x * free))
             ax.plot(x, pb, color=color, label=reads.name, solid_capstyle='round')
         
         # ax.legend(loc='lower right')
         ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xtick_labels)
         ax.set_ylabel('occupancy')
-        plt.locator_params(axis='x', numticks=3)
+        # plt.locator_params(axis='x', numticks=3)
         complex_binned = []
         ## plot predicted affinity distribution of bound sequences
         ax = plt.subplot(133)
@@ -953,19 +963,24 @@ class GradientDescentReport(ReportBase):
         for reads, psi, cc, color in zip(self.rbns.reads[1:], ref.psi, complex_conc, data_colors):
             b_binned = ax.hist(
                 ref.Z1_read * params.A0,
-                bins, bins,
+                bins=bins,
                 histtype='step',
-                weights=psi * cc / psi.sum(),
+                # weights=psi * cc / psi.sum(),
+                weights=psi / psi.sum(),
                 color=color,
-                label=reads.name
+                label=reads.name,
             )[0]
             complex_binned.append(np.array(b_binned))
 
         # ax.legend(loc='upper left')
-        ax.set_ylabel('pred. bound [nM]')
+        # ax.set_ylabel('pred. bound [nM]')
+        ax.set_ylabel('fraction of specifically bound TRA2A')
         ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xtick_labels)
+
         # plt.xticks(xticks, xtick_labels)
-        plt.locator_params(axis='x', numticks=3)
+        # plt.locator_params(axis='x', numticks=3)
         plt.tight_layout()
         self.savefig(f'affdist_{self.rbns.rbp_name}_{name}')
         plt.close()
@@ -1124,8 +1139,8 @@ class GradientDescentReport(ReportBase):
 
         # self.results.info("R={R:.3f} {ppstr} rho={rho:.3f} {psstr}".format(**locals()))
         if debug:
-            print(u">>> R={R} {ppstr}".format(**locals()))
-            print(u">>> rho={rho} {psstr}".format(**locals()))
+            print(">>> R={R} {ppstr}".format(**locals()))
+            print(">>> rho={rho} {psstr}".format(**locals()))
             print("seq\tknown\tpredict\tlog-ratio")
             for _x, _y, seq in zip(x[I], y[I], self.comp.seqs[I]):
                 print(seq, '\t', _x, '\t', _y, '\t', np.log2(_y/_x))

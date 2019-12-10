@@ -84,7 +84,7 @@ class RBNSReads(CachedBase):
             # already file-like
             return self.fname
 
-        f = file(self.fname,'r')
+        f = open(self.fname,'r', encoding='ascii')
         if self.format == 'raw':
             I = f
 
@@ -95,8 +95,8 @@ class RBNSReads(CachedBase):
                     yield seq
             I = readsrc()
         
-        for n in xrange(n_skip):
-            I.next()
+        for n in range(n_skip):
+            next(I)
         
         return I
 
@@ -108,7 +108,7 @@ class RBNSReads(CachedBase):
             # already file-like
             f = fname
         else:
-            f = file(fname)
+            f = open(fname)
 
         # get the first line
         line = next(f.__iter__())
@@ -589,7 +589,7 @@ class RBNSReads(CachedBase):
             # open the file only here when the function is actually executed, 
             # to avoid starting a new file whithout the actual call performed
             # due to caching!
-            out_file = file(out_file, 'w')
+            out_file = open(out_file, 'w')
 
         t0 = time.time()
         #counts = cyska.count_pure_hits(self.seqm, candidates, out_file=out_file, n_sample=n_sample)

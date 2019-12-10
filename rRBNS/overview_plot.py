@@ -63,13 +63,13 @@ domain_order=['RRM', 'KH', 'ZNF', 'mixed', 'other']
 df = pd.read_table(sys.argv[1])
 
 df = df.merge(extra, on='rbp')
-pf = df[ ['rbp', 'nostruct__err_perc', 'nostruct__best_corr', 'domain']].query('rbp in @dom_rbps')
-pf['fold_error'] = 100. / pf['nostruct__err_perc']
+pf = df[ ['rbp', 'nostruct__err_initial', 'full__err_final', 'full__best_corr', 'domain', 'top_R', 'max_R']].query('rbp in @dom_rbps')
+pf['fold_error'] = pf['nostruct__err_initial'] / pf['full__err_final']
 x = pf[['rbp', 'fold_error']]
 print x.sort_values('fold_error')
-print "Final MEAN CORRELATION", pf['nostruct__best_corr'].mean()
-print "Initial mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['nostruct__err_initial'].values).mean()
-print "Final mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['nostruct__err_final'].values).mean()
+print "Final MEAN CORRELATION", pf['full__best_corr'].mean()
+print "Initial mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_initial'].values).mean()
+print "Final mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_final'].values).mean()
 print pf.query('rbp == "HNRNPL"')
 # print pf
 
@@ -78,7 +78,7 @@ plt.figure(figsize=(3, 1.5))
 bpcorr = sns.boxplot(
     data=pf,
     y='domain',
-    x='nostruct__best_corr',
+    x='full__best_corr',
     order=domain_order,
     width=.5,
     palette='viridis',
@@ -87,10 +87,10 @@ bpcorr = sns.boxplot(
 )
 # bpcorr.set_xticklabels(bpcorr.get_xticklabels(), rotation=90)
 
-print pf.groupby(['domain'])[ ['domain', 'nostruct__best_corr'] ]
-medians = pf.groupby(['domain'])['nostruct__best_corr'].median().values
-print "median correlations", medians
-folds = pf.groupby(['domain'])['fold_error'].median().values
+print pf.groupby(['domain'])[ ['domain', 'full__best_corr'] ]
+medians = pf.groupby(['domain'])['full__best_corr'].median().values
+print "median correlations", medians, pf['full__best_corr'].median()
+folds = pf.groupby(['domain'])['fold_error'].median().values, pf['fold_error'].median()
 print "median fold error reductions", folds
 # for dom, med in zip(domain_order, )
 plt.tight_layout()
@@ -118,10 +118,11 @@ sns.despine()
 plt.savefig('fit_err.pdf')
 plt.close()
 
+pf['log_R'] = np.log2(pf['top_R'])
 lmp = sns.lmplot(
     data=pf,
-    x='nostruct__best_corr',
-    y='fold_error',
+    y='full__best_corr',
+    x='log_R',
     fit_reg=False,
     hue='domain',
     hue_order=domain_order,
@@ -129,53 +130,81 @@ lmp = sns.lmplot(
     palette='viridis',
     markers=['o', '^', 's', '*', '>']
 )
-plt.legend(loc='upper left')
+plt.legend(loc='lower right')
 plt.gcf().set_size_inches(3, 3)
 
-rbp_annotate = ['HNRNPL', 'ZNF326', 'PUM1', 'RBFOX2', 'MBNL1', 'SRSF2', 'TIA1']
-ann_ofs = {
-    'HNRNPL' : (-.1, 0),
-    'ZNF326' : (.0, 1),
-    'MBNL1' : (0, 1),
-    'SRSF2' : (.05, 1),
-}
-for x in pf.query('rbp in @rbp_annotate').itertuples():
-    print x
-    dx, dy = ann_ofs.get(x.rbp, (-.1, 0) )
-    plt.annotate(
-        x.rbp,
-        xy=(x.nostruct__best_corr, x.fold_error),
-        arrowprops=dict(arrowstyle='->'),
-        xytext=(x.nostruct__best_corr + dx, x.fold_error + dy)
-    )
+# rbp_annotate = ['HNRNPL', 'ZNF326', 'PUM1', 'RBFOX2', 'MBNL1', 'SRSF2', 'TIA1']
+# ann_ofs = {
+#     'HNRNPL' : (-.1, 0),
+#     'ZNF326' : (.0, 1),
+#     'MBNL1' : (0, 1),
+#     'SRSF2' : (.05, 1),
+# }
+# for x in pf.query('rbp in @rbp_annotate').itertuples():
+#     print x
+#     dx, dy = ann_ofs.get(x.rbp, (-.1, 0) )
+#     plt.annotate(
+#         x.rbp,
+#         xy=(x.full__best_corr, x.fold_error),
+#         arrowprops=dict(arrowstyle='->'),
+#         xytext=(x.full__best_corr + dx, x.fold_error + dy)
+#     )
 
-plt.ylabel("fold model error reduction")
-plt.xlabel("max 6-mer correlation after fit")
-plt.ylim(1, pf['fold_error'].max()+.5)
+# plt.xlabel("fold model error reduction")
+plt.xlabel("max 6-mer R-value (log2)")
+plt.ylabel("max 6-mer correlation after fit")
+plt.ylim(0.5, 1)
+print pf[['rbp', 'full__best_corr', 'top_R', 'max_R']].sort_values('top_R', ascending=False)
+# plt.ylim(1, pf['fold_error'].max()+.5)
 # sns.despine()
 plt.tight_layout()
 plt.savefig('fit_qual.pdf')
 plt.close()
 
+fig, ax = plt.subplots(figsize=(3,2))
+ax.set_xlim(0.5, 1)
+dom_order = ['RRM', 'KH', 'ZNF', 'other', 'mixed']
+ax = sns.swarmplot(
+    ax=ax,
+    orient='h',
+    data=pf,
+    size=4.,
+    x='full__best_corr', 
+    y='domain', 
+    order = dom_order,
+    hue='max_R', 
+    hue_order = ['20+','5-20','2-5','1-2'],
+    palette='viridis_r',
+)
+grouped = pf.groupby('domain')
+print(pf[pf.full__best_corr == pf[pf.domain == 'other'].full__best_corr.min()])
+means_df = grouped.mean()
+print(means_df)
+print(pf[pf.rbp == 'RBM22'])
+means = means_df['full__best_corr'].loc[dom_order]
+ax.plot(means, np.arange(len(dom_order)), '|r', zorder=np.inf, markersize=15, markeredgewidth=1.5, solid_capstyle='round', dash_capstyle='round')
+sns.despine()
+plt.tight_layout()
+plt.savefig('overview_swarm.pdf')
 
 sys.exit(0)
 
-print df[ ['rbp', 'nostruct__err_perc', 'full__err_perc', 'nostruct__corr_inc', 'full__corr_inc'] ].describe()
+print df[ ['rbp', 'full__err_perc', 'full__err_perc', 'full__corr_inc', 'full__corr_inc'] ].describe()
 
-print "KHDR2", df.query('rbp == "KHDR2"')[['nostruct__best_corr', 'full__best_corr']]
-print "failed nostruct optimization", df[ df['nostruct__err_perc'] > 99.]['rbp']
+print "KHDR2", df.query('rbp == "KHDR2"')[['full__best_corr', 'full__best_corr']]
+print "failed nostruct optimization", df[ df['full__err_perc'] > 99.]['rbp']
 print "failed full optimization", df[ df['full__err_perc'] > 99.]['rbp']
 
 
 plt.figure()
-plt.scatter(df['nostruct__best_corr'], df['full__best_corr'])
-print "worse with structure", df.query('nostruct__best_corr > full__best_corr + .1')['rbp']
+plt.scatter(df['full__best_corr'], df['full__best_corr'])
+print "worse with structure", df.query('full__best_corr > full__best_corr + .1')['rbp']
 plt.xlim(0.5, 1)
 plt.ylim(0.5, 1)
 plt.xlabel("max 6-mer correlation after seq. only optimization")
 plt.ylabel("max 6-mer correlation after footprint optimization")
 plt.plot([.5,1.],[.5,1.], 'k', linestyle='dashed', linewidth=.5)
-# plt.scatter(df['nostruct.err_perc'], .01*df['nostruct.err_perc']*df['full.err_perc'])
+# plt.scatter(df['full.err_perc'], .01*df['full.err_perc']*df['full.err_perc'])
 # plt.xlim(0, 105)
 # plt.ylim(0, 105)
 plt.xlabel("% error after seq. only optimization")
@@ -185,13 +214,13 @@ plt.ylabel("% error after footprint optimization")
 #     opt = (['seqonly',] * n) + (['full',] * n),
 #     err_perc = pd.concat(
 #         [
-#             df['nostruct.err_perc'],
+#             df['full.err_perc'],
 #             df['full.err_perc'],
 #         ]
 #     )
 # ))
-# ax = sns.boxplot(x='opt', y='err_perc', data=plot_df, order=['seqonly', 'full'], width=.5)  #, hue_order=['nostruct', 'full'])
-# # ax = sns.swarmplot(x='domain', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, dodge=True, hue_order=['nostruct', 'full'])
+# ax = sns.boxplot(x='opt', y='err_perc', data=plot_df, order=['seqonly', 'full'], width=.5)  #, hue_order=['full', 'full'])
+# # ax = sns.swarmplot(x='domain', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, dodge=True, hue_order=['full', 'full'])
 # #     # lmp = sns.lmplot(x='rerr'    df['domain'] = df['domains'].apply(_domain)rr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
 # #     plt.xlabel('RBD type')
 # #     plt.ylabel('final 6mer correlation')
@@ -266,8 +295,8 @@ def label_point(row):
 # print df
 def by_R_value_plot(df):
     order = ['20+','5-20','2-5','1-2']
-    ax = sns.boxplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], whis=np.inf, width=.5, hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], color=".2", hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
+    ax = sns.boxplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], whis=np.inf, width=.5, hue='run', dodge=True)  #, hue_order=['full', 'full'])
+    ax = sns.swarmplot(x='max_R', y="nostruct.best_corr", data=df, order=order[::-1], color=".2", hue='run', dodge=True)  #, hue_order=['full', 'full'])
     plt.xlabel('max. observed 6-mer R-value')
     plt.ylabel('max. R-value correlation after fit')
     plt.ylim(.25, 1)
@@ -278,8 +307,8 @@ def by_domain_plot(df, col="nostruct.best_corr"):
     # order = ['RRM','RRM+KH','    df = descent.merge(linscore, how='left', on='rbp')F', 'RRM+other', 'KH', 'KH+ZNF','KH+other', 'ZNF', 'ZNF+other','other','NA']
     # order = ['1 RRM', '2 RRM'    df = df.merge(domains, how='left', on='rbp')RM', '4 RRM', '1 KH', '2 KH', '3 KH', '4 KH', '1 ZNF', '2 ZNF', '3 ZNF', '4 ZNF', '1 other', 'mixed']
     order = ['RRM', 'KH', 'ZNF', 'other', 'mixed']
-    ax = sns.boxplot(x='domain', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='domain', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, dodge=True, hue_order=['nostruct', 'full'])
+    ax = sns.boxplot(x='domain', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['full', 'full'])
+    ax = sns.swarmplot(x='domain', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, dodge=True, hue_order=['full', 'full'])
     # lmp = sns.lmplot(x='rerr'    df['domain'] = df['domains'].apply(_domain)rr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
     plt.xlabel('RBD type')
     plt.ylabel('final 6mer correlation')
@@ -289,8 +318,8 @@ def by_domain_plot(df, col="nostruct.best_corr"):
     plt.close()
 
     order = ['1', '2', '3', '4+']
-    ax = sns.boxplot(x='n_dom', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['nostruct', 'full'])
-    ax = sns.swarmplot(x='n_dom', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, hue_order=['nostruct', 'full'])
+    ax = sns.boxplot(x='n_dom', y=col, data=df, order=order, whis=np.inf, width=.5, hue='run')  #, hue_order=['full', 'full'])
+    ax = sns.swarmplot(x='n_dom', y=col, data=df, order=order, linewidth=1, hue='run', dodge=True)  #, hue_order=['full', 'full'])
     # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
     plt.xlabel('RBD number')
     plt.ylabel('final 6mer correlation')
@@ -312,8 +341,8 @@ def scale_by_domain(df):
     plt.close()
 
     # order = ['1', '2', '3', '4+']
-    # ax = sns.boxplot(x='n_dom', y="corr", data=df, order=order, whis=np.inf, width=.5, hue='run', hue_order=['nostruct', 'full'])
-    # ax = sns.swarmplot(x='n_dom', y="corr", data=df, order=order, color=".2", hue='run', dodge=True, hue_order=['nostruct', 'full'])
+    # ax = sns.boxplot(x='n_dom', y="corr", data=df, order=order, whis=np.inf, width=.5, hue='run', hue_order=['full', 'full'])
+    # ax = sns.swarmplot(x='n_dom', y="corr", data=df, order=order, color=".2", hue='run', dodge=True, hue_order=['full', 'full'])
 
     # # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', hue_order=,legend=True)
     # plt.xlabel('RBD number')
@@ -322,7 +351,7 @@ def scale_by_domain(df):
     # plt.close()
 
 # df = load_descent_run(sys.argv[1])
-# df_nostruct = load_descent_run(sys.argv[2], run='nostruct')
+# df_nostruct = load_descent_run(sys.argv[2], run='full')
 # combined = df.append(df_nostruct)
 
 # intersect = df.join(df_nostruct, lsuffix="_full", rsuffix='_nostruct', how='inner')

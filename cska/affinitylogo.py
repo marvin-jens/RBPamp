@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import unicode_literals
+from __future__ import division
+
 """
 adapted from svgpath2mpl/examples/seqlogo.ipynb 
 github: https://github.com/nvictus/svgpath2mpl
@@ -16,7 +21,6 @@ Path specification at <https://www.w3.org/TR/SVG/paths.html>.
 :license: BSD.
 """
 
-from __future__ import division, print_function
 from six import StringIO
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
@@ -35,7 +39,13 @@ from svgpath2mpl import parse_path
 
 # _pal = sns.xkcd_palette(['teal', 'cobalt blue', 'amber', 'scarlet'])
 _pal = sns.xkcd_palette(['moss', 'cobalt blue', 'amber', 'scarlet'])
-default_colors = {'A': _pal[0], 'C': _pal[1], 'G': _pal[2], 'T': _pal[3], 'U': _pal[3]}
+default_colors = {
+    'A': _pal[0], 
+    'C': _pal[1], 
+    'G': _pal[2], 
+    'T': _pal[3], 
+    'U': _pal[3]
+}
 
 default_glyphs = {}
 default_glyphs['A'] = """\
@@ -159,7 +169,7 @@ Z
 
 def nice_conc(kd, lo=None, hi =None, digits=3):
     """
-    determines the appropriate unit to represent the concentraion.
+    determines the appropriate unit to represent the concentration.
     takes into account low and high confidence interval to compute 
     error and print appropriate number of significant digits.
     example.
@@ -226,15 +236,15 @@ def nice_conc(kd, lo=None, hi =None, digits=3):
         else:
             errstr = ""
         units = {
-            -3: u"pM",
-            0: u"nM",
-            3: u"μM",
-            6: u"mM",
+            -3: "pM",
+            0: "nM",
+            3: "μM",
+            6: "mM",
         }
         unit = units.get(u, 'UNDEFINED')
         val = round_sig(kd / 10**u, digits)
 
-    return u"{:g} {}{}".format(val, errstr, unit)
+    return "{:g} {}{}".format(val, errstr, unit)
 
 
 def _get_glyph(path_data, color, x, y, dx, dy, **kwargs):
@@ -257,7 +267,7 @@ def _draw_logo(ax, matrix, charwidth, glyphs=default_glyphs, colors=default_colo
     for i, (_, position) in enumerate(matrix.iterrows()):
         letters_sorted = position.sort_values()
         bottom = 0
-        for letter, height in letters_sorted.iteritems():
+        for letter, height in letters_sorted.items():
             print(letter, height)
             patch = _get_glyph(glyphs[letter], colors[letter],
                                i*charwidth, bottom, charwidth, height)
@@ -292,7 +302,7 @@ def plot_seqlogo(ax, pfm, info=False, charwidth=1.0, **kwargs):
 
 def plot_afflogo(ax, matrix, charwidth=1, glyphs=default_glyphs, colors=default_colors, title="", minimal=False, x0=0, y0=0, **kwargs):
     matrix = np.array(matrix)   # work on local copy!
-    d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75
+    d = (matrix.max(axis=1) / matrix.sum(axis=1) - .25 ) / .75  # compute "discrimination"
     matrix *= d[:, np.newaxis]
     # print(matrix)
 

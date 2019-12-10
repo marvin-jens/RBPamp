@@ -18,7 +18,8 @@ if use_cython:
     cy_kw = dict(
         include_dirs=[numpy.get_include(), ],
         extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
-        extra_link_args=['-fopenmp']
+        extra_link_args=['-fopenmp'],
+        language_level="3str"
     )
     ext_modules += [
         Extension("cska.cy.cy_kmers", [ "cska/cython/kmers.pyx" ], **cy_kw),
@@ -59,13 +60,13 @@ setup(
 
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        # 'Programming Language :: Python :: 2.7',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
     ],
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
 
-    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq'],
+    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2', 'future_fstrings'],
     scripts=['bin/cska'],
     package_dir='',
     packages=['cska'],

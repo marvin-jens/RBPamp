@@ -1,5 +1,6 @@
 # coding=future_fstrings
 from __future__ import print_function
+from __future__ import absolute_import
 __license__ = "MIT"
 __version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
@@ -281,7 +282,7 @@ class Run(object):
         path = os.path.dirname(os.path.realpath(__file__))
         gc_name = os.path.join(path, "git_commit")
         if os.path.exists(gc_name):
-            self.git_commit = file(gc_name, 'r').read()
+            self.git_commit = open(gc_name, 'r').read()
         else:
             git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
             self.git_commit = git
@@ -310,7 +311,7 @@ class Run(object):
 
         if self.options.log_remote:
             # replicate all log-output to the remote log-server
-            import zmq_logging
+            from . import zmq_logging
             rh = zmq_logging.make_handler(address=self.options.log_remote, formatter=formatter)
             root.addHandler(rh)
 

@@ -1,8 +1,10 @@
+from __future__ import print_function
+from __future__ import absolute_import
 import sys
 import numpy as np
 import unittest
 from cska.reads import RBNSReads
-from cyska import *
+from .cyska import *
 
 test_reads = """GAGGTCACTCTCTTGCATGTATGCATGCAGTCTCAACGAA
 CATTTTTTTTGAAACTACGTGCATGTACAATAGGCGACGA
@@ -144,19 +146,19 @@ class TestGradientMethods(unittest.TestCase):
         model = PartFuncModel(reads, params, R0, rbp_conc=[1.,5.,25.])
         for i,f in enumerate(model.F0):
             if f > 0:
-                print index_to_seq(i,5), f, model.f0[i]
+                print(index_to_seq(i,5), f, model.f0[i])
         # sys.exit()
         state = model.predict(params, beta_fixed=True, tune=False)
-        print state
-        print np.round(state.Z1_read,2)
-        print np.isnan(state.R_errors[0]).sum()
-        print np.isnan(state.w).sum()
+        print(state)
+        print(np.round(state.Z1_read,2))
+        print(np.isnan(state.R_errors[0]).sum())
+        print(np.isnan(state.w).sum())
 
         I = np.array([0,582,590,1023,seq_to_index('GTACG')]) # AAAAA GCACG GCATG TTTTT
-        print "psi", state.psi
+        print("psi", state.psi)
 
         g = state.grad
-        print g
+        print(g)
         from cska.gradient import emp_gradi
         eg = emp_gradi(state, eps=1e-4)
 
@@ -169,60 +171,60 @@ class TestGradientMethods(unittest.TestCase):
             emp = eg[j, i][:l]
 
             delta = np.fabs(ana - emp)
-            print "largest abs. deviation between empirical and analytical gradient", delta.max(), "index", delta.argmax()
+            print("largest abs. deviation between empirical and analytical gradient", delta.max(), "index", delta.argmax())
             if delta.max() > .5:
                 out.psam_vec[:] = ana
-                print "dR_dA", index_to_seq(i, 5), out
+                print("dR_dA", index_to_seq(i, 5), out)
                 out.psam_vec[:] = emp
-                print "emp. dR_dA", index_to_seq(i, 5), out
+                print("emp. dR_dA", index_to_seq(i, 5), out)
 
         emp = emp_grad(state, eps=1e-4)
-        print "analytical gradient"
-        print g
-        print "empirical"
-        print emp
+        print("analytical gradient")
+        print(g)
+        print("empirical")
+        print(emp)
 
         rec = - 2 * (state.R_errors[:,:,np.newaxis] * eg).mean(axis=(0,1))
-        print "emp. from individual"
+        print("emp. from individual")
         out.data[:] = rec
-        print out
+        print(out)
 
         rec = - 2 * (state.R_errors[:,:,np.newaxis] * state.gradi).mean(axis=(0,1))
-        print "ana. from individual"
+        print("ana. from individual")
         out.psam_vec[:] = rec
-        print out
+        print(out)
 
 
     def run_descent(self, correct_params, initial_params, k_monitor=5, dec=.75, rbp_conc=None):
         model, state0 = self.setup_model(correct_params, k_monitor=k_monitor, rbp_conc=rbp_conc)
         from cska import vector_stats
-        print ">>> reference state"
-        print state0
+        print(">>> reference state")
+        print(state0)
 
         state = model.tune(initial_params)
-        print ">>> TUNED"
-        print state
+        print(">>> TUNED")
+        print(state)
         # print ">>> ORACLE0"
         # print correct_params
         # print ">>> INITIAL"
         # print initial_params
         
-        print R0.min(), R0.max(), R0.mean(), cyska.index_to_seq(R0.argmax(), k_monitor)
+        print(R0.min(), R0.max(), R0.mean(), cyska.index_to_seq(R0.argmax(), k_monitor))
         G = GradientDescent(model, initial_params, dec=dec)
         res = G.optimize(initial_params, maxiter=1, debug=True)
-        print ">>> ORACLE"
-        print correct_params
-        print ">>> INITIAL"
-        print initial_params
-        print ">>> FINAL"
-        print G.params
-        print ">>> FINAL GRADIENT"
-        print G.last_state.grad
-        print ">>> FINAL EMP. GRADIENT"
-        print emp_grad(G.last_state)
+        print(">>> ORACLE")
+        print(correct_params)
+        print(">>> INITIAL")
+        print(initial_params)
+        print(">>> FINAL")
+        print(G.params)
+        print(">>> FINAL GRADIENT")
+        print(G.last_state.grad)
+        print(">>> FINAL EMP. GRADIENT")
+        print(emp_grad(G.last_state))
 
         d = np.fabs(G.params.data - correct_params.data)
-        print "maximal parameter deviation:", d.max(), d.argmax()
+        print("maximal parameter deviation:", d.max(), d.argmax())
         self.assertTrue(G.status.startswith('CONVERGED'))
         # self.assertLess(G.t, 30)
         self.assertTrue(np.allclose(G.params.data, correct_params.data, rtol=1e-3, atol=1e-2))
@@ -248,8 +250,8 @@ class TestGradientMethods(unittest.TestCase):
     def test_beta_opt(self):
         model, state0 = self.get_default()
         state = model.predict(state0.params, beta_fixed=False)
-        print state0.params.betas
-        print state.params.betas
+        print(state0.params.betas)
+        print(state.params.betas)
         self.assertTrue( np.allclose(state.params.betas, state0.params.betas) )
 
     def test_gradient_descent(self):
@@ -285,14 +287,14 @@ class TestGradientMethods(unittest.TestCase):
         subopt_params.A0 = 1
         # subopt_params.betas[:] = [.1,.5,.1]
         state1 = model.predict(subopt_params, beta_fixed=True)
-        print "PERTURBED STATE"
-        print state1
+        print("PERTURBED STATE")
+        print(state1)
 
         state = model.tune(state1)
-        print "TUNED STATE"
-        print state
-        print "GRADIENT"
-        print state.grad
+        print("TUNED STATE")
+        print(state)
+        print("GRADIENT")
+        print(state.grad)
 
         import matplotlib.pyplot as pp
         a0s = state.a0s
@@ -303,7 +305,7 @@ class TestGradientMethods(unittest.TestCase):
         pp.loglog(state.mdl.R0.T, state.R.T, 'x')
         m = min(state.mdl.R0.min(), state.R.min())
         M = max(state.mdl.R0.max(), state.R.max())
-        print m,M
+        print(m,M)
         pp.loglog([m,m],[M,M], 'k', linestyle='dashed')
 
         # (A0, beta) tune iterations
@@ -357,7 +359,7 @@ class TestGradientMethods(unittest.TestCase):
         params.acc_ofs = -1
         model1, state1 = self.setup_model(params, rbp_conc=[1.,5.,25.])
         model0.R0 = state1.R
-        print "performing gradient descent optimization"
+        print("performing gradient descent optimization")
         G = GradientDescent(model0, params)
         from cska.report import GradientDescentReport
         rep = GradientDescentReport(G, path='.')
@@ -380,7 +382,7 @@ class TestGradientMethods(unittest.TestCase):
 
         res = G.optimize(params, maxiter=100, debug=True, tune=True, callback=callback)
         # res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
-        print res.last_state.params
+        print(res.last_state.params)
 
 
     def test_grad_subopt(self):
@@ -392,7 +394,7 @@ class TestGradientMethods(unittest.TestCase):
         subopt_params.psam_matrix[0,0] += .0 # set A1 too high
         # subopt_params.betas[2] += 1e-4
         subopt_params.psam_matrix[4,1] = .01 # set C4 too low
-        print subopt_params
+        print(subopt_params)
 
         # state = model.predict(subopt_params, beta_fixed=True)
         # print "ANALYTICAL GRADIENT AT SUB-OPTIMUM"
@@ -411,7 +413,7 @@ class TestGradientMethods(unittest.TestCase):
         # print "# gradient computation took {0:.2f} ms".format(dt)
         # # sys.exit()
 
-        print "performing gradient descent optimization"
+        print("performing gradient descent optimization")
         G = GradientDescent(model, subopt_params)
         from cska.report import GradientDescentReport
         rep = GradientDescentReport(G, path='.')
@@ -434,44 +436,44 @@ class TestGradientMethods(unittest.TestCase):
 
         res = G.optimize(subopt_params, maxiter=100, debug=True, tune=True, callback=callback)
         # res = G.optimize(subopt_params, maxiter=50, debug=True, tune=True, callback=callback)
-        print res.last_state.params
+        print(res.last_state.params)
 
     def test_dA0(self):
         model, state0 = self.get_default()
 
-        print "correct reference state"
-        print state0
+        print("correct reference state")
+        print(state0)
         subopt_params = state0.params.copy()
         subopt_params.A0 *= .1 # set A0 too low
 
         state = model.predict(subopt_params, beta_fixed=False)
-        print "perturbed state"
-        print state
+        print("perturbed state")
+        print(state)
         import matplotlib.pylab as pp
         pp.loglog(state0.R, state.R, 'x')
         pp.savefig('dA0.pdf')
         pp.close()
 
         # print "ERROR", state.error
-        print "ANALYTICAL GRADIENT"
+        print("ANALYTICAL GRADIENT")
         from time import time
 
         t0 = time()
-        print state.grad
+        print(state.grad)
         dt = 1000. * (time() - t0)
-        print "# gradient computation took {0:.2f} ms".format(dt)
+        print("# gradient computation took {0:.2f} ms".format(dt))
         
         from cska.gradient import emp_grad
-        print "EMPIRICAL GRADIENT"
+        print("EMPIRICAL GRADIENT")
         t0 = time()
-        print emp_grad(state, eps=1e-4)
+        print(emp_grad(state, eps=1e-4))
         dt = 1000. * (time() - t0)
-        print "# gradient computation took {0:.2f} ms".format(dt)
+        print("# gradient computation took {0:.2f} ms".format(dt))
 
-        print "performing gradient descent optimization"
+        print("performing gradient descent optimization")
         G = GradientDescent(model, subopt_params)
         res = G.optimize(subopt_params, maxiter=10, debug=True)
-        print res.last_state.params
+        print(res.last_state.params)
 
 
     # @unittest.skip("")
@@ -508,10 +510,10 @@ class TestGradientMethods(unittest.TestCase):
         from cska.gradient import emp_grad
         egrad = emp_grad(state0, eps=1e-6)
         
-        print "\nANALYTICAL GRADIENT AT OPTIMUM"
-        print grad
-        print "EMP. GRADIENT AT OPTIMUM"
-        print egrad
+        print("\nANALYTICAL GRADIENT AT OPTIMUM")
+        print(grad)
+        print("EMP. GRADIENT AT OPTIMUM")
+        print(egrad)
         self.assertTrue(np.allclose(grad.data,0))
 
     # @unittest.skip("")
@@ -547,8 +549,8 @@ class TestGradientMethods(unittest.TestCase):
             state = model.predict(params, beta_fixed=False, tune=True)
             # state = model.tune(params)
             grad = state.grad
-            print "gradient"
-            print grad #.unity()
+            print("gradient")
+            print(grad) #.unity()
             # egrad = emp_grad(state, eps=1e-5)
             # print "emp. gradient"
             # print egrad #.unity()
@@ -564,14 +566,14 @@ class TestGradientMethods(unittest.TestCase):
             
             if i_grad == i_pert:
                 ratios[i] = grad.data[i_pert] / grad.data[i_next]
-                print "SUCCESS"
+                print("SUCCESS")
             else:
                 ratios[i] = grad.data[i_pert] / grad.data[i_grad]
-                print "FAILED"
+                print("FAILED")
 
-            print "i_pert", i_pert, "i_grad", i_grad, "i_next", i_next, "ratio", ratios[i]
+            print("i_pert", i_pert, "i_grad", i_grad, "i_next", i_next, "ratio", ratios[i])
 
-        print "summary", ratios
+        print("summary", ratios)
         self.assertTrue((ratios >= 1.).all())
 
     @unittest.skip("")
@@ -596,7 +598,7 @@ class TestGradientMethods(unittest.TestCase):
     @unittest.skip("")
     def test_5mer_optimum(self):
         motif = self.from_kmers(['GCATG', 'GCACG', 'GCAGG', ], [1., .6, .02,], betas = [.08, .11, .03])
-        print motif
+        print(motif)
         init = motif.copy()
         init.A0 = .5
         self.run_descent(motif, init, k_monitor=5, rbp_conc=[.5,50.,200.])

@@ -78,14 +78,21 @@ class Alignment(object):
             # else:
             #     score = 1 if multiply else 0
             score = start_avg*end_avg if multiply else start_avg + end_avg
+            # score = 1 if multiply else 0
 
             for i in range(n_cols):
                 if bits[i+s_start] > 3:
                     continue # skip gaps
                 
                 S = self.matrix[i+m_start, bits[i+s_start]]
+
                 col_scores.append(S)
                 score = score * S if multiply else score + S
+
+            # if normalize:
+            #     # score /= self.max_kmer_score_at(m_start, k=n_cols)
+            #     # score *= float(n_cols) / len(seq)
+            #     score /= self.max_score
 
             scores.append(score)
             if debug:
@@ -148,6 +155,12 @@ class Alignment(object):
             ma = self.matrix.max(axis=1)
             slices = np.array([ma[i:i+k].sum() for i in range(len(self.matrix)-k+1)])
             return slices.max()
+        else:
+            return 1.
+
+    def max_kmer_score_at(self, i, k=8):
+        if len(self.matrix):
+            return self.matrix[i:i+k].max(axis=1).sum()
         else:
             return 1.
 

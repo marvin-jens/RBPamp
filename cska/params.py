@@ -1,6 +1,6 @@
 # coding=future_fstrings
 from __future__ import print_function
-
+from __future__ import unicode_literals
 import numpy as np
 import logging
 
@@ -144,7 +144,7 @@ class ModelSetParams(object):
         return cls(param_set)
 
     def save(self, fname, comment=""):
-        with file(fname, 'w') as f:
+        with open(fname, 'w') as f:
             if comment:
                 f.write(f"# {comment}\n")
 
@@ -284,9 +284,9 @@ class ModelSetParams(object):
         for i, (params, psam, x0) in enumerate(zip(self.param_set, psams, offsets)):
             kd = 1. / params.A0
             if (lo is None) or (hi is None):
-                kdstr = u"$K_d$ = {}".format(nice_conc(kd))
+                kdstr = "$K_d$ = {}".format(nice_conc(kd))
             else:
-                kdstr = u"$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
+                kdstr = "$K_d$ = {}".format(nice_conc(kd, lo = 1. / hi[i].A0, hi = 1. / lo[i].A0))
 
             y0 = (n-i-1) * logo_height
             # print(i, y0, x0)
@@ -396,7 +396,7 @@ class ModelParametrization(object):
                 params.rbp_name = rbp_name
             return params
 
-        with file(fname) as f:
+        with open(fname) as f:
             for line in f:
                 if line.startswith('PSAM'):
                     if aff:
@@ -436,7 +436,7 @@ class ModelParametrization(object):
             mode = 'a'
         else:
             mode = 'w'
-        file(fname, mode).write(str(self) + '\n')
+        open(fname, mode).write(str(self) + '\n')
 
     def as_vector(self, dtype=np.float32):
         return self.data
@@ -481,22 +481,22 @@ class ModelParametrization(object):
         return p
 
     def __getattr__(self, a):
-        if hasattr(self, 'attrs'):
+        try:
             attrs = object.__getattribute__(self, 'attrs') 
-        else:
+        except AttributeError:
             attrs = {}
         # print 'getattr', a
         if a in attrs:
             return attrs[a].get_values()
         else:
-            return object.__getattribute__(self, a)
+            return object.__getattr__(self, a)
         # return super(ModelParametrization, self).__getattr__(a)
 
     def __setattr__(self, a, v):
         # attrs = super(ModelParametrization, self).__getattr__('attrs') 
-        if hasattr(self, 'attrs'):
+        try:
             attrs = object.__getattribute__(self, 'attrs') 
-        else:
+        except AttributeError:
             attrs = {}
         # print "setattr", a, v
         if a in attrs:

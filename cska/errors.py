@@ -31,7 +31,7 @@ class PSAMErrorEstimator(object):
             return 0
 
         t = -1
-        while self.shelve.has_key("params_t{}".format(t+1)):
+        while "params_t{}".format(t+1) in self.shelve:
             t += 1
         return t
 
@@ -40,7 +40,7 @@ class PSAMErrorEstimator(object):
             t = self.max_t
 
         key = "{0}_t{1}".format(name, t)
-        if self.shelve.has_key(key):
+        if key in self.shelve:
             return self.shelve[key]
 
     def load_data(self):

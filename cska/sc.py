@@ -1,3 +1,4 @@
+from __future__ import print_function
 import numpy as np
 import logging
 import time
@@ -42,7 +43,7 @@ class SelfConsistency(object):
         Z = self.x * Z_scale 
         # p = Z / (Z + 1.)
         p = rbp_free / (rbp_free + 1./Z)
-        print "occ", self.x.max(), p.max()
+        print("occ", self.x.max(), p.max())
         return Z, p
 
     def fast_free_rbp(self, rbp_total, Z_scale=1.):
@@ -103,5 +104,5 @@ if __name__ == "__main__":
     logging.getLogger('model').setLevel(logging.DEBUG)
     Z1 = np.load('/scratch/data/RBNS/RBFOX3/new/opt/5mers/5mer_Z1_.npy')
     sc = SelfConsistency(Z1, 1000., bins=10000)
-    print 5, "->", sc.free_rbp(5.)
-    print 5, "->", sc.fast_free_rbp(5.)
+    print(5, "->", sc.free_rbp(5.))
+    print(5, "->", sc.fast_free_rbp(5.))

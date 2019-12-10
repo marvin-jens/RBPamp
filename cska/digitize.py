@@ -1,3 +1,4 @@
+from __future__ import print_function
 import numpy as np
 import numpy.random as rnd
 def digitize(data, bins, dtype=int):
@@ -43,14 +44,14 @@ if __name__ == "__main__":
     from time import time
     t0 = time()
     res2 = np.digitize(data, bins) - 1 
-    print (time() - t0)* 1000.
-    print res2
+    print((time() - t0)* 1000.)
+    print(res2)
     
     t0 = time()
-    from cyska import digitize_32fp_8bit
+    from .cyska import digitize_32fp_8bit
     res3 = digitize_32fp_8bit(data, bins) - 1
-    print (time() - t0)* 1000.
-    print res3
+    print((time() - t0)* 1000.)
+    print(res3)
 
     #res = digitize(data, bins)
     #print res

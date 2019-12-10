@@ -1,3 +1,4 @@
+from __future__ import print_function
 import numpy as np
 import logging
 import scipy
@@ -38,7 +39,7 @@ class RBNSGenerator(CachedBase):
         import matplotlib.pyplot as pp
         pp.figure()
         y, bins = np.histogram(self.kmer_energies*self.RT,bins=50)
-        print bins.shape, y.shape
+        print(bins.shape, y.shape)
         pp.semilogx(kcal_to_Kd(bins[:-1]), y, linestyle='steps', linewidth=2.)
         pp.xlabel(r'$K_d$ [nM]')
         #pp.xlabel(r'$\Delta G$ [kcal/mol]')
@@ -137,7 +138,7 @@ class RBNSGenerator(CachedBase):
         
         dt = time.time() - t0
         
-        print "bound fraction", bound_fraction #, "non-specific", n_ns
+        print("bound fraction", bound_fraction) #, "non-specific", n_ns
         rps = N / dt
         self.logger.debug("took {0:.3f} seconds. {1:.1f} reads per second".format(dt, rps) )
         
@@ -194,13 +195,13 @@ class RBNSGenerator(CachedBase):
         
         
         vec = (np.dot(M, occ) + beta)
-        print "lin approx max expected binding", vec.max()
+        print("lin approx max expected binding", vec.max())
         if limit:
             #vec = np.where(vec > 1, 1, vec)  # hard cap
             #vec = vec / (vec + 2.) # sigmoidal
             
             vec = np.arcsinh(vec*1.5 ) # log-like for high values
-            print "lin approx max binding regularized", vec.max()
+            print("lin approx max binding regularized", vec.max())
             
         pi = kappa * vec
             
@@ -210,7 +211,7 @@ class RBNSGenerator(CachedBase):
 
     def binding_constants_from_R_vec(self, r, k, P=320., limit=True):
         # WORK IN PROGRESS!
-        print "correct Kd", self.Kd[-5:]
+        print("correct Kd", self.Kd[-5:])
 
         M, M_inv = self.crosstalk_matrix_and_inverse()
         k = self.k
@@ -227,12 +228,12 @@ class RBNSGenerator(CachedBase):
         def err(x):
             r_pred = self.predict_r_values_from_occ(get_occ(x))
             E = ((r - r_pred)**2).mean()
-            print x, E
+            print(x, E)
             return E
         
         from scipy.optimize import minimize
         res = minimize(err, (.01,.01))
-        print res.success, res.x
+        print(res.success, res.x)
         
         inv_occ = get_occ(res.x)
         
@@ -320,7 +321,7 @@ class RBNSGenerator(CachedBase):
         
         
         sp0, bg0 = correct_parameters()
-        print "correct parameters are", sp0, bg0
+        print("correct parameters are", sp0, bg0)
         #kd = infer_kd(sp0, bg0)
 
 
@@ -348,7 +349,7 @@ class RBNSGenerator(CachedBase):
             #err = RBNSKmerModel.objective_function(kd)
             err = objective_function(lkd)
             
-            print "score(",sum_pi,bg,")-> err=",err
+            print("score(",sum_pi,bg,")-> err=",err)
             return err
 
         
@@ -360,12 +361,12 @@ class RBNSGenerator(CachedBase):
             min_dict = dict(bounds = bounds, method='L-BFGS-B')
             x_best = np.concatenate( (sp0, bg0) )
             
-            print score(x_best), "<- best score"
+            print(score(x_best), "<- best score")
             res = minimize(score, x_best, method='SLSQP', bounds = bounds)#, options=dict(eps=1e-3))
             #res = basinhopping(score, x0, minimizer_kwargs=min_dict)
-            print res
+            print(res)
             x = res.x
-            print score(x), "<- optimized score"
+            print(score(x), "<- optimized score")
             sum_pi = x[:n]
             bg = x[n:]
             
@@ -379,8 +380,8 @@ class RBNSGenerator(CachedBase):
         #pp.figure()
         #pp.loglog(occ, occ_recover,'xr')
         #pp.show()
-        print "correct parameters are", sp0, bg0
-        print kd
+        print("correct parameters are", sp0, bg0)
+        print(kd)
         dG = self.RT * np.log(kd/1e9).mean(axis=0)
         
         return kmers, kd, dG
@@ -420,7 +421,7 @@ class RBNSSimulator(CachedBase):
 
     @pickled
     def expected_kmer_counts(self, kmer_invkd, protein_conc, n_max=0, E_ns = 0, indices=None, seq_only=False):
-        from cyska import eval_energy_model_on_seqs
+        from .cyska import eval_energy_model_on_seqs
         if indices == None:
             seqm = self.reads.seqm
             oem = self.openen.oem
@@ -462,7 +463,7 @@ if __name__ == "__main__":
 
     sim = RBNSSimulator(reads, openen, 5)    
     
-    print "joint frequencies"
+    print("joint frequencies")
     kmer_openen = openen.kmer_openen_counts()
 
     gen = RBNSGenerator(5,l=40, seed=47110815)
@@ -473,18 +474,18 @@ if __name__ == "__main__":
     kmer_energies = gen.kmer_energies #- 1.5 # non-specific binding
 
 
-    print kmer_energies
-    print "simulating binding"
+    print(kmer_energies)
+    print("simulating binding")
     rbp_conc = [.5,1.,10.,120.,360.]
     #sim._do_not_unpickle=True
     counts, openen_bincounts = sim.expected_kmer_counts(kmer_energies, rbp_conc, E_ns=-2/gen.RT)
-    print counts.shape, openen_bincounts.shape
-    print ">>>openen-bins"
+    print(counts.shape, openen_bincounts.shape)
+    print(">>>openen-bins")
     
     best_i = kmer_energies.argmin()
     med_i = (kmer_energies == np.median(kmer_energies)).argmax()
 
-    print "median kmer energy", kmer_energies[med_i]*gen.RT, "kcal/mol"
+    print("median kmer energy", kmer_energies[med_i]*gen.RT, "kcal/mol")
     colors = ['k','r','g','y','c']
     styles = ['x','*','^','.','o']
     
@@ -493,7 +494,7 @@ if __name__ == "__main__":
         ref = kmer_openen[I]
         x, ref_y = disc.get_hist_xy(ref)
         
-        for i,style in zip(range(len(openen_bincounts)), styles):
+        for i,style in zip(list(range(len(openen_bincounts))), styles):
             bc = openen_bincounts[i,I,:]
             x, y = disc.get_hist_xy(bc)
             
@@ -510,11 +511,11 @@ if __name__ == "__main__":
     
     
     freqs = counts * (4**5)/counts.sum(axis=1)[:,np.newaxis]
-    print freqs[:,-10:]
+    print(freqs[:,-10:])
     
     R = freqs/reads.kmer_frequencies(5)
-    print "R-values", R.min(), R.max()
-    print R[:,-10:]
+    print("R-values", R.min(), R.max())
+    print(R[:,-10:])
     
     pp.show()    
     
@@ -535,7 +536,7 @@ if __name__ == "__main__":
     P = 10.
     
     B = np.exp(- gen.kmer_energies + np.log(P*1e-9) )
-    print "Boltzmann weights for top sites", B[-5:]
+    print("Boltzmann weights for top sites", B[-5:])
     
     k = 5
     N = 4**k
@@ -550,10 +551,10 @@ if __name__ == "__main__":
     #reads = gen.generate_input_reads(N=1000000, store="6mer@0nM.reads")
     reads = gen.generate_bound_reads(P=P, p_ns=0.00, N=10000, store="7mer@{0}nM.reads".format(P))
     #print gen.Z_full
-    print ">>> most abundant kmer-frequencies in pulldown simulation", reads.kmer_frequencies(k)[-5:]
+    print(">>> most abundant kmer-frequencies in pulldown simulation", reads.kmer_frequencies(k)[-5:])
     comp = RBNSComparison(gen.input_reads, reads)
     R, R_err = comp.R_values(k, _do_not_unpickle=True)
-    print "simulation R-values", R[-5:]
+    print("simulation R-values", R[-5:])
 
     def P_bound_given_kmer_nn(x):
         P = 0
@@ -653,11 +654,11 @@ if __name__ == "__main__":
     kmer_occ = B / (B + 1)
     naive_freq = kmer_occ * kfreqs[k]
     naive_r = naive_freq / naive_freq.sum() / kfreqs[k]
-    print "naive r",naive_r[-5:]
+    print("naive r",naive_r[-5:])
     
     lin_approx_r, pisum, beta = gen.predict_r_values(P, limit=False)
-    print "lin matrix approx.", lin_approx_r[-5:]
-    print "factors pisum", pisum, "beta", beta
+    print("lin matrix approx.", lin_approx_r[-5:])
+    print("factors pisum", pisum, "beta", beta)
     #p_in = kfreqs[k] * 2#P_kmer_in_read()
     #p_in = P_kmer_in_read()
     
@@ -678,11 +679,11 @@ if __name__ == "__main__":
     
     nn_freq = np.array([P_bound_given_kmer_nn(x) for x in np.arange(N)])
     nn_r = nn_freq / nn_freq.sum() / kfreqs[k]
-    print "nn r",nn_r[-5:]
+    print("nn r",nn_r[-5:])
 
     nnn_freq = np.array([P_bound_given_kmer_nnn(x) for x in np.arange(N)])
     nnn_r = nnn_freq / nnn_freq.sum() / kfreqs[k]
-    print "nnn r",nnn_r[-5:]
+    print("nnn r",nnn_r[-5:])
 
     
     pp.figure()
@@ -751,7 +752,7 @@ if __name__ == "__main__":
     #sys.exit(0)
 
     gen.assign_experimental_input("/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads")
-    print gen
+    print(gen)
     #gen.energy_plot()
     #gen.generate_input_reads(store="input.reads", N=100)
     # test different partition functions
@@ -827,14 +828,14 @@ if __name__ == "__main__":
         corr = max(- delta.min(), 0) # no negative terms allowed
         
         beta = corr / ofs
-        print (r_inv + beta*ofs).min()
+        print((r_inv + beta*ofs).min())
         
         pre_scaled = r_inv + beta * ofs
         scale = 1./pre_scaled.max()
         
         beta = beta * scale
         inv = pre_scaled * scale
-        print "inv minmax", inv.min(), inv.max()
+        print("inv minmax", inv.min(), inv.max())
         return inv
         
     pp.figure()
@@ -844,7 +845,7 @@ if __name__ == "__main__":
         ro_inv = inverse(ro)
         r_inv = inverse(r)
 
-        print r_inv[-10:]
+        print(r_inv[-10:])
         pp.loglog(r_inv, ro_inv, 'o', alpha=.5, label="P={0:.0f}nM".format(P))
 
     pp.legend(loc='upper left')
@@ -875,7 +876,7 @@ if __name__ == "__main__":
         
     pp.figure()
     pp.title("inferred binding energies")
-    print gen.kmer_energies[-20:].shape, dG.shape
+    print(gen.kmer_energies[-20:].shape, dG.shape)
     pp.plot(gen.kmer_energies[-20:]*gen.RT, dG, 'ob')
     pp.xlabel("simulated energies [kcal/mol]")
     pp.ylabel("inferred energies [kcal/mol]")

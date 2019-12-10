@@ -26,7 +26,7 @@ class RefComparison(object):
         if not ref_file:
             ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
 
-        for line in file(ref_file):
+        for line in open(ref_file):
             if line.startswith("# alias"):
                 name, alias = line.rstrip().split(" ")[2:]
                 if name == rbp_name:
@@ -182,7 +182,7 @@ class RefComparison(object):
             #     a.append(aff[I].sum())
             # else:
             #     # the seq is shorter than our motifs/model
-            score, ofs = align(seq)
+            score, ofs = align(str(seq))
             # print seq, ofs, score
             a.append(params.A0 * score)
 

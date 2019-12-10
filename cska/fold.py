@@ -331,20 +331,22 @@ class ViennaOpenen(object):
             S = self.adap5 + seq.rstrip() + self.adap3
             l = len(S)
             #print "folding", S, len(S)
-            self.p.stdin.write("{0}\n".format(S) )
+            self.p.stdin.write("{0}\n".format(S).encode('ascii'))
+            self.p.stdin.flush()
             
             data = [ np.zeros(self.l_insert - k + 1, dtype=np.float32) for k in self.krange ]
             for i in range(l+2):
                 j = i - 2
-                
                 line = self.p.stdout.readline()
+                
                 if j < self.first:
                     continue
                 
                 if j >= self.last:
                     continue
                 
-                cols = line.split('\t')
+                cols = line.split(b'\t')
+                # print(cols)
                 for k in self.krange:
                     if j >= (k-1):
                         data[k - self.k_min][j-k-self.first+1] = float(cols[k])
@@ -380,7 +382,7 @@ class DummySink(object):
 class FileSink(object):
     def __init__(self, fname, bytes_keep=0):
         self.fname = fname
-        self.f = file(fname, 'ab+')
+        self.f = open(fname, 'ab+')
 
         if bytes_keep:
             # print "keeping {} bytes".format(bytes_keep)
@@ -1124,7 +1126,7 @@ if __name__ == "__main__":
     sys.exit(1)
     
     print(make_bins(5))
-    src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads')
+    src = open('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads')
     store = OpenenStorage()
     vienna = ViennaOpenen()
 

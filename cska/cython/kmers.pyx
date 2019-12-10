@@ -114,9 +114,11 @@ def write_seqm(np.ndarray[UINT8_t, ndim=2] seqm_, f):
         f.write(seq_)
     
     
-def seq_to_bits(unsigned char *seq):
+def seq_to_bits(str py_str):
     cdef UINT32_t x, L
     cdef UINT8_t n
+    cdef bytes py_byte_str = py_str.encode('ascii')
+    cdef unsigned char *seq = py_byte_str
     
     L = len(seq)
     cdef np.ndarray[UINT8_t] _res = np.zeros(L, dtype=np.uint8)
@@ -158,7 +160,8 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
     cdef UINT8_t x=0
     cdef UINT32_t chunkbytes = 0
     cdef list chunks = list()
-    cdef bytes line
+    cdef str line
+    cdef bytes py_byte_str
     cdef bytes _pre = <bytes>pre
     cdef bytes _post = <bytes>post
     cdef np.ndarray[UINT8_t] _buf
@@ -189,7 +192,9 @@ def read_raw_seqs_chunked(src, str pre="", str post="", UINT32_t n_max=0, UINT32
             buf = _buf # initialize the view
             n = 0
 
-        l = line # extract raw string content
+        # l = line # extract raw string content
+        py_byte_str = line.encode('ascii')
+        l = py_byte_str
         n0 = n
         for i in range(0,L):
             x = letter_to_bits[l[i]]

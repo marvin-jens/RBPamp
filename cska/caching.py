@@ -16,7 +16,7 @@ from collections import defaultdict
 cached_objects = defaultdict(dict)
 
 def key_to_hash(key):
-    return hashlib.md5(key).hexdigest()
+    return hashlib.md5(key.encode()).hexdigest()
 
 def array_to_hash(a):
     return "array_{0}_{1}".format(a.shape, hashlib.md5(a.tobytes()).hexdigest())
@@ -261,7 +261,7 @@ def pickled(func):
         
         elif os.path.exists(fname):
             self.cache_logger.debug("un-pickling '{0}' as '{1}'".format(pkl_key, pkl_name) )
-            res = pickle.load(file(fname,'rb'))
+            res = pickle.load(open(fname,'rb'), encoding='bytes')
             new = False
             
         else:
@@ -276,7 +276,7 @@ def pickled(func):
             except OSError:
                 # already exists
                 pass
-            pickle.dump(res, file(fname,'wb'), protocol=-1)
+            pickle.dump(res, open(fname,'wb'), protocol=-1)
         
         return res
     

@@ -1,5 +1,6 @@
 # -*- coding: future_fstrings -*-
-
+from __future__ import absolute_import
+from __future__ import print_function
 __license__ = "MIT"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
@@ -14,7 +15,7 @@ class StateTracker(object):
         self.rbp = run.rbp_name
         self.stage = stage
         self.fpath = os.path.join(self.run.run_path, '{}.txt'.format((stage)))
-        self.state_file = file(self.fpath, 'a')
+        self.state_file = open(self.fpath, 'a')
         self.logger = logging.getLogger('main.StateTracker({})'.format((stage)))
         self.completed_ts = None
         if startup:
@@ -30,7 +31,7 @@ class StateTracker(object):
         self.logger.info('set "{}"'.format((out)))
     
     def is_completed(self, strict=False):
-        lines = file(self.fpath, 'r').readlines()
+        lines = open(self.fpath, 'r').readlines()
         if not lines:
             return False
 
