@@ -190,7 +190,7 @@ class RBNSOpenen(CachedBase):
         t0 = time.time()
         with open(self.fname, 'rb') as f:
             with closing(mmap.mmap(f.fileno(), length=N_bytes, access=mmap.ACCESS_READ)) as m:
-                oem = np.fromstring(m, dtype=self.dtype)
+                oem = np.frombuffer(m, dtype=self.dtype)
 
         dt = 1000. * (time.time() - t0)
         self.logger.debug("loading {N} rows of accessibility from {self.fname} took {dt:.2f} ms.".format(**locals()))

@@ -200,7 +200,7 @@ class FootprintCalibration(CachedBase):
         #     self.load_footprints(fp)
         # no need to load these, as we now keep pickled results from optimize()
 
-        self.fp_file = file(fp, 'w')
+        self.fp_file = open(fp, 'w')
         self.fp_file.write('acc_k\tacc_shift\tacc_scale\tA0\terror\n')
         self._partfunc_done = False
         self.log_mem_usage("after init")
@@ -224,7 +224,7 @@ class FootprintCalibration(CachedBase):
         self.Z1_in_noacc = self.Z1_full[0]
         
         Z1_read = self.Z1_in_noacc.sum(axis=1)
-        self.logger.debug("Z1_read percentiles 5,25,50,75,95,99", np.percentile(Z1_read, [5, 25, 50, 75, 95, 99]))
+        self.logger.debug("Z1_read percentiles 5,25,50,75,95,99 {}".format(np.percentile(Z1_read, [5, 25, 50, 75, 95, 99])))
         thresh = self.thresh * Z1_read.max()
         self.I = Z1_read > thresh
         N = self.I.sum()
@@ -480,7 +480,7 @@ class FootprintCalibration(CachedBase):
             self._openen_cache[k] = self.input_reads.acc_storage.get_raw(k, _do_not_cache=True)
             # self.input_reads.acc_storage.cache_flush() # free up memory
         
-        for x in self._openen_cache.keys():
+        for x in list(self._openen_cache.keys()):
             # drop everything that's not p-unpaired or current k
             if x > 1 and x != k and k > 1:
                 self.logger.debug(f"get_input_openen_cached({k}) dropping {x}")
