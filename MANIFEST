@@ -3,6 +3,6 @@ MANIFEST.in
 README.md
 setup.py
 __init__.py
-cska/cython/kmers.pyx
-cska/cython/model.pyx
-cska/cython/fastrand.pyx
+RBPamp/cython/kmers.pyx
+RBPamp/cython/model.pyx
+RBPamp/cython/fastrand.pyx

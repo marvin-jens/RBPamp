@@ -1,14 +1,14 @@
 import numpy as np
 
 def load_model(fname, sort=True):
-    from cska.params import ModelSetParams
+    from RBPamp.params import ModelSetParams
     params = ModelSetParams.load(fname, 1, sort=sort)
     return params
 
 def eval_model(params, seq, m=None):
     if len(seq) < params.k:
         return np.zeros(len(seq), dtype=np.float32)
-    from cska.cyska import seq_to_bits, PSAM_partition_function
+    from RBPamp.cyska import seq_to_bits, PSAM_partition_function
     seqm = seq_to_bits(seq)
     seqm = seqm.reshape((1, len(seq)) )
     # print seqm, seqm.dtype

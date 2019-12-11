@@ -241,7 +241,7 @@ class ModelSetParams(object):
     def save_logos(self, fname, lo=None, hi=None, title="", minimal=False, align=False, logo_height=1.4, savefig=None):
         # TODO: add error estimates to Kd 
         import matplotlib.pyplot as plt
-        from cska.affinitylogo import plot_afflogo, nice_conc
+        from RBPamp.affinitylogo import plot_afflogo, nice_conc
 
         if savefig is None:
             savefig = plt.savefig
@@ -442,7 +442,7 @@ class ModelParametrization(object):
         return self.data
     
     def as_PSAM(self):
-        from cska.pwm import PSAM
+        from RBPamp.pwm import PSAM
         return PSAM(self.psam_matrix, A0=self.A0)
 
     def copy(self):
@@ -506,8 +506,8 @@ class ModelParametrization(object):
         # return super(ModelParametrization, self).__setattr__(a, v)
 
     def __str__(self):
-        from cska.pwm import project_column
-        import cska.cyska as cyska
+        from RBPamp.pwm import project_column
+        import RBPamp.cyska as cyska
         buf = []
         rbp_name = getattr(self, 'rbp_name', '')
         buf.append(f"PSAM {rbp_name} A0={self.A0} n={self.k} acc_k={self.acc_k} acc_shift={self.acc_shift} acc_scale={self.acc_scale}")
@@ -563,7 +563,7 @@ class ModelParametrization(object):
 
 
 def test_logo():
-    from cska.pwm import PSAM
+    from RBPamp.pwm import PSAM
     A = PSAM.from_kmer('TATTTTATT')
     A.psam = np.where(A.psam < 1., 1e-6, 1.)
     A.A0 = .5
@@ -594,11 +594,11 @@ def test_save_load():
     print(params)
 
 if __name__ == "__main__":
-    params = ModelSetParams.load('cska/z4t75p01k99fix/footprint/calibrated.tsv', 1)
+    params = ModelSetParams.load('RBPamp/z4t75p01k99fix/footprint/calibrated.tsv', 1)
     print(params)
 
     # for rbp in ['MSI1', 'UNK', 'HNRNPA0', 'NOVA1', 'IGF2BP1']:
-    #     params = ModelSetParams.load(f"/home/mjens/engaging/RBNS/{rbp}/cska/z4t75p01k99fix/seed/initial.tsv", 1)
+    #     params = ModelSetParams.load(f"/home/mjens/engaging/RBNS/{rbp}/RBPamp/z4t75p01k99fix/seed/initial.tsv", 1)
     #     params.save_logos(f'{rbp}.pdf', minimal=True, align=True)
     # test_logo()
     #test_save_load()

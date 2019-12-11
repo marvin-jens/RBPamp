@@ -17,8 +17,8 @@ from subprocess import PIPE, Popen
 from multiprocessing import Process, Event, JoinableQueue as Queue
 import multiprocessing
 from collections import defaultdict
-from cska.caching import CachedBase, cached, pickled
-import cska.cyska as cyska
+from RBPamp.caching import CachedBase, cached, pickled
+import RBPamp.cyska as cyska
 logger = logging.getLogger("fold")
 
 # This global variable is used by the keyboard interrupt 
@@ -281,9 +281,9 @@ class RBNSOpenen(CachedBase):
 
 class ViennaOpenen(object):
     """
-    Wrapper around an RNAplfold_cska (modified RNAplfold) subprocess.
+    Wrapper around an RNAplfold_RBPamp (modified RNAplfold) subprocess.
     """
-    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_cska", l_insert=20, skip_adap=False, **kwargs):
+    def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_RBPamp", l_insert=20, skip_adap=False, **kwargs):
         
         L = len(adap5) + l_insert + len(adap3)
         
@@ -723,7 +723,7 @@ class OpenenDiscretization(object):
         #print "bins", self.bins
         #print "dtype", self.dtype
         
-        #import cska.digitize as cd
+        #import RBPamp.digitize as cd
         #return cd.digitize(data, self.bins, dtype=self.dtype) - 1
         #return np.array(np.digitize(data, self.bins) - 1, dtype=self.dtype)
         
@@ -860,7 +860,7 @@ def result_collector(storage, res_queue, n_complete=0, n_left=-1, k_min=1, k_max
     t1 = t0
     n_rec = 0
 
-    from cska.zmq_logging import LoggerFactory
+    from RBPamp.zmq_logging import LoggerFactory
     zmq_logging = LoggerFactory(address=log_address, format_str=log_format)
     logger = zmq_logging.getLogger('fold.result_collector')
 
@@ -947,7 +947,7 @@ def parallel_fold(reads, n_complete=0, n_parallel=8, skip_records=0, k_min=1, k_
     # fire up multiple workers: 
     #
     #  seq_queue-> enumerated seq. chunks-> \
-    #       ViennaOpenen(RNAplfold_cska)-> \
+    #       ViennaOpenen(RNAplfold_RBPamp)-> \
     #  enumerated result chunks-> res_queue
     #
     workers = []
@@ -1069,7 +1069,7 @@ if __name__ == "__main__":
 
     #test_memory_consumption()
 
-    from cska.reads import RBNSReads
+    from RBPamp.reads import RBNSReads
     reads = RBNSReads('/scratch2/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000)
     storage = reads.acc_storage.get_raw(1)
     print(storage.oem)

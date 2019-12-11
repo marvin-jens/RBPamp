@@ -31,7 +31,7 @@ def parse_cmdline():
     # basic options
     parser.add_option("","--version", dest="version", default=False, action="store_true", help="show version information and quit")
     parser.add_option("","--name", dest="name", default="RBP", help="name of the protein assayed (default=RBP)")
-    parser.add_option("-o","--output", dest="output", default="cska", help="path where results are to be stored (default='cska')")
+    parser.add_option("-o","--output", dest="output", default="RBPamp", help="path where results are to be stored (default='RBPamp')")
     parser.add_option("","--run-path", dest="run", default="run_{datestr}".format(datestr=datestr), help="pattern for run-folder name (default='run_{datestr}')")
     # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
     parser.add_option("-b","--best", dest="best", default=4, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
@@ -224,7 +224,7 @@ class Run(object):
             raise ValueError("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
 
         # control caching framework behavior
-        from cska.caching import CachedBase
+        from RBPamp.caching import CachedBase
         CachedBase._do_not_cache = options.disable_caching
         CachedBase._do_not_pickle = options.disable_pickle
         CachedBase._do_not_unpickle= options.disable_unpickle
@@ -238,7 +238,7 @@ class Run(object):
         self.state_trackers = {}
         self.last_tracker = None
 
-        from cska.comparison import RefComparison
+        from RBPamp.comparison import RefComparison
         if self.options.compare:
             self.ref = RefComparison(self.options.compare, ref_file=self.options.ref_file)
         else:
@@ -259,7 +259,7 @@ class Run(object):
                 pass
         
         # where to put/find transparent pickle/unpickle objects
-        from cska.caching import CachedBase
+        from RBPamp.caching import CachedBase
         CachedBase.pkl_path = os.path.join(self.options.output, ".pkl")
 
         # accessibility prediction from folding
@@ -268,7 +268,7 @@ class Run(object):
             self.fold_path = "NOSTRUCTURE"
 
     def get_state_tracker(self, stage, **kwargs):
-        from cska.status import StateTracker
+        from RBPamp.status import StateTracker
         if not stage in self.state_trackers:
             self.state_trackers[stage] = StateTracker(self, stage, **kwargs)
         
@@ -337,15 +337,15 @@ class Run(object):
             sub = sub.replace('root',"")
             logging.getLogger(sub).setLevel(logging.DEBUG)
             if sub == 'cache':
-                from cska.caching import CachedBase
+                from RBPamp.caching import CachedBase
                 CachedBase.debug_caching = True
 
     def _init_RNG(self):
         if self.options.seed:
             self.logger.info("seeding RNG with {}".format(self.options.seed))
             np.random.seed(self.options.seed)
-            import cska.cyska
-            cska.cyska.rand_seed(self.options.seed)
+            import RBPamp.cyska
+            RBPamp.cyska.rand_seed(self.options.seed)
 
     def _init_signal_handler(self):
         import signal
@@ -359,8 +359,8 @@ class Run(object):
             if self.last_tracker:
                 self.last_tracker.set(msg)
 
-            import cska.fold
-            cska.fold.interrupt()
+            import RBPamp.fold
+            RBPamp.fold.interrupt()
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, sigterm_handler)
@@ -368,7 +368,7 @@ class Run(object):
 
     def make_SKA(self):
         """parametrize SKA algorithm"""
-        from cska.ska_runner import SKARunner
+        from RBPamp.ska_runner import SKARunner
         ska = SKARunner(
             max_iterations = self.options.n_passes,
             convergence = self.options.convergence, 
@@ -395,8 +395,8 @@ class Run(object):
 
     def select_reads(self):
         # start a new analysis
-        from cska.analysis import RBNSAnalysis
-        from cska.reads import RBNSReads
+        from RBPamp.analysis import RBNSAnalysis
+        from RBPamp.reads import RBNSReads
 
         storage_kw = self.get_storage_kwargs()
 
@@ -452,7 +452,7 @@ class Run(object):
         self.logger.info("folding reads with '{0}' threads".format(self.options.parallel))
         tracker = self.get_state_tracker('fold')
 
-        from cska.fold import parallel_fold
+        from RBPamp.fold import parallel_fold
         # prepare outout path
         if not os.path.exists(self.fold_path):
             os.makedirs(self.fold_path)
@@ -495,7 +495,7 @@ class Run(object):
         pass
         # # TODO: properly integrate simulation
         # if options.simulate == "reads":
-        #     from cska.optimize import RBNSGenerator
+        #     from RBPamp.optimize import RBNSGenerator
         #     for k in range(options.min_k, options.max_k + 1):
         #         gen = RBNSGenerator(k,l=40, seed=options.seed)
         #         gen.assign_experimental_input(reads_files[0])
@@ -512,7 +512,7 @@ class Run(object):
 
     
     def probe_params(self, *locations):
-        from cska.params import ModelParametrization, ModelSetParams
+        from RBPamp.params import ModelParametrization, ModelSetParams
         for path in locations:
             if not path:
                 continue
@@ -579,7 +579,7 @@ class Run(object):
     def seed_stage(self):
         tracker = self.get_state_tracker('seed')
 
-        from cska.seed import PSAMSeeding
+        from RBPamp.seed import PSAMSeeding
         ps = PSAMSeeding(self.rbns)
         # print "enriched MOTIFs in this library"
         # for m in SR.analysis.motifs_from_R(7):
@@ -623,8 +623,8 @@ class Run(object):
 
     def calibrate_footprint(self):
         tracker = self.get_state_tracker('footprint')
-        from cska.footprint import FootprintCalibration
-        from cska.params import ModelParametrization, ModelSetParams
+        from RBPamp.footprint import FootprintCalibration
+        from RBPamp.params import ModelParametrization, ModelSetParams
 
         calibrated_set = []
         params = self.params.copy(sort=True)
@@ -713,7 +713,7 @@ class Run(object):
         if plots == ["all",] : 
             plots = ['seed', 'descent', 'logos', 'lit', 'scatter', 'fp', 'vig']  #, 'aff'
 
-        import cska.report as report
+        import RBPamp.report as report
         plot_path = ensure_path(os.path.join(self.run_path, 'plots/'))
 
         srep = report.SeedReport(path=plot_path, rbns=self.rbns)
@@ -752,7 +752,7 @@ class Run(object):
     def PSAM_gradient_descent(self, name="opt"):
         tracker = self.get_state_tracker(name)
 
-        from cska.psamgrad import PSAMGradientDescent
+        from RBPamp.psamgrad import PSAMGradientDescent
         PGD = PSAMGradientDescent(
             self.rbns, 
             self.params, 
@@ -787,7 +787,7 @@ class Run(object):
             tracker.set(PGD.descent.status)
 
     def estimate_errors(self):
-        from cska.errors import PSAMErrorEstimator
+        from RBPamp.errors import PSAMErrorEstimator
         est = PSAMErrorEstimator(os.path.join(self.run_path, 'opt_nostruct/'))
         est.estimate()
 
@@ -795,8 +795,8 @@ def main():
     options, args = parse_cmdline()
     run = Run(options, args)
 
-    # import cska.track_allocations
-    # track = cska.track_allocations.AllocationTracker(1000000)
+    # import RBPamp.track_allocations
+    # track = RBPamp.track_allocations.AllocationTracker(1000000)
     # with track:
     try:
         rbns = run.select_reads()
@@ -807,7 +807,7 @@ def main():
 
         rbns = run.keep_best() # unless --best is non-zero this does nothing
         run.flush_reads()
-        from cska.caching import _dump_cache_sizes
+        from RBPamp.caching import _dump_cache_sizes
         _dump_cache_sizes()
         # npw.report_sizes('main startup')
         if options.folding:
@@ -868,11 +868,11 @@ def main():
 
         ex_type, ex_val, ex_tb = sys.exc_info()
         if ex_type == MemoryError:
-            import cska.caching
-            cska.caching._dump_cache_sizes()
+            import RBPamp.caching
+            RBPamp.caching._dump_cache_sizes()
         
         # in case we have child processes, try to end them gracefully
-        import cska.fold
+        import RBPamp.fold
         fold.interrupt()
     else:
         run.logger.info("run completed.")

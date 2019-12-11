@@ -15,20 +15,20 @@ CSKA is a tool for exploratory data analysis of RBNS experiments. It is based on
 
 ## Installation
 
-It is in PyPI, so `pip install cska` should work. You can also pull the latest development version using `git clone https://marjens@bitbucket.org/marjens/cska.git`. `cska` uses `setuptools` so
+It is in PyPI, so `pip install RBPamp` should work. You can also pull the latest development version using `git clone https://marjens@bitbucket.org/marjens/RBPamp.git`. `RBPamp` uses `setuptools` so
 
 ```
    python setup.py build
    python setup.py install
 ```
-will do what you expect. To uninstall run `pip uninstall cska` .
+will do what you expect. To uninstall run `pip uninstall RBPamp` .
 
 ## Usage
 
-`cska --help`:
+`RBPamp --help`:
 
 
-    Usage: cska [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]
+    Usage: RBPamp [options] <input_reads_file> <pulldown_reads_file1> [<pulldown_reads_file2] [...]
 
     Options:
     -h, --help            show this help message and exit

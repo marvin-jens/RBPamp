@@ -370,7 +370,7 @@ class GradientDescent(object):
         # if debug:
         #     print "INITIAL PARAMETERS"
         #     print params
-        #     from cska.caching import _dump_cache_sizes
+        #     from RBPamp.caching import _dump_cache_sizes
         #     _dump_cache_sizes()
 
         state = self.model.predict(self.params, **self.predict_kwargs)
@@ -470,7 +470,7 @@ class GradientDescent(object):
                 ))
                 dt = time.time() - t0
                 # if debug:
-                #     from cska.caching import _dump_cache_sizes
+                #     from RBPamp.caching import _dump_cache_sizes
                 #     print "caches at the end of loop"
                 #     _dump_cache_sizes()
 
@@ -502,6 +502,6 @@ if __name__ == '__main__':
     # import gzip
     # path = os.path.join(os.path.dirname(__file__), '../tests/reads_20.txt.gz')
     # TODO: include small amount of raw data in git repo for testing!
-    from cska.reads import RBNSReads
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
+    from RBPamp.reads import RBNSReads
+    reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='RBPamp/acc', n_max=1000000)
     unittest.main(verbosity=2)

@@ -4,8 +4,8 @@ import logging
 import time
 import sys
 import os
-import cska.cyska as cyska
-from cska.caching import CachedBase, cached, pickled
+import RBPamp.cyska as cyska
+from RBPamp.caching import CachedBase, cached, pickled
 
 def Kd_to_kcal(K,temp=22):
     RT = (temp + 273.15) * 8.314459848# RT in Joules/mol

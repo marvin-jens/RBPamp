@@ -4,8 +4,8 @@ from __future__ import print_function
 import logging
 import numpy as np
 import time
-import cska.cyska as cyska
-from cska.sc import SelfConsistency
+import RBPamp.cyska as cyska
+from RBPamp.sc import SelfConsistency
 
 
 class PartFuncModelState(object):
@@ -201,7 +201,7 @@ class PartFuncModelState(object):
         t0 = time.time()
         self.mdl.n_grad += 1
         # self.mdl.set_mask( self.Z1_read > self.mdl.Z_thresh * self.Z1_read_max)
-        # _grad = cska.gradient.emp_grad(self, eps=1e-4)
+        # _grad = RBPamp.gradient.emp_grad(self, eps=1e-4)
         # self.mdl.set_mask()
         # print "state.psi", self.psi.shape
         # print "state.Q", self.Q.shape
@@ -210,7 +210,7 @@ class PartFuncModelState(object):
 
         # self.E_weights = np.ones(self.mdl.nA, dtype=np.float32) + 10 * self.kmer_affinity_weights(cutoff=.01)
         # self.E_weights /= self.E_weights.mean()
-        from cska.params import ModelSetParams
+        from RBPamp.params import ModelSetParams
         grad_set = []
         for i,(par, Z1m, Z1rm) in enumerate(zip(self.params, self.Z1_motif, self.Z1_read_motif)):
             g = cyska.PSAM_partition_function_gradient(self, par, Z1m, Z1rm)
@@ -223,7 +223,7 @@ class PartFuncModelState(object):
         # _grad.betas *= 0
         # _grad.psam_vec[:] = 0 # HACK to test beta value convergence
 
-        # from cska.gradient import emp_grad
+        # from RBPamp.gradient import emp_grad
         # _grad = emp_grad(self)
 
         # print "skipped reads below Z1_threshold", self.skipped
@@ -238,7 +238,7 @@ class PartFuncModelState(object):
 
     @property
     def stats(self):
-        from cska.gradient import Tracked
+        from RBPamp.gradient import Tracked
         pR, pval = self.correlations
         s = {
             'pearsonR' : pR,
@@ -383,7 +383,7 @@ class PartFuncModel(object):
     def tune(self, state, debug=False, maxiter=5, min_A0=1e-4, max_A0=1000.):
         params = state.params
         A00 = params.A0
-        from cska.gradient import minimize_logspaced
+        from RBPamp.gradient import minimize_logspaced
 
         sc = SelfConsistency(state.Z1_read, self.reads.rna_conc, bins=1000)
         # kmer_weights = state.kmer_affinity_weights(cutoff=.1)
@@ -495,7 +495,7 @@ class PartFuncModel(object):
         return est_b
 
     def optimal_betas(self, state_psi, opt_betas, n=5, q_top=10):
-        from cska.gradient import minimize_logspaced
+        from RBPamp.gradient import minimize_logspaced
         
         # print "initial guess", opt_betas
         # print "state_psi", state_psi

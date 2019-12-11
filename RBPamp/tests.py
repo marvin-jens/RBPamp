@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import sys
 import numpy as np
 import unittest
-from cska.reads import RBNSReads
+from RBPamp.reads import RBNSReads
 from .cyska import *
 
 test_reads = """GAGGTCACTCTCTTGCATGTATGCATGCAGTCTCAACGAA
@@ -44,7 +44,7 @@ def get_test_reads(adap5='CCCCCCC', adap3='GGGGGGG', seqs=test_reads, pseudo_cou
 real_reads = {}
 def get_real_reads(N =100000):
     if not N in real_reads:
-        real_reads[N] = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=N, pseudo_count=1e-3)
+        real_reads[N] = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='RBPamp/acc', n_max=N, pseudo_count=1e-3)
 
     return real_reads[N]
 
@@ -61,7 +61,7 @@ class TestPhysModel(unittest.TestCase):
             Zmax = Zsum.max()
         t1 = time()
 
-        from cska.cyska import clipped_sum_and_max
+        from RBPamp.cyska import clipped_sum_and_max
         for i in range(n):
             zsum, zmax = clipped_sum_and_max(Z, clip=thresh)
 
@@ -79,7 +79,7 @@ class TestPhysModel(unittest.TestCase):
         w = np.array(np.random.random( reads.N ), dtype=np.float32)
         
         im = reads.get_index_matrix(k)
-        from cska.cyska import weighted_kmer_counts
+        from RBPamp.cyska import weighted_kmer_counts
         t0 = time()
         prev = None
         for i in range(n):
@@ -92,8 +92,8 @@ class TestPhysModel(unittest.TestCase):
         # print "took {0:.2f} ms".format(1000./n * (t1-t0))
 
 
-from cska.pwm import *
-from cska.gradient import *
+from RBPamp.pwm import *
+from RBPamp.gradient import *
 class TestGradientMethods(unittest.TestCase):
 
 
@@ -109,7 +109,7 @@ class TestGradientMethods(unittest.TestCase):
     def setup_model(self, correct_params, k_monitor=5, rbp_conc=None, N=1000000):
         # generating reference state
         R0 = np.ones((correct_params.n_samples, 4**k_monitor), dtype=np.float32)
-        from cska.partfunc import PartFuncModel
+        from RBPamp.partfunc import PartFuncModel
         if rbp_conc is None:
             rbp_conc = [1.,] * correct_params.n_samples
         
@@ -136,7 +136,7 @@ class TestGradientMethods(unittest.TestCase):
         return self.model, self.state0
 
     def test_lowlevel(self):
-        from cska.partfunc import PartFuncModel
+        from RBPamp.partfunc import PartFuncModel
 
         reads = get_test_reads(seqs=minimal_reads, rna_conc=1. )
         params = self.state0.params.copy()
@@ -159,7 +159,7 @@ class TestGradientMethods(unittest.TestCase):
 
         g = state.grad
         print(g)
-        from cska.gradient import emp_gradi
+        from RBPamp.gradient import emp_gradi
         eg = emp_gradi(state, eps=1e-4)
 
         out = params.copy()
@@ -197,7 +197,7 @@ class TestGradientMethods(unittest.TestCase):
 
     def run_descent(self, correct_params, initial_params, k_monitor=5, dec=.75, rbp_conc=None):
         model, state0 = self.setup_model(correct_params, k_monitor=k_monitor, rbp_conc=rbp_conc)
-        from cska import vector_stats
+        from RBPamp import vector_stats
         print(">>> reference state")
         print(state0)
 
@@ -255,9 +255,9 @@ class TestGradientMethods(unittest.TestCase):
         self.assertTrue( np.allclose(state.params.betas, state0.params.betas) )
 
     def test_gradient_descent(self):
-        from cska import vector_stats
-        from cska.gradient import GradientDescent
-        from cska.report import GradientDescentReport
+        from RBPamp import vector_stats
+        from RBPamp.gradient import GradientDescent
+        from RBPamp.report import GradientDescentReport
 
         params = dict(self.default_params)
         params['debug'] = True
@@ -279,7 +279,7 @@ class TestGradientMethods(unittest.TestCase):
 
 
     def test_fit_A0(self):
-        from cska import vector_stats
+        from RBPamp import vector_stats
         model, state0 = self.setup_model(self.default_params, rbp_conc=[1.,5.,25.], N=1000000)
 
         subopt_params = state0.params.copy()
@@ -361,7 +361,7 @@ class TestGradientMethods(unittest.TestCase):
         model0.R0 = state1.R
         print("performing gradient descent optimization")
         G = GradientDescent(model0, params)
-        from cska.report import GradientDescentReport
+        from RBPamp.report import GradientDescentReport
         rep = GradientDescentReport(G, path='.')
         def callback(descent):
             state = descent.last_state
@@ -386,7 +386,7 @@ class TestGradientMethods(unittest.TestCase):
 
 
     def test_grad_subopt(self):
-        from cska import vector_stats
+        from RBPamp import vector_stats
         model, state0 = self.get_default()
 
         subopt_params = state0.params.copy()
@@ -405,7 +405,7 @@ class TestGradientMethods(unittest.TestCase):
         # dt = 1000. * (time() - t0)
         # print "# gradient computation took {0:.2f} ms".format(dt)
         
-        # from cska.gradient import emp_grad
+        # from RBPamp.gradient import emp_grad
         # print "EMPIRICAL GRADIENT AT SUB-OPTIMUM"
         # t0 = time()
         # print emp_grad(state)
@@ -415,7 +415,7 @@ class TestGradientMethods(unittest.TestCase):
 
         print("performing gradient descent optimization")
         G = GradientDescent(model, subopt_params)
-        from cska.report import GradientDescentReport
+        from RBPamp.report import GradientDescentReport
         rep = GradientDescentReport(G, path='.')
         def callback(descent):
             state = descent.last_state
@@ -463,7 +463,7 @@ class TestGradientMethods(unittest.TestCase):
         dt = 1000. * (time() - t0)
         print("# gradient computation took {0:.2f} ms".format(dt))
         
-        from cska.gradient import emp_grad
+        from RBPamp.gradient import emp_grad
         print("EMPIRICAL GRADIENT")
         t0 = time()
         print(emp_grad(state, eps=1e-4))
@@ -481,7 +481,7 @@ class TestGradientMethods(unittest.TestCase):
         """
         Subsequent evaluations of the same model should yield the exact same results.
         """
-        # from cska import vector_stats
+        # from RBPamp import vector_stats
         model, state0 = self.get_default()
         states = [model.predict(state0.params) for i in range(3)]
 
@@ -507,7 +507,7 @@ class TestGradientMethods(unittest.TestCase):
         """
         model, state0 = self.get_default()
         grad = state0.grad
-        from cska.gradient import emp_grad
+        from RBPamp.gradient import emp_grad
         egrad = emp_grad(state0, eps=1e-6)
         
         print("\nANALYTICAL GRADIENT AT OPTIMUM")
@@ -522,7 +522,7 @@ class TestGradientMethods(unittest.TestCase):
         Small perturbations of the parameter matrix should result in gradients pointing
         in the opposite direction.
         """
-        from cska.gradient import GradientDescent, emp_grad
+        from RBPamp.gradient import GradientDescent, emp_grad
 
         model, state0 = self.get_default()
         # grad0 = state0.grad
@@ -632,7 +632,7 @@ if __name__ == '__main__':
     # TODO: include small amount of raw data in git repo for testing!
     # import logging
     # logging.basicConfig(level=logging.WARNING)
-    # reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='cska/acc', n_max=1000000)
+    # reads = RBNSReads('/scratch/data/RBNS/RBFOX3/RBFOX3_input.txt', acc_storage_path='RBPamp/acc', n_max=1000000)
     unittest.main(verbosity=2)
 
 

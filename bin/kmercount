@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
-from cska.reads import RBNSReads
-from cska.cyska import index_to_seq
-from cska.caching import CachedBase
+from RBPamp.reads import RBNSReads
+from RBPamp.cyska import index_to_seq
+from RBPamp.caching import CachedBase
 #CachedBase._do_not_cache = True
 CachedBase._do_not_pickle = True
 CachedBase._do_not_unpickle = True

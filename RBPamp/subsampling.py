@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
 import logging
-# from cska import timed
+# from RBPamp import timed
 
 class SubSampler(object):
     def __init__(self, n_total, n_samples, replace=True):

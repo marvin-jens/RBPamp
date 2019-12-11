@@ -65,7 +65,7 @@ import matplotlib.pyplot as pp
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import spearmanr, pearsonr
-import cska
+import RBPamp
 
 def sane_colorbar(cb, nbins=4):
     from matplotlib import ticker
@@ -441,7 +441,7 @@ class RunReport(object):
         
 
         fparams = os.path.join(self.path, os.path.dirname(fname), 'parameters.tsv')
-        from cska.params import ModelParametrization
+        from RBPamp.params import ModelParametrization
         descent.params = ModelParametrization.load(fparams, n_samples)
 
         return descent 
@@ -453,7 +453,7 @@ class ReportBase(object):
         self.path = path
         self.fmts = fmts
         self.dpi = dpi
-        from cska import ensure_path
+        from RBPamp import ensure_path
         for fmt in self.fmts:
             ensure_path(os.path.join(self.path, fmt+'/'))
 
@@ -611,7 +611,7 @@ class GradientDescentReport(ReportBase):
             self.t = np.concatenate((self.t, t))
 
         self.epochs.append( (self.t_ofs, self.t_ofs + len(t) - 1) )
-        from cska.errors import PSAMErrorEstimator
+        from RBPamp.errors import PSAMErrorEstimator
         est = PSAMErrorEstimator(os.path.dirname(fname)+'/', use_shelve=self.shelves[-1], max_t=max_t)
         self.error_estimators.append(est)
         self.t_ofs += len(t)
@@ -852,7 +852,7 @@ class GradientDescentReport(ReportBase):
         plt.close()
 
     def plot_motifs(self, t=42, title=""):
-        from cska.params import ModelSetParams
+        from RBPamp.params import ModelSetParams
 
         shelf_i, shelf_t = self.map_t_shelf(t)
         est = self.error_estimators[shelf_i]
@@ -873,7 +873,7 @@ class GradientDescentReport(ReportBase):
         params.save_logos(f"minimal_motifs_t{t}", lo=lo, hi=hi, title=title, minimal=True, align=True, savefig=sf)
 
     def make_affinity_dist_plots(self):
-        from cska.params import ModelSetParams
+        from RBPamp.params import ModelSetParams
 
         for i, name in enumerate(self.epoch_names):
             t = self.shelf_map[i+1] - 1
@@ -889,7 +889,7 @@ class GradientDescentReport(ReportBase):
             self.plot_affinity_dists(params, name=name)
 
     def plot_affinity_dists(self, params, k_fit=6, name=""):
-        from cska.partfunc import PartFuncModel
+        from RBPamp.partfunc import PartFuncModel
         gradient = np.linspace(.3, 1., len(self.rbns.reads) -1)
         data_colors = plt.get_cmap("YlOrBr")(gradient) # highest conc == darkest color
         print("epoch name", name)
@@ -1371,7 +1371,7 @@ class FootprintCalibrationReport(ReportBase):
         expects database 'history' in same folder to retrieve
         intermediate results
         """ 
-        from cska.params import ModelSetParams
+        from RBPamp.params import ModelSetParams
         import shelve
         super(FootprintCalibrationReport, self).__init__(path=out_path, **kw)
 
@@ -1804,11 +1804,11 @@ if __name__ == "__main__":
     # print(pval_stars(.00000999))
     # print(pval_stars(0))
     # print(pval_stars(-1))
-    # rep = RunReport('/scratch/data/RBNS/MBNL1/cska/1M')
+    # rep = RunReport('/scratch/data/RBNS/MBNL1/RBPamp/1M')
     # descent = rep.load_descent('opt_nostruct/descent.tsv')
     # print descent.params
     # # print descent.history
-    # grep = GradientDescentReport('cska/recent/opt_nostruct/history')
+    # grep = GradientDescentReport('RBPamp/recent/opt_nostruct/history')
     # grep.plot_report()
     # grep.plot_scatter(t=0)
     # grep.plot_scatter(t=-1)

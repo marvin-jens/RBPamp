@@ -8,7 +8,7 @@ import copy
 import time
 import logging
 import collections
-import cska.cyska as cyska
+import RBPamp.cyska as cyska
 
 class SKARunner(object):
     def __init__(self, max_iterations=10, convergence=0.5, subsamples=10):

@@ -4,12 +4,12 @@ import re, glob, sys, os
 import numpy as np
 import shelve
 import logging
-import cska.report
+import RBPamp.report
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import seaborn as sns
 import scipy.stats
-import cska
+import RBPamp
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -204,12 +204,12 @@ def n_PSAM_plot(nm, ns, nd, fname="n_PSAMs_bar.pdf"):
 
 
 def n_PSAM_significance(pattern, rbps, variant, plot=False):
-    from cska.params import ModelSetParams
+    from RBPamp.params import ModelSetParams
     # setup
     multi = {}
     dom_counts = {}
     valid = {}
-    for line in file("/home/mjens/git/cska/rRBNS/domains.txt"):
+    for line in file("/home/mjens/git/RBPamp/rRBNS/domains.txt"):
         rbp, domains = line.split('\t')
         doms = domains.rstrip().split(',')
         
@@ -351,7 +351,7 @@ def extract_results(path):
     sys.stderr.write("n_stable={}\n".format(stable))
 
 def load_fp_calibrated_params(pattern, rbps, variant, plot=False):
-    from cska.params import ModelSetParams
+    from RBPamp.params import ModelSetParams
     
     # load PSAM count for valid rbps
     params = {}
@@ -373,12 +373,12 @@ def load_or_make(pattern, base = "/home/mjens/engaging/", redo=False):
     return res
     
 
-# d_std, res_std = extract_error_corr("RBNS/*/cska/std")
-# d_xsrbp, res_xsrbp = extract_error_corr("RBNS/*/cska/xsrbp")
-# d_linocc, res_linocc = extract_error_corr("RBNS/*/cska/linocc")
-# d_dumb, res_dumb = extract_error_corr("RBNS/*/cska/dumb")
-# d_s, res_s = extract_error_corr("RBNS/*/cska/single")
-# d_o, res_o = extract_error_corr("RBNS/*/cska/oneconc")
+# d_std, res_std = extract_error_corr("RBNS/*/RBPamp/std")
+# d_xsrbp, res_xsrbp = extract_error_corr("RBNS/*/RBPamp/xsrbp")
+# d_linocc, res_linocc = extract_error_corr("RBNS/*/RBPamp/linocc")
+# d_dumb, res_dumb = extract_error_corr("RBNS/*/RBPamp/dumb")
+# d_s, res_s = extract_error_corr("RBNS/*/RBPamp/single")
+# d_o, res_o = extract_error_corr("RBNS/*/RBPamp/oneconc")
 
 def compare_runs(runs, rbps):
     rkeys = sorted(runs.keys())
@@ -453,7 +453,7 @@ def GC_acc_scale_plot():
 
 def add_significance(data, labels, y, x0=1, ref=0, name="differences", ax=None):
     from scipy.stats import mannwhitneyu, ttest_1samp
-    from cska.report import pval_stars
+    from RBPamp.report import pval_stars
 
     print(name)
     err_stars = ['']
@@ -494,7 +494,7 @@ def set_ylogticks(ax):
 
     
 class ModelComparisons(object):
-    def __init__(self, variant_dict, rbps=cska.dominguez_rbps, labels=None):
+    def __init__(self, variant_dict, rbps=RBPamp.dominguez_rbps, labels=None):
         self.logger = logging.getLogger('ModelComparisons')
         self.rbps = np.array(rbps)
         self.variants = variant_dict.keys()
@@ -1139,7 +1139,7 @@ class ModelComparisons(object):
         plt.close()
 
     def footprint_plot(self):
-        pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/footprint/parameters.tsv"
+        pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/footprint/parameters.tsv"
         params_dict = load_fp_calibrated_params(pattern, self.rbps, "z4t75p01k99fix", plot=True)
         self.fp_cal_params = params_dict
         self.params_GC = {}
@@ -1320,7 +1320,7 @@ class ModelComparisons(object):
         plt.close()
 
 
-from cska import dominguez_rbps as dom_rbps
+from RBPamp import dominguez_rbps as dom_rbps
 # dom_rbps.pop(dom_rbps.index('HNRNPA0'))
 rbps = np.array(dom_rbps)
 
@@ -1331,7 +1331,7 @@ rbps = list(rbps)
 rbps.pop(i)
 # print rbps
 print(len(rbps), "RBPs are being considered")
-pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/seed/initial.tsv"
+pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
 # n_PSAM_significance(pattern, rbps, "z4t75p01k99fix", plot=True)
 # sys.exit(0)
 # # n_PSAM_significance(pattern, rbps, "sgd", plot=True)
@@ -1365,26 +1365,26 @@ pattern = "/home/mjens/engaging/RBNS/{rbp}/cska/{variant}/seed/initial.tsv"
 # rbase = "sgd"
 rbase = "z4t75p01k99fix"
 redo8 = False
-# d_std, res_std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8  )
+# d_std, res_std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8  )
 # n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
 
 # # n_PSAM_plot(n_psams)
 
-# d_s, res_s = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8  )
-# d_o, res_o = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8  )
-# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8)
-# d_linocc, res_linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8)
-# d_dumb, res_dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8)
+# d_s, res_s = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8  )
+# d_o, res_o = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8  )
+# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8)
+# d_linocc, res_linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8)
+# d_dumb, res_dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8)
 
 MC = ModelComparisons(variant_dict=dict(
-    std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8),
-    single = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8),
-    oneconc = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8),
-    xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8),
-    linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8),
-    dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
-    std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8),
-    single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
+    std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
+    single = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8),
+    oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
+    xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8),
+    linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8),
+    dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
+    std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo=redo8),
+    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval", redo=redo8),
 ), rbps=rbps)
 
 for rbp, n in zip(MC.rbps, MC.n_psams):
@@ -1404,19 +1404,19 @@ MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
 # MC.footprint_effect()
 
 
-# d_std, res_std = load_or_make("RBNS/*/cska/std.72", redo=False  )
-# d_7, res_7 = load_or_make("RBNS/*/cska/std.7", redo=False  )
-# d_ci, res_ci = load_or_make("RBNS/*/cska/CI", redo=False)
-# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/cska/std")
-# d_s, res_s = load_or_make("RBNS/*/cska/single")
-# d_s, res_s = load_or_make("RBNS/*/cska/std.72.1")
-# d_s7, res_s7 = load_or_make("RBNS/*/cska/std.7.1")
-# d_o, res_o = load_or_make("RBNS/*/cska/std.8.s")
+# d_std, res_std = load_or_make("RBNS/*/RBPamp/std.72", redo=False  )
+# d_7, res_7 = load_or_make("RBNS/*/RBPamp/std.7", redo=False  )
+# d_ci, res_ci = load_or_make("RBNS/*/RBPamp/CI", redo=False)
+# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/RBPamp/std")
+# d_s, res_s = load_or_make("RBNS/*/RBPamp/single")
+# d_s, res_s = load_or_make("RBNS/*/RBPamp/std.72.1")
+# d_s7, res_s7 = load_or_make("RBNS/*/RBPamp/std.7.1")
+# d_o, res_o = load_or_make("RBNS/*/RBPamp/std.8.s")
 
 sys.exit(0)
 
-d_s_eval, res_s_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8  )
-d_std_eval, res_std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8  )
+d_s_eval, res_s_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval", redo=redo8  )
+d_std_eval, res_std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo=redo8  )
 
 
 # runs = {

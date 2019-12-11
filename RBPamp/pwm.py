@@ -4,8 +4,8 @@ from __future__ import print_function
 import sys
 import os
 import numpy as np
-import cska
-import cska.cyska as cyska
+import RBPamp
+import RBPamp.cyska as cyska
 
 bases = np.array(list('ACGU'))
 base_idx = { 
@@ -148,7 +148,7 @@ def weblogo_save(counts, fname="pwm.eps", title="", scale_width=True):
 
 def afflogo_save(psam, fname="psam.pdf", title="", scale_width=True, **kwargs):
     import matplotlib.pyplot as plt
-    from cska.affinitylogo import plot_afflogo
+    from RBPamp.affinitylogo import plot_afflogo
     fig = plt.figure(figsize=(6, 3))
     ax = fig.add_subplot(111)
     plot_afflogo(ax, psam, title=title)
@@ -276,8 +276,8 @@ class PSAM(object):
 
     def highest_scoring_kmers(self, k=7, n_max=10):
         """ slide kmer over matrix and classify best, gapless alignment"""
-        from cska.seed import Alignment
-        from cska.cyska import yield_kmers
+        from RBPamp.seed import Alignment
+        from RBPamp.cyska import yield_kmers
 
         A = Alignment()
         A.matrix = self.psam
@@ -292,7 +292,7 @@ class PSAM(object):
 
     def align(self, kmer):
         """ slide kmer over matrix and classify best, gapless alignment"""
-        from cska.seed import Alignment
+        from RBPamp.seed import Alignment
         A = Alignment()
         A.matrix = self.psam
         
@@ -376,7 +376,7 @@ class PSAM(object):
     def save_logo(self, fname='pwm.svg', title=""):
         counts = self.psam
         if not title:
-            from cska.affinitylogo import nice_conc
+            from RBPamp.affinitylogo import nice_conc
             title = "$K_d$ = {}".format(nice_conc(self.Kd))
 
         afflogo_save(self.psam, fname=fname, title=title, scale_width=False)
@@ -437,8 +437,8 @@ if __name__ == "__main__":
     # "ttgggc is 2-shift of GTGCAT"
     # print is_shifted('gggcat')
     
-    import cska.params
-    psam = cska.params.ModelSetParams.load('/scratch2/RBNS/RBFOX3/cska/std/opt_nostruct/parameters.tsv', 1)[0].as_PSAM()
+    import RBPamp.params
+    psam = RBPamp.params.ModelSetParams.load('/scratch2/RBNS/RBFOX3/RBPamp/std/opt_nostruct/parameters.tsv', 1)[0].as_PSAM()
     for score, kmer in psam.highest_scoring_kmers():
         print(kmer, score)
     sys.exit(0)
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     # for mer, a in zip(kmers[I], aff[I]):
     #     print mer, a
 
-    import cska.cyska as cyska
+    import RBPamp.cyska as cyska
     params_new = cyska.params_from_pwm(psam.psam, A0=psam.A0, aff0=1e-6)
 
     import matplotlib.pyplot as pp

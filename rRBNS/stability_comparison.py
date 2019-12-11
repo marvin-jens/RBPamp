@@ -2,11 +2,11 @@ import os, sys
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from cska.errors import PSAMErrorEstimator
+from RBPamp.errors import PSAMErrorEstimator
 
 compare = [
-    'cska/std/opt_nostruct/',
-    'cska/oneconc/opt_nostruct/',
+    'RBPamp/std/opt_nostruct/',
+    'RBPamp/oneconc/opt_nostruct/',
 ]
 
 labels = ["combined", "best alone"]
@@ -92,7 +92,7 @@ def plot_param_error_scatter(rbp, param_i=0, skip=5):
     plt.close()
     return eratio, uratio
 
-from cska import dominguez_rbps as rbps
+from RBPamp import dominguez_rbps as rbps
 # rbps = ['RBFOX3', 'NOVA1', 'MBNL1']
 er, ur = np.log2(np.array([plot_param_error_scatter(rbp, 0) for rbp in rbps]).T)
 

@@ -9,11 +9,11 @@ import numpy as np
 import time
 import os
 import logging
-import cska.cyska as cyska
+import RBPamp.cyska as cyska
 
-from cska.caching import cached, pickled, CachedBase
-import cska.fold
-from cska.subsampling import SubSampler
+from RBPamp.caching import cached, pickled, CachedBase
+import RBPamp.fold
+from RBPamp.subsampling import SubSampler
 
 default_adap5="gggaguucuacaguccgacgauc"
 default_adap3="uggaauucucgggugucaagg"
@@ -30,7 +30,7 @@ class RBNSReads(CachedBase):
         format='raw', chunklines=2000000, n_max=0,
         adap5=default_adap5, adap3=default_adap3,
         storage_kw=dict(disc_mode='linear'),
-        acc_storage_path='cska/acc',
+        acc_storage_path='RBPamp/acc',
         acc_storage=None,
         pseudo_count=10, seqm=[], n_subsamples = 20,
         n_samples=0, replace=0,
@@ -77,7 +77,7 @@ class RBNSReads(CachedBase):
         else:
             self.sub_sampler = SubSampler(self.N, n_samples, replace=replace)
             self.logger.debug("we are at top-level and created new sub-sampler {}".format(self.sub_sampler))
-            self.acc_storage = cska.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
+            self.acc_storage = RBPamp.fold.OpenenStorage(self, os.path.join(self.path, acc_storage_path), **storage_kw)
 
     def iter_reads(self, n_skip=0):
         if hasattr(self.fname, "read"):
@@ -782,7 +782,7 @@ if __name__ == "__main__":
     sys.exit(1)
     
 
-    import cska.cyska as cyska
+    import RBPamp.cyska as cyska
     adap5 = cyska.seq_to_bits(reads.adap5)
     adap3 = cyska.seq_to_bits(reads.adap3)
     print(adap5)

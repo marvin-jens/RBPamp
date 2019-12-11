@@ -8,15 +8,15 @@ __email__ = "mjens@mit.edu"
 import os
 import logging
 import shelve
-import cska.gradient
-import cska.cyska as cyska
+import RBPamp.gradient
+import RBPamp.cyska as cyska
 import numpy as np
 
 class PSAMGradientDescent(object):
     def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, tracker=None, **kwargs):
         self.rbns = rbns
         self.ref = ref
-        self.out_path = cska.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
+        self.out_path = RBPamp.ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
         self.logger = logging.getLogger('opt.PSAMGradient')
         self.results = logging.getLogger('results.PSAMGrad')
 
@@ -45,8 +45,8 @@ class PSAMGradientDescent(object):
             self.logger.info("resuming track file '{0}' with {1} lines at t={2}".format(fname, len(lines), self.t_ofs))
             self.track_file = open(fname, 'a', buffering=1)
         
-        from cska.partfunc import PartFuncModel
-        # from cska.meanfield import MeanFieldModel, InvMeanFieldModel
+        from RBPamp.partfunc import PartFuncModel
+        # from RBPamp.meanfield import MeanFieldModel, InvMeanFieldModel
         # model = MeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         # model = InvMeanFieldModel(rbns.reads[0], params, self.R, rbp_conc = rbns.rbp_conc)
         # mdl = {
@@ -85,7 +85,7 @@ class PSAMGradientDescent(object):
             past_errors = [] 
 
         print("PAST ERRORS", past_errors)
-        self.descent = cska.gradient.GradientDescent(
+        self.descent = RBPamp.gradient.GradientDescent(
             self.model,
             params,
             maxiter = maxiter,

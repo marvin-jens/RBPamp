@@ -1,16 +1,16 @@
 # -*- coding: future_fstrings -*-
 from __future__ import print_function
 import numpy as np
-# from cska.npwrap import npmonitored
+# from RBPamp.npwrap import npmonitored
 import gc
 import os
 import sys
 import shelve
 import logging
-from cska import ensure_path
-from cska.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
-import cska.cyska as cyska
-from cska.sc import SelfConsistency
+from RBPamp import ensure_path
+from RBPamp.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
+import RBPamp.cyska as cyska
+from RBPamp.sc import SelfConsistency
 
 from scipy.optimize import minimize
 from time import time
@@ -219,7 +219,7 @@ class FootprintCalibration(CachedBase):
 
         # Z1 = np.array([reads.PSAM_partition_function(self.params) for reads in rbns.reads])
         self.logger.info("evaluating partition function")
-        from cska.params import ModelSetParams
+        from RBPamp.params import ModelSetParams
         self.Z1_full = np.array([reads.PSAM_partition_function(ModelSetParams([self.params, ]), subsample=self.subsample) for reads in self.rbns.reads])
         self.Z1_in_noacc = self.Z1_full[0]
         
@@ -524,7 +524,7 @@ class FootprintCalibration(CachedBase):
             reads.acc_storage.cache_flush()
 
         self.shelve.close()
-        import cska.caching
-        cska.caching._dump_cache_sizes()
+        import RBPamp.caching
+        RBPamp.caching._dump_cache_sizes()
         import gc
         gc.collect()

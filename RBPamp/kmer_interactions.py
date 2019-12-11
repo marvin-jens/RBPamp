@@ -11,15 +11,15 @@ import time
 import os
 import logging
 import collections
-import cska.cyska
+import RBPamp.cyska
 import matplotlib
 #matplotlib.use('pdf')
 import matplotlib.pyplot as pp
 
-from cska.caching import cached, pickled, CachedBase
-from cska.rbns_reads import RBNSReads
-from cska.rbns_analysis import RBNSAnalysis
-from cska.ska_runner import SKARunner
+from RBPamp.caching import cached, pickled, CachedBase
+from RBPamp.rbns_reads import RBNSReads
+from RBPamp.rbns_analysis import RBNSAnalysis
+from RBPamp.ska_runner import SKARunner
 
 
 class PairInteractionScreen(object):

@@ -73,8 +73,8 @@ def server_loop(address="tcp://*:8888", stream=sys.stdout):
 
 class RBPStates(object):
     def __init__(self):
-        import cska
-        self.rbps = sorted(cska.dominguez_rbps)
+        import RBPamp
+        self.rbps = sorted(RBPamp.dominguez_rbps)
         self.corrs_by_rbp = defaultdict(dict)
         self.t_by_rbp = defaultdict(dict)
         self.symbols = {
@@ -195,14 +195,14 @@ class StateTrackerData(object):
                 self.parse(line)
 
 
-def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k99fix", pattern="/home/mjens/engaging/RBNS/*/cska/{run}/run.log"):
+def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k99fix", pattern="/home/mjens/engaging/RBNS/*/RBPamp/{run}/run.log"):
     import os
     context = zmq.Context()
     recv_socket = context.socket(zmq.PULL)
     recv_socket.bind(address)
     
-    import cska
-    states = StateTrackerData(run, cska.dominguez_rbps)
+    import RBPamp
+    states = StateTrackerData(run, RBPamp.dominguez_rbps)
     states.load_logs(pattern.format(**locals()))
 
     while True:
@@ -223,9 +223,9 @@ if __name__ == "__main__":
     formatter = logging.Formatter(FORMAT)
 
     import argparse
-    parser = argparse.ArgumentParser(description='Collect log messages from cska jobs on the cluster')
+    parser = argparse.ArgumentParser(description='Collect log messages from RBPamp jobs on the cluster')
     parser.add_argument('--run', dest='run', default='z4t75p01k99fix', help='which run to monitor')
-    parser.add_argument('--pattern', dest='pattern', default='/home/mjens/engaging/RBNS/*/cska/{run}/run.log', help='glob pattern to load log-files from')
+    parser.add_argument('--pattern', dest='pattern', default='/home/mjens/engaging/RBNS/*/RBPamp/{run}/run.log', help='glob pattern to load log-files from')
     parser.add_argument('--listen', dest='listen', default="tcp://*:8888", help='address and port to listen on (default="tcp://*:8888")')
     parser.add_argument('--dump', dest='dump', default=False, action="store_true", help='just dump all log messages')
     args = parser.parse_args()

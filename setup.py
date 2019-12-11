@@ -22,25 +22,35 @@ if use_cython:
         language_level="3str"
     )
     ext_modules += [
-        Extension("cska.cy.cy_kmers", [ "cska/cython/kmers.pyx" ], **cy_kw),
-        Extension("cska.cy.cy_model", [ "cska/cython/model.pyx" ], **cy_kw ),
-        Extension("cska.cy.cy_fastrand", [ "cska/cython/fastrand.pyx" ], **cy_kw ),
-        #Extension("cska.cy_cmpxchg", [ "cska/cython/test_cmpxchg.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
+        Extension("RBPamp.cy.cy_kmers", [ "RBPamp/cython/kmers.pyx" ], **cy_kw),
+        Extension("RBPamp.cy.cy_model", [ "RBPamp/cython/model.pyx" ], **cy_kw ),
+        Extension("RBPamp.cy.cy_fastrand", [ "RBPamp/cython/fastrand.pyx" ], **cy_kw ),
+        #Extension("RBPamp.cy_cmpxchg", [ "RBPamp/cython/test_cmpxchg.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
     ]
     cmdclass.update({ 'build_ext': build_ext })
 else:
     ext_modules += [
-        Extension("cska.cy.kmers", [ "cska/cython/kmers.c" ]),
-        Extension("cska.cy.model", [ "cska/cython/model.c" ]),
-        Extension("cska.cy.fastrand", [ "cska/cython/fastrand.c" ]),
+        Extension("RBPamp.cy.kmers", [ "RBPamp/cython/kmers.c" ]),
+        Extension("RBPamp.cy.model", [ "RBPamp/cython/model.c" ]),
+        Extension("RBPamp.cy.fastrand", [ "RBPamp/cython/fastrand.c" ]),
     ]
 
+desc = """ 
+RNA-Binding Protein Affinity Model with Physical constraints
+
+A biophysical model and fit for RNA bind'n'seq (RBNS) experiments 
+(Lambert et al. 2014, Dominguez et al. 2018). Yields a compact, 
+versatile, and predictive description of an RNA-binding proteins 
+primary sequence affinity landscape.
+
+Publications: Jens & Burge 2020 (in preparation)',
+"""
 
 setup(
-    name = "cska",
-    version = "0.9.10",
-    description='A fast Cython implementation of the "Streaming K-mer Assignment" algorithm initially described in Lambert et al. 2014 (PMID: 24837674)',
-    url = 'https://bitbucket.org/marjens/cska/',
+    name = "RBPamp",
+    version = "0.9.20",
+    description=desc,
+    url = 'https://bitbucket.org/marjens/RBPamp/',
     author = 'Marvin Jens',
     author_email = 'mjens@mit.edu',
     license = 'MIT',
@@ -67,9 +77,9 @@ setup(
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
 
     install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2', 'future_fstrings'],
-    scripts=['bin/cska'],
+    scripts=['bin/RBPamp'],
     package_dir='',
-    packages=['cska'],
+    packages=['RBPamp'],
     cmdclass = cmdclass,
     ext_modules=ext_modules,
 )

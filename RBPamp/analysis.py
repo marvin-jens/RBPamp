@@ -9,10 +9,10 @@ import os
 import numpy as np
 import time
 import logging
-import cska.cyska
-import cska.cyska as cyska
-from cska import ensure_path
-from cska.caching import cached, pickled, CachedBase
+import RBPamp.cyska
+import RBPamp.cyska as cyska
+from RBPamp import ensure_path
+from RBPamp.caching import cached, pickled, CachedBase
 
 
 class RBNSSample(CachedBase):
@@ -64,7 +64,7 @@ class RBNSSample(CachedBase):
         print(MI)
 
 
-from cska.partfunc import PartFuncModel
+from RBPamp.partfunc import PartFuncModel
 
 class RBNSComparison(CachedBase):
     def __init__(self, in_reads, pd_reads, ska_runner = None):
@@ -125,7 +125,7 @@ class RBNSComparison(CachedBase):
     def O_values(self, k):
         self.logger.debug("computing approximate occupancies by fitting R-values to linear overlap model")
         R, R_err = self.R_values(k)
-        from cska.crosstalk_matrix import CrosstalkMatrix
+        from RBPamp.crosstalk_matrix import CrosstalkMatrix
         cm = CrosstalkMatrix(k, self.in_reads)
         
         occ = cm.fit_occupancies(R)
@@ -268,7 +268,7 @@ class RBNSAnalysis(CachedBase):
         # sample.MI_profile()
 
         # secondary structure open-energies/accessibility storage
-        from cska.fold import OpenenStorage
+        from RBPamp.fold import OpenenStorage
         self.acc_storages.append(rbns_reads.acc_storage)
         
         if len(self.reads) > 1:
@@ -515,7 +515,7 @@ class RBNSAnalysis(CachedBase):
                 values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
                 self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
                 # if report and name == "R_value":
-                #     from cska.rbns_reports import EnrichmentBarPlot
+                #     from RBPamp.rbns_reports import EnrichmentBarPlot
                 #     for comp in self.comparisons:
                 #         path = os.path.join(self.out_path, "{0}nM".format(comp.pd_reads.rbp_conc))
                 #         if not os.path.xists(path):

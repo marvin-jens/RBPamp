@@ -5,7 +5,7 @@ from __future__ import print_function
 import sys
 import os
 import numpy as np
-import cska.cyska as cyska
+import RBPamp.cyska as cyska
 import logging
 
 class RefComparison(object):
@@ -22,7 +22,7 @@ class RefComparison(object):
         self.affinity_errs = []
         
         self.logger = logging.getLogger("report.ReferenceComparison")
-        import cska.cyska
+        import RBPamp.cyska
         if not ref_file:
             ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
 
@@ -102,14 +102,14 @@ class RefComparison(object):
         return aff
 
     def predict_affinities(self, params):
-        import cska.cyska as cyska
+        import RBPamp.cyska as cyska
         a = []
         # if hasattr(mdl, "parameters"):
         #     aff = mdl.parameters.affinities
         # else:
         #     aff = mdl.affinities
 
-        # from cska.seed import Alignment
+        # from RBPamp.seed import Alignment
         # A = Alignment()
         psam = params.as_PSAM()
         matrix = params.psam_matrix
@@ -191,14 +191,14 @@ class RefComparison(object):
         return a
 
 if __name__ == "__main__":
-    from cska.pwm import PSAM
-    from cska.reads import RBNSReads
-    from cska.partfunc import PartFuncModel
-    from cska.gradient import ModelParametrization, GradientDescent
-    from cska import auto_detect
-    from cska.analysis import read_kmer_matrix
+    from RBPamp.pwm import PSAM
+    from RBPamp.reads import RBNSReads
+    from RBPamp.partfunc import PartFuncModel
+    from RBPamp.gradient import ModelParametrization, GradientDescent
+    from RBPamp import auto_detect
+    from RBPamp.analysis import read_kmer_matrix
 
-    run_folder = "/scratch/data/RBNS/RBFOX3/cska/recent/"
+    run_folder = "/scratch/data/RBNS/RBFOX3/RBPamp/recent/"
     k_R = 6
     rbp_name, read_files, rbp_conc = auto_detect(os.path.join(run_folder,"../../"))
     rbp_conc2, R0, R0_err = read_kmer_matrix(os.path.join(run_folder,"metrics/{rbp_name}.R_value.{k_R}mer.tsv".format(**locals())))
@@ -218,8 +218,8 @@ if __name__ == "__main__":
     mdl = PartFuncModel(reads, params, R0, rbp_conc=rbp_conc)
     descent = GradientDescent(mdl, params)
 
-    from cska.comparison import RefComparison
-    from cska.report import GradientDescentReport, LiteratureComparisonReport
+    from RBPamp.comparison import RefComparison
+    from RBPamp.report import GradientDescentReport, LiteratureComparisonReport
     ref = RefComparison(rbp_name, ref_file="")
     lrep = LiteratureComparisonReport(descent, ref, path='.')
 

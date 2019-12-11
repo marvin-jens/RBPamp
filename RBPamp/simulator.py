@@ -8,11 +8,11 @@ import sys
 import os
 from collections import defaultdict
 from scipy.optimize import minimize, brentq, minimize_scalar
-import cska.cyska as cyska
-from cska.caching import CachedBase, cached, pickled
-from cska.crosstalk_matrix import CrosstalkMatrix
-from cska.reads import RBNSReads
-from cska.caching import CachedBase, cached, pickled
+import RBPamp.cyska as cyska
+from RBPamp.caching import CachedBase, cached, pickled
+from RBPamp.crosstalk_matrix import CrosstalkMatrix
+from RBPamp.reads import RBNSReads
+from RBPamp.caching import CachedBase, cached, pickled
 
 class RBNSGenerator(CachedBase):
     def __init__(self, k, l=20, min_E=-11., seed=None, temp=22, mode='ordered', **kwargs):
@@ -90,7 +90,7 @@ class RBNSGenerator(CachedBase):
         return np.exp(self.kmer_energies)*1e9
         
     def assign_experimental_input(self, real_input, pseudo_count=0):
-        from cska.rbns_reads import RBNSReads
+        from RBPamp.rbns_reads import RBNSReads
         reads = RBNSReads(real_input, pseudo_count=pseudo_count)
         nt_freq = reads.kmer_frequencies(1) / 4.
         di_freq = reads.kmer_frequencies(2).reshape(4,4) / 16.
@@ -452,9 +452,9 @@ if __name__ == "__main__":
     import matplotlib.pyplot as pp
     logging.basicConfig(level=logging.DEBUG)
 
-    from cska.reads import RBNSReads
-    from cska.fol import RBNSOpenen, OpenenStorage
-    import cska.fold
+    from RBPamp.reads import RBNSReads
+    from RBPamp.fol import RBNSOpenen, OpenenStorage
+    import RBPamp.fold
     reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000000)
     storage = OpenenStorage(reads, '/scratch/data/RBNS/RBFOX2/ska_RBFOX2/openen/', disc_mode='gamma')
     openen = storage.get_discretized(5)
@@ -547,7 +547,7 @@ if __name__ == "__main__":
         kfreqs[x] = gen.input_reads.kmer_frequencies(x) / 4**x
         
     # test using simulated reads
-    from cska.rbns_analysis import RBNSComparison
+    from RBPamp.rbns_analysis import RBNSComparison
     #reads = gen.generate_input_reads(N=1000000, store="6mer@0nM.reads")
     reads = gen.generate_bound_reads(P=P, p_ns=0.00, N=10000, store="7mer@{0}nM.reads".format(P))
     #print gen.Z_full

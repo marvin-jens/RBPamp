@@ -28,19 +28,19 @@ RUN ssh-keyscan bitbucket.org >> /root/.ssh/known_hosts
 # Pull source code
 WORKDIR /
 RUN pwd
-RUN git clone git@bitbucket.org:marjens/cska.git
+RUN git clone git@bitbucket.org:marjens/RBPamp.git
 
-WORKDIR /cska
+WORKDIR /RBPamp
 RUN git describe --always > git_commit
 RUN python2 -c "import numpy; print numpy.__version__"
 RUN python2 -m pip list
 RUN python setup.py build_ext --inplace
-RUN rm -rf /cska/build
+RUN rm -rf /RBPamp/build
 
 ## The final image. Start fresh
 FROM ubuntu:bionic
 RUN pwd
-COPY --from=git_and_build /cska /cska
+COPY --from=git_and_build /RBPamp /RBPamp
 RUN apt-get update && apt-get install  --no-install-recommends -y \
     python-pip \
     python-numpy \
@@ -54,7 +54,7 @@ RUN pwd
 COPY run_req.txt /req.txt
 RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org "setuptools==41.2.0"
 RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org -r req.txt
-ENV PYTHONPATH "/cska"
+ENV PYTHONPATH "/RBPamp"
 RUN mkdir target
 WORKDIR /target
 RUN rm -rf /var/lib/apt/lists
@@ -62,5 +62,5 @@ RUN rm -rf /usr/lib/gcc/x86_64-linux-gnu
 # RUN apt-get purge ar gcc g++ perl manpages mime-support libpython-dev libpython2-dev
 RUN apt-get purge gcc g++ perl manpages
 RUN apt-get clean && apt-get autoremove
-# ENTRYPOINT ["python", "/cska/bin/cska"]
+# ENTRYPOINT ["python", "/RBPamp/bin/RBPamp"]
 CMD ["bash"]

@@ -6,10 +6,10 @@ matplotlib.use('agg')
 import matplotlib.pyplot as pp
 import logging
 import os
-import cska.cyska as cyska
+import RBPamp.cyska as cyska
 from .cyska import yield_kmers
-import cska
-from cska.caching import CachedBase, cached, pickled
+import RBPamp
+from RBPamp.caching import CachedBase, cached, pickled
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[]):
@@ -192,7 +192,7 @@ class Alignment(object):
         return "\n".join(buf)
 
     def save_logo(self, fname):
-        from cska.pwm import weblogo_save
+        from RBPamp.pwm import weblogo_save
         weblogo_save(self.matrix, fname)
 
     def to_PSAM(self, keep_weight=1., n_max=0, pseudo=0, col_scale=True, A0=None):
@@ -256,7 +256,7 @@ class Alignment(object):
             psam /= psam.max(axis=1)[:, np.newaxis]
 
         # A0 = m.max(axis=1).sum()
-        from cska.pwm import PSAM
+        from RBPamp.pwm import PSAM
         if A0 is None:
             A0 = self.max_weight
 
@@ -272,7 +272,7 @@ class Alignment(object):
 
 
 
-from cska.pwm import PSAM, project_column
+from RBPamp.pwm import PSAM, project_column
 class PSAMSetBuilder(object):
     def __init__(self, kmer_set, k=8, keep_weight=.99, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, pseudo=1e-3, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMSetBuilder")
@@ -421,11 +421,11 @@ class PSAMSeeding(object):
         self.rbns = rbns
         self.logger = logging.getLogger("seed.PSAMSeeding")
         import shelve
-        self.shelf = shelve.open(os.path.join(cska.ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
+        self.shelf = shelve.open(os.path.join(RBPamp.ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
 
     def primer_analysis(self, k=7):
-        from cska.seed import Alignment
-        import cska.cyska as cyska
+        from RBPamp.seed import Alignment
+        import RBPamp.cyska as cyska
 
         dG = np.fromfile(
             os.path.join(
@@ -448,7 +448,7 @@ class PSAMSeeding(object):
             print(pearsonr(g, r_dG))
             print(spearmanr(g, r_dG))
 
-            import cska.report
+            import RBPamp.report
             import matplotlib.pyplot as plt
             plt.figure()
             plt.plot(g, r_dG, '.')
@@ -458,8 +458,8 @@ class PSAMSeeding(object):
             plt.close()
 
     def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., **kwargs): # UNDO HERE!!!
-        from cska.seed import Alignment
-        import cska.cyska as cyska
+        from RBPamp.seed import Alignment
+        import RBPamp.cyska as cyska
         kwargs['z_cut'] = z_cut
         kwargs['n_min'] = n_min
         kwargs['q_ns'] = q_ns
@@ -518,7 +518,7 @@ class PSAMSeeding(object):
         return psams
 
     def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
-        from cska.params import ModelSetParams, ModelParametrization
+        from RBPamp.params import ModelSetParams, ModelParametrization
         params = []
 
         for i, psam in enumerate(self.motifs_from_R(k=k_seed, m_max=max_motifs, thresh=thresh, **kwargs)):
@@ -531,7 +531,7 @@ class PSAMSeeding(object):
 
     def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
-        path = cska.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
+        path = RBPamp.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
         if not params is None:
@@ -604,15 +604,15 @@ if __name__ == "__main__":
     # print A
     # A.save_logo("bla.eps")
 
-    from cska.analysis import RBNSAnalysis
-    from cska.reads import RBNSReads
-    from cska import auto_detect
+    from RBPamp.analysis import RBNSAnalysis
+    from RBPamp.reads import RBNSReads
+    from RBPamp import auto_detect
 
     rbp_name, reads_files, rbp_concentrations = auto_detect('.')
 
     rbns = RBNSAnalysis(
         rbp_name = rbp_name,
-        out_path = 'cska',
+        out_path = 'RBPamp',
         ska_runner = None,
     )
     
