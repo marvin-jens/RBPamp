@@ -1445,7 +1445,7 @@ class FootprintCalibrationReport(ReportBase):
 
         res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = data
         err0 = self.baseline_error(motif)
-        pad = (punp_input.shape[1] - len(motif)) / 2
+        pad = int((punp_input.shape[1] - len(motif)) / 2)
         x = np.arange(-pad, len(motif) + pad )
 
         gradient = np.linspace(.3, 1., len(punp_naive))
@@ -1481,7 +1481,8 @@ class FootprintCalibrationReport(ReportBase):
             if fp:
                 make_rect()
             cons = motif
-            plt.xticks(x, [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)])
+            xlabels = [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)]
+            plt.xticks(x, xlabels)
             plt.axvline( - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
             plt.axvline(len(motif) - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
 

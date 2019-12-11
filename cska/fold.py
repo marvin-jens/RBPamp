@@ -187,13 +187,17 @@ class RBNSOpenen(CachedBase):
         import mmap
         from contextlib import closing
         N_bytes = self.l_row * N * itemsize
+        # N_bytes = self.l_adap * N * itemsize
+        N_needed = self.l_row * N
+
         t0 = time.time()
-        with open(self.fname, 'rb') as f:
-            with closing(mmap.mmap(f.fileno(), length=N_bytes, access=mmap.ACCESS_READ)) as m:
-                oem = np.frombuffer(m, dtype=self.dtype)
+        oem = np.memmap(self.fname, dtype=self.dtype, mode='r')[:N_needed]
+        # with open(self.fname, 'rb') as f:
+        #     with closing(mmap.mmap(f.fileno(), length=N_bytes, access=mmap.ACCESS_READ)) as m:
+        #         oem = np.frombuffer(m, dtype=self.dtype)
 
         dt = 1000. * (time.time() - t0)
-        self.logger.debug("loading {N} rows of accessibility from {self.fname} took {dt:.2f} ms.".format(**locals()))
+        self.logger.debug("loading {N} rows of open-energy from {self.fname} took {dt:.2f} ms.".format(**locals()))
         oem = oem.reshape( (N, self.l_row) )
         return oem
     
@@ -1055,8 +1059,8 @@ def test_vienna():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     #test_discretization()
-    test_vienna()
-    sys.exit(0)
+    # test_vienna()
+    # sys.exit(0)
 
     #src = file('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads') #.readlines()[:30051]
     #storage = OpenenStorage(path='tmp')
@@ -1065,9 +1069,11 @@ if __name__ == "__main__":
 
     #test_memory_consumption()
 
-    from cska.rbns_reads import RBNSReads
-    reads = RBNSReads('/scratch/data/RBNS/RBFOX2/RBFOX2_input.reads', n_max=100000)
-    openen = RBNSOpenen('tmp/openen.7.raw-float32.bin', reads, 7)
+    from cska.reads import RBNSReads
+    reads = RBNSReads('/scratch2/RBNS/RBFOX2/RBFOX2_input.reads', n_max=10000)
+    storage = reads.acc_storage.get_raw(1)
+    print(storage.oem)
+    sys.exit(0)    
     
     dopenen = openen.discretize()
     for i in range(10):
