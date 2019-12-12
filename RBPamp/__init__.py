@@ -1,8 +1,10 @@
 # coding=future_fstrings
 from __future__ import print_function
 from __future__ import absolute_import
+
+from RBPamp.version import version
+__version__ = version
 __license__ = "MIT"
-__version__ = "0.9.10"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"
 
@@ -140,9 +142,10 @@ def parse_cmdline():
     options, args = parser.parse_args()
     
     if options.version:
-        print(__version__)
-        print(__license__)
-        print("by", ", ".join(__authors__))
+        from RBPamp.version import git_commit, name, version, license, authors
+        print(name, version, "git", git_commit())
+        print(license, "license")
+        print("by", ", ".join(authors))
         sys.exit(0)
 
     return options, args
@@ -185,6 +188,9 @@ def auto_detect(path='.', exts=["reads","txt"]):
     
     hits = sorted([(len(rbp_names[name]), name) for name in rbp_names.keys()])[::-1]
     # print("RBP name auto-detect", hits)
+    if not rbp_names:
+        raise ValueError("unable to find any reads files of the form <RBP_name>_(<concentration>|input).(reads|txt) - bailing out.")
+
     rbp_name = hits[0][1]
 
     results = sorted(rbp_names[hits[0][1]])
@@ -220,8 +226,6 @@ class Run(object):
             os.chdir(args[0])
         
         self.rbp_name, self.reads_files, self.rbp_concentrations = auto_detect('.')
-        if not len(self.reads_files):
-            raise ValueError("missing arguments: need <input_reads_file> <pulldown_reads1_file> ... (or use --auto)")
 
         # control caching framework behavior
         from RBPamp.caching import CachedBase
@@ -278,15 +282,8 @@ class Run(object):
     def _init_invocation(self):
         import socket
         self.hostname = socket.gethostname()
-        import subprocess
-        path = os.path.dirname(os.path.realpath(__file__))
-        gc_name = os.path.join(path, "git_commit")
-        if os.path.exists(gc_name):
-            self.git_commit = open(gc_name, 'r').read()
-        else:
-            git = subprocess.Popen(["git","describe","--always"], cwd=path, stdout=subprocess.PIPE).communicate()[0].rstrip()
-            self.git_commit = git
-
+        import RBPamp.version
+        self.git_commit = RBPamp.version.git_commit()
         self.cmdline = " ".join(sys.argv)
         self.version = __version__
 

@@ -1,18 +1,18 @@
 # Make an intermediate image, just to get source code and compile cython code
-FROM ubuntu:bionic as git_and_build
+FROM ubuntu:xenial as git_and_build
 # install git and minimal dependencies to compile Cython modules
 RUN apt-get update && \
   apt-get install --no-install-recommends -y \
   git \
   ssh \
-  python-numpy \
-  python-pip \
-  python2.7-dev \
+  python3-numpy \
+  python3-pip \
+  python3-dev \
   build-essential
 
-RUN python2 -c "import numpy; print numpy.__version__"
-RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org 'Cython==0.29.13'
-RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org 'setuptools==41.2.0'
+RUN python3 -c "import numpy; print(numpy.__version__)"
+RUN pip3 install --no-cache-dir --compile --trusted-host pypi.python.org 'Cython==0.29.13'
+RUN pip3 install --no-cache-dir --compile --trusted-host pypi.python.org 'setuptools==41.2.0'
 
 # add credentials on build
 ARG SSH_PRIVATE_KEY
@@ -32,35 +32,39 @@ RUN git clone git@bitbucket.org:marjens/RBPamp.git
 
 WORKDIR /RBPamp
 RUN git describe --always > git_commit
-RUN python2 -c "import numpy; print numpy.__version__"
-RUN python2 -m pip list
-RUN python setup.py build_ext --inplace
+RUN python3 -c "import numpy; print(numpy.__version__)"
+RUN python3 -m pip list
+RUN python3 setup.py build_ext --inplace
 RUN rm -rf /RBPamp/build
 
 ## The final image. Start fresh
-FROM ubuntu:bionic
+FROM ubuntu:xenial
 RUN pwd
 COPY --from=git_and_build /RBPamp /RBPamp
 RUN apt-get update && apt-get install  --no-install-recommends -y \
-    python-pip \
-    python-numpy \
-    python-scipy \
-    python-matplotlib
+    python3-pip \
+    python3-numpy \
+    python3-scipy
+    # python3-matplotlib
 
 WORKDIR /
-RUN python2 -c "import numpy; print numpy.__version__"
+RUN python3 -c "import numpy; print(numpy.__version__)"
 
 RUN pwd
 COPY run_req.txt /req.txt
-RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org "setuptools==41.2.0"
-RUN pip install --no-cache-dir --compile --trusted-host pypi.python.org -r req.txt
+RUN pip3 install --no-cache-dir --compile --trusted-host pypi.python.org "setuptools==41.2.0"
+RUN pip3 install --upgrade pip
+RUN pip3 install --no-cache-dir --compile --trusted-host pypi.python.org -r req.txt
 ENV PYTHONPATH "/RBPamp"
 RUN mkdir target
 WORKDIR /target
+RUN pip3 uninstall --yes setuptools pip
+RUN apt-get -yq purge gcc g++ perl manpages python3-pip
+RUN apt-get -yq clean && apt-get -yq autoremove
+# RUN apt-get clean && apt-get autoremove
 RUN rm -rf /var/lib/apt/lists
 RUN rm -rf /usr/lib/gcc/x86_64-linux-gnu
-# RUN apt-get purge ar gcc g++ perl manpages mime-support libpython-dev libpython2-dev
-RUN apt-get purge gcc g++ perl manpages
-RUN apt-get clean && apt-get autoremove
-# ENTRYPOINT ["python", "/RBPamp/bin/RBPamp"]
-CMD ["bash"]
+RUN rm -rf share/man
+RUN rm -rf share/locale
+ENTRYPOINT ["python3", "/RBPamp/bin/RBPamp"]
+# CMD ["bash"]

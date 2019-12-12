@@ -1,5 +1,6 @@
 from setuptools import setup
 from setuptools.extension import Extension
+import RBPamp.version
 
 try:
     from Cython.Distutils import build_ext
@@ -48,7 +49,7 @@ Publications: Jens & Burge 2020 (in preparation)',
 
 setup(
     name = "RBPamp",
-    version = "0.9.20",
+    version = RBPamp.version,
     description=desc,
     url = 'https://bitbucket.org/marjens/RBPamp/',
     author = 'Marvin Jens',

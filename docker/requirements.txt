@@ -2,7 +2,7 @@ python<3
 setuptools==41.2.0
 numpy==1.16.5
 scipy==0.19.1
-pandas==0.22.0
+# pandas==0.22.0
 matplotlib==2.1.1
 seaborn==0.8.1
 svgpath2mpl==0.2.1
