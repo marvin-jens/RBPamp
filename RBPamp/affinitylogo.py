@@ -31,7 +31,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 import numpy as np
-import pandas
+# import pandas
 from svgpath2mpl import parse_path
 
 # _pal = sns.color_palette('bright')
@@ -365,8 +365,8 @@ P14 0.207108 0.522929 0.144157 0.125805
 P15 0.524443 0.052028 0.293162 0.130367
 """
 
-def read_matrix(fp):
-    return pandas.read_csv(fp, sep=' ', index_col=0)
+# def read_matrix(fp):
+#     return pandas.read_csv(fp, sep=' ', index_col=0)
 
 def reverse_complement(matrix):
     col_order = ['A', 'C', 'G', 'T']
