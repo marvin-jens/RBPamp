@@ -11,7 +11,7 @@ import time
 import logging
 import RBPamp.cyska
 import RBPamp.cyska as cyska
-from RBPamp import ensure_path
+from RBPamp.cmdline import ensure_path
 from RBPamp.caching import cached, pickled, CachedBase
 
 

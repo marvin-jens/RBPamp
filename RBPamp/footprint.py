@@ -7,7 +7,7 @@ import os
 import sys
 import shelve
 import logging
-from RBPamp import ensure_path
+from RBPamp.cmdline import ensure_path
 from RBPamp.caching import pickled, cached, monitored, CachedBase, get_cache_sizes
 import RBPamp.cyska as cyska
 from RBPamp.sc import SelfConsistency

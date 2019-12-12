@@ -453,7 +453,7 @@ class ReportBase(object):
         self.path = path
         self.fmts = fmts
         self.dpi = dpi
-        from RBPamp import ensure_path
+        from RBPamp.cmdline import ensure_path
         for fmt in self.fmts:
             ensure_path(os.path.join(self.path, fmt+'/'))
 
