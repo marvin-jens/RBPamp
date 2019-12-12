@@ -30,6 +30,7 @@ RUN ssh-keyscan bitbucket.org >> /root/.ssh/known_hosts
 # Pull source code
 WORKDIR /
 RUN pwd
+RUN pwd
 RUN git clone git@bitbucket.org:marjens/RBPamp.git
 
 WORKDIR /RBPamp
