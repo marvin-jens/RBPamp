@@ -26,7 +26,7 @@ class RefComparison(object):
         if not ref_file:
             ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
 
-        for line in open(ref_file):
+        for line in open(ref_file, encoding='utf-8'):
             if line.startswith("# alias"):
                 name, alias = line.rstrip().split(" ")[2:]
                 if name == rbp_name:

@@ -44,7 +44,8 @@ COPY --from=git_and_build /RBPamp /RBPamp
 RUN apt-get update && apt-get install  --no-install-recommends -y \
     python3-pip \
     python3-numpy \
-    python3-scipy
+    python3-scipy \
+    libgomp1
     # python3-matplotlib
 
 WORKDIR /
@@ -66,5 +67,5 @@ RUN rm -rf /var/lib/apt/lists
 RUN rm -rf /usr/lib/gcc/x86_64-linux-gnu
 RUN rm -rf share/man
 RUN rm -rf share/locale
-ENTRYPOINT ["python3", "/RBPamp/bin/RBPamp"]
-# CMD ["bash"]
+# ENTRYPOINT ["python3", "/RBPamp/bin/RBPamp"]
+CMD ["bash"]
