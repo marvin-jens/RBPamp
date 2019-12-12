@@ -276,8 +276,7 @@ class Run(object):
     def _init_invocation(self):
         import socket
         self.hostname = socket.gethostname()
-        import RBPamp.version
-        self.git_commit = RBPamp.version.git_commit()
+        self.git_commit = RBPamp.git_commit()
         self.cmdline = " ".join(sys.argv)
         self.version = __version__
 
