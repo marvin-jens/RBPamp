@@ -421,7 +421,8 @@ class PSAMSeeding(object):
         self.rbns = rbns
         self.logger = logging.getLogger("seed.PSAMSeeding")
         import shelve
-        self.shelf = shelve.open(os.path.join(RBPamp.ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
+        from RBPamp.cmdline import ensure_path
+        self.shelf = shelve.open(os.path.join(ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
 
     def primer_analysis(self, k=7):
         from RBPamp.seed import Alignment
@@ -531,7 +532,8 @@ class PSAMSeeding(object):
 
     def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
-        path = RBPamp.ensure_path(os.path.join(self.rbns.out_path,'seed/'))
+        from RBPamp.cmdline import ensure_path
+        path = ensure_path(os.path.join(self.rbns.out_path,'seed/'))
         rbp_name = self.rbns.reads[0].rbp_name
 
         if not params is None:
