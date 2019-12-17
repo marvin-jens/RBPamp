@@ -1,4 +1,4 @@
-python<3
+python>=3.6
 setuptools==41.2.0
 numpy>=1.13
 scipy>=0.19.1
@@ -13,4 +13,4 @@ pyzmq==17.1.2
 Jinja2==2.10.1
 simplejson==3.16.0
 # pdfkit==0.6.1
-future-fstrings==1.2.0
+future-fstrings>=1.2.0
