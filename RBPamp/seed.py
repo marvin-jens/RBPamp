@@ -293,6 +293,7 @@ class PSAMSetBuilder(object):
         self.pseudo = pseudo
         self.A0 = A0
         self.kmer_set = kmer_set
+        self.assignments = {}
         self.n_enriched = len(kmer_set)
         self.z_cut = z_cut
         self.r0 = np.array([r for kmer, r in self.kmer_set]).max()
@@ -391,7 +392,7 @@ class PSAMSetBuilder(object):
                 j = scores[best_i].argmax()
                 s = scores[best_i, j]
                 o = ofs[best_i, j]
-
+                self.assignments[kmer] = j
                 keep[j].blend(kmer, int(o), r, normalize=False)
         
         return keep
@@ -403,6 +404,11 @@ class PSAMSetBuilder(object):
 
         alns = self.build()
         keep = self.drop_low_support(alns)
+        for i, aln in enumerate(keep):
+            for kmer in aln.seqs:
+                self.assignments[kmer] = i
+                if kmer.lower() == 'uuaguuag':
+                    print("assigning uuaguuag ->{}".format(i))
 
         psams = [self.make_psam(aln, n_max=self.n_max, pseudo=self.pseudo) for aln in keep]
         w = np.array([p.n for p in psams])
@@ -515,6 +521,7 @@ class PSAMSeeding(object):
         self.shelf['psams'] = psams
         self.shelf['width'] = psams[0].n
         self.shelf['n_psam'] = len(psams)
+        self.shelf['assignments'] = PSB.assignments
 
         return psams
 
