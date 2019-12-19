@@ -397,11 +397,12 @@ class RBNSAnalysis(CachedBase):
 
         return best
 
-    def keep_best_samples(self, n=3, k=7, top=5, rank=None):
-        if n == 0:
+    def keep_best_samples(self, ranks=[1, 2, 3], k=7):
+        n_samples = len(self.reads[1:])
+        if not len(ranks):
+            # everything selected
             return
         
-        n = min(n, len(self.reads) - 1)
         # I = self.get_optimal_kmer_ranking(k)
         # R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
         # sample_ranks = R.argsort()[::-1]
@@ -441,30 +442,32 @@ class RBNSAnalysis(CachedBase):
         # print "rank", rank
 
         R = self.R_value_matrix(k)[0]
-        sample_score = []
-        for reads, sample_r in zip(self.reads[1:], R):
-            lo_q = np.percentile(sample_r, 25)
-            sample_score.append(1. / lo_q)
+        top_kmer_per_sample = R.argmax(axis=1)
+        R_max = np.array([r[i] for r, i in zip(R, top_kmer_per_sample)])
+        sample_max_R = R_max.argmax()
+        kmer_i = top_kmer_per_sample[sample_max_R]
+        import RBPamp.cyska
+        kmer = RBPamp.cyska.index_to_seq(kmer_i, 7)
+        sample_score = np.array([r[kmer_i] for r in R])
+        # sample_score = []
+        # for reads, sample_r in zip(self.reads[1:], R):
+        #     lo_q = np.percentile(sample_r, 25)
+        #     sample_score.append(1. / lo_q)
         
-        sample_score = np.array(sample_score)
+        # sample_score = np.array(sample_score)
 
         sample_i = sample_score.argsort()[::-1]
-        if rank is not None:
-            print("sample_score", sample_score)
-            print("sample_i", sample_i)
-            chosen = [sample_i[rank]]
-            for j in sample_i:
-                if j != chosen[0]:
-                    self.reads[j].cache_flush(deep=True)
-        else:
-            chosen = sorted(sample_i[:n])
-            print("chosen samples:", [self.reads[j+1].name for j in chosen])
-            print("dropped samples:", [self.reads[j+1].name for j in sorted(sample_i[n:])])
-            for j in sorted(sample_i[n:]):
-                r = self.reads[j+1]
-                print("dumping caches for", r.name)
-                r.cache_flush(deep=True)
-                
+        self.logger.debug(f"ordering samples by enrichment of {kmer}: {sample_score} -> {sample_i}")
+
+        ranks = np.array(ranks, dtype=int) - 1
+        ranks = ranks[ranks < n_samples]
+        indices = np.arange(n_samples)
+        chosen = indices[sample_i[ranks]]
+        self.logger.debug(f"chosen sample indices: {chosen}")
+
+        for j in set(list(indices)) - set(list(chosen)):
+            self.reads[j].cache_flush(deep=True)
+
         reads = [self.reads[0],] + list(np.array(self.reads[1:])[chosen])
         self.reads = []
 

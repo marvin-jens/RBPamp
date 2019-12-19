@@ -395,6 +395,7 @@ class PSAMSetBuilder(object):
                 self.assignments[kmer] = j
                 keep[j].blend(kmer, int(o), r, normalize=False)
         
+        keep = sorted(keep, key=lambda a: a.max_weight, reverse=True)
         return keep
 
     def make_PSAM_set(self):
@@ -404,11 +405,10 @@ class PSAMSetBuilder(object):
 
         alns = self.build()
         keep = self.drop_low_support(alns)
+        self.founders = [aln.seqs[0] for aln in keep]
         for i, aln in enumerate(keep):
             for kmer in aln.seqs:
                 self.assignments[kmer] = i
-                if kmer.lower() == 'uuaguuag':
-                    print("assigning uuaguuag ->{}".format(i))
 
         psams = [self.make_psam(aln, n_max=self.n_max, pseudo=self.pseudo) for aln in keep]
         w = np.array([p.n for p in psams])
@@ -522,6 +522,7 @@ class PSAMSeeding(object):
         self.shelf['width'] = psams[0].n
         self.shelf['n_psam'] = len(psams)
         self.shelf['assignments'] = PSB.assignments
+        self.shelf['founders'] = PSB.founders
 
         return psams
 

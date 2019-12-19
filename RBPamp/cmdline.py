@@ -31,8 +31,8 @@ def parse_cmdline():
     parser.add_option("-o","--output", dest="output", default="RBPamp", help="path where results are to be stored (default='RBPamp')")
     parser.add_option("","--run-path", dest="run", default="run_{datestr}".format(datestr=datestr), help="pattern for run-folder name (default='run_{datestr}')")
     # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
-    parser.add_option("-b","--best", dest="best", default=4, type=int, help="keep only the best n samples (by top R-value) default=4 [0=take all]")
-    parser.add_option("","--rank", dest="rank", default=None, type=int, help="analyze x out of the n --best samples (by top R-value) default=None [off]")
+
+    parser.add_option("","--ranks", dest="ranks", default="1,2,3,4", type=str, help="analyze these ranks out of the best n samples (by top R-value) default=1,2,3,4")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--continue", dest="cont", default=False, action="store_true", help="add more iterations of optimization even if already completed")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
@@ -433,10 +433,9 @@ class Run(object):
         tracker.set("COMPLETED")
 
     def keep_best(self):
-        if self.options.best:
-            self.rbns = self.rbns.keep_best_samples(n=self.options.best, rank=self.options.rank, k=7)
+        ranks = np.array(self.options.ranks.split(','), dtype=int)
+        self.rbns = self.rbns.keep_best_samples(ranks=ranks, k=7)
         return self.rbns
-
 
     def fold_reads(self):
         self.logger.info("folding reads with '{0}' threads".format(self.options.parallel))

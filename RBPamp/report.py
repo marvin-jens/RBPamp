@@ -513,6 +513,14 @@ class SeedReport(ReportBase):
         except:
             self.logger.error("could not open database {}".format(spath))
 
+    def kmer_PSAM_assignment(self, kmer):
+        # from RBPamp.seed import Alignment
+        scores = np.array([psam.align(kmer) for psam in self.shelf['psams']])
+        print(kmer)
+        print(scores)
+        return scores.argmax()
+
+
     def plot_R_dist(self, n_top=5):
         plt.figure(figsize=(2,1.8))
         R = self.shelf['R0']
@@ -523,6 +531,12 @@ class SeedReport(ReportBase):
         i_ns = self.shelf['i_ns']
         # print i_cut, i_ns
         kmer_set = self.shelf['kmer_set']
+        if 'assignments' in self.shelf:
+            assign = self.shelf['assignments']
+            # print(assign)
+        else:
+            assign = None
+
         kmers = np.array([kmer for kmer, r in kmer_set])
         I = R.argsort()
         k = len(kmers[0])
@@ -530,16 +544,28 @@ class SeedReport(ReportBase):
         plt.fill_between(np.arange(Nk-i_cut), R[I][:Nk-i_cut], color='.75')
         plt.fill_between(np.arange(Nk-i_cut, Nk), R[I][Nk-i_cut:], color='#c83737')
 
-        top = np.linspace(0, len(kmers)-1, num=n_top, dtype=int)
-        # print top, len(kmers), n_top
+        # top = np.linspace(0, len(kmers)-1, num=n_top, dtype=int)
+        # # print top, len(kmers), n_top
+        # kmer_ann = kmers[top]
+        from RBPamp.cyska import seq_to_index
+        kmer_ann = self.shelf['founders']
 
-        for i, kmer in enumerate(kmers[top]):
+        print(f"kmer_ann={kmer_ann}")
+        for i, kmer in enumerate(kmer_ann):
             # print i, kmer
+            Kmer = kmer.upper()
             # pp.text(Nk/2, R.max() * (Rw ** i), kmer.upper(), fontdict=dict(family='fixed'))
-            j = top[i]
+            # j = top[i]
+            if assign:
+                m = assign[kmer]
+            else:
+                m = self.kmer_PSAM_assignment(Kmer)
+
+            r = R[seq_to_index(kmer)]
             plt.annotate(
-                kmer.upper(),
-                (Nk-j, R[I][Nk-j-1]),
+                "{} {}".format(kmer.upper(), m + 1),
+                (Nk-i*10, r),
+                # (Nk-j, R[I][Nk-j-1]),
                 xytext=(Nk/4.-i*4**(k-2), R.max() * (Rw ** i)),
                 arrowprops=dict(arrowstyle='-'),
                 # fontfamily='monospace',
