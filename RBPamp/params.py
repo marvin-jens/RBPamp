@@ -193,7 +193,7 @@ class ModelSetParams(object):
             c.set_data(self.get_data() * x)
         return c
 
-    def __div__(self, x):
+    def __truediv__(self, x):
         c = self.copy()
         if isinstance(x, ModelSetParams):
             c.set_data(self.get_data() / x.get_data() )
