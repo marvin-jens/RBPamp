@@ -3,7 +3,7 @@
 # Only use spaces to indent your .yml configuration.
 # -----
 # You can specify a custom docker image from Docker Hub as your build environment.
-image: python:2.7.15
+image: python:3.7.4
 
 pipelines:
   default:
@@ -18,7 +18,7 @@ pipelines:
           - python setup.py build_ext --inplace # build Cython extensions
           - python -v RBPamp/__init__.py --version
           - python -v RBPamp/__init__.py --version &> test_result
-          - python2.7 -m unittest discover tests/ # run unit tests
+          - python -m unittest discover tests/ # run unit tests
 
 definitions:
   caches:
