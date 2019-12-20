@@ -550,7 +550,7 @@ class ModelParametrization(object):
             c.data *= x
         return c
 
-    def __div__(self, x):
+    def __truediv__(self, x):
         c = self.copy()
         if isinstance(x, ModelParametrization):
             c.data /= x.data
