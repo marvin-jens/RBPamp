@@ -66,7 +66,7 @@ def server_loop(address="tcp://*:8888", stream=sys.stdout):
             stream.write('received malformed message "{}" \n'.format(rec))
         else:
             lvl, msg = rec
-            stream.write(msg + '\n')
+            stream.write(msg.decode('utf-8') + '\n')
 
         stream.flush()
 
