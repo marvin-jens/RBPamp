@@ -397,50 +397,13 @@ class RBNSAnalysis(CachedBase):
 
         return best
 
-    def keep_best_samples(self, ranks=[1, 2, 3], k=7):
+    def keep_best_samples(self, ranks=[1, 2, 3], k=7, min_R=1.1):
         n_samples = len(self.reads[1:])
-        if not len(ranks):
+        n_wanted = len(ranks)
+        if not n_wanted:
             # everything selected
             return
         
-        # I = self.get_optimal_kmer_ranking(k)
-        # R = self.R_value_matrix(k)[0][:,I[:top]].mean(axis=1)
-        # sample_ranks = R.argsort()[::-1]
-        # cut_off = R[sample_ranks][n-1]
-        # self.logger.debug("keep_best_samples() mean top{} {}mer R_values={} sample_ranks={}".format(top, k, R, sample_ranks))
-        # reads = [self.reads[0],] + list(np.array(self.reads[1:])[R >= cut_off])
-        # self.reads = []
-        # R = self.R_value_matrix(k)[0]
-        # Rm = R.max(axis=1)
-        # from cyska import index_to_seq
-        # Rm_i = sorted(set(R.argmax(axis=1)))
-
-        # n_choices = len(R)
-        # print "highest enriched kmers", [index_to_seq(i, k) for i in Rm_i]
-        # min_R = []
-        # enr_R = []
-        # for i in Rm_i:
-        #     # print "checking kmer", index_to_seq(i, k), R[:, i]
-        #     min_R.append(R[:, i].min())
-        #     enr_R.append((R[:, i] > 1).sum()/float(n_choices))
-        
-        # enr_R = np.array(enr_R)
-        # min_R = np.array(min_R)
-        # # print "minimal enrichment observed for these kmers", min_R
-        # # print "number of samples that showed any enrichment for these kmers", enr_R
-        # kmer_score = min_R * enr_R
-        # print "diagnostic score for kmers", kmer_score
-        # kmer_i = Rm_i[kmer_score.argmax()]
-        # print "most diagnostic kmer", index_to_seq(kmer_i, k)
-        # print "sample enrichments", R[:, kmer_i]
-        # ranks = np.array([(r.argsort()[::-1] == kmer_i).argmax() for r in R])
-        # print "ranks", ranks
-        # kmer, kmer_i, sample_score = self.select_diagnostic_kmers(k=k, n=1)[0]
-        # # sample_score = R[:, kmer_i]
-        # # # sample_score = R[:, kmer_i] / (ranks + 1)
-        # print "sample score", sample_score, len(sample_score), len(self.reads)
-        # print "rank", rank
-
         R = self.R_value_matrix(k)[0]
         top_kmer_per_sample = R.argmax(axis=1)
         R_max = np.array([r[i] for r, i in zip(R, top_kmer_per_sample)])
@@ -449,6 +412,13 @@ class RBNSAnalysis(CachedBase):
         import RBPamp.cyska
         kmer = RBPamp.cyska.index_to_seq(kmer_i, 7)
         sample_score = np.array([r[kmer_i] for r in R])
+
+        QC_pass = sample_score >= min_R
+        QC_fail = ~QC_pass
+        n_fail = QC_fail.sum()
+        if n_fail > 0:
+            self.logger.warning("the following concentrations did not pass QC and are not considered further: {}".format(np.array(self.rbp_conc)[QC_fail]))
+
         # sample_score = []
         # for reads, sample_r in zip(self.reads[1:], R):
         #     lo_q = np.percentile(sample_r, 25)
@@ -456,13 +426,13 @@ class RBNSAnalysis(CachedBase):
         
         # sample_score = np.array(sample_score)
 
-        sample_i = sample_score.argsort()[::-1]
+        sample_i = (sample_score * QC_pass).argsort()[::-1] # failed experiments get 0 sample score
         self.logger.debug(f"ordering samples by enrichment of {kmer}: {sample_score} -> {sample_i}")
 
         ranks = np.array(ranks, dtype=int) - 1
-        ranks = ranks[ranks < n_samples]
+        ranks = ranks[ranks < (n_samples - n_fail)]
         indices = np.arange(n_samples)
-        chosen = indices[sample_i[ranks]]
+        chosen = sorted(indices[sample_i[ranks]])
         self.logger.debug(f"chosen sample indices: {chosen}")
 
         for j in set(list(indices)) - set(list(chosen)):
@@ -476,6 +446,9 @@ class RBNSAnalysis(CachedBase):
         for r in reads:
             rbns.add_reads(r)
             
+        if len(chosen) < n_wanted:
+            self.logger.warning("less samples available than ranks requested. Analysis will use only {} samples".format(len(chosen)))
+
         return rbns
         
     def select_significant_kmers(self,k, z_cut=2, n_min=1, n_max=None):

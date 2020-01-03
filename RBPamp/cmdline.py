@@ -33,6 +33,7 @@ def parse_cmdline():
     # parser.add_option("-a","--auto", dest="auto", default=False, action="store_true", help="SWITCH: attempt to automatically guess RPB name, reads files and concentrations from file names (default=specify manually)")
 
     parser.add_option("","--ranks", dest="ranks", default="1,2,3,4", type=str, help="analyze these ranks out of the best n samples (by top R-value) default=1,2,3,4")
+    parser.add_option("","--min-R", dest="min_R", default=1.2, type=float, help="minimal enrichment value of the (overall) most enriched 7-mer required to consider a sample at all (QC pass) default=1.1")
     parser.add_option("","--resume", dest="resume", default=False, action="store_true", help="re-use previous results")
     parser.add_option("","--continue", dest="cont", default=False, action="store_true", help="add more iterations of optimization even if already completed")
     parser.add_option("","--redo", dest="redo", default=False, action="store_true", help="do not re-use previous results at all")
@@ -434,7 +435,7 @@ class Run(object):
 
     def keep_best(self):
         ranks = np.array(self.options.ranks.split(','), dtype=int)
-        self.rbns = self.rbns.keep_best_samples(ranks=ranks, k=7)
+        self.rbns = self.rbns.keep_best_samples(ranks=ranks, k=7, min_R=self.options.min_R)
         return self.rbns
 
     def fold_reads(self):
