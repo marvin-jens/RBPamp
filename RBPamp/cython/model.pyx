@@ -1,5 +1,5 @@
-#cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+# cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+### cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 #!python
 
 __license__ = "MIT"
@@ -223,7 +223,8 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     n = seqm[j, i + d]
                     if n > 3:
                         z = 0. # skip N's
-                    z = z * psam[d, n]
+                    else:
+                        z = z * psam[d, n]
 
                 # add non-specific component (still reacts to accessbility)
                 z = z + non_specific
@@ -231,7 +232,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                 if not noacc:
                     acc_i = i + openen_ofs
                     if 0 <= acc_i < L_acc:
-                         z = z * acc_matrix[j, i + openen_ofs]
+                        z = z * acc_matrix[j, i + openen_ofs]
                     else:
                         z = 0 # no valid accessibility footprint
 

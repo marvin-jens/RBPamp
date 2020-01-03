@@ -20,7 +20,7 @@ if use_cython:
         include_dirs=[numpy.get_include(), ],
         extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
         extra_link_args=['-fopenmp'],
-        language_level="3str"
+        language_level="3"
     )
     ext_modules += [
         Extension("RBPamp.cy.cy_kmers", [ "RBPamp/cython/kmers.pyx" ], **cy_kw),
