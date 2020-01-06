@@ -14,9 +14,9 @@ def _domain(dom):
     ds = defaultdict(int)
     for d in dom.split(','):
         ds[d] += 1
-    tbl = np.array(sorted([(v,k) for k,v in ds.items()]))[::-1]
-    if len(ds.keys()) == 1:
-        return ds.keys()[0]
+    tbl = np.array(sorted([(v,k) for k,v in list(ds.items())]))[::-1]
+    if len(list(ds.keys())) == 1:
+        return list(ds.keys())[0]
         # return "{} {}".format(ds.values()[0], ds.keys()[0]) # only one domain type
     else:
         return "mixed"
@@ -66,11 +66,11 @@ df = df.merge(extra, on='rbp')
 pf = df[ ['rbp', 'nostruct__err_initial', 'full__err_final', 'full__best_corr', 'domain', 'top_R', 'max_R']].query('rbp in @dom_rbps')
 pf['fold_error'] = pf['nostruct__err_initial'] / pf['full__err_final']
 x = pf[['rbp', 'fold_error']]
-print x.sort_values('fold_error')
-print "Final MEAN CORRELATION", pf['full__best_corr'].mean()
-print "Initial mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_initial'].values).mean()
-print "Final mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_final'].values).mean()
-print pf.query('rbp == "HNRNPL"')
+print((x.sort_values('fold_error')))
+print(("Final MEAN CORRELATION", pf['full__best_corr'].mean()))
+print(("Initial mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_initial'].values).mean()))
+print(("Final mean LOG ERROR", np.log10(df.query('rbp in @dom_rbps')['full__err_final'].values).mean()))
+print((pf.query('rbp == "HNRNPL"')))
 # print pf
 
 
@@ -87,11 +87,11 @@ bpcorr = sns.boxplot(
 )
 # bpcorr.set_xticklabels(bpcorr.get_xticklabels(), rotation=90)
 
-print pf.groupby(['domain'])[ ['domain', 'full__best_corr'] ]
+print((pf.groupby(['domain'])[ ['domain', 'full__best_corr'] ]))
 medians = pf.groupby(['domain'])['full__best_corr'].median().values
-print "median correlations", medians, pf['full__best_corr'].median()
+print(("median correlations", medians, pf['full__best_corr'].median()))
 folds = pf.groupby(['domain'])['fold_error'].median().values, pf['fold_error'].median()
-print "median fold error reductions", folds
+print(("median fold error reductions", folds))
 # for dom, med in zip(domain_order, )
 plt.tight_layout()
 sns.despine()
@@ -154,7 +154,7 @@ plt.gcf().set_size_inches(3, 3)
 plt.xlabel("max 6-mer R-value (log2)")
 plt.ylabel("max 6-mer correlation after fit")
 plt.ylim(0.5, 1)
-print pf[['rbp', 'full__best_corr', 'top_R', 'max_R']].sort_values('top_R', ascending=False)
+print((pf[['rbp', 'full__best_corr', 'top_R', 'max_R']].sort_values('top_R', ascending=False)))
 # plt.ylim(1, pf['fold_error'].max()+.5)
 # sns.despine()
 plt.tight_layout()
@@ -176,11 +176,18 @@ ax = sns.swarmplot(
     hue_order = ['20+','5-20','2-5','1-2'],
     palette='viridis_r',
 )
+
+for dom in ['KH', 'ZNF', 'RRM', 'mixed', 'other']:
+    select = pf[pf['domain'] == dom]
+    print(select.sort_values('full__best_corr')[['domain', 'rbp', 'full__best_corr']])
+
 grouped = pf.groupby('domain')
-print(pf[pf.full__best_corr == pf[pf.domain == 'other'].full__best_corr.min()])
+print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+print((pf[pf.full__best_corr == pf[pf.domain == 'other'].full__best_corr.min()]))
 means_df = grouped.mean()
+print(">>>>>MEANS")
 print(means_df)
-print(pf[pf.rbp == 'RBM22'])
+# print((pf[pf.rbp == 'RBM22']))
 means = means_df['full__best_corr'].loc[dom_order]
 ax.plot(means, np.arange(len(dom_order)), '|r', zorder=np.inf, markersize=15, markeredgewidth=1.5, solid_capstyle='round', dash_capstyle='round')
 sns.despine()
@@ -189,16 +196,16 @@ plt.savefig('overview_swarm.pdf')
 
 sys.exit(0)
 
-print df[ ['rbp', 'full__err_perc', 'full__err_perc', 'full__corr_inc', 'full__corr_inc'] ].describe()
+print((df[ ['rbp', 'full__err_perc', 'full__err_perc', 'full__corr_inc', 'full__corr_inc'] ].describe()))
 
-print "KHDR2", df.query('rbp == "KHDR2"')[['full__best_corr', 'full__best_corr']]
-print "failed nostruct optimization", df[ df['full__err_perc'] > 99.]['rbp']
-print "failed full optimization", df[ df['full__err_perc'] > 99.]['rbp']
+print(("KHDR2", df.query('rbp == "KHDR2"')[['full__best_corr', 'full__best_corr']]))
+print(("failed nostruct optimization", df[ df['full__err_perc'] > 99.]['rbp']))
+print(("failed full optimization", df[ df['full__err_perc'] > 99.]['rbp']))
 
 
 plt.figure()
 plt.scatter(df['full__best_corr'], df['full__best_corr'])
-print "worse with structure", df.query('full__best_corr > full__best_corr + .1')['rbp']
+print(("worse with structure", df.query('full__best_corr > full__best_corr + .1')['rbp']))
 plt.xlim(0.5, 1)
 plt.ylim(0.5, 1)
 plt.xlabel("max 6-mer correlation after seq. only optimization")
@@ -375,7 +382,7 @@ def corr_scatter(full, nostruct):
     # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=True,palette='viridis')
     # order = ['1+', '0.7-1', '0.7-', "NA"]
     # lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='max_R_full', hue_order=order[::-1], legend=False, palette='viridis')
-    print df.describe()
+    print((df.describe()))
     lmp = sns.lmplot(x='corr_nostruct',y='corr_full',data=df, fit_reg=False, hue='opt_a_full', hue_order=order[::-1], legend=False, palette='viridis')
 
     df['delta'] = df['corr_full'] - df['corr_nostruct']
@@ -384,8 +391,8 @@ def corr_scatter(full, nostruct):
     by_delta = df.sort_values('delta', ascending=False)
 
     def label_point(row, ax):
-        print row
-        print row.Index
+        print(row)
+        print((row.Index))
 
         ax.text(row.corr_nostruct+.02, row.corr_full, str(row.Index))
 
@@ -438,11 +445,11 @@ def quality(df):
     qrange = np.percentile(corr,[25,75])
     corrmean = np.mean(corr)
     corrmedian = np.median(corr)
-    print "final best R-value correlation quartile range, mean, median", qrange, corrmean, corrmedian
+    print(("final best R-value correlation quartile range, mean, median", qrange, corrmean, corrmedian))
 
-print "no structure"
+print("no structure")
 quality(df_nostruct)
-print "full model"
+print("full model")
 quality(df)
 # lmp = sns.lmplot(x='top_R',y='corr',data=df, fit_reg=False, hue='motif_linearity', hue_order=['1+','0.7-1','0.7-','NA'],legend=True,palette='viridis')
 # # lmp = sns.lmplot(x='rerr',y='corr',data=df, fit_reg=False, hue='domain', legend=True)

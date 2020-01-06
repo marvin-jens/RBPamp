@@ -63,10 +63,10 @@ def get_descent(fname, err_thresh=.05):
     # print "get_descent", fname
     sname = os.path.join(os.path.dirname(fname), "history")
     try:
-        shelf = shelve.open(sname, flag='r')
-        lines = [l for l in file(fname).readlines() if not l.startswith("#")]
-    except:
-        logging.warning('file "{}" not found!'.format(fname))
+        shelf = shelve.open(sname, flag='r') #, keyencoding="utf-8")
+        lines = [l for l in open(fname).readlines() if not l.startswith("#")]
+    except IOError:
+        logging.warning('file "{}" not found!'.format(sname))
         return Results()
 
     values = [line.rstrip().split('\t') for line in lines]
@@ -123,7 +123,7 @@ def get_descent(fname, err_thresh=.05):
     return res
 
 def get_footprint(fname):
-    lines = [l for l in file(fname).readlines() if not l.startswith("acc_k")]
+    lines = [l for l in open(fname).readlines() if not l.startswith("acc_k")]
     data = np.array([line.split('\t') for line in lines], dtype=float)
     error = data.T[4]
     i = error.argmin()
@@ -140,7 +140,7 @@ def get_footprint(fname):
     return res
 
 def get_params(fname):
-    lines = [l for l in file(fname).readlines() if not l.startswith("#")]
+    lines = [l for l in open(fname).readlines() if not l.startswith("#")]
     head = lines[0].split(' ')
     mat = np.array([l.rstrip().split('\t') for l in lines[1:]])
     psam = np.array(mat[:,:-1], dtype=float)
@@ -209,7 +209,7 @@ def n_PSAM_significance(pattern, rbps, variant, plot=False):
     multi = {}
     dom_counts = {}
     valid = {}
-    for line in file("/home/mjens/git/RBPamp/rRBNS/domains.txt"):
+    for line in open("/home/mjens/git/RBPamp/rRBNS/domains.txt"):
         rbp, domains = line.split('\t')
         doms = domains.rstrip().split(',')
         
@@ -301,7 +301,8 @@ def extract_error_corr(path):
             res.add_results(drop_initial = np.round(100. * (res.nostruct.err_drop - 1)) )
             # res.add_results(fp = get_footprint(os.path.join(fname, "footprint/footprints.tsv")))
             res.add_results(full = get_descent(os.path.join(fname, "opt_struct/descent.tsv")))
-        except (IndexError, AttributeError, ValueError):
+        except KeyboardInterrupt:
+        # except (IndexError, AttributeError, ValueError):
             sys.stderr.write("error parsing data for {} \n".format(rbp))
             errors.append(rbp)
             continue
@@ -362,10 +363,14 @@ def load_fp_calibrated_params(pattern, rbps, variant, plot=False):
     return params
 
 def load_or_make(pattern, base = "/home/mjens/engaging/", redo=False):
-    import cPickle as pickle
+    try:
+        from cPickle import pickle
+    except ImportError:
+        import pickle
+
     pf = "{key:x}.pkl".format(key=pattern.__hash__())
     if os.path.exists(pf) and not redo:
-        res = pickle.load(file(pf, 'rb'))
+        res = pickle.load(open(pf, 'rb'))
     else:
         res = extract_error_corr(base + pattern)
         pickle.dump(res, open(pf, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
@@ -1363,8 +1368,8 @@ pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
 # rbase = "std.8"
 # rbase = "std.8.sgd"
 # rbase = "sgd"
-rbase = "z4t75p01k99fix"
-redo8 = False
+# rbase = "z4t75p01k99fix"
+# redo8 = False
 # d_std, res_std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8  )
 # n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
 
@@ -1375,6 +1380,20 @@ redo8 = False
 # d_xsrbp, res_xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8)
 # d_linocc, res_linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8)
 # d_dumb, res_dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8)
+
+# MC = ModelComparisons(variant_dict=dict(
+#     std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8),
+#     single = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8),
+#     oneconc = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8),
+#     xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8),
+#     linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8),
+#     dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
+#     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8),
+#     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
+# ), rbps=rbps)
+
+rbase = "py3"
+redo8 = False
 
 MC = ModelComparisons(variant_dict=dict(
     std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
