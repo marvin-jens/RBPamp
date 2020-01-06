@@ -191,7 +191,7 @@ class StateTrackerData(object):
     def load_logs(self, pattern):
         from glob import glob
         for flog in glob(pattern):
-            for line in file(flog):
+            for line in open(flog):
                 self.parse(line)
 
 
@@ -201,8 +201,8 @@ def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k
     recv_socket = context.socket(zmq.PULL)
     recv_socket.bind(address)
     
-    import RBPamp
-    states = StateTrackerData(run, RBPamp.dominguez_rbps)
+    from RBPamp import dominguez_rbps
+    states = StateTrackerData(run, dominguez_rbps)
     states.load_logs(pattern.format(**locals()))
 
     while True:
@@ -213,7 +213,7 @@ def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k
             stream.write('received malformed message "{}" \n'.format(rec))
         else:
             lvl, msg = rec
-            states.parse(msg)
+            states.parse(msg.decode('utf-8'))
             # stream.write(msg + '\n')
 
         stream.flush()
