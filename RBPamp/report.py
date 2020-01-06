@@ -1158,7 +1158,12 @@ class GradientDescentReport(ReportBase):
 
         from scipy.stats import pearsonr, spearmanr
         rho, p_spearman = spearmanr(np.log(x), np.log(y))
-        R, p_pearson = pearsonr(np.log(x), np.log(y))
+        try:
+            R, p_pearson = pearsonr(np.log(x), np.log(y))
+        except ValueError:
+            R = np.NaN
+            p_pearson = np.NaN
+
         psstr = pval_str(p_spearman)
         ppstr = pval_str(p_pearson)
         label="$R={R:.2f}$ ($P < {p_pearson:.2e}$)\n$\\rho={rho:.2f}$ ($P < {p_spearman:.2e}$)".format(**locals())
