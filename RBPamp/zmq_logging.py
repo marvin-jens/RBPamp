@@ -197,6 +197,7 @@ class StateTrackerData(object):
 
 def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k99fix", pattern="/home/mjens/engaging/RBNS/*/RBPamp/{run}/run.log"):
     import os
+    import time
     context = zmq.Context()
     recv_socket = context.socket(zmq.PULL)
     recv_socket.bind(address)
@@ -205,9 +206,15 @@ def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k
     states = StateTrackerData(run, dominguez_rbps)
     states.load_logs(pattern.format(**locals()))
 
+    t0 = time.time()
     while True:
-        os.system('clear')
-        print(states)
+        dt = time.time() - t0
+        if dt > .1:
+            os.system('clear')
+            print(states)
+            stream.flush()
+            t0 = time.time()
+
         rec = recv_socket.recv_multipart()
         if len(rec) != 2:
             stream.write('received malformed message "{}" \n'.format(rec))
@@ -216,7 +223,8 @@ def state_tracker_loop(address="tcp://*:8888", stream=sys.stdout, run="z4t75p01k
             states.parse(msg.decode('utf-8'))
             # stream.write(msg + '\n')
 
-        stream.flush()
+
+
 
 if __name__ == "__main__":
     FORMAT = '%(asctime)-20s\t%(levelname)s\t%(name)s\t%(message)s'
