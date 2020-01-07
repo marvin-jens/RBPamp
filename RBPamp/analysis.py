@@ -426,14 +426,20 @@ class RBNSAnalysis(CachedBase):
         
         # sample_score = np.array(sample_score)
 
-        sample_i = (sample_score * QC_pass).argsort()[::-1] # failed experiments get 0 sample score
+        final_score = (sample_score * QC_pass)
+        sample_i = final_score.argsort()[::-1] # failed experiments get 0 sample score
         self.logger.debug(f"ordering samples by enrichment of {kmer}: {sample_score} -> {sample_i}")
 
         ranks = np.array(ranks, dtype=int) - 1
         ranks = ranks[ranks < (n_samples - n_fail)]
         indices = np.arange(n_samples)
         chosen = sorted(indices[sample_i[ranks]])
-        self.logger.debug(f"chosen sample indices: {chosen}")
+
+        chosen_scores = final_score[chosen]
+        chosen_ranks = np.empty_like(chosen)
+        chosen_ranks[chosen_scores.argsort()[::-1]] = np.arange(len(chosen))
+
+        self.logger.debug(f"chosen sample indices: {chosen} scores: {chosen_scores}, ranks: {chosen_ranks}")
 
         for j in set(list(indices)) - set(list(chosen)):
             self.reads[j].cache_flush(deep=True)
@@ -449,7 +455,7 @@ class RBNSAnalysis(CachedBase):
         if len(chosen) < n_wanted:
             self.logger.warning("less samples available than ranks requested. Analysis will use only {} samples".format(len(chosen)))
 
-        return rbns
+        return chosen_ranks, rbns
         
     def select_significant_kmers(self,k, z_cut=2, n_min=1, n_max=None):
         ska, ska_err = self.SKA_weight_matrix(k)
@@ -498,6 +504,7 @@ class RBNSAnalysis(CachedBase):
                 #             os.makedirs(path)
                 #         plot = EnrichmentBarPlot(comp)
                 #         plot.make_plot(k, dest=path)
+                yield values, errors
                     
 
     def cooccurrence_tensor_analysis(self, k):
@@ -547,7 +554,7 @@ class RBNSAnalysis(CachedBase):
             
             return [str(x), str(x_err)]
 
-        with file(os.path.join(out_path), 'w') as of:
+        with open(os.path.join(out_path), 'w') as of:
 
             of.write("\t".join(header) + '\n')
             for mer, values_row, error_row in zip(kmers[order], values[order], errors[order]):
@@ -564,7 +571,7 @@ def read_kmer_matrix(path):
     import re
     kmers = []
     data = []
-    for line in file(path):
+    for line in open(path):
         if line.startswith('#'):
             head = re.split('\s+', line.rstrip())
             rbp_conc = [float(h.replace('nM','')) for h in head[2::2]]

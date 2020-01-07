@@ -56,6 +56,7 @@ def parse_cmdline():
     
     # RBNS metrics
     parser.add_option("","--metrics",dest="results",default="",help="list of RBNS metrics to compute and store (options='R_value,SKA_weight,F_ratio' default='')")
+    parser.add_option("","--sample-correlations", dest="sample_corr", default=False, action="store_true", help="compute sample vs sample correlation matrices")
     parser.add_option("","--metrics-k", dest="metrics_k", default="3-8", help="range of kmer sizes for which to compute the desired metrics (default: --metrics-k=3-8)")
     parser.add_option("","--pseudo",dest="pseudo",default=10.,type=float,help="pseudo count to add to kmer counts in order to avoid div by zero for large k (default=10)")
     parser.add_option("","--ska-max-passes",dest="n_passes",default=10,type=int,help="max number of passes (default=10)")
@@ -63,6 +64,7 @@ def parse_cmdline():
     parser.add_option("","--subsamples",dest="subsamples",default=10,type=int,help="number of subsamples for error estimation (default=10)")
 
     # seed motif analysis
+   
     parser.add_option("", "--opt-seed", dest="opt_seed", default=False, action="store_true", help="perform initial motif construction (STAGE0: seed-stage)")
     parser.add_option("","--seed-k",dest="k_seed",default=8, type=int, help="kmer size used for seeding PSAM(s) (default=8)")
     parser.add_option("", "--z-cut", dest="z_cut", default=4., type=float, help="Z-score cutoff for R-values of kmers that go into motif building (default=4)")
@@ -426,17 +428,19 @@ class Run(object):
         tracker = self.get_state_tracker('metrics')
         self.logger.info("computing RBNS metrics '{0}'".format(metrics))
         kmin, kmax = self.options.metrics_k.split('-')
+
+
         for k in range(int(kmin), int(kmax) + 1):
             tracker.set(k)
-            self.rbns.compute_results(k, self.options, results=metrics)
-            self.rbns.flush()
-        
+            for values, errors in self.rbns.compute_results(k, self.options, results=metrics):
+                pass
+
         tracker.set("COMPLETED")
 
     def keep_best(self):
         ranks = np.array(self.options.ranks.split(','), dtype=int)
-        self.rbns = self.rbns.keep_best_samples(ranks=ranks, k=7, min_R=self.options.min_R)
-        return self.rbns
+        ranked_indices, self.rbns = self.rbns.keep_best_samples(ranks=ranks, k=7, min_R=self.options.min_R)
+        return ranked_indices, self.rbns
 
     def fold_reads(self):
         self.logger.info("folding reads with '{0}' threads".format(self.options.parallel))
@@ -795,8 +799,14 @@ def main():
         if metrics:
             run.compute_metrics(metrics)
 
-        rbns = run.keep_best() # unless --best is non-zero this does nothing
+        ranked_indices, rbns = run.keep_best() # unless --best is non-zero this does nothing
+        if options.sample_corr:
+            R, R_err = run.rbns.R_value_matrix(6)
+            print(np.corrcoef(R)[ranked_indices.argmin()])
+
+
         run.flush_reads()
+        run.rbns.flush()
         from RBPamp.caching import _dump_cache_sizes
         _dump_cache_sizes()
         # npw.report_sizes('main startup')
