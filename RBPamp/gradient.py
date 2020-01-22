@@ -287,7 +287,7 @@ class GradientDescent(object):
         I = scales.argsort()
         return s, Tracked(scales = scales[I], errors=errors[I], res=res, s_opt=s, err0=e0)
 
-    def RMSprop(self, local_grad, delta=.00001):
+    def Adam(self, local_grad, delta=.00001):
         if self.past_grad is None:
             self.past_grad = local_grad.get_data()
 
@@ -414,7 +414,7 @@ class GradientDescent(object):
                 if self.fix_A0:
                     local_grad.A0s[:] = 0.
 
-                descent = self.RMSprop( - local_grad ) #.unity()
+                descent = self.Adam( - local_grad ) #.unity()
                 # descent = self.momentum_grad( - local_grad).unity()
 
                 # print "ERRORS", self.errors
@@ -426,7 +426,7 @@ class GradientDescent(object):
                     descent = - local_grad.unity()
                     s, data = self.line_search(state, descent, debug=debug)
                     
-                    # and reset RMSProp
+                    # and reset Adam
                     self.past_grad = None
                     self.past_sqg = 1
                     if s == 0:
