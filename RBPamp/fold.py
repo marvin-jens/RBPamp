@@ -286,17 +286,22 @@ class ViennaOpenen(object):
     def __init__(self, k_min=3, k_max=8, temp=22., adap5="gggaguucuacaguccgacgauc", adap3="uggaauucucgggugucaagg", vienna_bin="RNAplfold_RBPamp", l_insert=20, skip_adap=False, **kwargs):
         
         L = len(adap5) + l_insert + len(adap3)
+        self.logger = logging.getLogger('fold.ViennaOpenen')
         
         # create the folding sub-process
         cmd=[vienna_bin, "-O", "-u {0}".format(k_max), "-W {0}".format(L), "-L {0}".format(L), "-T {0}".format(temp)]
         self.cmd = " ".join(cmd)
-        self.p = Popen(
-            cmd, 
-            stdin=PIPE, 
-            stdout=PIPE, 
-            bufsize=1, 
-            close_fds=True
-        )
+        try:
+            self.p = Popen(
+                cmd, 
+                stdin=PIPE, 
+                stdout=PIPE, 
+                bufsize=1, 
+                close_fds=True
+            )
+        except FileNotFoundError:
+            self.logger.error(f"Can not start the RNAplfold binary '{vienna_bin}'")
+            sys.exit(1)
         
         # prepare constant variables needed in batch-processing
         self.k_indices = np.arange(k_min, k_max+1)
@@ -318,7 +323,6 @@ class ViennaOpenen(object):
         self.adap3 = adap3
         
         self.n_total = 0
-        self.logger = logging.getLogger('fold.ViennaOpenen')
         self.logger.info("initialized for adap5='{self.adap5}' adap3='{self.adap3}' l_insert = {self.l_insert} k_min={self.k_min} k_max={self.k_max} first={self.first} last={self.last}".format(self=self) )
 
     def process_sequences(self, seq_src):
