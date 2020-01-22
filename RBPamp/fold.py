@@ -387,6 +387,8 @@ class FileSink(object):
     def __init__(self, fname, bytes_keep=0):
         self.fname = fname
         self.f = open(fname, 'ab+')
+        logger = logging.getLogger("fold.FileSink")
+        logger.warning(f'opened file {fname} in mode ab+')
 
         if bytes_keep:
             # print "keeping {} bytes".format(bytes_keep)
@@ -505,6 +507,7 @@ class OpenenStorage(CachedBase):
         ### records to be skipped (both need to be determined prior to folding)
         if not k in self.k_sinks:
             fname = self._make_filename(k)
+            self.logger.debug(f"get_or_create({k}) -> {fname}")
             if self.has_data(k):
                 self.logger.info("data for '{}' already in place. Will leave '{}' untouched.".format(k, fname))
                 self.k_sinks[k] = DummySink(fname)
