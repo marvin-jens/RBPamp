@@ -16,18 +16,31 @@ ext_modules = [ ]
 
 if use_cython:
     import numpy
-    cy_kw = dict(
-        include_dirs=[numpy.get_include(), ],
-        extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
-        extra_link_args=['-fopenmp'],
-        language_level="3"
-    )
+    import os
+
+    if os.uname().sysname == 'Darwin':
+        # Mac OS X uses LLVM/Clang and openmp works slightly differently compared to gcc
+        cy_kw = dict(
+            extra_compile_args=['-O3', '-ffast-math', '-march=native', '-mtune=native'], 
+            extra_link_args=['-lomp'],
+            language_level="3"
+        )
+    else:
+        # All the linuxes AFAIK use gcc by default. Perhaps check should be on which compiler is used?
+        cy_kw = dict(
+            include_dirs=[numpy.get_include(), ],
+            extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
+            extra_link_args=['-fopenmp'],
+            language_level="3"
+        )
+
     ext_modules += [
         Extension("RBPamp.cy.cy_kmers", [ "RBPamp/cython/kmers.pyx" ], **cy_kw),
         Extension("RBPamp.cy.cy_model", [ "RBPamp/cython/model.pyx" ], **cy_kw ),
         Extension("RBPamp.cy.cy_fastrand", [ "RBPamp/cython/fastrand.pyx" ], **cy_kw ),
         #Extension("RBPamp.cy_cmpxchg", [ "RBPamp/cython/test_cmpxchg.pyx" ], extra_compile_args=['-fopenmp'], extra_link_args=['-fopenmp'], ),
     ]
+
     cmdclass.update({ 'build_ext': build_ext })
 else:
     ext_modules += [
@@ -75,7 +88,7 @@ setup(
         # 'Programming Language :: Python :: 2.7',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
     ],
-    keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics',
+    keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics RBP RNA-binding protein gene regulation affinity thermodynamics gradient descent',
 
     install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2', 'future_fstrings'],
     scripts=['bin/RBPamp'],
