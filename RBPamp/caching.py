@@ -38,7 +38,10 @@ def args_to_key(argc, kwargs, self, func_name):
     argc_key = kwargs.get("_argc_key", "_".join([to_str(a) for a in argc]) )
     kw_key = kwargs.get("_kw_key", "__".join(["{0}={1}".format(k,to_str(v)) for k,v in sorted(kwargs.items()) ]))
     
-    key = f"{self.cache_key}.{func_name}.{argc_key}.{kw_key}"
+    if self:
+        key = f"{self.cache_key}.{func_name}.{argc_key}.{kw_key}"
+    else:
+        key = f"{func_name}.{argc_key}.{kw_key}"
     
     return key, kw
 
