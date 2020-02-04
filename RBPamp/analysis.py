@@ -430,6 +430,7 @@ class RBNSAnalysis(CachedBase):
         sample_i = final_score.argsort()[::-1] # failed experiments get 0 sample score
         self.logger.debug(f"ordering samples by enrichment of {kmer}: {sample_score} -> {sample_i}")
 
+        original_ranks = ranks
         ranks = np.array(ranks, dtype=int) - 1
         ranks = ranks[ranks < (n_samples - n_fail)]
         indices = np.arange(n_samples)
@@ -454,6 +455,8 @@ class RBNSAnalysis(CachedBase):
             
         if len(chosen) < n_wanted:
             self.logger.warning("less samples available than ranks requested. Analysis will use only {} samples".format(len(chosen)))
+            if len(chosen) < 1:
+                raise ValueError(f"no sample left! You asked for ranks={original_ranks} with n_samples={n_samples} n_fail={n_fail}")
 
         return chosen_ranks, rbns
         
