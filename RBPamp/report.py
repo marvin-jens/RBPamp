@@ -4,6 +4,8 @@ from __future__ import unicode_literals
 import os
 import numpy as np
 import logging
+logging.getLogger('matplotlib').setLevel(logging.ERROR)
+
 import time
 from collections import defaultdict
 import matplotlib
@@ -26,7 +28,9 @@ font = {
     'family' : 'Arial',
     'weight' : 'normal',
     'size'   : 8
-}	
+}
+matplotlib.rcParams['axes.unicode_minus'] = False	
+
 matplotlib.rc('axes.spines',
     top=False,
     right=False,
