@@ -1,0 +1,60 @@
+#!/usr/bin/env python
+import RBPamp
+from RBPamp import __version__, __license__, __authors__, __email__
+
+import sys
+import os
+import copy
+import time
+import itertools
+import traceback
+import logging
+import collections
+import numpy as np
+# import matplotlib
+# matplotlib.use('agg')
+
+def parse_cmdline():
+    import datetime
+    datestr = datetime.datetime.now().strftime("%b-%d-%Y_%H:%M:%S")
+
+    from argparse import ArgumentParser
+    usage = "usage: {prog} [options] [files]"
+
+    parser = ArgumentParser(usage=usage)
+    # basic options
+    parser.add_argument('models', metavar='models', type=str, nargs='+', help='one or more PSAM sets to score')
+    parser.add_argument("--version", dest="version", default=False, action="store_true", help="show version information and quit")
+    parser.add_argument("--realm", dest="realm", default='hg19/gencode28')
+    parser.add_argument("--bed", dest="bed", default="", help="scan the records in this BED file")
+
+    args = parser.parse_args()
+    
+    if args.version:
+        print(RBPamp.__name__, __version__, "git", RBPamp.git_commit())
+        print(__license__, "license")
+        print("by", ", ".join(__authors__))
+        sys.exit(0)
+
+    return args
+
+
+import numpy as np
+from RBPamp.util import load_model, eval_model
+
+
+args = parse_cmdline()
+system = args.realm.split('/')[0]
+names = [os.path.splitext(os.path.basename(a))[0] for a in args.models]
+print("\t".join(['# name','length'] + names))
+
+models = [load_model(a) for a in args.models]
+
+if args.bed:
+    from byo.gene_model import from_bed6
+    for bed in from_bed6(args.bed, system=system):
+        seq = bed.spliced_sequence
+        scores = [eval_model(M, seq).sum() for M in models]
+        out = [bed.name, len(seq)] + scores
+        print("\t".join([str(o) for o in out]))
+
