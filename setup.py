@@ -21,6 +21,7 @@ if use_cython:
     if os.uname().sysname == 'Darwin':
         # Mac OS X uses LLVM/Clang and openmp works slightly differently compared to gcc
         cy_kw = dict(
+            include_dirs=[numpy.get_include(), ],
             extra_compile_args=['-O3', '-ffast-math', '-march=native', '-mtune=native'], 
             extra_link_args=['-lomp'],
             language_level="3"
