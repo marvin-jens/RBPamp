@@ -11,6 +11,8 @@ import traceback
 import logging
 import collections
 import numpy as np
+import logging
+logging.basicConfig(level=logging.DEBUG)
 # import matplotlib
 # matplotlib.use('agg')
 
@@ -26,8 +28,11 @@ def parse_cmdline():
     parser.add_argument('models', metavar='models', type=str, nargs='+', help='one or more PSAM sets to score')
     parser.add_argument("--version", dest="version", default=False, action="store_true", help="show version information and quit")
     parser.add_argument("--realm", dest="realm", default='hg19/gencode28')
+    parser.add_argument("--maxhit", dest="maxhit", default=False, action="store_true", help="report the window with highest motif score")
     parser.add_argument("--bed", dest="bed", default="", help="scan the records in this BED file")
-
+    parser.add_argument("--txt", dest="txt", default="", help="scan the sequences in this raw text file")
+    parser.add_argument("--hist", dest="hist", default="", help="plot a histogram of affinities")
+    parser.add_argument("--rna-conc", dest="rna_conc", default=1000., type=float, help="concentration of RNA in nM (default=1000)")
     args = parser.parse_args()
     
     if args.version:
@@ -46,15 +51,83 @@ from RBPamp.util import load_model, eval_model
 args = parse_cmdline()
 system = args.realm.split('/')[0]
 names = [os.path.splitext(os.path.basename(a))[0] for a in args.models]
-print("\t".join(['# name','length'] + names))
+if args.maxhit:
+    print("# chrom\tstart\tend\tname\tmax_aff\tstrand\ttotal_aff\tfrac_total")
+else:
+    print("\t".join(['# name','length'] + names))
 
 models = [load_model(a) for a in args.models]
+for m, n in zip(models, names):
+    m.name = n
 
 if args.bed:
     from byo.gene_model import from_bed6
     for bed in from_bed6(args.bed, system=system):
         seq = bed.spliced_sequence
-        scores = [eval_model(M, seq).sum() for M in models]
-        out = [bed.name, len(seq)] + scores
-        print("\t".join([str(o) for o in out]))
+        if args.maxhit:
+            for M in models:
+                scores = eval_model(M, seq)
+                s_total = scores.sum()
+                s_max = scores.max()
+                start = scores.argmax()
+                end = start + M.k
+
+                gstart, gend = bed.map_block_from_spliced(start, end)
+                name = f"{bed.name}__{M.name}"
+                out = [bed.chrom, gstart, gend, name, s_max, bed.strand, s_total, s_max/s_total]
+                print("\t".join([str(o) for o in out]))
+        else:
+            scores = [eval_model(M, seq).sum() for M in models]
+            out = [bed.name, len(seq)] + scores
+            print("\t".join([str(o) for o in out]))
+
+if args.txt:
+    from RBPamp.reads import RBNSReads
+    import RBPamp.report
+    import matplotlib.pyplot as plt
+
+    n_bins = 200
+    reads = RBNSReads(args.txt, rna_conc=args.rna_conc, n_max=1000000)
+    w = np.ones(reads.N) * (reads.rna_conc / reads.N)
+
+    max_Kd = 1e7 # 10 mM
+    min_Kd = .1 # 10 pM 
+
+    bins = 10 ** np.linspace(np.log10(min_Kd), np.log10(1.1*max_Kd), n_bins)
+    x = (bins[1:] + bins[:-1])/2
+
+    xticks = [1, 100, 10000, 1000000]
+    xtick_labels = ["1", "100", "1,000", "10,000", "1E6"]
+
+    plt.figure(figsize=(3,1.5))
+    ax = plt.gca()
+    ax.set_xscale('log')
+    for params in models:
+        print(params.name, "eval")
+        Z1 = reads.PSAM_partition_function(params, full_reads=True)
+        Z1_read = Z1.sum(axis=1)
+        # print(w)
+        ## plot affinity distribution of binding sites in RNA pool
+        print("plot")
+        Kd_binned = ax.hist(
+            1./(Z1_read), 
+            bins=bins, 
+            histtype='step', 
+            weights=w,
+            label=params.name,
+        )[0]
+
+    ax.legend(loc='upper right')
+    ax.set_ylabel('conc in RNA pool [nM]')
+    ax.set_xlabel(r'rel. $K_d$')
+    # plt.locator_params(axis='x', numticks=3)
+
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xtick_labels)
+
+    plt.tight_layout()
+    plt.savefig('hists.pdf')
+
+
+        
 
