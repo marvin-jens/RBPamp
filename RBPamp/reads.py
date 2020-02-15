@@ -286,6 +286,7 @@ class RBNSReads(CachedBase):
         data = zip(params, accs_k, accs, accs_scaled, accs_ofs)
         Z1 = None
         for i, (par, acc_k, acc, acc_scaled, acc_ofs) in enumerate(data):
+            # print("entering cyska", seqm.shape, acc_scaled.shape, par.psam_matrix.shape, acc_ofs)
             Z = cyska.PSAM_partition_function(
                 seqm, 
                 acc_scaled,
@@ -293,6 +294,7 @@ class RBNSReads(CachedBase):
                 openen_ofs = acc_ofs, 
                 non_specific = non_specific
             )
+            # print("exiting cyska")
             if Z1 is None:
                 Z1 = Z*(par.A0 / params.A0)
             else:
