@@ -1,6 +1,6 @@
-#!python
 #cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
 ###cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+#!python
 
 __license__ = "MIT"
 __version__ = "0.9.8"

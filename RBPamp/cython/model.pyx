@@ -204,7 +204,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     
     # helper variables to tell cython the types
     # cdef FLOAT32_t a=0
-    cdef UINT64_t i=0, j=0, d=0, n=0, ind=0
+    cdef int i=0, j=0, d=0, n=0, ind=0
     cdef int acc_i=0
     # cdef UINT32_t index=0
     # cdef FLOAT32_t w=0
