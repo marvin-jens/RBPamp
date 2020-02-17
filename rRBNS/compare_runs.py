@@ -60,20 +60,29 @@ class Results(object):
 # 1/0
 
 def get_descent(fname, err_thresh=.05):
-    # print "get_descent", fname
+    print("get_descent", fname)
     sname = os.path.join(os.path.dirname(fname), "history")
+    print(sname)
+    import dbm
+
     try:
         shelf = shelve.open(sname, flag='r') #, keyencoding="utf-8")
         lines = [l for l in open(fname).readlines() if not l.startswith("#")]
-    except IOError:
-        logging.warning('file "{}" not found!'.format(sname))
+    except Exception as e:
+        logging.warning('file "{}" not found or caused error!'.format(sname))
+        logging.error(e)
         return Results()
 
     values = [line.rstrip().split('\t') for line in lines]
+    if not lines:
+        logging.warning(f"missing descent data for {fname}")
+        return Results()
+
     # sometimes old runs were resumed later and have unequal column numbers. In that case drop the extra columns
     lens = set()
     for row in values:
         lens.add(len(row))
+
     l = np.array(list(lens)).min()
     values = [row[:l] for row in values]
 
@@ -90,11 +99,11 @@ def get_descent(fname, err_thresh=.05):
         rbp_conc = shelf['rbp_conc'],
         params = shelf['params_t0'],
         n_PSAM = len(shelf['params_t0'].param_set),
-        best_corr = lf[3+n:3+2*n].max(),
-        corr_initial = l0[3+n:3+2*n].max(),
+        best_corr = lf[int(3+n):int(3+2*n)].max(),
+        corr_initial = l0[int(3+n):int(3+2*n)].max(),
         err_final = lf[2],
-        err_samples = lf[3:3+n],
-        corr_samples = lf[3+n:3+2*n],
+        err_samples = lf[3:int(3+n)],
+        corr_samples = lf[int(3+n):int(3+2*n)],
         err_initial = l0[2],
         Kd = 1./lf[1],
         n_steps = lf[0],
@@ -298,9 +307,10 @@ def extract_error_corr(path):
         try:
             res = Results(rbp=rbp)
             res.add_results(nostruct = get_descent(os.path.join(fname, "opt_nostruct/descent.tsv")))
-            res.add_results(drop_initial = np.round(100. * (res.nostruct.err_drop - 1)) )
             # res.add_results(fp = get_footprint(os.path.join(fname, "footprint/footprints.tsv")))
             res.add_results(full = get_descent(os.path.join(fname, "opt_struct/descent.tsv")))
+            if hasattr(res.nostruct, "err_drop"):
+                res.add_results(drop_initial = np.round(100. * (res.nostruct.err_drop - 1)) )
         except KeyboardInterrupt:
         # except (IndexError, AttributeError, ValueError):
             sys.stderr.write("error parsing data for {} \n".format(rbp))
@@ -310,8 +320,11 @@ def extract_error_corr(path):
         # res.add_results(params = get_params(os.path.join(fname, "opt_full/parameters.tsv")))
         # if res.Kd_stable and res.full_panel and res.good_fit:
         #     print res.rbp, res.nostruct.Kd
-        d[rbp] = (res.nostruct.err_final, res.nostruct.best_corr)
-        results[rbp] = res
+        if hasattr(res.nostruct, "err_final") and hasattr(res.nostruct, "best_corr"):
+            d[rbp] = (res.nostruct.err_final, res.nostruct.best_corr)
+            results[rbp] = res
+        else:
+            logging.warning("skipping {rbp} with missing data for {fname}")
     
     if errors:
         print("Errors occurred with the following rbps", errors)
@@ -368,10 +381,14 @@ def load_or_make(pattern, base = "/home/mjens/engaging/", redo=False):
     except ImportError:
         import pickle
 
-    pf = "{key:x}.pkl".format(key=pattern.__hash__())
+    from RBPamp.caching import args_to_key, key_to_hash
+    print(">>>>>>>>> LOAD OR MAKE <<<<<<<<")
+    pf = "{key}.pkl".format(key=key_to_hash(args_to_key([pattern,], {}, None, base)[0]))
     if os.path.exists(pf) and not redo:
+        print(f"loading results {pf}")
         res = pickle.load(open(pf, 'rb'))
     else:
+        print(f"computing results for {pf} ({base} + {pattern})")
         res = extract_error_corr(base + pattern)
         pickle.dump(res, open(pf, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
     
@@ -503,27 +520,39 @@ class ModelComparisons(object):
         self.logger = logging.getLogger('ModelComparisons')
         self.rbps = np.array(rbps)
         self.variants = variant_dict.keys()
-        assert "std" in variant_dict # baseline ref
+        # assert "std" in variant_dict # baseline ref
 
         self.labels=labels
         for name, (d, res) in variant_dict.items():
             setattr(self, f'd_{name}', d)
             setattr(self, f'res_{name}', res)
 
-            err, corr = np.array([d[rbp] for rbp in self.rbps]).T
+            err, corr = np.array([d.get(rbp, (np.NaN, np.NaN)) for rbp in self.rbps]).T
             setattr(self, f'err_{name}', err)
             setattr(self, f'corr_{name}', corr)
 
-        self.n_psams = np.array([self.res_std[rbp].nostruct.n_PSAM for rbp in self.rbps])
-        self.n_conc = np.array([len(self.res_std[rbp].nostruct.rbp_conc) for rbp in self.rbps])
-        self.err_std_fp = np.array([self.res_std[rbp].full.get("err_final", np.NaN) for rbp in self.rbps])
-        self.corr_std_fp = np.array([self.res_std[rbp].full.get("best_corr", np.NaN) for rbp in self.rbps])
         self.load_domains()
 
         self.rbp_domain = np.array([self.dom_type[rbp] for rbp in self.rbps])
 
-    def load_domains(self, fname='domains.txt'):
 
+    @property
+    def n_psams(self):
+        return np.array([self.res_std[rbp].nostruct.n_PSAM for rbp in self.rbps])
+
+    @property
+    def n_conc(self):
+        return np.array([len(self.res_std[rbp].nostruct.rbp_conc) for rbp in self.rbps])
+        
+    @property
+    def err_std_fp(self):
+        return np.array([self.res_std[rbp].full.get("err_final", np.NaN) for rbp in self.rbps])
+        
+    @property
+    def corr_std_fp(self):
+        return np.array([self.res_std[rbp].full.get("best_corr", np.NaN) for rbp in self.rbps])
+
+    def load_domains(self, fname='domains.txt'):
         self.dom_type = {}
         self.domains = {}
 
@@ -536,62 +565,75 @@ class ModelComparisons(object):
                 ds[d] += 1
             # tbl = np.array(sorted([(v,k) for k,v in ds.items()]))[::-1]
             if len(ds.keys()) == 1:
-                return ds.keys()[0]
+                return list(ds.keys())[0]
                 # return "{} {}".format(ds.values()[0], ds.keys()[0]) # only one domain type
             else:
                 return "mixed"
 
-        for line in file(fname):
+        for line in open(fname):
             rbp, doms = line.rstrip().split('\t')
             self.domains[rbp] = doms.split(',')
             self.dom_type[rbp] = _domain(doms)
 
     def left_out_sample_data(self, min_corr=.1):
-        assert "single" in self.variants
-        assert "std_eval" in self.variants
-        assert "single_eval" in self.variants
+        # TODO: use the held-out concentration!!!
+        # assert "single" in self.variants
+        # assert "std_eval" in self.variants
+        # assert "single_eval" in self.variants
 
         comparable_rbps = []
         # lratios = []
         mean_errs = []
         mean_corrs = []
+        s_better = 0
+        lo_better = 0
         for rbp in self.rbps:
-            used = set(self.res_std[rbp].nostruct.rbp_conc)
-            best = set(self.res_single[rbp].nostruct.rbp_conc)
-            left = set(self.res_std_eval[rbp].nostruct.rbp_conc) - (used | best)
-            
-            all_conc = list(self.res_std_eval[rbp].nostruct.rbp_conc)
 
-            if left:
-                sample_conc = sorted(left)
-                sample_idx = [all_conc.index(c) for c in sorted(left)]
-                errs_full = np.array([self.res_std_eval[rbp].nostruct.err_dict[c] for c in sample_conc])
-                errs_single = np.array([self.res_single_eval[rbp].nostruct.err_dict[c] for c in sample_conc])
+            if not rbp in self.res_lo_eval:
+                logging.warning(f"could not find eval data for {rbp}")
+                continue
 
-                corrs_full = np.array([self.res_std_eval[rbp].nostruct.corr_dict[c] for c in sample_conc])
-                corrs_single = np.array([self.res_single_eval[rbp].nostruct.corr_dict[c] for c in sample_conc])
+            if len(self.res_lo[rbp].nostruct.err_samples) < 2:
+                logging.warning(f"eval data on only one sample for {rbp} (lo)")
+                continue
 
-                # drop junk samples that don't correlate at all
-                keep = (corrs_single > min_corr) | (corrs_full > min_corr)
-                if keep.sum() < 1:
-                    continue
+            mean_errs.append( (self.res_lo_eval[rbp].nostruct.err_final, self.res_single_eval[rbp].nostruct.err_final) )
+            mean_corrs.append( (self.res_lo_eval[rbp].nostruct.best_corr, self.res_single_eval[rbp].nostruct.best_corr) )
+            # sample_conc = sorted(left)
+            # sample_idx = [all_conc.index(c) for c in sorted(left)]
+            # errs_full = np.array([self.res_std_eval[rbp].nostruct.err_dict[c] for c in sample_conc])
+            # errs_single = np.array([self.res_single_eval[rbp].nostruct.err_dict[c] for c in sample_conc])
 
-                corrs_full = corrs_full[keep]
-                corrs_single = corrs_single[keep]
-                errs_full = errs_full[keep]
-                errs_single = errs_single[keep]
+            # corrs_full = np.array([self.res_std_eval[rbp].nostruct.corr_dict[c] for c in sample_conc])
+            # corrs_single = np.array([self.res_single_eval[rbp].nostruct.corr_dict[c] for c in sample_conc])
 
-                # lratio = np.log2(errs_single/errs_full)
-                mean_errs.append( (errs_full.mean(), errs_single.mean()) )
-                mean_corrs.append( (corrs_full.mean(), corrs_single.mean()) )
+            # drop junk samples that don't correlate at all
+            # keep = (corrs_single > min_corr) | (corrs_full > min_corr)
+            # if keep.sum() < 1:
+            #     continue
 
-                # print(f"{rbp} : {sample_idx} conc {sample_conc} errs_full ={errs_full:.3e} errs_single={errs_single:.3e} lratio={lratio:.3e}")
-                comparable_rbps.append(rbp)
-                # lratios.append(lratio)
+            # corrs_full = corrs_full[keep]
+            # corrs_single = corrs_single[keep]
+            # errs_full = errs_full[keep]
+            # errs_single = errs_single[keep]
 
-        # for rbp in sorted(comparable_rbps.keys()):
-        #     sample_idx = comparable_rbps[rbp]
-        #     print(f"{rbp} : {sample_idx}")
+            # lratio = np.log2(errs_single/errs_full)
+            # mean_errs.append( (errs_full.mean(), errs_single.mean()) )
+            # mean_corrs.append( (corrs_full.mean(), corrs_single.mean()) )
+
+            # print(f"{rbp} : {sample_idx} conc {sample_conc} errs_full ={errs_full:.3e} errs_single={errs_single:.3e} lratio={lratio:.3e}")
+            if self.res_single_eval[rbp].nostruct.best_corr > self.res_lo_eval[rbp].nostruct.best_corr:
+                s_better += 1
+            else:
+                lo_better +=1 
+            print(f"{rbp} lo_corr={self.res_lo_eval[rbp].nostruct.best_corr} single_corr={self.res_single_eval[rbp].nostruct.best_corr}")
+            comparable_rbps.append(rbp)
+            # lratios.append(lratio)
+            print(f"s_better={s_better} lo_better={lo_better}")
+
+    # for rbp in sorted(comparable_rbps.keys()):
+    #     sample_idx = comparable_rbps[rbp]
+    #     print(f"{rbp} : {sample_idx}")
         comparable_rbps = np.array(comparable_rbps)
         
 
@@ -636,7 +678,7 @@ class ModelComparisons(object):
             ax_test.set_xlim(-1, 8)
             ax_test.set_xticklabels(["lower", "higher"], rotation=90)
 
-        return mwu, tt, tt1, bt
+        return delta, mwu, tt, tt1, bt
 
 
     # def left_out_single_conc_plot(self):
@@ -691,14 +733,14 @@ class ModelComparisons(object):
         emulti = self.err_std[self.n_psams > 1]
         esingle = self.err_single[self.n_psams > 1]
 
-        self.delta_barplot(
+        derr = self.delta_barplot(
             ax_err, 
             emulti, 
             esingle,
             name = "multi PSAM error",
             func = lambda y0, y1 : np.log2(y0/y1),
             # ax_test=ax_es
-        )
+        )[0]
 
         # I = emulti.argsort()
         
@@ -732,14 +774,14 @@ class ModelComparisons(object):
         cmulti = self.corr_std[self.n_psams > 1]
         csingle = self.corr_single[self.n_psams > 1]
 
-        self.delta_barplot(
+        dcorr = self.delta_barplot(
             ax_corr, 
             cmulti, 
             csingle,
             name = "multi PSAM correlation",
             # func = lambda y0, y1 : np.log2(y0/y1), 
             # ax_test=ax_es
-        )
+        )[0]
 
         # I = cmulti.argsort()
         
@@ -799,8 +841,10 @@ class ModelComparisons(object):
         plt.savefig('PSAM_set_grouped.pdf')
         plt.close()
 
+        return derr, dcorr
+
     def oneconc(self, corr_ymin=None, corr_ymax=None):
-        assert "oneconc" in self.variants
+        # assert "oneconc" in self.variants
         fig, ((ax_err, ax_es), (ax_corr, ax_cs)) = plt.subplots(
             2, 2, 
             gridspec_kw=dict(width_ratios=[1, 1]), 
@@ -811,16 +855,16 @@ class ModelComparisons(object):
         comparable_rbps, mean_errs, mean_corrs = self.left_out_sample_data()
         assert len(comparable_rbps) == len(mean_errs) == len(mean_corrs)
 
-        full_err, single_err = mean_errs.T
-        self.delta_barplot(
+        lo_err, single_err = mean_errs.T
+        derr = self.delta_barplot(
             ax_err, 
-            full_err, 
+            lo_err, 
             single_err,
             name = "left-out model error",
             func = lambda y0, y1 : np.log2(y0/y1), 
             ax_test=ax_es,
             xticks=[10, 30, 50]
-        )
+        )[0]
         ax_err.set_xlabel('RBP index')
         ax_err.set_ylabel("left-out\nmodel error log2 ratio")
         ax_es.set_ylabel("# RBPs")
@@ -828,19 +872,19 @@ class ModelComparisons(object):
         ax_es.set_xticklabels(["single > multi", "single <= multi"])
 
 
-        full_corr, single_corr = mean_corrs.T
-        self.delta_barplot(
+        lo_corr, single_corr = mean_corrs.T
+        dcorr = self.delta_barplot(
             ax_corr, 
-            full_corr, 
+            lo_corr, 
             single_corr,
             name = "left-out correlation",
             ax_test=ax_cs,
             xticks=[10, 30, 50]
-        )
+        )[0]
         ax_corr.set_xlabel('RBP index')
         ax_corr.set_ylabel(u"Δ(correlation)")
-        ax_corr.set_yticks([0,0.3,0.6])
-        ax_corr.set_yticklabels([0,0.3,0.6])
+        # ax_corr.set_yticks([0,0.3,0.6])
+        # ax_corr.set_yticklabels([0,0.3,0.6])
         if corr_ymax:
             ax_corr.set_ylim(corr_ymin, corr_ymax)
 
@@ -853,11 +897,12 @@ class ModelComparisons(object):
         plt.savefig("oneconc_vs_all.pdf")
         plt.close()
 
+        return derr, dcorr
 
     def variant_plot(
         self, 
-        models=["std", "xsrbp", "linocc", "dumb", ], 
-        labels = ["mass-action", "excess RBP", "linear occ.", "excess RBP +\nlinear occ."], 
+        models=["std", "xsrbp", "linocc", ], 
+        labels = ["mass-action", "excess RBP", "linear occ."], 
         symbols = ['.', '^', '.', '*', '.'],
         plot_kw = [{'zorder' : 3000},{},{},{},{}],
         corr_ymin=None, corr_ymax=None
@@ -880,34 +925,39 @@ class ModelComparisons(object):
         # mass action, xsRBP, linocc, xs+lin, single PSAM
         colors = ['black', '#f98e23', '#1f77b4', '#c44802', 'teal']
         # symbols = ['.', '^', 'v', 's']
-
-        for variant in ['xsrbp', 'linocc', 'dumb']:
+        derr = []
+        dcorr = []
+        variants = ['linocc', 'xsrbp']
+        for variant in variants:
             fig, ((ax_err, ax_es), (ax_corr, ax_cs)) = plt.subplots(
                 2, 2, 
                 gridspec_kw=dict(width_ratios=[1, 1]), 
                 figsize=(3.5, 2.5), 
                 sharex='col'
             )
-            self.delta_barplot(
+            de = self.delta_barplot(
                 ax_err, 
                 self.err_std, 
                 getattr(self, f"err_{variant}"),
                 name = variant,
                 func = lambda y0, y1 : np.log2(y0/y1),
                 ax_test=ax_es
-            )
-            self.delta_barplot(
+            )[0]
+            dc = self.delta_barplot(
                 ax_corr, 
                 self.corr_std, 
                 getattr(self, f"corr_{variant}"),
                 name = variant,
                 ax_test=ax_cs
-            )
+            )[0]
+            derr.append(de)
+            dcorr.append(dc)
+
             ax_err.set_xlabel('RBP index')
             ax_err.set_ylabel("model error log2 ratio")
 
             ax_corr.set_xlabel('RBP index')
-            ax_corr.set_ylabel(u"Δ(correlation)")
+            ax_corr.set_ylabel(f"{variant}\nΔ(correlation)")
             if corr_ymax:
                 ax_corr.set_ylim(corr_ymin, corr_ymax)
 
@@ -920,7 +970,7 @@ class ModelComparisons(object):
 
             plt.savefig(f"{variant}_impact.pdf")
 
-        return
+        return derr, dcorr
 
         # fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(
         #     2, 2, 
@@ -999,21 +1049,21 @@ class ModelComparisons(object):
         )
         labels = ['PSAMs only', 'PSAMs + footprint']
 
-        self.delta_barplot(
+        derr = self.delta_barplot(
             ax_err, 
             self.err_std_fp,
             self.err_std, 
             name = "footprint",
             func = lambda y0, y1 : np.log2(y0/y1),
             ax_test=ax_es
-        )
-        self.delta_barplot(
+        )[0]
+        dcorr = self.delta_barplot(
             ax_corr, 
             self.corr_std_fp,
             self.corr_std, 
             name = "footprint",
             ax_test=ax_cs
-        )
+        )[0]
         ax_err.set_xlabel('RBP index')
         ax_err.set_ylabel("model error log2 ratio")
 
@@ -1116,6 +1166,8 @@ class ModelComparisons(object):
         plt.tight_layout()
         plt.savefig("footprint_vs_seqonly.pdf")
         plt.close()
+
+        return derr, dcorr
 
     def footprint_effect(self):
         fig, (ax_kd_change, ax_kd_vs_GC) = plt.subplots(
@@ -1331,9 +1383,9 @@ rbps = np.array(dom_rbps)
 
 
 
-i = (rbps == 'HNRNPA0').argmax()
-rbps = list(rbps)
-rbps.pop(i)
+# i = (rbps == 'HNRNPA0').argmax()
+# rbps = list(rbps)
+# rbps.pop(i)
 # print rbps
 print(len(rbps), "RBPs are being considered")
 pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
@@ -1388,7 +1440,7 @@ pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
 #     xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8),
 #     linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8),
 #     dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
-#     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo8),
+#     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo 8),
 #     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
 # ), rbps=rbps)
 
@@ -1398,27 +1450,89 @@ redo8 = False
 MC = ModelComparisons(variant_dict=dict(
     std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
     single = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8),
-    oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
     xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8),
     linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8),
-    dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
-    std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo=redo8),
-    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval", redo=redo8),
+    # dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
 ), rbps=rbps)
 
-for rbp, n in zip(MC.rbps, MC.n_psams):
-    print(rbp, n)
+# for i in range(len(MC.rbps)):
+#     print(f"{MC.rbps[i]} corr_std {MC.corr_std[i]} corr_linocc {MC.corr_linocc[i]}")
+
+# for rbp, n in zip(MC.rbps, MC.n_psams):
+#     print(rbp, n)
+
+# # cymin = -.1
+# # cymax = .9
+cymin = None
+cymax = None
+derr_multi, dcorr_multi = MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
+derr_struct, dcorr_struct = MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
+(derr_linocc, derr_xsrbp), (dcorr_linocc, dcorr_xsrbp) = MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
+
+
+def barplot(ax, data, labels, sign=1):
+    for l, d in zip(labels, data):
+        # print(l, d)
+        print(l, d.shape, np.nanmin(d), np.nanmax(d), len(d) - np.isfinite(d).sum())
+
+    lo, med, hi = np.array([np.percentile(d, [25, 50, 75]) for d in data]).T
+
+    # med = np.array([np.mean(d) for d in data])
+    # std = np.array([np.std(d) for d in data])
+    # lo = med - std
+    # hi = med + std
+
+    I = (sign * med).argsort()
+
+    lo, med, hi = lo[I], med[I], hi[I]
+    labels = np.array(labels)[I]
+
+    y = np.arange(len(data))
+    ax.barh(y, med, xerr=np.vstack([med - lo, hi - med]), height=.7, error_kw=dict(capsize=2, capthick=.5, elinewidth=.5))
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels)
+    # oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
+
+fig, ax = plt.subplots(figsize=(2, 2))
+labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "RNA\nstructure"]
+barplot(ax, 
+    [dcorr_multi, dcorr_linocc, dcorr_xsrbp, dcorr_struct], 
+    labels,
+)
+ax.set_xlabel("median corr. change")
+ax.set_xticks([0, .05, .1, .15])
+fig.tight_layout()
+fig.savefig('effects_corr.pdf')
+
+fig, ax = plt.subplots(figsize=(2, 2))
+barplot(ax, 
+    [derr_multi, derr_linocc, derr_xsrbp, derr_struct], 
+    labels,
+    sign=-1
+)
+ax.set_xlabel("median model error change, log2")
+ax.set_xticks([0, -.5, -1, -1.5])
+fig.tight_layout()
+fig.savefig('effects_err.pdf')
+
+
+
+MC = ModelComparisons(variant_dict=dict(
+    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
+    lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
+    lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
+), rbps=rbps)
+
 # MC.left_out_single_conc_plot() ## This one is deprecated!
 
 # cymin = -.1
 # cymax = .9
 cymin = None
 cymax = None
-
-MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
 MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
-MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
-MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
+
+
+
 # MC.footprint_plot()
 # MC.footprint_effect()
 
@@ -1432,10 +1546,9 @@ MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
 # d_s7, res_s7 = load_or_make("RBNS/*/RBPamp/std.7.1")
 # d_o, res_o = load_or_make("RBNS/*/RBPamp/std.8.s")
 
-sys.exit(0)
 
-d_s_eval, res_s_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval", redo=redo8  )
-d_std_eval, res_std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo=redo8  )
+# d_s_eval, res_s_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval", redo=redo8  )
+# d_std_eval, res_std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo=redo8  )
 
 
 # runs = {
@@ -1453,28 +1566,29 @@ d_std_eval, res_std_eval = load_or_make("RBNS/*/RBPamp/" + rbase + "_eval", redo
 
 
 # compare_runs(runs, rbps)
-# sys.exit(0)
+sys.exit(0)
 
-err_std, corr_std = np.array([d_std[rbp] for rbp in rbps]).T
-err_s, corr_s = np.array([d_s[rbp] for rbp in rbps]).T
-err_o, corr_o = np.array([d_o[rbp] for rbp in rbps]).T
 
-err_xs, corr_xs = np.array([d_xsrbp[rbp] for rbp in rbps]).T
-err_lo, corr_lo = np.array([d_linocc[rbp] for rbp in rbps]).T
-err_d, corr_d = np.array([d_dumb[rbp] for rbp in rbps]).T
+# err_std, corr_std = np.array([d_std[rbp] for rbp in rbps]).T
+# err_s, corr_s = np.array([d_s[rbp] for rbp in rbps]).T
+# err_o, corr_o = np.array([d_o[rbp] for rbp in rbps]).T
 
-n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
-multi_psam_rbps = rbps[n_psams > 1]
-n_conc = np.array([len(res_std[rbp].nostruct.rbp_conc) for rbp in rbps])
-# print n_psams
-# print np.array(rbps)[n_psams > 1]
+# err_xs, corr_xs = np.array([d_xsrbp[rbp] for rbp in rbps]).T
+# err_lo, corr_lo = np.array([d_linocc[rbp] for rbp in rbps]).T
+# err_d, corr_d = np.array([d_dumb[rbp] for rbp in rbps]).T
 
-err_nostruct = np.array([res_std[rbp].nostruct.err_final for rbp in rbps])
-err_full = np.array([res_std[rbp].full.get("err_final", np.NaN) for rbp in rbps])
+# n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
+# multi_psam_rbps = rbps[n_psams > 1]
+# n_conc = np.array([len(res_std[rbp].nostruct.rbp_conc) for rbp in rbps])
+# # print n_psams
+# # print np.array(rbps)[n_psams > 1]
 
-print("model errors after structure aware gradient descent", err_full)
-corr_nostruct = np.array([res_std[rbp].nostruct.get("best_corr", np.NaN) for rbp in rbps])
-corr_full = np.array([res_std[rbp].full.get("best_corr", np.NaN) for rbp in rbps])
+# err_nostruct = np.array([res_std[rbp].nostruct.err_final for rbp in rbps])
+# err_full = np.array([res_std[rbp].full.get("err_final", np.NaN) for rbp in rbps])
+
+# print("model errors after structure aware gradient descent", err_full)
+# corr_nostruct = np.array([res_std[rbp].nostruct.get("best_corr", np.NaN) for rbp in rbps])
+# corr_full = np.array([res_std[rbp].full.get("best_corr", np.NaN) for rbp in rbps])
 
 
 # left_out_single_conc_plot()

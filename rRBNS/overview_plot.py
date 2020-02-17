@@ -161,9 +161,9 @@ plt.tight_layout()
 plt.savefig('fit_qual.pdf')
 plt.close()
 
-fig, ax = plt.subplots(figsize=(3,2))
+fig, ax = plt.subplots(figsize=(4,2))
 ax.set_xlim(0.5, 1)
-dom_order = ['RRM', 'KH', 'ZNF', 'other', 'mixed']
+dom_order = ['KH', 'ZNF', 'RRM', 'mixed', 'other']
 ax = sns.swarmplot(
     ax=ax,
     orient='h',
@@ -177,15 +177,15 @@ ax = sns.swarmplot(
     palette='viridis_r',
 )
 
-for dom in ['KH', 'ZNF', 'RRM', 'mixed', 'other']:
+for dom in dom_order:
     select = pf[pf['domain'] == dom]
     print(select.sort_values('full__best_corr')[['domain', 'rbp', 'full__best_corr']])
 
 grouped = pf.groupby('domain')
 print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 print((pf[pf.full__best_corr == pf[pf.domain == 'other'].full__best_corr.min()]))
-means_df = grouped.mean()
-print(">>>>>MEANS")
+means_df = grouped.median()
+print(">>>>>MEDIANS")
 print(means_df)
 # print((pf[pf.rbp == 'RBM22']))
 means = means_df['full__best_corr'].loc[dom_order]
@@ -193,6 +193,16 @@ ax.plot(means, np.arange(len(dom_order)), '|r', zorder=np.inf, markersize=15, ma
 sns.despine()
 plt.tight_layout()
 plt.savefig('overview_swarm.pdf')
+
+
+
+
+
+
+
+
+
+
 
 sys.exit(0)
 
