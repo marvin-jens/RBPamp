@@ -145,7 +145,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
     then select at most 3 orders of magnitude around the lowest observed value
     for Brent optimization. Requires pos. valued bounds!
     """
-    from scipy.optimize import minimize_scalar
+    from scipy.optimize import minimize_scalar, OptimizeResult
     import time
     t0 = time.time()
     bmin = bounds.min()
@@ -186,7 +186,19 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
     if debug:
         print("minimize_scalar(bounds=[{bmin}, {bmax}])".format(**locals()))
 
-    res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded', options=options) #, **kwargs)
+    try:
+        res = minimize_scalar(func_or_lookup, bounds = np.array([bmin, bmax]), method='Bounded', options=options) #, **kwargs)
+    except UnboundLocalError:
+        # known issue in scipy triggered if the interval 
+        # is too small for minimize_scaler to actually consider
+        # evaluation of the function. Make up a decent guesstimate.
+        x = (bmax + bmin)/2. # half-point should do
+        res = OptimizeResult(
+            fun=func_or_lookup(x), status=0, success=True,
+            message='Solution found, despite UnboundLocalError',
+            x=x, nfev=1
+        )
+
     t1 = time.time()
     x = sorted(known.keys())
     y = [known[i] for i in x]
