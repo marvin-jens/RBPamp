@@ -87,8 +87,8 @@ if args.txt:
     import matplotlib.pyplot as plt
 
     n_bins = 200
-    reads = RBNSReads(args.txt, rna_conc=args.rna_conc, n_max=1000000)
-    w = np.ones(reads.N) * (reads.rna_conc / reads.N)
+    reads = RBNSReads(args.txt, rna_conc=args.rna_conc, n_max=100000)
+    w = np.ones(reads.N) * (1. / reads.N)
 
     max_Kd = 1e7 # 10 mM
     min_Kd = .1 # 10 pM 
@@ -96,13 +96,20 @@ if args.txt:
     bins = 10 ** np.linspace(np.log10(min_Kd), np.log10(1.1*max_Kd), n_bins)
     x = (bins[1:] + bins[:-1])/2
 
-    xticks = [1, 100, 10000, 1000000]
-    xtick_labels = ["1", "100", "1,000", "10,000", "1E6"]
+    xticks = [10, 100, 1000]
+    xtick_labels = ["10", "", "1,000",]
 
-    plt.figure(figsize=(3,1.5))
-    ax = plt.gca()
+    plt.figure(figsize=(1.5, 1.5))
+
+    fig, (ax_leg, ax) = plt.subplots(nrows=2, figsize=(1.8, 2.25))
+    plt.subplots_adjust(hspace=-.2)
+
     ax.set_xscale('log')
-    for params in models:
+    colors = plt.get_cmap('viridis')(np.linspace(0, 1, num=len(models)))
+
+    leg_items = []
+    leg_labels = []
+    for params, color in zip(models, colors):
         print(params.name, "eval")
         Z1 = reads.PSAM_partition_function(params, full_reads=True)
         Z1_read = Z1.sum(axis=1)
@@ -113,15 +120,22 @@ if args.txt:
             1./(Z1_read), 
             bins=bins, 
             histtype='step', 
+            cumulative=True,
             weights=w,
-            label=params.name,
-        )[0]
+            color=color,
+        )[-1]
+        
+        leg_labels.append(params.name)
+        leg_items.append(Kd_binned[0])
 
-    ax.legend(loc='upper right')
-    ax.set_ylabel('conc in RNA pool [nM]')
+    ax_leg.axis('off')
+    ax_leg.legend(leg_items, leg_labels, loc='lower center', ncol=2)
+
+    ax.set_ylabel('cumulative\nfraction of RNA pool')
     ax.set_xlabel(r'rel. $K_d$')
     # plt.locator_params(axis='x', numticks=3)
 
+    ax.set_xlim(1, 1E4)
     ax.set_xticks(xticks)
     ax.set_xticklabels(xtick_labels)
 
