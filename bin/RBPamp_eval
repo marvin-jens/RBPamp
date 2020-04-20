@@ -30,6 +30,7 @@ def parse_cmdline():
     parser.add_argument("--realm", dest="realm", default='hg19/gencode28')
     parser.add_argument("--maxhit", dest="maxhit", default=False, action="store_true", help="report the window with highest motif score")
     parser.add_argument("--bed", dest="bed", default="", help="scan the records in this BED file")
+    parser.add_argument("--fasta", dest="fasta", default="", help="scan the records in this FASTA file")
     parser.add_argument("--txt", dest="txt", default="", help="scan the sequences in this raw text file")
     parser.add_argument("--hist", dest="hist", default="", help="plot a histogram of affinities")
     parser.add_argument("--rna-conc", dest="rna_conc", default=1000., type=float, help="concentration of RNA in nM (default=1000)")
@@ -42,6 +43,33 @@ def parse_cmdline():
         sys.exit(0)
 
     return args
+
+
+def fasta_chunks(lines, strip=True, fuse=True):
+    chunk = ""
+    data = []
+
+    for l in lines:
+        if l.startswith("#"): continue
+        if l.startswith(">"):
+            if data and chunk:
+                #print chunk
+                yield chunk, "".join(data)
+
+                if strip:
+                    data = []
+                else:
+                    data = [l]
+
+            chunk = l[1:].strip()
+        else:
+            if fuse:
+                data.append(l.rstrip())
+            else:
+                data.append(l)
+
+    if data and chunk:
+        yield chunk, "".join(data)
 
 
 import numpy as np
@@ -59,6 +87,7 @@ else:
 models = [load_model(a) for a in args.models]
 for m, n in zip(models, names):
     m.name = n
+
 
 if args.bed:
     from byo.gene_model import from_bed6
@@ -80,6 +109,14 @@ if args.bed:
             scores = [eval_model(M, seq).sum() for M in models]
             out = [bed.name, len(seq)] + scores
             print("\t".join([str(o) for o in out]))
+
+elif args.fasta:
+    # print('f')
+    for fa_id, seq in fasta_chunks(open(args.fasta)):
+        # print(f"{fa_id} {seq}")
+        scores = [eval_model(M, seq).sum() for M in models]
+        out = [fa_id, len(seq)] + scores
+        print("\t".join([str(o) for o in out]))
 
 if args.txt:
     from RBPamp.reads import RBNSReads
