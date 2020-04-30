@@ -48,7 +48,8 @@ def parse_cmdline():
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
-    parser.add_option("","--fold", dest="folding",default="", help="instead of a normal run, fold all reads and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
+    parser.add_option("","--fold-input", dest="fold_input",default="", help="instead of a normal run, fold all reads in the INPUT sample and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
+    parser.add_option("","--fold-samples", dest="fold_samples",default="", help="instead of a normal run, fold all reads from PULL-DOWN samples and record accessibilities/open-energies for k in the given range. example --fold=1-12 (default=off)")
     parser.add_option("","--acc-scan", dest="acc_scan", default=False, action="store_true",help="SWITCH: scan for high accessibility selection in bound libraries")
     # parser.add_option("","--acc-scale",dest="acc_scale",default=1.,type=float,help="[EXPERIMENTAL] scale unfolding energies")
     parser.add_option("","--openen-discretize", dest="openen_discretize", default="0", choices=["0","8","16"], help="discretize open-energies using <n> bits [8,16] set to 0 to disable (default)")
@@ -451,38 +452,47 @@ class Run(object):
         if not os.path.exists(self.fold_path):
             os.makedirs(self.fold_path)
 
-        kmin, kmax = self.options.folding.split('-')
-        kmin = int(kmin)
-        kmax = int(kmax)
-
-        # fold the reads
-        for reads in self.rbns.reads:
+        def fold_sample(reads, kmin, kmax):
             tracker.set(f'folding {reads.name}')
             n_complete = 0
             n_left = reads.N
             if self.options.resume:
                 n_complete = reads.acc_storage.count_complete_records_range(kmin, kmax)
 
-            if n_complete == reads.N:
-                self.logger.info("skipping {} because accessibilities from k={}..{} have already been computed and stored.".format(reads.name, kmin, kmax))
-                continue
-
-            else:
+            if n_complete < reads.N:
                 perc = 100. * n_complete / reads.N
                 n_left = reads.N - n_complete
                 self.logger.info("{n_complete}/{reads.N} reads already folded ({perc:.2f}%). Folding remaining {n_left} reads".format(**locals()))
 
-            self.logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
-            parallel_fold(
-                reads,
-                n_complete = n_complete,
-                k_min = int(kmin),
-                k_max = int(kmax),
-                n_parallel= self.options.parallel,
-                log_address = self.options.log_remote,
-                log_format = self.log_format, 
-            )
+                self.logger.info("folding {reads.name} ({reads.fname})".format(reads=reads) )
+                parallel_fold(
+                    reads,
+                    n_complete = n_complete,
+                    k_min = int(kmin),
+                    k_max = int(kmax),
+                    n_parallel= self.options.parallel,
+                    log_address = self.options.log_remote,
+                    log_format = self.log_format, 
+                )
+
+            else:
+                self.logger.info("skipped {} because accessibilities from k={}..{} have already been computed and stored.".format(reads.name, kmin, kmax))
+
             tracker.set(f'{reads.name} done')
+            
+        if self.options.fold_input:
+            kmin, kmax = self.options.fold_input.split('-')        
+            fold_sample(self.rbns.reads[0], kmin, kmax)
+
+        if self.options.fold_samples:
+            # fold the reads
+            kmin, kmax = self.options.fold_samples.split('-')
+            kmin = int(kmin)
+            kmax = int(kmax)
+
+            for reads in self.rbns.reads:
+                fold_sample(reads, kmin, kmax)
+
         tracker.set('COMPLETED')
 
     def simulate(self):
@@ -810,7 +820,7 @@ def main():
         from RBPamp.caching import _dump_cache_sizes
         _dump_cache_sizes()
         # npw.report_sizes('main startup')
-        if options.folding:
+        if options.fold_input or options.fold_samples:
             run.fold_reads()
             run.logger.info("folding completed.")
 
