@@ -489,7 +489,7 @@ class ModelParametrization(object):
         if a in attrs:
             return attrs[a].get_values()
         else:
-            return object.__getattr__(self, a)
+            return object.__getattribute__(self, a)
         # return super(ModelParametrization, self).__getattr__(a)
 
     def __setattr__(self, a, v):
