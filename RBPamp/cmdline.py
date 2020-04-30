@@ -490,7 +490,7 @@ class Run(object):
             kmin = int(kmin)
             kmax = int(kmax)
 
-            for reads in self.rbns.reads:
+            for reads in self.rbns.reads[1:]:
                 fold_sample(reads, kmin, kmax)
 
         tracker.set('COMPLETED')
