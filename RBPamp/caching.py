@@ -9,9 +9,10 @@ __email__ = "mjens@mit.edu"
 import os
 import logging
 import numpy as np
-import pickle as pickle
+import pickle
+import shelve
 import hashlib
-
+import functools
 from collections import defaultdict
 cached_objects = defaultdict(dict)
 
@@ -20,6 +21,22 @@ def key_to_hash(key):
 
 def array_to_hash(a):
     return "array_{0}_{1}".format(a.shape, hashlib.md5(a.tobytes()).hexdigest())
+
+def list_to_hash(ll):
+    m = hashlib.sha256()
+    for x in ll:
+        m.update(x)
+
+    return m.hexdigest()
+
+def long_str_to_hash(s, thresh=20):
+    s = str(s)
+    if len(s) < thresh:
+        return s
+    else:
+        m = hashlib.sha256()
+        m.update(s.encode('utf-8'))
+        return m.hexdigest()
 
 def args_to_key(argc, kwargs, self, func_name):
     kw = dict(kwargs)
@@ -44,6 +61,50 @@ def args_to_key(argc, kwargs, self, func_name):
         key = f"{func_name}.{argc_key}.{kw_key}"
     
     return key, kw
+
+
+_load_from_shelf = True
+
+def shelved(sname, depends=[]):
+    def _shelved(func):
+        @functools.wraps(func)
+        def wrapper(self, *argc, **kwargs):
+            # key = f'{self.rbp} {self.cell} detrend={self.detrend} scale={self.scale} predict_on_clip={self.predict_on_clip} expr_cutoff={self.expr_cutoff}__'
+            key_parts = \
+                [sname, ] + \
+                [getattr(self, dep, None) for dep in depends] + \
+                list(argc) + \
+                ["{}={}".format(k, kwargs[k]) for k in sorted(kwargs.keys())]
+
+            key = " ".join([long_str_to_hash(k) for k in key_parts])
+            execute = True
+
+            if key in self.shelf and _load_from_shelf:
+                if kwargs.get('debug', False):
+                    logging.debug(f'shelved(key={key}) loading ')
+                try:
+                    res = self.shelf[key]
+                except Exception as E:
+                    logging.error(f"caught exception {E}")
+                else:
+                    execute = False
+                
+                # if res is not None:
+                #     a = res.sum()
+                # else:
+                #     a = None
+
+                # print("hit", sname, gene_id, a)
+                # print("got {key} from shelf: {res}".format(**locals()))
+            if execute:
+                res = func(self, *argc, **kwargs)
+                self.shelf[key] = res
+                if kwargs.get('debug', False):
+                    logging.debug(f'shelved(key={key}) storing ')
+            return res
+        
+        return wrapper
+    return _shelved
 
 def get_cache_sizes():
     cache_size = []
@@ -82,6 +143,14 @@ class CachedBase(object):
                 setattr(self, k, v)
 
         #self._do_not_cache = True # DEBUG!!
+
+    def init_shelf(self, param_key):
+        self.param_key = param_key
+        self.shelf = shelve.open(
+            "{self.param_key}_shelf".format(self=self),
+            protocol=-1, 
+            flag = 'c'
+        )
 
     def __dump_cache_inventory(self):
         import sys
