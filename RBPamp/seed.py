@@ -25,7 +25,7 @@ class Alignment(object):
         self.ofs = []
         self.weights = []
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, min_overlap=1, core_k=None, core_start=None, debug=False):
+    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, end_ignore=False, min_overlap=1, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
@@ -52,19 +52,19 @@ class Alignment(object):
             
             if multiply:
                 start_avg = 1.
-                if m_start:
+                if m_start and not end_ignore:
                     start_avg = func(self.matrix[:m_start], axis=1).prod()
                 
                 end_avg = 1.
-                if m_end < n:
+                if m_end < n and not end_ignore:
                     end_avg = func(self.matrix[m_end:], axis=1).prod()
             else:
                 start_avg = 0
-                if m_start:
+                if m_start and not end_ignore:
                     start_avg = func(self.matrix[:m_start], axis=1).sum()
 
-                end_avg = 1.
-                if m_end < n:
+                end_avg = 0.  # Arg, there was a bug here! Redo?
+                if m_end < n and not end_ignore:
                     end_avg = func(self.matrix[m_end:], axis=1).sum()
 
 

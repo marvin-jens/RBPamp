@@ -290,13 +290,13 @@ class PSAM(object):
         return sorted(matches, reverse=True)[:n_max]
 
 
-    def align(self, kmer):
+    def align(self, kmer, **kw):
         """ slide kmer over matrix and classify best, gapless alignment"""
         from RBPamp.seed import Alignment
         A = Alignment()
         A.matrix = self.psam
         
-        ofs, score = A.align(kmer, multiply=True)
+        ofs, score = A.align(kmer, multiply=True, **kw)
         # frac = score / (self.n - abs(ofs) )
 
         # if ofs == 0:
