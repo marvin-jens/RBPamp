@@ -453,6 +453,9 @@ class Run(object):
             os.makedirs(self.fold_path)
 
         def fold_sample(reads, kmin, kmax):
+            kmin = int(kmin)
+            kmax = int(kmax)
+
             tracker.set(f'folding {reads.name}')
             n_complete = 0
             n_left = reads.N
@@ -487,9 +490,6 @@ class Run(object):
         if self.options.fold_samples:
             # fold the reads
             kmin, kmax = self.options.fold_samples.split('-')
-            kmin = int(kmin)
-            kmax = int(kmax)
-
             for reads in self.rbns.reads[1:]:
                 fold_sample(reads, kmin, kmax)
 
