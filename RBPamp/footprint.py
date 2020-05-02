@@ -372,7 +372,7 @@ class FootprintCalibration(CachedBase):
 
         for acc_k in range(kmax, kmin - 1, -1):
             d = self.params.k - acc_k + 1
-            shift_range = range(-pad, d + pad)
+            shift_range = range(-pad, max(d + pad, 2)) # maybe better but don't read over adapter into next read!!!
             for s, (punp_predict, res) in zip(shift_range, self.optimize_row(acc_k, shift_range, from_scratch)):
                 err = res.fun
                 err0 = self.load_shelve('err0')
