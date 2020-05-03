@@ -78,7 +78,7 @@ def parse_cmdline():
     # accessibility footprint analysis
     parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
     parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
-    parser.add_option("","--footprint-min-overlap", dest="fp_min_ov", default=.2, type=float, help="minimum overlap between footprint and PSAM as fraction of footprint (default=.2)")
+    parser.add_option("","--footprint-min-overlap", dest="fp_min_ov", default=.5, type=float, help="minimum overlap between footprint and PSAM as fraction of footprint (default=.2)")
     # parser.add_option("","--footprint-min-scale", dest="fp_min_a", default=.05, type=float, help="minimum footprint scaling factor to keep footprint. 0=accessibility has no effect, 1=RNAfold  (default=.05)")
     parser.add_option("","--footprint-max-error", dest="fp_max_err", default=.90, type=float, help="maximum rel. footprint error acceptable to keep footprint")
     parser.add_option("","--top-kmer-acc", dest="top_kmer_acc", default=0, type=int, help="generate enrichment vs. accessibility data for top kmers (default=0 [off])")
