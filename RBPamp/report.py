@@ -1673,7 +1673,7 @@ class FootprintCalibrationReport(ReportBase):
             self.matrix_plots(params.motif, highlight=(params.acc_k, params.acc_shift))
             self.plot_profile(params.motif, params.acc_k, params.acc_shift)
         
-    def get_matrix_data(self, motif, k_range=(1, 14), s_range=(-10, 20)):
+    def get_matrix_data(self, motif, k_range=(1, 21), s_range=(-10, 20)):
         kmin, kmax = k_range
         smin, smax = s_range
 
@@ -1688,7 +1688,7 @@ class FootprintCalibrationReport(ReportBase):
                 key = "{motif}_{k}_{s}".format(**locals())
                 if key in self.shelve[motif]:
                     err, k, s, a, A0 = self.shelve[motif][key]
-                    # print k,s, '->', err/err0, a
+                    # print(k,s, '->', err/err0, a)
                     k_found.add(k)
                     s_found.add(s)
                 else:
@@ -1727,17 +1727,23 @@ class FootprintCalibrationReport(ReportBase):
             rect = patches.Rectangle(
                 (s-.5-smin, k-.5-kmin), 
                 1, 1,
-                linewidth=2,
+                linewidth=1.5,
                 edgecolor='r',
                 facecolor='none',
                 label='optimum'
             )
             return rect
 
-        fig = plt.figure(figsize=(3,3))
+        fig = plt.figure(figsize=(4,4))
         if highlight:
             k, s = highlight
         # fig.suptitle("accessibility footprint analysis")
+        def doticks(stride=5):
+            sr = np.arange(smin, smax + 1, stride)
+            kr = np.arange(kmin, kmax + 1, stride)
+            plt.xticks(sr - smin, [str(s) for s in sr])
+            plt.yticks(kr - kmin, [str(k) for k in kr])
+
         plt.subplot(211)
         plt.imshow(1./mat_err.T, interpolation='none', cmap="viridis", origin='lower')
         if highlight:
@@ -1746,9 +1752,7 @@ class FootprintCalibrationReport(ReportBase):
         sane_colorbar(plt.colorbar(label=r'fold error reduction', fraction=.05, shrink=.75, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
-
-        plt.xticks(np.arange(n_shift), [str(s) for s in range(smin, smax + 1)])
-        plt.yticks(np.arange(n_k), [str(k) for k in range(kmin, kmax + 1)])
+        doticks()
         # plt.ylim(kmin, kmax + 1)
 
         plt.subplot(212)
@@ -1759,9 +1763,7 @@ class FootprintCalibrationReport(ReportBase):
         sane_colorbar(plt.colorbar(label=r'accessibility scaling', fraction=.05, shrink=.5, aspect=20))
         plt.ylabel("footprint size [nt]")
         plt.xlabel("footprint shift [nt]")
-
-        plt.xticks(np.arange(n_shift), [str(s) for s in range(smin, smax + 1)])
-        plt.yticks(np.arange(n_k), [str(k) for k in range(kmin, kmax + 1)])
+        doticks()
         # plt.ylim(kmin, kmax + 1)
 
         plt.tight_layout()
