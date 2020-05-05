@@ -940,6 +940,7 @@ def parallel_fold(reads, n_complete=0, n_parallel=8, skip_records=0, k_min=1, k_
     
     n_left = reads.N - n_complete
     kwargs['n_left'] = n_left
+    kwargs['n_max'] = n_left
     kwargs['n_complete'] = n_complete
 
     dispatcher = multiprocessing.Process(
