@@ -76,7 +76,7 @@ def parse_cmdline():
     parser.add_option("", "--seed-keep-weight", dest="seed_keep_weight", default=.99, type=float, help="how much total PSAM weight to keep when building final --max-width nt wide matrix (default=.99)")
 
     # accessibility footprint analysis
-    parser.add_option("","--footprint-k", dest="footprint", default="5-12", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-12)")
+    parser.add_option("","--footprint-k", dest="footprint", default="5-20", help="size range [nt] to search for ideal accessibility footprint (default: --footprint-k=5-20)")
     parser.add_option("","--footprint-motif", dest="fp_num", default=0, type=int, help="which motif number to compute the footprint on (default=0 [all])")
     parser.add_option("","--footprint-min-overlap", dest="fp_min_ov", default=.5, type=float, help="minimum overlap between footprint and PSAM as fraction of footprint (default=.2)")
     # parser.add_option("","--footprint-min-scale", dest="fp_min_a", default=.05, type=float, help="minimum footprint scaling factor to keep footprint. 0=accessibility has no effect, 1=RNAfold  (default=.05)")
