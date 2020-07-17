@@ -524,7 +524,7 @@ class Run(object):
             path = os.path.abspath(os.path.join(self.run_path, path))
             try:
                 self.logger.info("attempting to resume parameters from '{}'".format(path))
-                self.params = ModelSetParams.load(path, self.rbns.n_samples, max_motifs=self.options.max_motifs)
+                self.params = ModelSetParams.load(path, self.rbns.n_samples, max_motifs=self.options.max_motifs, sort=False)
             except IOError:
                 self.logger.info("not found")
                 self.params = None
@@ -543,7 +543,7 @@ class Run(object):
         stage_output = {
             'seed' : os.path.join(self.rbns.out_path, 'seed/initial.tsv'),
             'opt_nostruct' : os.path.join(self.rbns.out_path, 'opt_nostruct/optimized.tsv'),
-            'footprint' : os.path.join(self.rbns.out_path, 'footprint/parameters.tsv'),
+            'footprint' : os.path.join(self.rbns.out_path, 'footprint/calibrated.tsv'),
             'opt_struct' : os.path.join(self.rbns.out_path, 'opt_struct/optimized.tsv'),
         }
         import datetime
@@ -657,7 +657,7 @@ class Run(object):
             )
             # print "trying to load", fname
             if os.path.exists(fname):
-                return list(ModelParametrization.load(fname, self.rbns.n_samples))[0]
+                return list(ModelParametrization.load(fname, self.rbns.n_samples, sort=False))[0]
             else:
                 # print "not found"
                 return None

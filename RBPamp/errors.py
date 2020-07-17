@@ -24,7 +24,7 @@ class PSAMErrorEstimator(object):
         else:
             self.max_t = max_t
 
-        self.logger.debug("max_t={}".format(self.max_t))
+        self.logger.debug(f"{self.descentpath} max_t={self.max_t}")
 
     def find_max_t(self):
         if self.shelve is None:
