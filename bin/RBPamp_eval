@@ -84,7 +84,7 @@ if args.maxhit:
 else:
     print("\t".join(['# name','length'] + names))
 
-models = [load_model(a) for a in args.models]
+models = [load_model(a, sort=True) for a in args.models]
 for m, n in zip(models, names):
     m.name = n
 
@@ -133,13 +133,14 @@ if args.txt:
     bins = 10 ** np.linspace(np.log10(min_Kd), np.log10(1.1*max_Kd), n_bins)
     x = (bins[1:] + bins[:-1])/2
 
-    xticks = [10, 100, 1000]
-    xtick_labels = ["10", "", "1,000",]
+    xticks = [1, 10, 100, 1000, 10000, 100000]
+    # xtick_labels = ["1", "", r"$10^2$", "", r"$10^4$", "", "", ""]
+    xtick_labels = ["", "10", "", r"$10^3$", "", r"$10^5$"]
 
-    plt.figure(figsize=(1.5, 1.5))
+    # plt.figure(figsize=(1.5, 1.5))
+    # plt.subplots_adjust(hspace=-.2)
 
     fig, (ax_leg, ax) = plt.subplots(nrows=2, figsize=(1.8, 2.25))
-    plt.subplots_adjust(hspace=-.2)
 
     ax.set_xscale('log')
     colors = plt.get_cmap('viridis')(np.linspace(0, 1, num=len(models)))
@@ -172,9 +173,9 @@ if args.txt:
     ax.set_xlabel(r'rel. $K_d$')
     # plt.locator_params(axis='x', numticks=3)
 
-    ax.set_xlim(1, 1E4)
     ax.set_xticks(xticks)
     ax.set_xticklabels(xtick_labels)
+    ax.set_xlim(1, 1E6)
 
     plt.tight_layout()
     plt.savefig('hists.pdf')
