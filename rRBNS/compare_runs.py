@@ -1,7 +1,7 @@
-# -*- coding: future_fstrings -*-
 from __future__ import print_function
 import re, glob, sys, os
 import numpy as np
+import pandas as pd
 import shelve
 import logging
 import RBPamp.report
@@ -24,6 +24,25 @@ bpkw = dict(
     vert=True,  # vertical box alignment
     patch_artist=True,  # fill with color
 )
+
+def n_motifs_dominguez():
+    rbps = {}
+    for line in open("dominguez_S3.csv"):
+        parts = line.rstrip().split('\t')
+
+        rbp = parts[0]
+        if rbp == "RBP":
+            continue
+
+        if rbp == "RALY":
+            rbp == "RALYL" # HOTFIX, need to find out the proper name!
+
+        for p in parts[5:]:
+            # print(p)
+            n = p.split('_')[1]
+            rbps[rbp] = int(n)
+    
+    return rbps
 
 class Results(object):
     def __init__(self, **kw):
@@ -519,6 +538,10 @@ class ModelComparisons(object):
     def __init__(self, variant_dict, rbps=RBPamp.dominguez_rbps, labels=None):
         self.logger = logging.getLogger('ModelComparisons')
         self.rbps = np.array(rbps)
+        self.rbp_map = {}
+        for i, rbp in enumerate(self.rbps):
+            self.rbp_map[rbp] = i
+
         self.variants = variant_dict.keys()
         # assert "std" in variant_dict # baseline ref
 
@@ -626,10 +649,10 @@ class ModelComparisons(object):
                 s_better += 1
             else:
                 lo_better +=1 
-            print(f"{rbp} lo_corr={self.res_lo_eval[rbp].nostruct.best_corr} single_corr={self.res_single_eval[rbp].nostruct.best_corr}")
+            # print(f"{rbp} lo_corr={self.res_lo_eval[rbp].nostruct.best_corr} single_corr={self.res_single_eval[rbp].nostruct.best_corr}")
             comparable_rbps.append(rbp)
             # lratios.append(lratio)
-            print(f"s_better={s_better} lo_better={lo_better}")
+            # print(f"s_better={s_better} lo_better={lo_better}")
 
     # for rbp in sorted(comparable_rbps.keys()):
     #     sample_idx = comparable_rbps[rbp]
@@ -724,6 +747,68 @@ class ModelComparisons(object):
         plt.tight_layout()
         plt.savefig("PSAM_set.pdf")
         plt.close()
+
+    def single_multi_bipartite(self, corr_ymin=None, corr_ymax=None):
+        assert "single" in self.variants
+        fig, ((ax_err, ax_ebp), (ax_corr, ax_cbp)) = plt.subplots(2, 2, gridspec_kw=dict(width_ratios=[1, 1]), figsize=(3.5, 2.5), sharex='col')
+        
+        df = pd.read_csv('dominguez_bipartite_preference.tsv', sep='\t', header=0, names=['rbp', 'preference', 'shape'])
+        # df['bipartite'] = (df['preference'] == "YES") #| (df['preference'] == "YES, BUT NOT SIG")
+        df['bipartite'] = (df['shape'] == "do") | (df['shape'] == "up-do")
+        # df['bipartite'] = (df['shape'] == "up") | (df['shape'] == "do-up")
+
+
+        pos_rbps = df.query('bipartite == True')['rbp']
+        neg_rbps = df.query('bipartite == False')['rbp']
+
+        pos_I = np.array([self.rbp_map[rbp] for rbp in pos_rbps])
+        neg_I = np.array([self.rbp_map[rbp] for rbp in neg_rbps])
+
+        n = self.n_psams
+        print("median number of PSAMs for bipartite", np.median(n[pos_I]))
+        print("median number of PSAMs for NOT bipartite", np.median(n[neg_I]))
+        print("mean number of PSAMs for bipartite", np.mean(n[pos_I]))
+        print("mean number of PSAMs for NOT bipartite", np.mean(n[neg_I]))
+
+        # print(neg_rbps)
+
+        ## per RBP errors as dots/triangles. Upper left panel
+        emulti = self.err_std
+        esingle = self.err_single
+
+        dmulti = self.corr_std
+        dsingle = self.corr_single
+
+        derr = np.log2(emulti/esingle)
+        dcorr = dmulti - dsingle
+
+        print("\n".join([str(t) for t in zip(self.rbps[pos_I], n[pos_I], derr[pos_I], dcorr[pos_I])]))
+        n_p = n[pos_I]
+        n_n = n[neg_I]
+
+        d_p = derr[pos_I]
+        d_n = derr[neg_I]
+        c_p = dcorr[pos_I]
+        c_n = dcorr[neg_I]
+        
+        from scipy.stats import binom_test, mannwhitneyu, ttest_ind, ttest_1samp
+        print("number of PSAMs", mannwhitneyu(n_p, n_n, alternative='two-sided'), ttest_ind(n_p, n_n))
+        print("derr", mannwhitneyu(d_p, d_n, alternative='two-sided'), ttest_ind(n_p, n_n))
+        print("dcorr", mannwhitneyu(c_p, c_n, alternative='two-sided'), ttest_ind(c_p, c_n))
+
+        # print(sorted(n_p))
+        # print(sorted(n_n))
+        # print(sorted(d_p))
+        # print(sorted(d_n))
+
+        # derr = self.delta_barplot(
+        #     ax_err, 
+        #     emulti, 
+        #     esingle,
+        #     name = "multi PSAM error",
+        #     func = lambda y0, y1 : np.log2(y0/y1),
+        #     # ax_test=ax_es
+        # )[0]
 
     def single_multi_PSAMS(self, corr_ymin=None, corr_ymax=None):
         assert "single" in self.variants
@@ -1197,7 +1282,8 @@ class ModelComparisons(object):
 
     def footprint_plot(self):
         pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/footprint/parameters.tsv"
-        params_dict = load_fp_calibrated_params(pattern, self.rbps, "z4t75p01k99fix", plot=True)
+        # params_dict = load_fp_calibrated_params(pattern, self.rbps, "z4t75p01k99fix", plot=True)
+        params_dict = load_fp_calibrated_params(pattern, self.rbps, "py3", plot=True)
         self.fp_cal_params = params_dict
         self.params_GC = {}
 
@@ -1219,6 +1305,7 @@ class ModelComparisons(object):
         n_all_bad = 0
         n_overlap = 0
         motif_rbps = []
+        motif_names = []
         for rbp in self.rbps:
             re = []
             sc = []
@@ -1227,7 +1314,7 @@ class ModelComparisons(object):
             k = []
             s = []
             print(rbp)
-            for par in params_dict[rbp].param_set:
+            for ip, par in enumerate(params_dict[rbp].param_set):
                 re.append(par.rel_err)
                 sc.append(par.acc_scale)
                 gc.append(par.as_PSAM().fraction_GC)
@@ -1236,6 +1323,8 @@ class ModelComparisons(object):
                 overlap = min(par.acc_k + min(par.acc_shift, 0), min((par.k - par.acc_shift), par.acc_k))
                 print(f"acc_k={par.acc_k}, acc_shift={par.acc_shift}, n={par.k} -> overlap={overlap}nt")
                 ov.append(overlap/float(par.acc_k))
+
+                motif_names.append(f"{rbp}.{ip}")
 
             re = np.array(re)
             sc = np.array(sc)
@@ -1278,12 +1367,13 @@ class ModelComparisons(object):
         min_overlap = np.array(min_overlap)
         mean_overlap = np.array(mean_overlap)
         mean_acc_k = np.array(mean_acc_k)
+        motif_names = np.array(motif_names)
 
-        print(mean_rel_errors)
-        print(mean_acc_scales)
-        print(mean_GC)
-        print(mean_acc_k)
-        print(mean_overlap)
+        print("mean rel errors", mean_rel_errors)
+        print("mean acc scales", mean_acc_scales)
+        print("mean GC", mean_GC)
+        print("mean acc_k", mean_acc_k)
+        print("mean overlap", mean_overlap)
 
         all_rel_err = np.concatenate(rel_errors)
         all_acc_k = np.concatenate(acc_k)
@@ -1293,9 +1383,19 @@ class ModelComparisons(object):
         all_GC = np.concatenate(GC)
 
         MIN_a = .05
-        MIN_ov = .2
-        M = (all_acc_a > MIN_a) & (all_ov > MIN_ov) # (all_rel_err < .8) &
+        MIN_ov = .5
+        M = (all_ov > MIN_ov) & (all_rel_err < .9) #
+
+        I = all_rel_err.argsort()
         print(M.sum(), "motifs make the cut out of", len(M))
+        print(motif_names[M])
+
+        for motif, re in zip(motif_names[I][M[I]], all_rel_err[I]):
+            print(f"{re:.4f} {motif}")
+            
+        print("these guys failed")
+        print(motif_names[~M])
+
         motif_rbps = np.array(motif_rbps)
         from collections import defaultdict
         failcount = defaultdict(int)
@@ -1319,7 +1419,7 @@ class ModelComparisons(object):
         ax_hist_scale.axvline(MIN_a, color='r')
         ax_hist_scale.set_ylabel('# motifs')
 
-        size_bins = np.arange(4,13) + .5
+        size_bins = np.arange(4, 21) + .5
         # kcount = np.bincount(all_acc_k, minlength=14)
         ax_hist_k.hist([all_acc_k[M], all_acc_k[~M]], bins=size_bins, histtype='stepfilled', stacked=True)
         ax_hist_k.set_xlabel('FP size [nt]')
@@ -1389,8 +1489,12 @@ rbps = np.array(dom_rbps)
 # print rbps
 print(len(rbps), "RBPs are being considered")
 pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
-# n_PSAM_significance(pattern, rbps, "z4t75p01k99fix", plot=True)
+
+# # Figure 1
+n_PSAM_significance(pattern, rbps, "py3", plot=True)
+# n_PSAM_significance(pattern, rbps, "seed_r1", plot=True)
 # sys.exit(0)
+
 # # n_PSAM_significance(pattern, rbps, "sgd", plot=True)
 # # n_PSAM_significance(pattern, rbps, "CI", plot=True)
 # # n_PSAM_significance(pattern, rbps, "seed_z4_thresh_8", plot=True)
@@ -1443,7 +1547,6 @@ pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
 #     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo 8),
 #     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
 # ), rbps=rbps)
-
 rbase = "py3"
 redo8 = False
 
@@ -1465,6 +1568,8 @@ MC = ModelComparisons(variant_dict=dict(
 # # cymax = .9
 cymin = None
 cymax = None
+# MC.single_multi_bipartite(corr_ymin=cymin, corr_ymax=cymax)
+MC.footprint_plot()
 derr_multi, dcorr_multi = MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
 derr_struct, dcorr_struct = MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
 (derr_linocc, derr_xsrbp), (dcorr_linocc, dcorr_xsrbp) = MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
@@ -1486,12 +1591,16 @@ def barplot(ax, data, labels, sign=1):
 
     lo, med, hi = lo[I], med[I], hi[I]
     labels = np.array(labels)[I]
+    data = np.array(data)[I]
 
     y = np.arange(len(data))
-    ax.barh(y, med, xerr=np.vstack([med - lo, hi - med]), height=.7, error_kw=dict(capsize=2, capthick=.5, elinewidth=.5))
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels)
+    # ax.barh(y, med, xerr=np.vstack([med - lo, hi - med]), height=.7, error_kw=dict(capsize=2, capthick=.5, elinewidth=.5))
+    # ax.set_yticks(y)
+    # ax.set_yticklabels(labels)
+    bp = ax.boxplot(data, vert=False, labels=labels, showfliers=False, patch_artist=True)
     # oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
+    for patch in bp['boxes']:
+        patch.set_facecolor("gainsboro")
 
 fig, ax = plt.subplots(figsize=(2, 2))
 labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "RNA\nstructure"]
@@ -1500,7 +1609,7 @@ barplot(ax,
     labels,
 )
 ax.set_xlabel("median corr. change")
-ax.set_xticks([0, .05, .1, .15])
+ax.set_xticks([0, .1, .2, ])
 fig.tight_layout()
 fig.savefig('effects_corr.pdf')
 
@@ -1511,7 +1620,7 @@ barplot(ax,
     sign=-1
 )
 ax.set_xlabel("median model error change, log2")
-ax.set_xticks([0, -.5, -1, -1.5])
+ax.set_xticks([0, -1, -2])
 fig.tight_layout()
 fig.savefig('effects_err.pdf')
 
