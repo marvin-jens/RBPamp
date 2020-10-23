@@ -67,6 +67,7 @@ class PSAMErrorEstimator(object):
             t_ref = self.max_t
 
         params0 = self.get("params", 0)
+        pd0 = params0.get_data()
         params, stats = self.load_data()
         mdl_errors = np.array([s.error for s in stats])
         
@@ -78,7 +79,10 @@ class PSAMErrorEstimator(object):
             return
 
         self.logger.debug("esimating errors from n={0} data points for reference t={1}".format(len(I), t_ref))
-        param_data = np.array([par.get_data() for par in params[I]])
+        param_data = [par.get_data() for par in params[I]]
+        param_data = np.array([pd for pd in param_data if pd.shape == pd0.shape])
+
+        # print(param_data.shape, param_data.dtype)
         params_q = np.percentile(param_data, self.q, axis=0)
 
         p_q = [params0.copy().set_data(perc) for perc in params_q]
