@@ -88,11 +88,13 @@ bpcorr = sns.boxplot(
 # bpcorr.set_xticklabels(bpcorr.get_xticklabels(), rotation=90)
 
 print((pf.groupby(['domain'])[ ['domain', 'full__best_corr'] ]))
-medians = pf.groupby(['domain'])['full__best_corr'].median().values
-print(("median correlations", medians, pf['full__best_corr'].median()))
+pf_exc = pf.query("rbp not in ['ZNF326', 'RC3H1', 'RBM22']")
+medians = pf_exc.groupby(['domain'])['full__best_corr'].median().values
+print(("median correlations excluding ZNF326, RBM22, and RC3H1", medians, pf_exc['full__best_corr'].median()))
 folds = pf.groupby(['domain'])['fold_error'].median().values, pf['fold_error'].median()
 print(("median fold error reductions", folds))
 # for dom, med in zip(domain_order, )
+print(pf.query('rbp == "TRA2A"'))
 plt.tight_layout()
 sns.despine()
 plt.savefig('fit_corr.pdf')
@@ -161,6 +163,8 @@ plt.tight_layout()
 plt.savefig('fit_qual.pdf')
 plt.close()
 
+
+
 fig, ax = plt.subplots(figsize=(4,2))
 ax.set_xlim(0.5, 1)
 dom_order = ['KH', 'ZNF', 'RRM', 'mixed', 'other']
@@ -194,6 +198,43 @@ sns.despine()
 plt.tight_layout()
 plt.savefig('overview_swarm.pdf')
 
+
+
+
+
+fig, ax = plt.subplots(figsize=(4,2))
+# ax.set_xlim(0.5, 1)
+dom_order = ['KH', 'ZNF', 'RRM', 'mixed', 'other']
+ax.set_xscale('log')
+ax = sns.swarmplot(
+    ax=ax,
+    orient='h',
+    data=pf,
+    size=4.,
+    x='fold_error', 
+    y='domain', 
+    order = dom_order,
+    hue='max_R', 
+    hue_order = ['20+','5-20','2-5','1-2'],
+    palette='viridis_r',
+)
+
+for dom in dom_order:
+    select = pf[pf['domain'] == dom]
+    print(select.sort_values('fold_error')[['domain', 'rbp', 'fold_error']])
+
+grouped = pf.groupby('domain')
+print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+print((pf[pf.fold_error == pf[pf.domain == 'other'].fold_error.min()]))
+means_df = grouped.median()
+print(">>>>>MEDIANS")
+print(means_df)
+# print((pf[pf.rbp == 'RBM22']))
+means = means_df['fold_error'].loc[dom_order]
+ax.plot(means, np.arange(len(dom_order)), '|r', zorder=np.inf, markersize=15, markeredgewidth=1.5, solid_capstyle='round', dash_capstyle='round')
+sns.despine()
+plt.tight_layout()
+plt.savefig('overview_swarm_error.pdf')
 
 
 
