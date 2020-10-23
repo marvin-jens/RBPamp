@@ -86,7 +86,7 @@ class ModelSetParams(object):
 
     @property
     def acc_k(self):
-        return self.param_set[0].A0
+        return np.array([p.acc_k for p in self.param_set])
 
     @acc_k.setter
     def acc_k(self, value):
