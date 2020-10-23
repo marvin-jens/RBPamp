@@ -1,11 +1,9 @@
-# coding=future_fstrings
-from __future__ import print_function
-
 import sys
-import os
 import numpy as np
 import RBPamp
 import RBPamp.cyska as cyska
+import logging
+logger = logging.getLogger(f"RBPamp.{__name__}")
 
 bases = np.array(list('ACGU'))
 base_idx = { 
@@ -167,9 +165,7 @@ class PSAM(object):
         self.psam /= M
         cond = (self.psam.max(axis=1) == 1).all()
         if not cond:
-            print("FCKP")
-            print(self.psam)
-        assert cond
+            logger.warning(f"invalid matrix elementes in PSAM {self.psam}")
         
         self.A0 = A0
         self.n = len(psam)
@@ -293,6 +289,10 @@ class PSAM(object):
     def align(self, kmer, **kw):
         """ slide kmer over matrix and classify best, gapless alignment"""
         from RBPamp.seed import Alignment
+        if np.allclose(self.psam, 0) or not np.isfinite(self.psam).all():
+            logger.warning(f"invalid values in PSAM detected during call to align() {self.psam}")
+            return 0, -np.inf
+
         A = Alignment()
         A.matrix = self.psam
         
