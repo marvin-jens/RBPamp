@@ -919,6 +919,15 @@ class GradientDescentReport(ReportBase):
             self.plot_affinity_dists(params, name=name)
 
     def plot_affinity_dists(self, params, k_fit=6, name=""):
+        xticks = [1, 10, 100, 1000, 10000]
+        xtick_labels = ["1", "", "$10^2$", "", "$10^4$"]
+
+        def set_x_rel_Kd(ax, xmin=1, xmax=10000):
+            ax.set_xlabel(f'{self.rbns.rbp_name} rel. $K_d$')
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xtick_labels)
+            ax.set_xlim(xmin, xmax)
+
         from RBPamp.partfunc import PartFuncModel
         gradient = np.linspace(.3, 1., len(self.rbns.reads) -1)
         data_colors = plt.get_cmap("YlOrBr")(gradient) # highest conc == darkest color
@@ -938,121 +947,138 @@ class GradientDescentReport(ReportBase):
             states.append(state)
                 
         max_A = max([s.Z1_read.max() for s in states]) * params.A0
-        min_A = min([np.percentile(s.Z1_read, 1) for s in states]) * params.A0
-        bins = 10 ** np.linspace(np.log10(min_A), np.log10(1.1*max_A), 100)
+        min_A = min([s.Z1_read.min() for s in states]) * params.A0
+        bins = 10 ** np.linspace(np.log10(min_A), np.log10(1.1 * max_A), 100)
         x = (bins[1:] + bins[:-1])/2
-
-        sround = lambda x,p: float(f'%.{p-1}e' % x)
-        xticks = [x[5], x[50], x[95]]
-        xtick_labels = [sround(t, 1) for t in xticks]
-        xticks = [float(l) for l in xtick_labels]
-        print("xticks", xtick_labels)
-
+        x_ = 1./(x/params.A0)  # rel. Kd
 
         ref = states[0]
         w = np.ones(len(ref.Z1_read)) * (inr.rna_conc / inr.N)
         # print(w)
         ## plot affinity distribution of binding sites in RNA pool
-        plt.figure(figsize=(5,1.5))
-        ax = plt.subplot(131)
-        ax.set_xscale('log')
-        A_binned = ax.hist(
+        
+        
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(5,1.5), sharex=True, gridspec_kw=dict(wspace=0.6, hspace=0.3, bottom=.3, top=.95))
+        ax1.set_xscale('log')
+        # ax2.set_xscale('log')
+        # ax3.set_xscale('log')
+
+        A_binned = np.histogram(
             ref.Z1_read * params.A0, 
             bins=bins, 
-            histtype='step', 
             weights=w, 
         )[0]
+        ax1.step(x_, A_binned) # bin by affinity but plot by rel. Kd
         # ax.legend(loc='upper right')
-        ax.set_ylabel('conc in RNA pool [nM]')
-        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
-        # plt.locator_params(axis='x', numticks=3)
+        ax1.set_ylabel('estimated RNA\nin pool [nM]')
 
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xtick_labels)
-        
+
         A_binned = np.array(A_binned)
 
-        ax = plt.subplot(132)
-        ax.set_xscale('log')
         print("RBP free", ref.rbp_free)
         for free, color, reads in zip(ref.rbp_free, data_colors, self.rbns.reads[1:]):
             pb = 1 / (1 + 1 / (x * free))
-            ax.plot(x, pb, color=color, label=reads.name, solid_capstyle='round')
+            ax2.plot(x_, pb, color=color, label=reads.name, solid_capstyle='round')
         
+        ax2.set_ylabel('predicted\noccupancy')
         # ax.legend(loc='lower right')
-        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xtick_labels)
-        ax.set_ylabel('occupancy')
         # plt.locator_params(axis='x', numticks=3)
         complex_binned = []
         ## plot predicted affinity distribution of bound sequences
-        ax = plt.subplot(133)
-        ax.set_xscale('log')
+        # ax = plt.subplot(133)
         complex_conc, non_specific = ref.concentrations
+
+        bins_rel_Kd = 10**np.linspace(-3, 6, 100)
+        # print(f"bins_Kd: {bins_rel_Kd}")
+        x_Kd = (bins_rel_Kd[1:] + bins_rel_Kd[:-1])/2
+
         for reads, psi, cc, color in zip(self.rbns.reads[1:], ref.psi, complex_conc, data_colors):
-            b_binned = ax.hist(
+            w = psi * (cc / inr.N)
+            b_binned = np.histogram(
                 ref.Z1_read * params.A0,
                 bins=bins,
-                histtype='step',
-                # weights=psi * cc / psi.sum(),
-                weights=psi / psi.sum(),
-                color=color,
-                label=reads.name,
+                weights=w
             )[0]
             complex_binned.append(np.array(b_binned))
 
+            b_density = np.histogram(
+                1./ref.Z1_read,
+                bins=bins_rel_Kd,
+                weights=psi / psi.sum(),
+                density=True,
+            )[0]
+            # Zt = np.trapz(b_density, x_Kd)
+            # print(f"density integral: {Zt}")
+            ax3.step(x_Kd, b_density,  # b_density,
+                color=color,
+                label=reads.name,
+            )
+            # print(f"b_density, {b_density}")
         # ax.legend(loc='upper left')
         # ax.set_ylabel('pred. bound [nM]')
-        ax.set_ylabel('fraction of specifically bound TRA2A')
-        ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xtick_labels)
-
+        ax3.set_ylabel(f'prob. density\n{self.rbns.rbp_name} binding')
         # plt.xticks(xticks, xtick_labels)
         # plt.locator_params(axis='x', numticks=3)
         plt.tight_layout()
+        set_x_rel_Kd(ax1)
+        # set_x_rel_Kd(ax2)
+        # set_x_rel_Kd(ax3)
         self.savefig(f'affdist_{self.rbns.rbp_name}_{name}')
         plt.close()
 
         n = len(complex_binned)
-        plt.figure(figsize=(2, n*1.7))
+        fig = plt.figure(figsize=(2, n*1.7))
         ## plot decomposition of observed affinity distribution into directly bound and non-specific
         zs_binned = [np.histogram(state.Z1_read * params.A0, bins=bins)[0] for state in states[1:]]
         
-        from scipy.optimize import minimize
+        from scipy.optimize import minimize, minimize_scalar
+        HANDLES = []
+        LABELS = []
         spbase = n*100+11
-        
-
+        print(f"complex_binned before plotting affmatch: {complex_binned}")
         for i,(b_binned, zs, reads, color) in enumerate(zip(complex_binned, zs_binned, self.rbns.reads[1:], data_colors)):
             ax = plt.subplot(spbase+i)
             ax.set_xscale('log')
             # print(b_binned.shape, zs.shape, A_binned.shape)
-            def err(args):
-                scale, bg = args
+            zs_rel = zs / zs.sum()
+            def err(bg):
+                # scale, bg = args
                 pred = b_binned + A_binned * bg
-                return ((scale * zs - pred)**2).sum()
+                # E = ((scale * zs - pred)**2).sum()
+                pred_rel = pred / pred.sum()
+                E_rel = ((zs_rel - pred_rel)**2).sum()
+                # print(f"scale={scale:.3e} bg={bg:.3e} => E={E_rel}")
+                print(f"bg={bg:.3e} => E={E_rel}")
+                return E_rel
 
-            res = minimize(err, (.001, .5), bounds=[(1e-6, 1.), (1e-6, 1.)], method='L-BFGS-B') #, options=dict(eps=1e-4))
-            scale, bg = res.x
+            res = minimize_scalar(err, bounds=(1e-8, 100.), method='bounded')
             print(res)
+            bg = res.x
             total = (bg * A_binned + b_binned).sum()
             bg_perc = 100. * (bg * A_binned).sum() / total
             print(f"inferred total conc. of pull-down RNA: {total:.3f} nM. background={bg_perc} %")
 
-            ax.plot(x, zs *scale, '.', color='red', label=reads.name)
+            ax.plot(x_, zs_rel * total, '-', color='k', label="observed")
             # plt.plot(x, bg * A_binned + b_binned, '^', color=color, label='bound + background')
-            ax.fill_between(x, bg * A_binned, bg * A_binned + b_binned, color=color, label='specific')
-            ax.fill_between(x, bg * A_binned, color='gainsboro', label='non-specific')
+            # ax.fill_between(x_, bg * A_binned, bg * A_binned + b_binned, color=color, label='specific')
+            # ax.fill_between(x_, bg * A_binned, color='gainsboro', label='non-specific')
+            ax.fill_between(x_, bg * A_binned + b_binned, color=color, label=f'predicted {int(reads.rbp_conc)} nM')
+            ax.plot(x_, bg * A_binned, '--', color='darkgray', label='est. non-specific')
 
             # ax.legend(loc='upper center', ncol=3)
             ax.set_ylabel('est. concentration [nM]')
-            ax.set_xlabel(f'{self.rbns.rbp_name} affinity [1/nM]')
+            set_x_rel_Kd(ax)
             # plt.xticks(xticks, xtick_labels)
-            plt.locator_params(axis='x', numticks=3)
-            ymax = max(zs.max() * scale, (bg * A_binned + b_binned).max())
+            ymax = zs_rel.max() * total
             plt.ylim(0, ymax*1.2)
     
+            handles, labels = ax.get_legend_handles_labels()
+            for h, l in zip(handles, labels):
+                if l not in LABELS:
+                    LABELS.append(l)
+                    HANDLES.append(h)
+        
+        fig.legend(HANDLES, LABELS, ncol=2)
         plt.tight_layout()
         self.savefig(f'affmatch_{self.rbns.rbp_name}_{name}')
         plt.close()
@@ -1157,7 +1183,7 @@ class GradientDescentReport(ReportBase):
         else:
             y = 1/self.comp.predict_affinities_from_paramset(self.get('params', t))
 
-        lfc = np.log2(y/x)
+        lfc = np.log10(y/x)
         I = lfc.argsort()
 
         from scipy.stats import pearsonr, spearmanr
@@ -1213,7 +1239,7 @@ class GradientDescentReport(ReportBase):
 
         t0, t = self.epochs[0]
         times = [t0, t]
-        titles = ["seeded", "opt. PSAM", "+footprint"]
+        titles = ["initial", "optimized", "+AFP"]
         if self.t[-1] > t:
             times.append(self.t[-1])
         
@@ -1228,28 +1254,29 @@ class GradientDescentReport(ReportBase):
         
 
         import seaborn as sns
-        with sns.axes_style("ticks", sns_style):
             # matplotlib.rc('xtick.major', width = .1)
             # matplotlib.rc('ytick.major', width = .1)
 
+        pp.figure(figsize=(4, 2.5))
+        ax = plt.subplot(121)
+        ax.set_aspect(1)
+        ax.set_xscale("log", nonposx='clip')
+        ax.set_yscale("log", nonposy='clip')
+        
+        # pp.title("comparison to {0} literature affinities".format(self.comp.n))
 
-            pp.figure(figsize=(4, 2.5))
-            ax = plt.subplot(121)
-            ax.set_aspect(1)
-            ax.set_xscale("log", nonposx='clip')
-            ax.set_yscale("log", nonposy='clip')
+        errs = []
+        err_cols = []
+        err_titles = []
+        artists = []
+        labels = []
+        for res, title, color in zip(data, titles, ['gray', '#3b8bc2', '#c83737']):
+            if res == None:
+                continue
 
-            # pp.title("comparison to {0} literature affinities".format(self.comp.n))
-
-            errs = []
-            err_cols = []
-            err_titles = []
-            artists = []
-            labels = []
-            for res, title, color in zip(data, titles, ['gray', '#3b8bc2', '#c83737']):
-                if res == None:
-                    continue
-
+            # HACK to only plot final result
+            # if color == "#c83737":
+            if color:
                 a = pp.errorbar(
                     res.x,
                     res.y,
@@ -1264,45 +1291,69 @@ class GradientDescentReport(ReportBase):
                     markersize=4,
                     capthick=.5
                 )
-
-                errs.append(np.fabs(res.lfc))
-                err_cols.append(color)
-                err_titles.append(title)
                 artists.append(a)
                 labels.append(title + "\n" + res.label)
-            
-            pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
-            pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
-            pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
-            sns.despine(trim=False)
+            errs.append(res.lfc)
+            err_cols.append(color)
+            err_titles.append(title)
+        
+        pp.loglog([m,M],[m,M], 'k-', linewidth=.5)
 
-            plt.subplot(122)
-            plt.axis('off')
-            pp.legend(tuple(artists), tuple(labels), loc='lower right')
-            pp.tight_layout()
+        pp.ylabel(r"predicted {} $K_d$ [nM]".format(self.comp.rbp_name))
+        pp.xlabel(r"measured {} $K_d$ [nM]".format(self.comp.rbp_data))
+        sns.despine(trim=False)
+        import matplotlib.ticker
+        locmaj = matplotlib.ticker.LogLocator(base=10,numticks=12)
+        ax.xaxis.set_major_locator(locmaj)
+        ax.yaxis.set_major_locator(locmaj)
+        locmin = matplotlib.ticker.LogLocator(base=10.0,subs=(0.1,0.2,0.3,0.4,0.5, 0.6, 0.7, 0.8, 0.9),numticks=12)
+        ax.xaxis.set_minor_locator(locmin)
+        ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+        ax.yaxis.set_minor_locator(locmin)
+        ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 
-            self.savefig("literature_comparison")
-            pp.close()
+        plt.subplot(122)
+        plt.axis('off')
+        pp.legend(tuple(artists), tuple(labels), loc='lower right')
+        pp.tight_layout()
 
-            import scipy.stats
-            pp.figure(figsize=(2,2))
-            for ei, ej in zip(errs[:-1], errs[1:]):
-                stat, pval = scipy.stats.mannwhitneyu(ei, ej)
-                print("error lower than previous? ", stat, pval)
+        self.savefig("literature_comparison")
+        pp.close()
 
-            bplot = pp.boxplot(errs, **bpkw)
-            for patch, color in zip(bplot['boxes'], err_cols):
-                patch.set_facecolor(color)
+        # plot the error distributions in reverse order
 
-            pp.xticks(1 + np.arange(len(errs)), err_titles, rotation=90)
-            pp.ylabel(r"$|\log_2 \frac{K_d\; predicted}{K_d \; measured}|$")
-            pp.ylim(0, 1.1 * np.array(errs).max())
-            # pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
-            sns.despine(trim=False)
-            pp.tight_layout()
-            self.savefig("literature_errors")
-            pp.close()
+        errs = errs[::-1]
+        err_titles = err_titles[::-1]
+        err_cols = err_cols[::-1]
+
+        import scipy.stats
+        pp.figure(figsize=(2,2))
+        for ei, ej in zip(errs[:-1], errs[1:]):
+            stat, pval = scipy.stats.mannwhitneyu(np.fabs(ei), np.fabs(ej))
+            print("error lower than previous? ", stat, pval)
+
+        e0 = np.fabs(errs[0])
+        for e, lbl in zip(errs[1:], err_titles[1:]):
+            stat, pval = scipy.stats.mannwhitneyu(e0, np.fabs(e))
+            stat_t, pval_t = scipy.stats.ttest_ind(e0, np.fabs(e), equal_var=False)
+            print(f"comparing {lbl} to initial: MWU: {pval:.2e} Welch's t-test: {pval_t:.2e}")
+
+        _bpkw = dict(bpkw)
+        _bpkw['vert'] = False
+        bplot = pp.boxplot([np.fabs(e) for e in errs], **_bpkw)
+        for patch, color in zip(bplot['boxes'], err_cols):
+            patch.set_facecolor(color)
+
+        pp.yticks(1 + np.arange(len(errs)), err_titles)#, rotation=90)
+        pp.xlabel(r"$|\log_{10} \frac{K_d\; pred}{K_d \; measured}$|")
+
+        # pp.xlim(0, 1.1 * np.array(errs).max())
+        # pp.axhline(0, linestyle='dashed', color='k', linewidth=.5)
+        sns.despine(trim=False)
+        pp.tight_layout()
+        self.savefig("literature_errors")
+        pp.close()
 
     # def plot_A0_fit(self, t=-1):
     #     state = self.descent.history[t]
@@ -1479,15 +1530,23 @@ class FootprintCalibrationReport(ReportBase):
             return
 
         res, res_a_one, opt, punp_input, punp_naive, punp_expect, punp_a_one = data
+        print(f" input: {len(punp_input)} naive: {len(punp_naive)} expect: {len(punp_expect)} a_one: {len(punp_a_one)}")
+
         err0 = self.baseline_error(motif)
         pad = int((punp_input.shape[1] - len(motif)) / 2)
         x = np.arange(-pad, len(motif) + pad )
 
         gradient = np.linspace(.3, 1., len(punp_naive))
-        data_colors = plt.get_cmap("YlOrBr")(gradient) # highest conc == darkest color
+        data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(punp_expect)))
+        print(f"data_colors {data_colors}")
+
         naive_colors = plt.get_cmap("Greens")(gradient)
+        print(f"naive_colors {naive_colors}")
         vienna_colors = plt.get_cmap("Blues")(gradient)
         fit_colors = plt.get_cmap("Reds")(gradient)
+
+        print(f"{len(punp_naive)}")
+        print(f"data_colors {data_colors}")
 
         last = len(gradient) - 1
         def make_rect(ax=None, ofs=0, top=False):
@@ -1516,7 +1575,9 @@ class FootprintCalibrationReport(ReportBase):
             if fp:
                 make_rect()
             cons = motif
-            xlabels = [str(p) for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)]
+            xlabels = ["" for p in range(-pad,0)] + list(cons) + [str(p) for p in range(1, pad+1)]
+            xlabels[0] = f"-{pad}"
+            xlabels[-1] = f"+{pad}"
             plt.xticks(x, xlabels)
             plt.axvline( - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
             plt.axvline(len(motif) - .5, color='k', linewidth=lw, linestyle='dashed', zorder=-1000)
@@ -1533,17 +1594,20 @@ class FootprintCalibrationReport(ReportBase):
             sns.despine()
 
 
-        def plot_exp(with_label=False, with_input=True, colors=data_colors, sym='x'):
+        def plot_exp(with_label=False, with_input=True, colors=data_colors, sym='x', n_max_conc=3):
             if with_input:
-                if sym:
-                    plt.plot(x, punp_input[0], sym, color='k', label='input' if with_label else None)
-                plt.plot(x, punp_input[0], '-', color='k', linewidth=lw)
+                # if sym:
+                #     plt.plot(x, punp_input[0], sym, color='k', label='input' if with_label else None)
+                plt.plot(x, punp_input[0], '-', color='dimgray', linewidth=2*lw, solid_capstyle='round')
 
-            for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc, colors)):
+            print(f"{len(punp_input)} {len(self.rbp_conc)} {len(colors)}")
+            for i, (obs, conc, color) in enumerate(zip(punp_input[1:], self.rbp_conc[:n_max_conc], colors)):
+                print(f"conc = {conc}")
                 if sym:
                     plt.plot(x, obs, sym, color=color, label="{} nM".format(conc) if with_label else None)
-                plt.plot(x, obs, '-', color=color, linewidth=lw)
 
+                plt.plot(x, obs, '-', color=color, linewidth=lw)
+            print(f"done with plot_exp n_max_conc={n_max_conc}")
         # mats = np.array([
         #     punp_input[1:], 
         #     punp_naive,
@@ -1569,7 +1633,7 @@ class FootprintCalibrationReport(ReportBase):
             ["RNAplfold {}nM".format(conc) for conc in self.rbp_conc]
         
         rcolors = \
-            ['k'] + \
+            ['dimgray'] + \
             list(data_colors) + \
             ['gray'] * len(punp_naive) + \
             ['scarlet'] * len(punp_expect) + \
@@ -1620,7 +1684,7 @@ class FootprintCalibrationReport(ReportBase):
         plt.subplot(222)
         plot_exp(with_input=True)
         for i, (naive, conc, color) in enumerate(zip(punp_naive, self.rbp_conc, naive_colors)):
-            lbl = "no footprint: err=100%"
+            lbl = "no footprint (a=0): err=100%"
             plt.plot(x, naive, '-', color=color, label=lbl if i == last else None)
         finalize_plot(fp=False)
 
@@ -1649,18 +1713,35 @@ class FootprintCalibrationReport(ReportBase):
         plt.close()
 
 
-        plt.figure(figsize=(3, 3))
-        for i, (obs, naive, one, pred) in enumerate(zip(punp_input[1:], punp_naive, punp_a_one, punp_expect)):
-            plt.plot(obs, naive, 'v', color=naive_colors[i], label="no structure" if i==last else None, alpha=.75)
-            if not one is None:
-                plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==last else None, alpha=.75)
-            plt.plot(obs, pred, 'o', color=fit_colors[i], label="optimized" if i==last else None, alpha=.75)
-        
+        plt.figure(figsize=(2, 2))
+        ax = plt.gca()
+        # for i, (obs, naive, one, pred) in enumerate(zip(punp_input[1:], punp_naive, punp_a_one, punp_expect)):
+        #     plt.plot(obs, naive, 'v', color=naive_colors[i], label="no structure" if i==last else None, alpha=.75)
+        #     if not one is None:
+        #         plt.plot(obs, one, '^', color=vienna_colors[i], label="RNAfold (a=1)" if i==last else None, alpha=.75)
+        #     plt.plot(obs, pred, 'o', color=fit_colors[i], label="optimized" if i==last else None, alpha=.75)
+
+
+
+        # select the lowest concentration sample, because that should show the most
+        # pronounced effect
+        obs = punp_input[1]
+        vienna = punp_a_one[0]
+        opt = punp_expect[0]
+
+        plt.plot(obs, punp_naive[0], 'v', color="#00bc80", label="no footprint", alpha=1, mew=0, markersize=3)
+        plt.plot(obs, vienna, '^', color="#0070b0", label="RNAfold", alpha=1, mew=0, markersize=3)
+        plt.plot(obs, opt, 'o', color="#ff0000", label="optimized", alpha=1, mew=0, markersize=3)
+
         ymin, ymax = plt.gca().get_ylim()
         plt.legend(loc='upper left', frameon=False)
-        plt.plot([ymin, ymax], [ymin, ymax], color='k', linestyle='dashed', linewidth=.5)
+        plt.plot([ymin, ymax], [ymin, ymax], color='k', linestyle='dashed', linewidth=.5, zorder=-30000)
         plt.xlabel(r"observed $P_{unpaired}$")
         plt.ylabel(r"expected $P_{unpaired}$")
+        ax.set_xlim(ymin*.9, ymax*1.1)
+        ax.set_ylim(ymin*.9, ymax*1.1)
+        ax.set_xticks([0.4, 0.6, 0.8])
+        ax.set_yticks([0.4, 0.6, 0.8])
         sns.despine()
         plt.tight_layout()
         self.savefig(f'{motif}_scatter')
@@ -1669,8 +1750,9 @@ class FootprintCalibrationReport(ReportBase):
 
     def report(self):
         for params in self.params:
-            self.kmer_acc_profiles(params.motif, params)
+            # self.kmer_acc_profiles(params.motif, params)
             self.matrix_plots(params.motif, highlight=(params.acc_k, params.acc_shift))
+            # self.matrix_plot_3d(params.motif, highlight=(params.acc_k, params.acc_shift))
             self.plot_profile(params.motif, params.acc_k, params.acc_shift)
         
     def get_matrix_data(self, motif, k_range=(1, 21), s_range=(-10, 20)):
@@ -1704,6 +1786,48 @@ class FootprintCalibrationReport(ReportBase):
         se = smax - max(s_found)
 
         return scales[ss:-se, ks:-ke], (errors/err0)[ss:-se, ks:-ke], (min(k_found), max(k_found)), (min(s_found), max(s_found))
+
+    def matrix_plot_3d(self, motif, highlight=None):
+        self.logger.debug("matrix plot")
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        from matplotlib import cm
+        from matplotlib.ticker import LinearLocator, FormatStrFormatter
+
+        mat_a, mat_err, k_range, s_range = self.get_matrix_data(motif)
+        kmin, kmax = k_range
+        smin, smax = s_range
+
+        # print("s_range", s_range)
+        # print("k_range", k_range)
+        n_shift = smax - smin + 1
+        n_k = kmax - kmin + 1
+
+        X = np.arange(n_k) + kmin
+        Y = np.arange(n_shift) + smin
+        X, Y = np.meshgrid(X, Y)
+        Z = np.nan_to_num(1./mat_err)
+
+        np.save('x.npy', X)
+        np.save('y.npy', Y)
+        np.save('z.npy', Z)
+        # fig = plt.figure(figsize=(2.5,2.5))
+        fig = plt.figure(figsize=(5.5, 5.5))
+        ax = fig.gca(projection='3d')
+        # ax.view_init(-75, 0)
+        surf = ax.plot_surface(X, Y, Z, cmap=cm.coolwarm,
+            linewidth=0, antialiased=False, edgecolor='gray',
+            vmin=np.nanmin(Z), vmax=np.nanmax(Z), shade=True, alpha=0.5)
+
+        # fig.colorbar(surf, label='fold error reduction', shrink=0.5, aspect=20)
+
+        plt.xlabel("footprint size [nt]")
+        plt.ylabel("footprint shift [nt]")
+
+        self.savefig(f'{motif}_3d_error_mat')
+        plt.close()
+
 
     def matrix_plots(self, motif, highlight=None):
         self.logger.debug("matrix plot")
@@ -1775,8 +1899,9 @@ class FootprintCalibrationReport(ReportBase):
         import seaborn as sns
         import matplotlib.pyplot as plt
         labels = self.rbns.sample_labels
-        # print(labels)
+        print(f"data labels {labels}")
         data_colors = plt.get_cmap("YlOrBr")(np.linspace(.3, 1, len(labels)-1))
+        print(f"data_colors {data_colors}")
 
         key = '{}_high_affinity_kmers'.format(motif)
         if not key in self.shelve[motif]:
