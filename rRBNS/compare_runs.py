@@ -120,7 +120,9 @@ def get_descent(fname, err_thresh=.05):
         n_PSAM = len(shelf['params_t0'].param_set),
         best_corr = lf[int(3+n):int(3+2*n)].max(),
         corr_initial = l0[int(3+n):int(3+2*n)].max(),
+        corr_initial_samples = l0[int(3+n):int(3+2*n)],
         err_final = lf[2],
+        err_initial_samples = l0[3:int(3+n)],
         err_samples = lf[3:int(3+n)],
         corr_samples = lf[int(3+n):int(3+2*n)],
         err_initial = l0[2],
@@ -545,6 +547,7 @@ class ModelComparisons(object):
         self.variants = variant_dict.keys()
         # assert "std" in variant_dict # baseline ref
 
+        self.variants = list(variant_dict.keys())
         self.labels=labels
         for name, (d, res) in variant_dict.items():
             setattr(self, f'd_{name}', d)
@@ -558,6 +561,52 @@ class ModelComparisons(object):
 
         self.rbp_domain = np.array([self.dom_type[rbp] for rbp in self.rbps])
 
+    def store_csv(self):
+        d = dict(
+            rbp = self.rbps,
+            # domains = [",".join(self.domains[rbp]) for rbp in self.rbps],
+            # n_psams = self.n_psams,
+        )
+
+        def roundlist(L):
+            return ",".join([f"{x:.3f}" for x in L])
+
+        for variant in self.variants:
+            res = getattr(self, f"res_{variant}")
+            print(f"{variant}")
+
+            data = dict(d)
+            data["rbp_conc"] = [",".join([str(c) for c in res[rbp].nostruct.rbp_conc]) if rbp in res else [np.nan,] for rbp in self.rbps]
+            data["err_initial"] = [res[rbp].nostruct.err_initial_samples if rbp in res else [np.nan,] for rbp in self.rbps]
+            data["corr_initial"] = [res[rbp].nostruct.corr_initial_samples if rbp in res else [np.nan,] for rbp in self.rbps]
+            data["err_nostruct"] = [res[rbp].nostruct.err_samples if rbp in res else [np.nan,] for rbp in self.rbps]
+            data["corr_nostruct"] = [res[rbp].nostruct.corr_samples if rbp in res else [np.nan,] for rbp in self.rbps]
+
+            if variant == "std":
+                data["err_final"] = [res[rbp].full.err_samples for rbp in self.rbps]
+                data["corr_final"] = [res[rbp].full.corr_samples for rbp in self.rbps]
+
+            #     data[f"{variant}_err_initial"] = [res[rbp].nostruct.err_initial_samples for rbp in self.rbps]
+            #     data[f"{variant}_err_final"] = [res[rbp].nostruct.err_samples for rbp in self.rbps]
+            #     # data[f"{variant}_log2_err_ratio"] = np.log2(data[f"{variant}_err_final"]/data[f"{variant}_err_initial"])
+
+            #     data[f"{variant}_corr_initial"] = roundlist([res[rbp].nostruct.corr_initial_samples for rbp in self.rbps])
+            #     data[f"{variant}_corr_final"] = roundlist([res[rbp].nostruct.corr_samples for rbp in self.rbps])
+
+            for k, v in data.items():
+                print(f"{k} : {len(v)}")
+
+            df = pd.DataFrame(data)
+            df['err_initial'] = df['err_initial'].apply(roundlist)
+            df['corr_initial'] = df['corr_initial'].apply(roundlist)
+            df['err_nostruct'] = df['err_nostruct'].apply(roundlist)
+            df['corr_nostruct'] = df['corr_nostruct'].apply(roundlist)
+            if variant == "std":
+                df['err_final'] = df['err_final'].apply(roundlist)
+                df['corr_final'] = df['corr_final'].apply(roundlist)
+
+
+            df.to_csv(f'{variant}_runs.csv', sep='\t', index=False)
 
     @property
     def n_psams(self):
@@ -1020,6 +1069,7 @@ class ModelComparisons(object):
                 figsize=(3.5, 2.5), 
                 sharex='col'
             )
+            print(f">>>analyzing errors: {variant}")
             de = self.delta_barplot(
                 ax_err, 
                 self.err_std, 
@@ -1028,6 +1078,7 @@ class ModelComparisons(object):
                 func = lambda y0, y1 : np.log2(y0/y1),
                 ax_test=ax_es
             )[0]
+            print(f">>>analyzing correlations: {variant}")
             dc = self.delta_barplot(
                 ax_corr, 
                 self.corr_std, 
@@ -1306,6 +1357,8 @@ class ModelComparisons(object):
         n_overlap = 0
         motif_rbps = []
         motif_names = []
+        all_consensus = []
+
         for rbp in self.rbps:
             re = []
             sc = []
@@ -1317,7 +1370,9 @@ class ModelComparisons(object):
             for ip, par in enumerate(params_dict[rbp].param_set):
                 re.append(par.rel_err)
                 sc.append(par.acc_scale)
-                gc.append(par.as_PSAM().fraction_GC)
+                psam = par.as_PSAM()
+                gc.append(psam.fraction_GC)
+                all_consensus.append(psam.consensus_ul)
                 k.append(par.acc_k)
                 s.append(par.acc_shift)
                 overlap = min(par.acc_k + min(par.acc_shift, 0), min((par.k - par.acc_shift), par.acc_k))
@@ -1389,6 +1444,21 @@ class ModelComparisons(object):
         I = all_rel_err.argsort()
         print(M.sum(), "motifs make the cut out of", len(M))
         print(motif_names[M])
+
+        data = dict(
+            # rbp = motif_rbps,
+            PSAM_id = motif_names,
+            PSAM_motif = all_consensus,
+            PSAM_GC = all_GC,
+            AFP_width = all_acc_k,
+            AFP_start = all_acc_s,
+            AFP_scale = all_acc_a,
+            AFP_PSAM_overlap = all_ov,
+            rel_profile_err = all_rel_err,
+            QC_pass = M,
+        )
+        df = pd.DataFrame(data)
+        df.to_csv('footprints.csv', index=False, sep='\t')
 
         for motif, re in zip(motif_names[I][M[I]], all_rel_err[I]):
             print(f"{re:.4f} {motif}")
@@ -1552,12 +1622,16 @@ redo8 = False
 
 MC = ModelComparisons(variant_dict=dict(
     std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
+    oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
     single = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8),
     xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8),
     linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8),
     # dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
+    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
+    lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
+    lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
 ), rbps=rbps)
-
+# MC.store_csv()
 # for i in range(len(MC.rbps)):
 #     print(f"{MC.rbps[i]} corr_std {MC.corr_std[i]} corr_linocc {MC.corr_linocc[i]}")
 
@@ -1569,10 +1643,14 @@ MC = ModelComparisons(variant_dict=dict(
 cymin = None
 cymax = None
 # MC.single_multi_bipartite(corr_ymin=cymin, corr_ymax=cymax)
-MC.footprint_plot()
+# MC.footprint_plot()
+cymin = None
+cymax = None
+derr_oneconc, dcorr_oneconc = MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
 derr_multi, dcorr_multi = MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
 derr_struct, dcorr_struct = MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
 (derr_linocc, derr_xsrbp), (dcorr_linocc, dcorr_xsrbp) = MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
+# sys.exit(0)
 
 
 def barplot(ax, data, labels, sign=1):
@@ -1603,9 +1681,9 @@ def barplot(ax, data, labels, sign=1):
         patch.set_facecolor("gainsboro")
 
 fig, ax = plt.subplots(figsize=(2, 2))
-labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "RNA\nstructure"]
+labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "multiple RBP\nconcentrations", "RNA\nstructure"]
 barplot(ax, 
-    [dcorr_multi, dcorr_linocc, dcorr_xsrbp, dcorr_struct], 
+    [dcorr_multi, dcorr_linocc, dcorr_xsrbp, dcorr_oneconc, dcorr_struct], 
     labels,
 )
 ax.set_xlabel("median corr. change")
@@ -1615,7 +1693,7 @@ fig.savefig('effects_corr.pdf')
 
 fig, ax = plt.subplots(figsize=(2, 2))
 barplot(ax, 
-    [derr_multi, derr_linocc, derr_xsrbp, derr_struct], 
+    [derr_multi, derr_linocc, derr_xsrbp, derr_oneconc, derr_struct], 
     labels,
     sign=-1
 )

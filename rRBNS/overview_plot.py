@@ -63,6 +63,11 @@ domain_order=['RRM', 'KH', 'ZNF', 'mixed', 'other']
 df = pd.read_table(sys.argv[1])
 
 df = df.merge(extra, on='rbp')
+out = df.query('rbp in @dom_rbps')
+out['fold_error'] = out['nostruct__err_initial'] / out['full__err_final']
+out.to_csv('fit_results.csv', sep='\t')
+sys.exit(0)
+
 pf = df[ ['rbp', 'nostruct__err_initial', 'full__err_final', 'full__best_corr', 'domain', 'top_R', 'max_R']].query('rbp in @dom_rbps')
 pf['fold_error'] = pf['nostruct__err_initial'] / pf['full__err_final']
 x = pf[['rbp', 'fold_error']]
