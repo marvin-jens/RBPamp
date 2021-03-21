@@ -45,6 +45,7 @@ def parse_cmdline():
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
     parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=15M, 0=off)")
+    parser.add_option("","--n-skip", dest="n_skip", default=0, type=int, help="skip N reads (useful for cross-validation, default=0 [off])")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
     # RNA folding
@@ -408,7 +409,8 @@ class Run(object):
                 format = self.options.format,
                 rbp_conc=rbp_conc,
                 rbp_name = self.rbp_name,
-                n_max=self.options.n_max, 
+                n_max=self.options.n_max,
+                n_skip=self.options.n_skip,
                 pseudo_count=self.options.pseudo, 
                 rna_conc = self.options.rna_conc,
                 temp = self.options.temp,

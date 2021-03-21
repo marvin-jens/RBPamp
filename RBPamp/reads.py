@@ -27,7 +27,7 @@ class RBNSReads(CachedBase):
         self, 
         fname, 
         rbp_name='RBP', rbp_conc=300., rna_conc=1000., temp=22,
-        format='raw', chunklines=2000000, n_max=0,
+        format='raw', chunklines=2000000, n_max=0, n_skip=0,
         adap5=default_adap5, adap3=default_adap3,
         storage_kw=dict(disc_mode='linear'),
         acc_storage_path='RBPamp/acc',
@@ -193,6 +193,10 @@ class RBNSReads(CachedBase):
 
         t0 = time.time()
         seqm = cyska.read_raw_seqs_chunked(self.iter_reads(), chunklines=self.chunklines, n_max=self.n_max)
+        if self.n_skip:
+            self.logger.info(f"skipping {self.n_skip} reads as instructed")
+            seqm = seqm[self.n_skip:]
+    
         t1 = time.time()
         N, L = seqm.shape
         self.logger.info("read {0:.3f}M sequences of length {1}.".format(N/1E6, L) )
