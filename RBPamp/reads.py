@@ -54,6 +54,7 @@ class RBNSReads(CachedBase):
         self.pseudo_count = pseudo_count
         self.chunklines = chunklines
         self.n_max = n_max
+        self.n_skip = n_skip
         self.n_subsamples = n_subsamples
         self.logger = logging.getLogger('rbns.RBNSReads({self.rbp_name}@{self.rbp_conc}nM/RNA={self.rna_conc}nM)'.format(self=self))
         self.time_logger = logging.getLogger('timing.rbns.RBNSReads')
