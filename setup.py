@@ -91,8 +91,9 @@ setup(
     ],
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics RBP RNA-binding protein gene regulation affinity thermodynamics gradient descent',
 
-    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2', 'future_fstrings'],
-    scripts=['bin/RBPamp'],
+    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2'],
+    # scripts=['bin/RBPamp'],
+    entry_points={'console_scripts': ['RBPamp = RBPamp.cmdline:main']},
     package_dir='',
     packages=['RBPamp'],
     cmdclass = cmdclass,
