@@ -31,7 +31,7 @@ if use_cython:
         cy_kw = dict(
             include_dirs=[numpy.get_include(), ],
             extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
-            extra_link_args=['-fopenmp'],
+            extra_link_args=['-fopenmp', '-lm'],
             language_level="3"
         )
 
