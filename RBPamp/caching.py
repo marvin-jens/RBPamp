@@ -1,4 +1,3 @@
-# coding=future_fstrings
 from __future__ import print_function
 
 __license__ = "MIT"

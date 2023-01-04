@@ -1,6 +1,3 @@
-# coding=future_fstrings
-from __future__ import print_function
-from __future__ import unicode_literals
 import os
 import numpy as np
 import logging

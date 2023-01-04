@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-# coding=future_fstrings
-from __future__ import print_function
 
 import sys
 import os
