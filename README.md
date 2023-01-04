@@ -19,7 +19,7 @@ We recommend that you create a conda environment using the `requirements.txt`:
    python setup.py install
 ```
 
-will do what you expect. To uninstall run `pip uninstall RBPamp` .
+will do what you expect. Alternatively, you can run `pip install .` from your git checkout. To uninstall run `pip uninstall RBPamp` .
 
 
 ## Usage
@@ -192,3 +192,23 @@ will do what you expect. To uninstall run `pip uninstall RBPamp` .
       --rnd-seed=SEED       seed for fast pseudo-random number generator (for RBNS
                               simulation)
 ```
+
+## Testing
+
+After everything is compiled and installed, you can run RBPamp on some test-data
+
+```
+   RBPamp tests --run-path=t --opt-seed --metrics=R_value
+```
+
+This will perform the first stage of the motif generation (seeding the PSAMs). You can find the output of this initial stage in `tests/RBPamp/t/seed/`.
+Here, we also asked RBPamp to compute R-values (kmer enrichments) for us (see Lambert et al. 2014). These will be stored in the `metrics` sub-folder.
+
+Next, you can perform stochastic gradient descent optimization on the initial PSAM(s):
+
+```
+   RBPamp tests --run-path=t --opt-nostruct
+```
+
+Optimized PSAMs are stored in `tests/RBPamp/t/opt_nostruct` . This was last tested successfully on Ubuntu 22.04.1 (AMD64). Enjoy!
+
