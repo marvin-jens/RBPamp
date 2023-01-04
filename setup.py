@@ -96,6 +96,8 @@ setup(
     entry_points={'console_scripts': ['RBPamp = RBPamp.cmdline:main']},
     package_dir='',
     packages=['RBPamp'],
+    package_data={'': ['known_kds.csv']},
+    include_package_data=True,
     cmdclass = cmdclass,
     ext_modules=ext_modules,
 )
