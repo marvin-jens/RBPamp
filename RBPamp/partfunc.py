@@ -6,7 +6,7 @@ from RBPamp.sc import SelfConsistency
 
 
 class PartFuncModelState(object):
-    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, keep_Z1_motif=True, **kwargs):
+    def __init__(self, mdl, params, beta_fixed=True, rbp_free=None, compute_R=True, keep_Z1_motif=True, **kwargs):
         self.mdl = mdl
         self.params = params.copy()
         self.rbp_conc = mdl.rbp_conc
@@ -24,6 +24,14 @@ class PartFuncModelState(object):
         self.Z1_read_max = 0 
         self.Z1 = None
         self.Z1_read = None
+
+        # This gets filled in by _update_rbp_free(...)
+        self.psi = None
+
+        # this gets filled in by _update_betas(..., compute_R=True)
+        self.R = np.NaN
+        self.error = np.NaN
+
         for par in self.params:
             key = (par.acc_k, par.acc_scale)
             if par.acc_k:
@@ -92,7 +100,7 @@ class PartFuncModelState(object):
         else:
             betas = self.params.betas
 
-        self._update_betas(betas)
+        self._update_betas(betas, compute_R=compute_R)
 
         self.mdl.n_fev += 1
         self.mdl.t_fev += time.time() - t1
@@ -107,7 +115,7 @@ class PartFuncModelState(object):
         self.q = self.mdl.PD_kmer_weights(self.psi)
         self.Q = self.q.sum(axis=1)
 
-    def _update_betas(self, betas):
+    def _update_betas(self, betas, compute_R=True):
         self.params.betas[:] = betas
         # print self.mdl.F0.dtype, self.params.betas.dtype
         self.w = np.array(self.q + self.mdl.F0[np.newaxis, :] * self.params.betas[:, np.newaxis], dtype=np.float32)
@@ -116,14 +124,15 @@ class PartFuncModelState(object):
         # print self.W.dtype
         # print "W", self.W
         # print "Q/W", self.Q/self.W
-        self.R = self.w / self.mdl.f0[np.newaxis, :] / self.W[:, np.newaxis]
-        # gcaug = cyska.seq_to_index('ugcaugu')
-        # print "R(uGCAUGu)", self.R[:,gcaug]
-        # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
+        if compute_R:
+            self.R = self.w / self.mdl.f0[np.newaxis, :] / self.W[:, np.newaxis]
+            # gcaug = cyska.seq_to_index('ugcaugu')
+            # print "R(uGCAUGu)", self.R[:,gcaug]
+            # print "R0(uGCAUGu)", self.mdl.R0[:,gcaug]
 
-        self.R_errors = np.array(self.R, dtype=np.float64) - self.mdl.R0
-        self.sample_errors = (self.R_errors**2).mean(axis=1)
-        self.error = self.sample_errors.mean()
+            self.R_errors = np.array(self.R, dtype=np.float64) - self.mdl.R0
+            self.sample_errors = (self.R_errors**2).mean(axis=1)
+            self.error = self.sample_errors.mean()
         # print "self.error", self.error
 
     @property
@@ -266,10 +275,7 @@ class PartFuncModelState(object):
 class PartFuncModel(object):
     """
     Evaluate the partition function on samples of RBNS reads to
-    approximate the expected R-values.
-    Importantly, k_monitor can be < params.n, i.e. the model can
-    be more complex than the kmer frequencies
-    being used to estimate agreement with the experiment.
+    estimate the expected R-values.
     """
     def __init__(self, reads, params0, R0, rbp_conc=[], aff0=1e-6, Z_thresh=0, excess_rbp=False, linear_occ=False, **kwargs):
         self.logger = logging.getLogger('model.PartFuncModel')
@@ -286,15 +292,23 @@ class PartFuncModel(object):
         self.excess_rbp = excess_rbp
         self.linear_occ = linear_occ
 
-        self.n_samples, self.nA = R0.shape
-        assert self.n_samples == params0.n_samples
-        self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
         # print "partfuncmodel: k_mdl, k_fit", self.k_mdl, self.k
+        if len(R0):
+            self.n_samples, self.nA = R0.shape
+            assert self.n_samples == params0.n_samples
+            self.k = int(np.log(self.nA) / np.log(4)) # nA = 4**k
+            self.set_R0(R0)
+
+        else:
+            self.R0 = np.NaN
+            self.lR0 = np.NaN
+            self.k = 6
+            self.nA = 4**6
+
         self.F0 = np.array(reads.kmer_counts(self.k), dtype=np.uint32)  # actual counts
         # print type(self.F0), self.F0.dtype
         self.f0 = np.array(self.F0 + reads.pseudo_count, dtype=np.float32)
         self.f0 /= self.f0.sum() # relative frequencies
-        self.set_R0(R0)
 
         self.aff0 = aff0
         self.opt = None
@@ -478,6 +492,7 @@ class PartFuncModel(object):
 
     def predict(self, params, debug=False, tune=False, **kwargs):
         t0 = time.time()
+        self.logger.debug(f"calling PartFuncModelState with kw={kwargs}")
         state = PartFuncModelState(self, params, **kwargs)
         self.logger.debug("predict(took {:.2f} ms".format(1000. * (time.time() - t0)))
         if tune:
