@@ -1,6 +1,6 @@
 import RBPamp
 from RBPamp import __version__, __license__, __authors__, __email__
-
+from RBPamp.util import ensure_path
 import sys
 import os
 import copy
@@ -144,16 +144,6 @@ def parse_cmdline():
         sys.exit(0)
 
     return options, args
-
-
-def ensure_path(full):
-    path = os.path.dirname(full)
-    try:
-        os.makedirs(path)
-    except OSError:
-        pass
-
-    return full
 
 
 def auto_detect(path='.', exts=["reads","txt"]):

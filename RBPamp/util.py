@@ -6,9 +6,9 @@ from RBPamp.params import ModelSetParams, ModelParametrization
 NA_model = ModelSetParams([ModelParametrization(11, 1, A0=np.nan)])
 
 
-def load_model(fname, sort=True):
+def load_model(fname, sort=True, n_samples=1):
     from RBPamp.params import ModelSetParams
-    params = ModelSetParams.load(fname, 1, sort=sort)
+    params = ModelSetParams.load(fname, n_samples, sort=sort)
     return params
 
 
@@ -47,3 +47,14 @@ def motif_peaks(Z, Amin=1e-3, pad=50, k=8):
         # drop all scores in the padded region around the hit to zero and look at next-highest peak
         Z[start:end] = 0
         i = Z.argmax()
+
+
+def ensure_path(full):
+    import os
+    path = os.path.dirname(full)
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+
+    return full
