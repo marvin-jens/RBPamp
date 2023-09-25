@@ -420,6 +420,23 @@ class PSAMSetBuilder(object):
 
         return psams
 
+def get_exclude_kmer_set(kmer_set, K):
+    ex_K = set()
+    k = len(sorted(kmer_set)[0])
+    ex_k = set([kmer.lower().replace('t', 'u') for kmer in kmer_set])
+
+    assert k <= K
+    # print(f"k={k} K={K} ex_k={ex_k}")
+    from RBPamp.util import yield_kmers, kmers_from_seq
+    for Kmer in yield_kmers(K, bases='acgu'):
+        for kmer in kmers_from_seq(Kmer, k):
+            if kmer in ex_k:
+                ex_K.add(Kmer)
+    
+    # print(f"get_exclude_kmer_set({kmer_set}) -> {ex_K}")
+    return ex_K
+
+
 
 class PSAMSeeding(object):
     def __init__(self, rbns):
@@ -463,7 +480,24 @@ class PSAMSeeding(object):
             plt.savefig('r_dG_{}.pdf'.format(j))
             plt.close()
 
-    def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., **kwargs): # UNDO HERE!!!
+    @staticmethod
+    def remove_adapter_RC(kmer_set, adap, k):
+        from RBPamp.util import rev_comp
+        adap_RC = rev_comp(adap)
+
+        adap_kmers = set()
+        for i in range(len(adap) - k + 1):
+            adap_kmers.add(adap_RC[i:i + k])
+
+        print("looking for adapter RC kmers", adap_kmers)
+        print(kmer_set[:10])
+
+        filtered_set = [(kmer, r) for kmer, r in kmer_set if not kmer in adap_kmers]
+        print(f"removed {len(kmer_set) - len(filtered_set)} kmers, because they are adapter complementary")
+        return filtered_set
+
+    def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., exclude_kmers={}, **kwargs): # UNDO HERE!!!
+        # print("motifs_from_R kwargs", list(kwargs.items()), "exclude_kmers=", exclude_kmers)
         from RBPamp.seed import Alignment
         import RBPamp.cyska as cyska
         kwargs['z_cut'] = z_cut
@@ -513,7 +547,19 @@ class PSAMSeeding(object):
             
             kmer_set.append( (kmer, r) )
         
+        l0 = len(kmer_set)
+        if exclude_kmers:
+            exclude_kmers = get_exclude_kmer_set(exclude_kmers, k)
+            # we were asked to exclude some kmers, e.g. because of adapter-complementarity
+            kmer_set = [(kmer, r) for (kmer, r) in kmer_set if not kmer in exclude_kmers]
+            self.logger.warning(f"removed {l0 - len(kmer_set)} kmers before seed building due to overlap with exclude_kmers set of {len(exclude_kmers)} kmers")
+            # exclude k-mers that are perfectly complementary to either of
+            # the adapter sequences.
+            #kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap5, k)
+            #kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap3, k)
+
         self.shelf['kmer_set'] = kmer_set
+
 
         PSB = PSAMSetBuilder(kmer_set, **kwargs)
         psams = PSB.make_PSAM_set()
@@ -526,6 +572,7 @@ class PSAMSeeding(object):
         return psams
 
     def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
+        #print("seeded_multi_params", list(kwargs.items()))
         from RBPamp.params import ModelSetParams, ModelParametrization
         params = []
 
