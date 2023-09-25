@@ -58,3 +58,84 @@ def ensure_path(full):
         pass
 
     return full
+
+
+COMPLEMENT = {
+    "a": "u",
+    "t": "a",
+    "u": "a",
+    "c": "g",
+    "g": "c",
+    "k": "m",
+    "m": "k",
+    "r": "y",
+    "y": "r",
+    "s": "s",
+    "w": "w",
+    "b": "v",
+    "v": "b",
+    "h": "d",
+    "d": "h",
+    "n": "n",
+    "A": "U",
+    "T": "A",
+    "U": "A",
+    "C": "G",
+    "G": "C",
+    "K": "M",
+    "M": "K",
+    "R": "Y",
+    "Y": "R",
+    "S": "S",
+    "W": "W",
+    "B": "V",
+    "V": "B",
+    "H": "D",
+    "D": "H",
+    "N": "N",
+    "-": "-",
+    "=": "=",
+    "+": "+",
+}
+
+
+def complement(s):
+    return "".join([COMPLEMENT[x] for x in s])
+
+
+def rev_comp(seq):
+    return complement(seq)[::-1]
+
+
+def yield_kmers(k, bases = 'ACGU'):
+    import itertools
+    """
+    An iterater to all kmers of length k in alphabetical order
+    """
+    for kmer in itertools.product(bases, repeat=k):
+        yield ''.join(kmer)
+
+
+def load_kmers_from_file(fname):
+    if not fname:
+        return []
+    else:
+        return [line.rstrip() for line in open(fname)]
+
+
+def kmers_from_seq(seq, k):
+    return [seq[i:i+k] for i in range(len(seq) - k + 1)]
+
+
+def get_kmers_containing_cores(cores, k):
+    match = set(cores)
+    k_small = len(cores[0])
+    assert k_small < k
+
+    kmers = []
+    for kmer in yield_kmers(k):
+        if set(kmers_from_seq(kmer, k_small)) & match:
+            kmers.append(kmer)
+    
+    return kmers
+
