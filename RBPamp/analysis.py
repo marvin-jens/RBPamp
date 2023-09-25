@@ -318,6 +318,16 @@ class RBNSAnalysis(CachedBase):
         kmer_order = self.get_optimal_kmer_ranking(k)
         return self._make_matrices("recall_ratios", k, kmer_order)
 
+    def counts_matrix(self, k):
+        import pandas as pd
+
+        data = {'kmer': list(cyska.yield_kmers(k))}
+        for reads in self.reads:
+            data[f'{int(reads.rbp_conc)}_nM'] = reads.kmer_counts(k)
+
+        return pd.DataFrame(data).set_index('kmer')
+            
+
     def pure_F_ratio_matrix(self, k):
         self.logger.debug("computing pure F-ratio matrix for k={0}".format(k) )
 
@@ -494,6 +504,10 @@ class RBNSAnalysis(CachedBase):
                 rbns.cooccurrence_tensor_analysis(k)
                 continue
 
+            elif name == 'counts':
+                df = self.counts_matrix(k)
+                df.to_csv(path, sep='\t')
+
             else:
                 values, errors = getattr(self, "{name}_matrix".format(name=name) )(k)
                 self.write_kmer_matrix(path, all_kmers, values.T, errors.T, order)
@@ -534,7 +548,9 @@ class RBNSAnalysis(CachedBase):
         self.logger.info("writing data matrix '{out_path}'".format(out_path=out_path) )
 
         if header == None:
-            header = ['# kmer'] + ['{0}nM\nerr'.format(c) for c in self.rbp_conc]
+            header = ['kmer']
+            for c in self.rbp_conc:
+                header += [f'{int(c)}_nM', f'{int(c)}_err']
 
         if not len(order):
             order = np.arange(len(kmers))
