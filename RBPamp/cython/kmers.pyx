@@ -405,8 +405,11 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
     cdef UINT16_t MAX_INDEX = 4**k - 1
 
     a5_index = 0
-    for i in range(k-1):
-        s = adap5[i]
+    for i in range(min(k-1, len(adap5))):
+        # This would be bogus in general
+        # but adap5 is already truncated to k+1 last bases by 
+        # RBNSreads.get_index_matrix() which calls this...
+        s = adap5[i] 
         a5_index = ((a5_index << 2) | s ) & MAX_INDEX
         
     with nogil, parallel(num_threads=8):
@@ -420,7 +423,7 @@ def seq_matrix_to_index_matrix(UINT8_t [:,:] seq_matrix, UINT64_t k, UINT8_t [:]
                 index = ((index << 2) | s ) & MAX_INDEX
                 indices[j, i] = index
             
-            for i in range(k-1): # last kmers read into 3'adapter
+            for i in range(min(k-1, len(adap3))): # last kmers read into 3'adapter
                 s = adap3[i]
                 index = ((index << 2) | s ) & MAX_INDEX
                 indices[j, L+i] = index
