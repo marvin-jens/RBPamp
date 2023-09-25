@@ -285,7 +285,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
     return Z.base
 
 
-def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32_t [:] Z1rm):
+def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32_t [:] Z1rm, FLOAT32_t [:] R_error_weights):
 
     ### Relevant data from the state object
     cdef UINT8_t [:,:] seqm = state.mdl.seqm
@@ -453,7 +453,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     for j in range(n_samples):
         for i in range(Nk):
             Eji = E[j,i]
-            pre1 = R[j,i] / w[j,i]
+            pre1 = R[j,i] / w[j,i] * R_error_weights[i]
             pre2 = f0[i] * R[j,i]
 
             for y in range(n_psam):
