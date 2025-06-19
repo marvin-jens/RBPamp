@@ -1,5 +1,3 @@
-# coding=future_fstrings
-from __future__ import print_function
 import numpy as np
 import matplotlib
 matplotlib.use('agg')
@@ -10,10 +8,11 @@ import RBPamp.cyska as cyska
 from .cyska import yield_kmers
 import RBPamp
 from RBPamp.caching import CachedBase, cached, pickled
+from copy import copy
 
 class Alignment(object):
-    def __init__(self, seqs=[], weights=[]):
-        self.matrix = []
+    def __init__(self, seqs=[], weights=[], ofs=[], matrix=[]):
+        self.matrix = matrix
         # for s, w in izip_longest(seqs, weights, fillvalue=1.):
         #     ofs, score = self.align(s)
 
@@ -21,9 +20,18 @@ class Alignment(object):
         # self.ext_cost[:9] = 0.01
         # self.ext_cost[9:18] = [.01, .02, .03, .04, .05, .06, .07, .08, .1, ]
         # print self.ext_cost
-        self.seqs = []
-        self.ofs = []
-        self.weights = []
+        self.seqs = seqs
+        self.ofs = ofs
+        self.weights = weights
+
+    def copy(self):
+        c = Alignment(
+            seqs=list(self.seqs),
+            weights=list(self.weights),
+            ofs=list(self.ofs),
+            matrix=np.array(self.matrix)
+        )
+        return c
 
     def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, end_ignore=False, min_overlap=1, core_k=None, core_start=None, debug=False):
         # TODO: handle core_k and core_start 
@@ -274,7 +282,7 @@ class Alignment(object):
 
 from RBPamp.pwm import PSAM, project_column
 class PSAMSetBuilder(object):
-    def __init__(self, kmer_set, k=8, keep_weight=.99, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=10, q_ns=5., A0=.01, pseudo=1e-3, **kwargs):
+    def __init__(self, kmer_set, k=8, keep_weight=.99, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=3, q_ns=5., A0=.01, pseudo=1e-3, **kwargs):
         self.logger = logging.getLogger("opt.seed.PSAMSetBuilder")
 
         param_keys = ['k', 'keep_weight', 'n_max', 'm_max', 'thresh', 'z_cut', 'n_min', 'q_ns', 'pseudo', 'A0'] + list(kwargs.keys())
@@ -297,7 +305,7 @@ class PSAMSetBuilder(object):
         self.n_enriched = len(kmer_set)
         self.z_cut = z_cut
         self.r0 = np.array([r for kmer, r in self.kmer_set]).max()
-        print("PSB.r0", self.r0)
+        # print("PSB.r0", self.r0)
         self.logger.debug("building PSAMs from {0} significantly enriched {1}-mers".format(self.n_enriched, self.k))
 
     def new(self, kmer, r):
@@ -314,6 +322,9 @@ class PSAMSetBuilder(object):
         )
 
     def get_motifs(self):
+        # print("get_motifs")
+        # for a in self.alns:
+        #     print(a.seqs)
         psams = [self.make_psam(a) for a in self.alns]
         return ",".join([p.consensus_ul for p in psams])
 
@@ -338,18 +349,34 @@ class PSAMSetBuilder(object):
             j = scores[best_i].argmax()
             self.logger.debug("best matching kmer is {}:{} with score {:.3f}".format(self.kmer_set[best_i], self.alns[j].consensus, mer_scores[best_i]) )
             if (scores[best_i, j] < self.thresh) and (len(self.alns) < self.m_max):
-                kmer, r = self.kmer_set[0]
+                best_i = 0 # pick the most enriched from the remaining pile
+                kmer, r = self.kmer_set[best_i]
                 current_motifs = self.get_motifs()
-                self.logger.debug("{} R_est={:.1f} does not match existing motifs ({}) scores={}. Seeding new motif".format(kmer, r, current_motifs, scores[0]))
+                self.logger.debug(f"{kmer} R_est={r:.1f} is most enriched and does not match existing motifs ({current_motifs}) scores={scores[best_i]}. Seeding new motif")
                 # print "starting NEW MOTIF", kmer, r, scores[0]
-                self.kmer_set.pop(0)
+                self.kmer_set.pop(best_i)
                 self.alns.append(self.new(kmer, r))
+
             else:
                 kmer, r = self.kmer_set.pop(best_i)
                 s = scores[best_i, j]
                 o = ofs[best_i, j]
-                self.alns[j].blend(kmer, int(o), r, normalize=False)
-   
+                # TODO: check if blending degrades match with original, seeding kmer below threshold
+                aln = self.alns[j]
+                orig = aln.copy()
+
+                aln.blend(kmer, int(o), r, normalize=False)
+                o, s = aln.align(aln.seqs[0], normalize=True)
+                print(f"after blending {kmer}, the PSAM score against seed {aln.seqs[0]} is {s}")
+                # if s < 0.85:
+                #     # this is below threshold!
+                #     if len(self.alns) < self.m_max:
+                #         self.logger.debug(f"starting new motif from {kmer} instead!")
+                #         self.alns.append(self.new(kmer, r))
+                #         self.alns[j] = orig
+                #     else:
+                #         break
+
         return self.alns
 
     def drop_low_support(self, alns):
@@ -402,9 +429,10 @@ class PSAMSetBuilder(object):
         kmer, r = self.kmer_set.pop(0)
         self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
         self.alns = [self.new(kmer, r), ]
-
+        
         alns = self.build()
         keep = self.drop_low_support(alns)
+        # keep = alns
         self.founders = [aln.seqs[0] for aln in keep]
         for i, aln in enumerate(keep):
             for kmer in aln.seqs:
@@ -464,7 +492,7 @@ class PSAMSeeding(object):
             plt.savefig('r_dG_{}.pdf'.format(j))
             plt.close()
 
-    def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., **kwargs): # UNDO HERE!!!
+    def motifs_from_R(self, k=8, z_cut=4, n_min=5, q_ns=5., **kwargs): # UNDO HERE!!!
         from RBPamp.seed import Alignment
         import RBPamp.cyska as cyska
         kwargs['z_cut'] = z_cut
@@ -499,7 +527,7 @@ class PSAMSeeding(object):
         self.shelf['i_ns'] = (R_sort > Rns).argmax() - 1
 
         r0 = R[I[0]]
-        print("maxR", r0)
+        # print("maxR", r0)
         n = 0
         kmer_set = []
 
@@ -593,7 +621,7 @@ if __name__ == "__main__":
         (4.0, 'UUUAGUU'),
     ]
     pb = PSAMBuilder(test_data_msi, init=False)
-    print("done building tables")
+    # print("done building tables")
     pb.align(pb.P[3], pb.P[8], debug=True)
     pb.align(pb.P[3], pb.P[0], debug=True)
     sys.exit(0)

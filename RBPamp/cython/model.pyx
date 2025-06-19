@@ -1,5 +1,5 @@
-# cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
-### cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
+### cython: boundscheck=False, wraparound=False, initializedcheck=False, overflowcheck=False, cdivision=True
+# cython: boundscheck=True, wraparound=True, initializedcheck=True, overflowcheck=True, cdivision=False
 #!python
 
 __license__ = "MIT"
@@ -57,7 +57,7 @@ def SPA_partition_function(UINT32_t [:,:] index_matrix, UINT8_t [:,:] openen_mat
     if n_max:
         N = min(N, n_max)
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for j in prange(N, schedule='static'):
             Z1 = 0
             # iterate over all k-mers, always adding next base to index
@@ -93,7 +93,7 @@ def SPA_partition_function_raw(UINT32_t [:,:] index_matrix, FLOAT32_t [:,:] acc_
     if n_max:
         N = min(N, n_max)
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for j in prange(N, schedule='static'):
             Z1 = 0
             # iterate over all k-mers
@@ -118,7 +118,7 @@ def seqm_pad_adapters(UINT8_t [:,:] seqm, UINT8_t [:] adap5, UINT8_t [:] adap3, 
     cdef UINT64_t i = 0, j=0
 
     with nogil:
-        for j in prange(N):
+        for j in prange(N, num_threads=16):
             for i in range(k-1):
                 padded[j,i] = adap5[l5 - k + i + 1]
             for i in range(l):
@@ -140,11 +140,11 @@ def clipped_sum_and_max(FLOAT32_t [:,:] Z, FLOAT32_t clip=100000.):
     cdef FLOAT32_t Z_sum=0
     cdef FLOAT32_t *ptr = &Z_max
     cdef FLOAT32_t [:] Z_read = np.zeros(N, dtype=np.float32)
-    cdef int num_threads=8
+    cdef int num_threads=16
     cdef int thread_num = -1
     cdef FLOAT32_t [:] Z_max_thread = np.zeros(num_threads, dtype=np.float32)
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for j in prange(N, schedule='static'):
             # make these thread-local
             thread_num = openmp.omp_get_thread_num()
@@ -180,7 +180,7 @@ def pow_scale(FLOAT32_t [:,:] Z, FLOAT32_t a):
     cdef int num_threads=8
     cdef int thread_num = -1
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for j in prange(N, schedule='static'):
             # make these thread-local
             # thread_num = openmp.omp_get_thread_num()
@@ -239,7 +239,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                 Z[j, i] = z
 
     elif alpha < 1:
-        with nogil, parallel():
+        with nogil, parallel(num_threads=16):
             for j in prange(N, schedule='static'):
                 # iterate over all PSAM start positions
                 for i in range(l):
@@ -262,7 +262,7 @@ def PSAM_partition_function(UINT8_t [:, :] seqm, FLOAT32_t [:, :] acc_matrix, FL
                     Z[j, i] = z
 
     else:
-        with nogil, parallel():
+        with nogil, parallel(num_threads=16):
             for j in prange(N, schedule='static'):
                 # iterate over all PSAM start positions
                 for i in range(l):
@@ -323,7 +323,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     cdef UINT64_t lam = im.shape[1] # no. of kmers in each read
     cdef UINT64_t Nk = state.mdl.nA # 4^k
     cdef FLOAT32_t Nk_inv = 1./Nk
-    cdef int n_threads = 8
+    cdef int n_threads = 16 
 
     ### Local variables and flags
     cdef int tid = 0 # thread number
@@ -383,7 +383,7 @@ def PSAM_partition_function_gradient(state, params, FLOAT32_t [:,:] Z1m, FLOAT32
     t0 = time()
     # print "setup2"
     # main loop over all reads. compute dw_dA. in threads
-    for r in prange(N, schedule='dynamic', nogil=True, num_threads=3):
+    for r in prange(N, schedule='dynamic', nogil=True, num_threads=16):
         tid = cython.parallel.threadid() #openmp.omp_get_thread_num()
 
     # # single threaded version for testing
@@ -557,7 +557,7 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     cdef UINT64_t Na = 4**k
 
     cdef int thread_num = 0
-    cdef int n_threads = 8
+    cdef int n_threads = 16 
 
     # store parameters here
     cdef FLOAT32_t [:] params = np.zeros(Na, dtype = np.float32) + aff0
@@ -568,7 +568,7 @@ def params_from_pwm(FLOAT32_t [:,:] pwm, FLOAT32_t A0=1., FLOAT32_t aff0=1e-5):
     cdef int i,j,n,ind,l
     cdef FLOAT32_t A=0
 
-    with nogil, parallel(num_threads=8):
+    with nogil, parallel(num_threads=16):
         for i in prange(Na, schedule='static'):
 
     # ugcacgu = seq_to_index('ugcacgu')
@@ -621,7 +621,7 @@ def PSAM_mean_field_eval(state):
     cdef FLOAT32_t [:,:] M = state.mdl.xm.M
 
     cdef int thread_num = 0
-    cdef int n_threads = 8
+    cdef int n_threads = 16
 
     cdef FLOAT32_t [:] Z1 = state.A #np.empty(Nk, dtype=np.float32)
     cdef FLOAT32_t [:,:] occ = np.empty((n_samples,Nk), dtype=np.float32)
@@ -650,12 +650,12 @@ def PSAM_mean_field_eval(state):
         #         Z1[i] = max(A, aff0)
         
         for n in range(n_samples):
-            with parallel():
+            with parallel(num_threads=16):
                 for i in prange(Nk):
                     z = rbp_conc[n]*Z1[i]
                     occ[n,i] = z / (z + 1)
 
-            with parallel():
+            with parallel(num_threads=16):
                 for i in prange(Nk):
                     thread_num = openmp.omp_get_thread_num()
                     Mil = 0
@@ -671,7 +671,7 @@ def PSAM_mean_field_eval(state):
             for i in range(n_threads):
                 _sum_pi[n] += sum_pi[i, n]
 
-            with parallel():
+            with parallel(num_threads=16):
                 for i in prange(Nk):
                     thread_num = openmp.omp_get_thread_num()
                     R[n,i] = pi[n,i]/_sum_pi[n] / f0[i]
@@ -713,7 +713,7 @@ def PSAM_mean_field_gradient(state):
     cdef FLOAT32_t [:] wrm = state.mdl.xm.wrm
     
     cdef int thread_num = 0
-    cdef int n_threads = 8
+    cdef int n_threads = 16
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, l=0, nt=0
 
     cdef FLOAT32_t pre, o, w
@@ -723,7 +723,7 @@ def PSAM_mean_field_gradient(state):
     # mutliplication is faster than division. So divide outside of loop.
     cdef FLOAT32_t [:] params_inv = 1./state.params.data
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for n in range(n_samples):
             for i in prange(Nk, schedule='dynamic'):
                 thread_num = openmp.omp_get_thread_num()
@@ -782,7 +782,7 @@ def PSAM_inv_mean_field_gradient(state):
     cdef FLOAT32_t [:] wrm = state.mdl.xm.wrm
     
     cdef int thread_num = 0
-    cdef int n_threads = 8
+    cdef int n_threads = 16
     cdef UINT64_t i=0, j=0, d=0, n=0, x=0, l=0, nt=0
 
     cdef FLOAT32_t pre, o, w
@@ -796,7 +796,7 @@ def PSAM_inv_mean_field_gradient(state):
     #     for i in range(Nk):
 
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for n in range(n_samples):
             for i in prange(Nk, schedule='dynamic'):
                 thread_num = openmp.omp_get_thread_num()
@@ -910,7 +910,7 @@ def SPA_bipartite_partition_function_raw(
     if n_max:
         N = min(N, n_max)
 
-    with nogil, parallel():
+    with nogil, parallel(num_threads=16):
         for j in prange(N, schedule='static'):
             Z1 = 0 # make thread-local
             # iterate over all k-mers and fill in single motif partition functions
@@ -988,7 +988,7 @@ def xcorr_Z(FLOAT32_t [:,:] Z_A, FLOAT32_t [:,:] Z_B, UINT64_t k1, UINT64_t k2):
     # return (Z_corr.base / n_corr.base)[L_max+1:]
     return Z_corr.base
 
-def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
+def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 16):
     cdef UINT64_t N = Z1.base.shape[0]
     cdef int n_conc = len(rbp_conc_vector)
     # store weighted k-mer counts here (for each thread)
@@ -998,7 +998,7 @@ def p_bound(FLOAT32_t [:] Z1, FLOAT32_t [:] rbp_conc_vector, int n_threads = 8):
     cdef FLOAT32_t conc=0, Z=0, w=0
     cdef UINT64_t i=-1,j=-1
 
-    with nogil, parallel(num_threads=8):
+    with nogil, parallel(num_threads=16):
         for i in range(n_conc):
             conc = rbp_conc_vector[i]
             for j in prange(N, schedule='static'):
