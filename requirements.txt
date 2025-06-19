@@ -13,4 +13,3 @@ pyzmq==17.1.2
 Jinja2==2.10.1
 simplejson==3.16.0
 # pdfkit==0.6.1
-future-fstrings>=1.2.0

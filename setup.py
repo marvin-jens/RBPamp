@@ -31,7 +31,7 @@ if use_cython:
         cy_kw = dict(
             include_dirs=[numpy.get_include(), ],
             extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native', '-mtune=native'], 
-            extra_link_args=['-fopenmp'],
+            extra_link_args=['-fopenmp', '-lm'],
             language_level="3"
         )
 
@@ -91,10 +91,13 @@ setup(
     ],
     keywords = 'rna RBNS k-mer kmer statistics biology bioinformatics RBP RNA-binding protein gene regulation affinity thermodynamics gradient descent',
 
-    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2', 'future_fstrings'],
-    scripts=['bin/RBPamp'],
+    install_requires=['cython', 'numpy', 'pandas', 'matplotlib', 'seaborn', 'zmq', 'jinja2'],
+    # scripts=['bin/RBPamp'],
+    entry_points={'console_scripts': ['RBPamp = RBPamp.cmdline:main']},
     package_dir='',
     packages=['RBPamp'],
+    package_data={'': ['known_kds.csv']},
+    include_package_data=True,
     cmdclass = cmdclass,
     ext_modules=ext_modules,
 )

@@ -1,6 +1,7 @@
 import RBPamp
 from RBPamp import __version__, __license__, __authors__, __email__
-
+from RBPamp.util import ensure_path
+import RBPamp.util as util
 import sys
 import os
 import copy
@@ -40,6 +41,8 @@ def parse_cmdline():
     parser.add_option("","--format", dest="format", default='raw', help="read file format [raw,fasta,fastq] (default=raw)")
     parser.add_option("","--adap5", dest="adap5", default="gggaguucuacaguccgacgauc", help="5'RNA adapter sequence to add to read sequence")
     parser.add_option("","--adap3", dest="adap3", default="uggaauucucgggugucaagg", help="3'RNA adapter sequence to add to read sequence")
+    #parser.add_option("","--seed-ignore-kmers", default="", help="TESTING: exclude k-mers from this file (e.g. complementary to adapters) from PSAM seeding stage")
+    parser.add_option("","--opt-ignore-kmers", default="", help="TESTING: exclude k-mers from this file (e.g. complementary to adapters) from objective function/gradient")
     parser.add_option("-N","--n-max", dest="n_max", default=15000000, type=int, help="read at most N reads (preserves RAM for very deep sequencing libraries. default=15M, 0=off)")
     parser.add_option("","--no-replace", dest="replace", default=True, action="store_true", help="TESTING: disable drawing with replacement")
 
@@ -144,16 +147,6 @@ def parse_cmdline():
         sys.exit(0)
 
     return options, args
-
-
-def ensure_path(full):
-    path = os.path.dirname(full)
-    try:
-        os.makedirs(path)
-    except OSError:
-        pass
-
-    return full
 
 
 def auto_detect(path='.', exts=["reads","txt"]):
@@ -604,7 +597,8 @@ class Run(object):
             z_cut = self.options.z_cut,
             contaminants = contaminants,
             pseudo = self.options.seed_pseudo,
-            keep_weight = self.options.seed_keep_weight
+            keep_weight = self.options.seed_keep_weight,
+            exclude_kmers = util.load_kmers_from_file(self.options.opt_ignore_kmers),
         )
         # print "len params in seed_stage", len(self.params.param_set)
         # print self.params
@@ -773,6 +767,7 @@ class Run(object):
             excess_rbp = self.options.excess_rbp,
             linear_occ = self.options.linear_occ,
             continuation = self.options.cont,
+            ignore_kmers = util.load_kmers_from_file(self.options.opt_ignore_kmers),
             tracker = tracker,
         )
         PGD.optimize(debug=self.options.debug_grad)

@@ -1,5 +1,3 @@
-# -*- coding: future_fstrings -*-
-from __future__ import print_function
 import numpy as np
 # from RBPamp.npwrap import npmonitored
 import gc

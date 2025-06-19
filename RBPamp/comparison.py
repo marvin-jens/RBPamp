@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import sys
 import os
 import numpy as np
@@ -20,7 +21,7 @@ class RefComparison(object):
         self.logger = logging.getLogger("report.ReferenceComparison")
         import RBPamp.cyska
         if not ref_file:
-            ref_file = os.path.join(os.path.dirname(__file__),"../known_kds.csv")
+            ref_file = os.path.join(os.path.dirname(__file__), "../known_kds.csv")
 
         for line in open(ref_file, encoding='utf-8'):
             if line.startswith("# alias"):

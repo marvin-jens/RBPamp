@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 __license__ = "MIT"
 __authors__ = ["Marvin Jens"]
 __email__ = "mjens@mit.edu"

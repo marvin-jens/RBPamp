@@ -244,7 +244,7 @@ class ModelSetParams(object):
             savefig = plt.savefig
 
         n = len(self.param_set)
-        print("param_set size", n)
+        print("param_set size:", n)
         fig, (lax, rax) = plt.subplots(1, 2, figsize=(3, n*.4), sharey=False, gridspec_kw=dict(wspace=0.02, left=.02, right=.98, top=.98, bottom=0.02))
         if title:
             plt.suptitle(title)
@@ -309,7 +309,8 @@ class ModelSetParams(object):
             logging.warning("ModelSetParams.save_logos() tight_layout error silenced")
 
         savefig(fname)
-        plt.close()
+        # plt.close()
+        return fig
 
 
 class ModelParametrization(object):
