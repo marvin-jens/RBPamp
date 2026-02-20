@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib
-matplotlib.use('agg')
+
+matplotlib.use("agg")
 import matplotlib.pyplot as pp
 import logging
 import os
@@ -9,6 +10,7 @@ from .cyska import yield_kmers
 import RBPamp
 from RBPamp.caching import CachedBase, cached, pickled
 from copy import copy
+
 
 class Alignment(object):
     def __init__(self, seqs=[], weights=[], ofs=[], matrix=[]):
@@ -29,23 +31,35 @@ class Alignment(object):
             seqs=list(self.seqs),
             weights=list(self.weights),
             ofs=list(self.ofs),
-            matrix=np.array(self.matrix)
+            matrix=np.array(self.matrix),
         )
         return c
 
-    def align(self, seq, normalize=False, multiply=False, contain=False, end_weight=False, end_ignore=False, min_overlap=1, core_k=None, core_start=None, debug=False):
-        # TODO: handle core_k and core_start 
+    def align(
+        self,
+        seq,
+        normalize=False,
+        multiply=False,
+        contain=False,
+        end_weight=False,
+        end_ignore=False,
+        min_overlap=1,
+        core_k=None,
+        core_start=None,
+        debug=False,
+    ):
+        # TODO: handle core_k and core_start
         bits = cyska.seq_to_bits(seq)
         l = len(seq)
         n = len(self.matrix)
         if not len(self.matrix):
-            return 0, 1 # offset, alignment score
-        
+            return 0, 1  # offset, alignment score
+
         scores = []
         if contain:
             assert n > l
             d = n - l
-            ofs_range = list(range(-d, d+1))
+            ofs_range = list(range(-d, d + 1))
         else:
             ofs_range = list(range(-l + min_overlap, n + 1 - min_overlap))
         # print seq
@@ -56,14 +70,14 @@ class Alignment(object):
 
         for ofs in ofs_range:
             m_start = max(0, ofs)
-            m_end = min(n,ofs+l)
-            
+            m_end = min(n, ofs + l)
+
             if multiply:
-                start_avg = 1.
+                start_avg = 1.0
                 if m_start and not end_ignore:
                     start_avg = func(self.matrix[:m_start], axis=1).prod()
-                
-                end_avg = 1.
+
+                end_avg = 1.0
                 if m_end < n and not end_ignore:
                     end_avg = func(self.matrix[m_end:], axis=1).prod()
             else:
@@ -71,10 +85,9 @@ class Alignment(object):
                 if m_start and not end_ignore:
                     start_avg = func(self.matrix[:m_start], axis=1).sum()
 
-                end_avg = 0.  # Arg, there was a bug here! Redo?
+                end_avg = 0.0  # Arg, there was a bug here! Redo?
                 if m_end < n and not end_ignore:
                     end_avg = func(self.matrix[m_end:], axis=1).sum()
-
 
             n_cols = m_end - m_start
 
@@ -85,14 +98,14 @@ class Alignment(object):
             #     score = start_avg*end_avg if multiply else start_avg + end_avg
             # else:
             #     score = 1 if multiply else 0
-            score = start_avg*end_avg if multiply else start_avg + end_avg
+            score = start_avg * end_avg if multiply else start_avg + end_avg
             # score = 1 if multiply else 0
 
             for i in range(n_cols):
-                if bits[i+s_start] > 3:
-                    continue # skip gaps
-                
-                S = self.matrix[i+m_start, bits[i+s_start]]
+                if bits[i + s_start] > 3:
+                    continue  # skip gaps
+
+                S = self.matrix[i + m_start, bits[i + s_start]]
 
                 col_scores.append(S)
                 score = score * S if multiply else score + S
@@ -104,7 +117,19 @@ class Alignment(object):
 
             scores.append(score)
             if debug:
-                print(ofs, s_start,":",s_end, seq[s_start:s_end], m_start,":", m_end, col_scores, "->", score)
+                print(
+                    ofs,
+                    s_start,
+                    ":",
+                    s_end,
+                    seq[s_start:s_end],
+                    m_start,
+                    ":",
+                    m_end,
+                    col_scores,
+                    "->",
+                    score,
+                )
 
         x = np.array(scores).argmax()
         S = scores[x]
@@ -114,24 +139,23 @@ class Alignment(object):
 
         return ofs_range[x], S
 
-
     def blend(self, seq, ofs, weight, normalize=False):
         self.seqs.append(seq)
         self.weights.append(weight)
         if ofs < 0:
             self.ofs = [o - ofs for o in self.ofs]
-            matrix = np.zeros((len(self.matrix)-ofs,4))
+            matrix = np.zeros((len(self.matrix) - ofs, 4))
             matrix[-ofs:] = self.matrix[:]
             self.matrix = matrix
             ofs = 0
-        
+
         d = ofs + len(seq) - len(self.matrix)
         if d > 0:
-            matrix = np.zeros((len(self.matrix)+d,4))
+            matrix = np.zeros((len(self.matrix) + d, 4))
             if len(self.matrix):
-                matrix[:len(self.matrix)] = self.matrix[:]
+                matrix[: len(self.matrix)] = self.matrix[:]
             self.matrix = matrix
-        
+
         self.ofs.append(ofs)
 
         bits = cyska.seq_to_bits(seq)
@@ -142,13 +166,15 @@ class Alignment(object):
 
         for i in range(l):
             if bits[i] > 3:
-                continue # skip gaps
-            self.matrix[i+ofs, bits[i]] += weight #min(max(weight, self.matrix[i+ofs, bits[i]]), m)
-        
+                continue  # skip gaps
+            self.matrix[
+                i + ofs, bits[i]
+            ] += weight  # min(max(weight, self.matrix[i+ofs, bits[i]]), m)
+
         if normalize:
             self.matrix /= self.max_score(k=len(seq))
 
-    def add(self, seq, weight=1.):
+    def add(self, seq, weight=1.0):
         ofs, score = self.align(seq)
         self.blend(seq, ofs, weight)
 
@@ -157,27 +183,29 @@ class Alignment(object):
     @property
     def score(self):
         return self.matrix.max(axis=0).mean()
-    
+
     def max_kmer_score(self, k=8):
         if len(self.matrix):
             ma = self.matrix.max(axis=1)
-            slices = np.array([ma[i:i+k].sum() for i in range(len(self.matrix)-k+1)])
+            slices = np.array(
+                [ma[i : i + k].sum() for i in range(len(self.matrix) - k + 1)]
+            )
             return slices.max()
         else:
-            return 1.
+            return 1.0
 
     def max_kmer_score_at(self, i, k=8):
         if len(self.matrix):
-            return self.matrix[i:i+k].max(axis=1).sum()
+            return self.matrix[i : i + k].max(axis=1).sum()
         else:
-            return 1.
+            return 1.0
 
     @property
     def max_score(self):
         if len(self.matrix):
             return self.matrix.max(axis=1).sum()
         else:
-            return 1.
+            return 1.0
 
     @property
     def max_weight(self):
@@ -191,34 +219,40 @@ class Alignment(object):
     def __str__(self):
         buf = []
         for s, o, w in zip(self.seqs, self.ofs, self.weights):
-            spacer = " "*o
+            spacer = " " * o
             buf.append("{w:3.3e}  {spacer}{s}".format(**locals()))
 
         ms = self.max_score(k=len(self.matrix))
-        perc = 100. * self.score / ms
-        buf.append("average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(self.score, ms, perc))
+        perc = 100.0 * self.score / ms
+        buf.append(
+            "average max. column score {0:.2f} of {1:.2f} ({2:.2f}%)".format(
+                self.score, ms, perc
+            )
+        )
         return "\n".join(buf)
 
     def save_logo(self, fname):
         from RBPamp.pwm import weblogo_save
+
         weblogo_save(self.matrix, fname)
 
-    def to_PSAM(self, keep_weight=1., n_max=0, pseudo=0, col_scale=True, A0=None):
+    def to_PSAM(self, keep_weight=1.0, n_max=0, pseudo=0, col_scale=True, A0=None):
         matrix = np.array(self.matrix)
+
         def find_best():
             if keep_weight == 1 and n_max == 0:
                 return (1, 0, len(matrix))
 
-            frac = matrix.sum(axis=1) 
+            frac = matrix.sum(axis=1)
             F = matrix.sum()
             n = len(matrix)
 
-            best = {n : (1 ,0 ,n)}
+            best = {n: (1, 0, n)}
             for i in range(n):
-                for j in range(i, n+1):
-                    
-                    f = frac[i:j].sum()/F
-                    l = j-i
+                for j in range(i, n + 1):
+
+                    f = frac[i:j].sum() / F
+                    l = j - i
                     if l in best:
                         if f < best[l][0]:
                             continue
@@ -230,33 +264,32 @@ class Alignment(object):
                 if n_max and l > n_max:
                     # we exhausted all motifs of allowed length
                     break
-                
-                f,i,j = best[l]
+
+                f, i, j = best[l]
                 if f >= keep_weight:
                     # found the shortest motif that satisfies keep_weight
-                    return f, i, j 
+                    return f, i, j
 
             # no allowed length satisfies keep_weight cutoff.
             # select the shortest motif that is as good as the longest allowed motif
             f_cut = best[n_max][0]
             for l in bylength:
-                f,i,j = best[l]
+                f, i, j = best[l]
                 if f >= f_cut:
                     # found the shortest motif that satisfies keep_weight
-                    return f, i, j 
-
+                    return f, i, j
 
         f, i, j = find_best()
-        m = matrix[i:j] 
+        m = matrix[i:j]
         if col_scale:
-            # add pseudo-scores to columns 
+            # add pseudo-scores to columns
             # with fewer observations/lower score
             M = m.max(axis=1)
             # print "maxima along positions", M
-            # 0 for col with highest score, 
+            # 0 for col with highest score,
             # approaching 1 for lowest
-            inc = 1 - M / M.max() 
-            m += inc[:,np.newaxis]
+            inc = 1 - M / M.max()
+            m += inc[:, np.newaxis]
 
         psam = m / m.max(axis=1)[:, np.newaxis]
         if pseudo:
@@ -265,6 +298,7 @@ class Alignment(object):
 
         # A0 = m.max(axis=1).sum()
         from RBPamp.pwm import PSAM
+
         if A0 is None:
             A0 = self.max_weight
 
@@ -272,23 +306,51 @@ class Alignment(object):
         P._n_seqs = len(self.seqs)
         P._max_weight = self.max_weight
         return P
-        
+
     @property
     def consensus(self):
         psam = self.to_PSAM(pseudo=0)
         return psam.consensus_ul
 
 
-
 from RBPamp.pwm import PSAM, project_column
+
+
 class PSAMSetBuilder(object):
-    def __init__(self, kmer_set, k=8, keep_weight=.99, n_max=11, m_max=5, thresh = .75, z_cut=4, n_min=3, q_ns=5., A0=.01, pseudo=1e-3, **kwargs):
+    def __init__(
+        self,
+        kmer_set,
+        k=8,
+        keep_weight=0.99,
+        n_max=11,
+        m_max=5,
+        thresh=0.75,
+        z_cut=4,
+        n_min=3,
+        q_ns=5.0,
+        A0=0.01,
+        pseudo=1e-3,
+        **kwargs,
+    ):
         self.logger = logging.getLogger("opt.seed.PSAMSetBuilder")
 
-        param_keys = ['k', 'keep_weight', 'n_max', 'm_max', 'thresh', 'z_cut', 'n_min', 'q_ns', 'pseudo', 'A0'] + list(kwargs.keys())
+        param_keys = [
+            "k",
+            "keep_weight",
+            "n_max",
+            "m_max",
+            "thresh",
+            "z_cut",
+            "n_min",
+            "q_ns",
+            "pseudo",
+            "A0",
+        ] + list(kwargs.keys())
         d = dict(locals())
         d.update(kwargs)
-        param_str = ", ".join(["{}={}".format(key, d[key]) for key in sorted(param_keys)])
+        param_str = ", ".join(
+            ["{}={}".format(key, d[key]) for key in sorted(param_keys)]
+        )
         self.logger.info("parameters: '{}'".format(param_str))
 
         self.k = k
@@ -306,7 +368,11 @@ class PSAMSetBuilder(object):
         self.z_cut = z_cut
         self.r0 = np.array([r for kmer, r in self.kmer_set]).max()
         # print("PSB.r0", self.r0)
-        self.logger.debug("building PSAMs from {0} significantly enriched {1}-mers".format(self.n_enriched, self.k))
+        self.logger.debug(
+            "building PSAMs from {0} significantly enriched {1}-mers".format(
+                self.n_enriched, self.k
+            )
+        )
 
     def new(self, kmer, r):
         aln = Alignment()
@@ -315,10 +381,10 @@ class PSAMSetBuilder(object):
 
     def make_psam(self, aln, pseudo=0, **kwargs):
         return aln.to_PSAM(
-            pseudo=pseudo, 
-            keep_weight=self.keep_weight, 
-            A0=aln.max_weight/self.r0 * self.A0,
-            **kwargs
+            pseudo=pseudo,
+            keep_weight=self.keep_weight,
+            A0=aln.max_weight / self.r0 * self.A0,
+            **kwargs,
         )
 
     def get_motifs(self):
@@ -336,7 +402,9 @@ class PSAMSetBuilder(object):
             ofs = []
             # print "re-aligning"
             for kmer, r in self.kmer_set:
-                o, s = np.array([aln.align(kmer, normalize=True) for aln in self.alns]).T
+                o, s = np.array(
+                    [aln.align(kmer, normalize=True) for aln in self.alns]
+                ).T
                 ofs.append(o)
                 scores.append(s)
 
@@ -347,12 +415,18 @@ class PSAMSetBuilder(object):
             mer_scores = scores.max(axis=1)
             best_i = mer_scores.argmax()
             j = scores[best_i].argmax()
-            self.logger.debug("best matching kmer is {}:{} with score {:.3f}".format(self.kmer_set[best_i], self.alns[j].consensus, mer_scores[best_i]) )
+            self.logger.debug(
+                "best matching kmer is {}:{} with score {:.3f}".format(
+                    self.kmer_set[best_i], self.alns[j].consensus, mer_scores[best_i]
+                )
+            )
             if (scores[best_i, j] < self.thresh) and (len(self.alns) < self.m_max):
-                best_i = 0 # pick the most enriched from the remaining pile
+                best_i = 0  # pick the most enriched from the remaining pile
                 kmer, r = self.kmer_set[best_i]
                 current_motifs = self.get_motifs()
-                self.logger.debug(f"{kmer} R_est={r:.1f} is most enriched and does not match existing motifs ({current_motifs}) scores={scores[best_i]}. Seeding new motif")
+                self.logger.debug(
+                    f"{kmer} R_est={r:.1f} is most enriched and does not match existing motifs ({current_motifs}) scores={scores[best_i]}. Seeding new motif"
+                )
                 # print "starting NEW MOTIF", kmer, r, scores[0]
                 self.kmer_set.pop(best_i)
                 self.alns.append(self.new(kmer, r))
@@ -367,7 +441,9 @@ class PSAMSetBuilder(object):
 
                 aln.blend(kmer, int(o), r, normalize=False)
                 o, s = aln.align(aln.seqs[0], normalize=True)
-                print(f"after blending {kmer}, the PSAM score against seed {aln.seqs[0]} is {s}")
+                print(
+                    f"after blending {kmer}, the PSAM score against seed {aln.seqs[0]} is {s}"
+                )
                 # if s < 0.85:
                 #     # this is below threshold!
                 #     if len(self.alns) < self.m_max:
@@ -383,8 +459,10 @@ class PSAMSetBuilder(object):
         alns = list(alns)
         keep = list(alns)
         if len(alns) > 1:
-            alns = sorted(alns, key=lambda a : len(a.seqs), reverse=True)
-            keep = [alns[0], ]
+            alns = sorted(alns, key=lambda a: len(a.seqs), reverse=True)
+            keep = [
+                alns[0],
+            ]
             drop = []
             orphan_set = []
             for aln in alns[1:]:
@@ -395,9 +473,15 @@ class PSAMSetBuilder(object):
                     ks = list(zip(aln.seqs, aln.weights))
                     orphan_set.extend(ks)
 
-            orphan_set = sorted(orphan_set, key = lambda x : x[1], reverse=True)
-            self.logger.info("need to drop {} motifs with {} kmers".format(len(drop), len(orphan_set)))
-            self.logger.info("re-distributing kmers of weakest motifs {}".format(orphan_set))
+            orphan_set = sorted(orphan_set, key=lambda x: x[1], reverse=True)
+            self.logger.info(
+                "need to drop {} motifs with {} kmers".format(
+                    len(drop), len(orphan_set)
+                )
+            )
+            self.logger.info(
+                "re-distributing kmers of weakest motifs {}".format(orphan_set)
+            )
             while orphan_set:
                 # align all remaining enriched kmers to all motifs
                 scores = []
@@ -413,7 +497,11 @@ class PSAMSetBuilder(object):
 
                 mer_scores = scores.max(axis=1)
                 best_i = mer_scores.argmax()
-                self.logger.debug("best matching kmer is {} with score {:.3f}".format(orphan_set[best_i], mer_scores[best_i]) )
+                self.logger.debug(
+                    "best matching kmer is {} with score {:.3f}".format(
+                        orphan_set[best_i], mer_scores[best_i]
+                    )
+                )
 
                 kmer, r = orphan_set.pop(best_i)
                 j = scores[best_i].argmax()
@@ -421,15 +509,17 @@ class PSAMSetBuilder(object):
                 o = ofs[best_i, j]
                 self.assignments[kmer] = j
                 keep[j].blend(kmer, int(o), r, normalize=False)
-        
+
         keep = sorted(keep, key=lambda a: a.max_weight, reverse=True)
         return keep
 
     def make_PSAM_set(self):
         kmer, r = self.kmer_set.pop(0)
         self.logger.debug("starting first motif with {0} R_est={1:.1f}".format(kmer, r))
-        self.alns = [self.new(kmer, r), ]
-        
+        self.alns = [
+            self.new(kmer, r),
+        ]
+
         alns = self.build()
         keep = self.drop_low_support(alns)
         # keep = alns
@@ -438,33 +528,40 @@ class PSAMSetBuilder(object):
             for kmer in aln.seqs:
                 self.assignments[kmer] = i
 
-        psams = [self.make_psam(aln, n_max=self.n_max, pseudo=self.pseudo) for aln in keep]
+        psams = [
+            self.make_psam(aln, n_max=self.n_max, pseudo=self.pseudo) for aln in keep
+        ]
         w = np.array([p.n for p in psams])
         wm = w.max()
         motifs = ",".join([p.consensus_ul for p in psams])
-        self.logger.info("done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(len(psams), self.n_enriched, self.z_cut, motifs, self.n_min))
+        self.logger.info(
+            "done assembling {0} motifs from {1} kmers (at least {4} per motif) with z > {2}: {3}".format(
+                len(psams), self.n_enriched, self.z_cut, motifs, self.n_min
+            )
+        )
 
         # second pass -> pad motifs to equal size
         [p.pad_to_size(wm) for p in psams]
 
         return psams
 
+
 def get_exclude_kmer_set(kmer_set, K):
     ex_K = set()
     k = len(sorted(kmer_set)[0])
-    ex_k = set([kmer.lower().replace('t', 'u') for kmer in kmer_set])
+    ex_k = set([kmer.lower().replace("t", "u") for kmer in kmer_set])
 
     assert k <= K
     # print(f"k={k} K={K} ex_k={ex_k}")
     from RBPamp.util import yield_kmers, kmers_from_seq
-    for Kmer in yield_kmers(K, bases='acgu'):
+
+    for Kmer in yield_kmers(K, bases="acgu"):
         for kmer in kmers_from_seq(Kmer, k):
             if kmer in ex_k:
                 ex_K.add(Kmer)
-    
+
     # print(f"get_exclude_kmer_set({kmer_set}) -> {ex_K}")
     return ex_K
-
 
 
 class PSAMSeeding(object):
@@ -473,27 +570,32 @@ class PSAMSeeding(object):
         self.logger = logging.getLogger("seed.PSAMSeeding")
         import shelve
         from RBPamp.cmdline import ensure_path
-        self.shelf = shelve.open(os.path.join(ensure_path(os.path.join(self.rbns.out_path,'seed/')), 'history'), 'c')
+
+        self.shelf = shelve.open(
+            os.path.join(
+                ensure_path(os.path.join(self.rbns.out_path, "seed/")), "history"
+            ),
+            "c",
+        )
 
     def primer_analysis(self, k=7):
         from RBPamp.seed import Alignment
         import RBPamp.cyska as cyska
 
         dG = np.fromfile(
-            os.path.join(
-                os.path.dirname(__file__), '../adapters/7mer_adap3.dG'
-            ),
-            sep='\n'
+            os.path.join(os.path.dirname(__file__), "../adapters/7mer_adap3.dG"),
+            sep="\n",
         )
         print(dG)
         low_dG = np.percentile(dG, 50)
-        mask = (dG <= low_dG)
+        mask = dG <= low_dG
         print(low_dG, len(mask))
         g = dG[mask]
 
         alns = []
         R, R_err = self.rbns.R_value_matrix(k)
         from scipy.stats import spearmanr, pearsonr
+
         for j, r in enumerate(R):
             print("sample", j)
             r_dG = np.log2(r[mask])
@@ -502,40 +604,43 @@ class PSAMSeeding(object):
 
             import RBPamp.report
             import matplotlib.pyplot as plt
+
             plt.figure()
-            plt.plot(g, r_dG, '.')
-            plt.xlabel('dG')
-            plt.ylabel('log2 R')
-            plt.savefig('r_dG_{}.pdf'.format(j))
+            plt.plot(g, r_dG, ".")
+            plt.xlabel("dG")
+            plt.ylabel("log2 R")
+            plt.savefig("r_dG_{}.pdf".format(j))
             plt.close()
 
-<<<<<<< HEAD
-    def motifs_from_R(self, k=8, z_cut=4, n_min=5, q_ns=5., **kwargs): # UNDO HERE!!!
-=======
     @staticmethod
     def remove_adapter_RC(kmer_set, adap, k):
         from RBPamp.util import rev_comp
+
         adap_RC = rev_comp(adap)
 
         adap_kmers = set()
         for i in range(len(adap) - k + 1):
-            adap_kmers.add(adap_RC[i:i + k])
+            adap_kmers.add(adap_RC[i : i + k])
 
         print("looking for adapter RC kmers", adap_kmers)
         print(kmer_set[:10])
 
         filtered_set = [(kmer, r) for kmer, r in kmer_set if not kmer in adap_kmers]
-        print(f"removed {len(kmer_set) - len(filtered_set)} kmers, because they are adapter complementary")
+        print(
+            f"removed {len(kmer_set) - len(filtered_set)} kmers, because they are adapter complementary"
+        )
         return filtered_set
 
-    def motifs_from_R(self, k=8, z_cut=4, n_min=10, q_ns=5., exclude_kmers={}, **kwargs): # UNDO HERE!!!
+    def motifs_from_R(
+        self, k=8, z_cut=4, n_min=10, q_ns=5.0, exclude_kmers={}, **kwargs
+    ):  # UNDO HERE!!!
         # print("motifs_from_R kwargs", list(kwargs.items()), "exclude_kmers=", exclude_kmers)
->>>>>>> 93aae3f9efd1e189b1ac8b303d24813cc579f1cd
         from RBPamp.seed import Alignment
         import RBPamp.cyska as cyska
-        kwargs['z_cut'] = z_cut
-        kwargs['n_min'] = n_min
-        kwargs['q_ns'] = q_ns
+
+        kwargs["z_cut"] = z_cut
+        kwargs["n_min"] = n_min
+        kwargs["q_ns"] = q_ns
 
         R, R_err = self.rbns.R_value_matrix(k)
         # from scipy.stats.mstats import gmean
@@ -544,11 +649,11 @@ class PSAMSeeding(object):
         Rns = np.percentile(Rm, q_ns)
         # print "non-specific quantile", Rns
         R_err = R_err.mean(axis=0)
-        R = Rm + Rns * ( (Rm - 1)/ (1 - Rns)) # corrected R-value, see suppl. methods
+        R = Rm + Rns * ((Rm - 1) / (1 - Rns))  # corrected R-value, see suppl. methods
 
         I = R.argsort()[::-1]
         R_sort = R[I]
-        z = (R_sort - R_sort.mean())/R_sort.std()
+        z = (R_sort - R_sort.mean()) / R_sort.std()
         # print R_sort[:10]
         # print "z-scores", z.min(), z.max(), z.mean()
         i_cut = (z < z_cut).argmax()
@@ -556,13 +661,13 @@ class PSAMSeeding(object):
         R_cut = max(1, R[I[i_cut]])
         # print i_cut, "R_values above z-cut", R_cut
 
-        self.shelf['R0'] = Rm
-        self.shelf['Rns'] = Rns
-        self.shelf['R'] = R
-        self.shelf['I'] = I
-        self.shelf['z'] = z
-        self.shelf['i_cut'] = i_cut
-        self.shelf['i_ns'] = (R_sort > Rns).argmax() - 1
+        self.shelf["R0"] = Rm
+        self.shelf["Rns"] = Rns
+        self.shelf["R"] = R
+        self.shelf["I"] = I
+        self.shelf["z"] = z
+        self.shelf["i_cut"] = i_cut
+        self.shelf["i_ns"] = (R_sort > Rns).argmax() - 1
 
         r0 = R[I[0]]
         # print("maxR", r0)
@@ -572,45 +677,55 @@ class PSAMSeeding(object):
         for i in I:
             kmer = cyska.index_to_seq(i, k)
             n += 1
-            r = R[i] 
+            r = R[i]
             rerr = R_err[i]
             # self.logger.debug( "{i}, {kmer}, {r}, +/- {rerr}, {R_cut}".format(**locals()))
             if r - rerr <= R_cut and len(kmer_set) > n_min:
                 break
-            
-            kmer_set.append( (kmer, r) )
-        
+
+            kmer_set.append((kmer, r))
+
         l0 = len(kmer_set)
         if exclude_kmers:
             exclude_kmers = get_exclude_kmer_set(exclude_kmers, k)
             # we were asked to exclude some kmers, e.g. because of adapter-complementarity
-            kmer_set = [(kmer, r) for (kmer, r) in kmer_set if not kmer in exclude_kmers]
-            self.logger.warning(f"removed {l0 - len(kmer_set)} kmers before seed building due to overlap with exclude_kmers set of {len(exclude_kmers)} kmers")
+            kmer_set = [
+                (kmer, r) for (kmer, r) in kmer_set if not kmer in exclude_kmers
+            ]
+            self.logger.warning(
+                f"removed {l0 - len(kmer_set)} kmers before seed building due to overlap with exclude_kmers set of {len(exclude_kmers)} kmers"
+            )
             # exclude k-mers that are perfectly complementary to either of
             # the adapter sequences.
-            #kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap5, k)
-            #kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap3, k)
+            # kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap5, k)
+            # kmer_set = self.remove_adapter_RC(kmer_set, self.rbns.reads[0].adap3, k)
 
-        self.shelf['kmer_set'] = kmer_set
-
+        self.shelf["kmer_set"] = kmer_set
 
         PSB = PSAMSetBuilder(kmer_set, **kwargs)
         psams = PSB.make_PSAM_set()
-        self.shelf['psams'] = psams
-        self.shelf['width'] = psams[0].n
-        self.shelf['n_psam'] = len(psams)
-        self.shelf['assignments'] = PSB.assignments
-        self.shelf['founders'] = PSB.founders
+        self.shelf["psams"] = psams
+        self.shelf["width"] = psams[0].n
+        self.shelf["n_psam"] = len(psams)
+        self.shelf["assignments"] = PSB.assignments
+        self.shelf["founders"] = PSB.founders
 
         return psams
 
-    def seeded_multi_params(self, n_samples, max_motifs=4, k_seed=7, thresh=.7, **kwargs):
-        #print("seeded_multi_params", list(kwargs.items()))
+    def seeded_multi_params(
+        self, n_samples, max_motifs=4, k_seed=7, thresh=0.7, **kwargs
+    ):
+        # print("seeded_multi_params", list(kwargs.items()))
         from RBPamp.params import ModelSetParams, ModelParametrization
+
         params = []
 
-        for i, psam in enumerate(self.motifs_from_R(k=k_seed, m_max=max_motifs, thresh=thresh, **kwargs)):
-            params.append(ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs))
+        for i, psam in enumerate(
+            self.motifs_from_R(k=k_seed, m_max=max_motifs, thresh=thresh, **kwargs)
+        ):
+            params.append(
+                ModelParametrization.from_PSAM(psam, n_samples=n_samples, **kwargs)
+            )
 
         param_set = ModelSetParams(params, sort=True)
         # print "len param_set in seeded_multi_params()", len(param_set.param_set)
@@ -620,56 +735,57 @@ class PSAMSeeding(object):
     def store_logos(self, params=None):
         self.logger.debug("generating sequence logos")
         from RBPamp.cmdline import ensure_path
-        path = ensure_path(os.path.join(self.rbns.out_path,'seed/'))
+
+        path = ensure_path(os.path.join(self.rbns.out_path, "seed/"))
         rbp_name = self.rbns.reads[0].rbp_name
 
         if not params is None:
-            fname = os.path.join(path, 'seeded_{}.pdf'.format(rbp_name))
+            fname = os.path.join(path, "seeded_{}.pdf".format(rbp_name))
             params.save_logos(fname, title="{} seeded PSAMs".format(rbp_name))
 
 
 if __name__ == "__main__":
 
     test_data = [
-        (100, 'UGCAUGC'),
-        (100, 'GCAUGCA'),
-        (90, 'UGCAUGU'),
-        (80, 'GCAUGCA'),
-        (79, 'GCAUGCU'),
-        (78, 'GCAUGCC'),
-        (77, 'GCAUGCG'),
-        (70, 'GCAUGUA'),
-        (69, 'GCAUGUU'),
-        (68, 'GCAUGUC'),
-        (67, 'GCAUGUG'),
-        (85, 'AGCAUGU'),
-        (75, 'CGCAUGU'),
-        (55, 'GGCAUGU'),
-        (79, 'AGCAUGC'),
-        (78, 'CGCAUGC'),
-        (58, 'GGCAUGC'),
-        (30, 'UGCACGC'),
-        (25, 'UGCACGU'),
-        (15, 'UGCACGA'),
-        (15, 'UGCACGG'),
-        (90, 'GCAAUGC'), # test, secondary motif
-        (85, 'GCAAUGU'),
-        (88, 'UGCAAUG'),
-        (75, 'AGCAAUG'),
+        (100, "UGCAUGC"),
+        (100, "GCAUGCA"),
+        (90, "UGCAUGU"),
+        (80, "GCAUGCA"),
+        (79, "GCAUGCU"),
+        (78, "GCAUGCC"),
+        (77, "GCAUGCG"),
+        (70, "GCAUGUA"),
+        (69, "GCAUGUU"),
+        (68, "GCAUGUC"),
+        (67, "GCAUGUG"),
+        (85, "AGCAUGU"),
+        (75, "CGCAUGU"),
+        (55, "GGCAUGU"),
+        (79, "AGCAUGC"),
+        (78, "CGCAUGC"),
+        (58, "GGCAUGC"),
+        (30, "UGCACGC"),
+        (25, "UGCACGU"),
+        (15, "UGCACGA"),
+        (15, "UGCACGG"),
+        (90, "GCAAUGC"),  # test, secondary motif
+        (85, "GCAAUGU"),
+        (88, "UGCAAUG"),
+        (75, "AGCAAUG"),
     ]
 
     test_data_msi = [
-        (9, 'UAGUUAG'),
-        (6, 'UAGAUAG'),
-        (5.6, 'UUAGUUA'),
-        (5.2, 'UAGUUUA'), # <- 3
-        (5, 'AUAGUUA'),
-        (4.7, 'UAGGUAG'),
-        (4.3, 'UAGCUAG'),
-        (4.5, 'AGUUAGU'),
-        (4.1, 'UUAGUUU'), # <- 8
-        (4.2, 'AGUUUAG'), # <- 9
-        (4.0, 'UUUAGUU'),
+        (9, "UAGUUAG"),
+        (6, "UAGAUAG"),
+        (5.6, "UUAGUUA"),
+        (5.2, "UAGUUUA"),  # <- 3
+        (5, "AUAGUUA"),
+        (4.7, "UAGGUAG"),
+        (4.3, "UAGCUAG"),
+        (4.5, "AGUUAGU"),
+        (4.1, "UUAGUUU"),  # <- 8
+        (4.2, "AGUUUAG"),  # <- 9
+        (4.0, "UUUAGUU"),
     ]
     pb = PSAMBuilder(test_data_msi, init=False)
     # print("done building tables")
@@ -679,8 +795,8 @@ if __name__ == "__main__":
 
     pb.aggregate()
 
-
     import logging
+
     logging.basicConfig(level=logging.DEBUG)
     A = Alignment()
     # A.add('GCAUG', 2.)
@@ -697,29 +813,29 @@ if __name__ == "__main__":
     from RBPamp.reads import RBNSReads
     from RBPamp import auto_detect
 
-    rbp_name, reads_files, rbp_concentrations = auto_detect('.')
+    rbp_name, reads_files, rbp_concentrations = auto_detect(".")
 
     rbns = RBNSAnalysis(
-        rbp_name = rbp_name,
-        out_path = 'RBPamp',
-        ska_runner = None,
+        rbp_name=rbp_name,
+        out_path="RBPamp",
+        ska_runner=None,
     )
-    
+
     for fname, rbp_conc in zip(reads_files, rbp_concentrations):
         reads = RBNSReads(
-            fname, 
+            fname,
             rbp_conc=rbp_conc,
-            rbp_name = rbp_name,
+            rbp_name=rbp_name,
             n_max=0,
-            pseudo_count=10, 
-            rna_conc = 1000.,
-            temp = 4,
-            n_subsamples = 10,
-            acc_storage_path = 'acc',
+            pseudo_count=10,
+            rna_conc=1000.0,
+            temp=4,
+            n_subsamples=10,
+            acc_storage_path="acc",
         )
         rbns.add_reads(reads)
 
-    # DK = DependentKmerAnalysis(rbns, km=3)    
+    # DK = DependentKmerAnalysis(rbns, km=3)
     # print "6mer R-value derived linear logo"
     # kmer_seed = DK.topR_PSAM_seed(6, n_max=9)
     # print kmer_seed
@@ -745,7 +861,6 @@ if __name__ == "__main__":
 
     # DK.interaction_plot()
 
-
     # print "A"
     # psam = DK.A.to_PSAM()
     # for mer, aff in zip(*psam.kmer_affinities):
@@ -756,8 +871,6 @@ if __name__ == "__main__":
     # kmers, aff = psam.kmer_affinities
     # for mer, a in zip(kmers, aff):
     #     print mer, a
-
-
 
     # # TESTING mutual information
     # import matplotlib.pyplot as pp
@@ -771,12 +884,12 @@ if __name__ == "__main__":
     #     joints.append(joint)
     #     prof = reads.kmer_mutual_information_profile(km)
     #     profs.append(prof)
-    
+
     # j0 = joints[0]
     # for joint, reads in zip(joints[1:], rbns.reads):
     #     for d in range(18):
     #         print reads.name, d
-            
+
     #         # print joint[:,:,d]
     #         # pp.figure()
     #         # pp.pcolormesh(joint[:,:,d])
@@ -794,10 +907,9 @@ if __name__ == "__main__":
     # pp.title(rbp_name)
     # for prof,reads in zip(profs[1:], rbns.reads[1:]):
     #     pp.plot(prof/profs[0], '.-', label=reads.name)
-    
+
     # pp.legend()
     # pp.xlabel("{0}mer separation".format(km))
     # pp.ylabel("MI ratio to input")
     # pp.show()
     # sys.exit(0)
-    
