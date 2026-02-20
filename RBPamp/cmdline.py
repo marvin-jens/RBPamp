@@ -1321,7 +1321,24 @@ def main_psam(args):
     if args.re_calibrate_affinity:
         run.params = params
         run.params.acc_k = 0  # disable accessibility
-        run.PSAM_gradient_descent("opt_nostruct")
+        R, R_err = rbns.R_value_matrix(run.args.grad_k)
+        logR = np.log2(R)
+        from RBPamp.partfunc import PartFuncModel, PartFuncModelState
+
+        model = PartFuncModel(
+            rbns.reads[0],
+            params,
+            R,
+            rbp_conc=rbns.rbp_conc,
+            # **kwargs
+        )
+        model.init_subsample()
+        state = PartFuncModelState(model, params, R_error_weights=model.R_error_weights)
+        model.tune(state, debug=False, maxiter=30)
+        params = state.params
+        rbns.flush(all=True)
+
+        # run.PSAM_gradient_descent("opt_nostruct")
         # tracker = self.get_state_tracker(name)
 
         # from RBPamp.psamgrad import PSAMGradientDescent
