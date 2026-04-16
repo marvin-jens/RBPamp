@@ -1547,112 +1547,6 @@ class ModelComparisons(object):
         plt.close()
 
 
-from RBPamp import dominguez_rbps as dom_rbps
-# dom_rbps.pop(dom_rbps.index('HNRNPA0'))
-rbps = np.array(dom_rbps)
-
-
-
-# i = (rbps == 'HNRNPA0').argmax()
-# rbps = list(rbps)
-# rbps.pop(i)
-# print rbps
-print(len(rbps), "RBPs are being considered")
-pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
-
-# # Figure 1
-n_PSAM_significance(pattern, rbps, "py3", plot=True)
-# n_PSAM_significance(pattern, rbps, "seed_r1", plot=True)
-# sys.exit(0)
-
-# # n_PSAM_significance(pattern, rbps, "sgd", plot=True)
-# # n_PSAM_significance(pattern, rbps, "CI", plot=True)
-# # n_PSAM_significance(pattern, rbps, "seed_z4_thresh_8", plot=True)
-# # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_9")
-# # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_82")
-# # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_84")
-# # n_PSAM_significance(pattern, rbps, "seed_z6_thresh_9")
-
-# # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_85")
-# # n_PSAM_significance(pattern, rbps, "seed_z6_thresh_85")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.25_thresh_85")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_84")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_86")
-
-# # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85_m10")
-# # n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85_m10")
-
-# # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75", plot=True)
-# # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01", plot=True)
-# # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01_nn", plot=True)
-# # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.10", plot=True)
-
-
-# redo8 = False
-# rbase = "std.8"
-# rbase = "std.8.sgd"
-# rbase = "sgd"
-# rbase = "z4t75p01k99fix"
-# redo8 = False
-# d_std, res_std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8  )
-# n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
-
-# # n_PSAM_plot(n_psams)
-
-# d_s, res_s = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8  )
-# d_o, res_o = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8  )
-# d_xsrbp, res_xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8)
-# d_linocc, res_linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8)
-# d_dumb, res_dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8)
-
-# MC = ModelComparisons(variant_dict=dict(
-#     std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8),
-#     single = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8),
-#     oneconc = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8),
-#     xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8),
-#     linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8),
-#     dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
-#     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo 8),
-#     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
-# ), rbps=rbps)
-rbase = "py3"
-redo8 = False
-
-MC = ModelComparisons(variant_dict=dict(
-    std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
-    oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
-    single = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8),
-    xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8),
-    linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8),
-    # dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
-    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
-    lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
-    lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
-), rbps=rbps)
-# MC.store_csv()
-# for i in range(len(MC.rbps)):
-#     print(f"{MC.rbps[i]} corr_std {MC.corr_std[i]} corr_linocc {MC.corr_linocc[i]}")
-
-# for rbp, n in zip(MC.rbps, MC.n_psams):
-#     print(rbp, n)
-
-# # cymin = -.1
-# # cymax = .9
-cymin = None
-cymax = None
-# MC.single_multi_bipartite(corr_ymin=cymin, corr_ymax=cymax)
-# MC.footprint_plot()
-cymin = None
-cymax = None
-derr_oneconc, dcorr_oneconc = MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
-derr_multi, dcorr_multi = MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
-derr_struct, dcorr_struct = MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
-(derr_linocc, derr_xsrbp), (dcorr_linocc, dcorr_xsrbp) = MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
-# sys.exit(0)
-
-
 def barplot(ax, data, labels, sign=1):
     for l, d in zip(labels, data):
         # print(l, d)
@@ -1680,43 +1574,151 @@ def barplot(ax, data, labels, sign=1):
     for patch in bp['boxes']:
         patch.set_facecolor("gainsboro")
 
-fig, ax = plt.subplots(figsize=(2, 2))
-labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "multiple RBP\nconcentrations", "RNA\nstructure"]
-barplot(ax, 
-    [dcorr_multi, dcorr_linocc, dcorr_xsrbp, dcorr_oneconc, dcorr_struct], 
-    labels,
-)
-ax.set_xlabel("median corr. change")
-ax.set_xticks([0, .1, .2, ])
-fig.tight_layout()
-fig.savefig('effects_corr.pdf')
 
-fig, ax = plt.subplots(figsize=(2, 2))
-barplot(ax, 
-    [derr_multi, derr_linocc, derr_xsrbp, derr_oneconc, derr_struct], 
-    labels,
-    sign=-1
-)
-ax.set_xlabel("median model error change, log2")
-ax.set_xticks([0, -1, -2])
-fig.tight_layout()
-fig.savefig('effects_err.pdf')
+if __name__ == "__main__":
+    from RBPamp import dominguez_rbps as dom_rbps
+    # dom_rbps.pop(dom_rbps.index('HNRNPA0'))
+    rbps = np.array(dom_rbps)
 
 
 
-MC = ModelComparisons(variant_dict=dict(
-    single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
-    lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
-    lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
-), rbps=rbps)
+    # i = (rbps == 'HNRNPA0').argmax()
+    # rbps = list(rbps)
+    # rbps.pop(i)
+    # print rbps
+    print(len(rbps), "RBPs are being considered")
+    pattern = "/home/mjens/engaging/RBNS/{rbp}/RBPamp/{variant}/seed/initial.tsv"
 
-# MC.left_out_single_conc_plot() ## This one is deprecated!
+    # # Figure 1
+    n_PSAM_significance(pattern, rbps, "py3", plot=True)
+    # n_PSAM_significance(pattern, rbps, "seed_r1", plot=True)
+    # sys.exit(0)
 
-# cymin = -.1
-# cymax = .9
-cymin = None
-cymax = None
-MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
+    # # n_PSAM_significance(pattern, rbps, "sgd", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "CI", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "seed_z4_thresh_8", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_9")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_82")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_84")
+    # # n_PSAM_significance(pattern, rbps, "seed_z6_thresh_9")
+
+    # # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_85")
+    # # n_PSAM_significance(pattern, rbps, "seed_z6_thresh_85")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.25_thresh_85")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_84")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.5_thresh_86")
+
+    # # n_PSAM_significance(pattern, rbps, "seed_z5_thresh_85_m10")
+    # # n_PSAM_significance(pattern, rbps, "seed_z5.75_thresh_85_m10")
+
+    # # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.01_nn", plot=True)
+    # # n_PSAM_significance(pattern, rbps, "sgd_CI_z4_thresh_75_pseudo.10", plot=True)
+
+
+    # redo8 = False
+    # rbase = "std.8"
+    # rbase = "std.8.sgd"
+    # rbase = "sgd"
+    # rbase = "z4t75p01k99fix"
+    # redo8 = False
+    # d_std, res_std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8  )
+    # n_psams = np.array([res_std[rbp].nostruct.n_PSAM for rbp in rbps])
+
+    # # n_PSAM_plot(n_psams)
+
+    # d_s, res_s = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8  )
+    # d_o, res_o = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8  )
+    # d_xsrbp, res_xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8)
+    # d_linocc, res_linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8)
+    # d_dumb, res_dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8)
+
+    # MC = ModelComparisons(variant_dict=dict(
+    #     std = load_or_make("RBNS/*/cska/" + rbase, redo=redo8),
+    #     single = load_or_make("RBNS/*/cska/" + rbase + ".1", redo=redo8),
+    #     oneconc = load_or_make("RBNS/*/cska/" + rbase + ".s", redo=redo8),
+    #     xsrbp = load_or_make("RBNS/*/cska/" + rbase + ".xsrbp", redo=redo8),
+    #     linocc = load_or_make("RBNS/*/cska/" + rbase + ".linocc", redo=redo8),
+    #     dumb = load_or_make("RBNS/*/cska/" + rbase + ".dumb", redo=redo8),
+    #     std_eval = load_or_make("RBNS/*/cska/" + rbase + "_eval", redo=redo 8),
+    #     single_eval = load_or_make("RBNS/*/cska/" + rbase + ".s_eval", redo=redo8),
+    # ), rbps=rbps)
+    rbase = "py3"
+    redo8 = False
+
+    MC = ModelComparisons(variant_dict=dict(
+        std = load_or_make("RBNS/*/RBPamp/" + rbase, redo=redo8),
+        oneconc = load_or_make("RBNS/*/RBPamp/" + rbase + ".s", redo=redo8),
+        single = load_or_make("RBNS/*/RBPamp/" + rbase + ".1", redo=redo8),
+        xsrbp = load_or_make("RBNS/*/RBPamp/" + rbase + ".xsrbp", redo=redo8),
+        linocc = load_or_make("RBNS/*/RBPamp/" + rbase + ".linocc", redo=redo8),
+        # dumb = load_or_make("RBNS/*/RBPamp/" + rbase + ".dumb", redo=redo8),
+        single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
+        lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
+        lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
+    ), rbps=rbps)
+    # MC.store_csv()
+    # for i in range(len(MC.rbps)):
+    #     print(f"{MC.rbps[i]} corr_std {MC.corr_std[i]} corr_linocc {MC.corr_linocc[i]}")
+
+    # for rbp, n in zip(MC.rbps, MC.n_psams):
+    #     print(rbp, n)
+
+    # # cymin = -.1
+    # # cymax = .9
+    cymin = None
+    cymax = None
+    # MC.single_multi_bipartite(corr_ymin=cymin, corr_ymax=cymax)
+    # MC.footprint_plot()
+    cymin = None
+    cymax = None
+    derr_oneconc, dcorr_oneconc = MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
+    derr_multi, dcorr_multi = MC.single_multi_PSAMS(corr_ymin=cymin, corr_ymax=cymax)
+    derr_struct, dcorr_struct = MC.mdl_comp_struct_plot(corr_ymin=cymin, corr_ymax=cymax)
+    (derr_linocc, derr_xsrbp), (dcorr_linocc, dcorr_xsrbp) = MC.variant_plot(corr_ymin=cymin, corr_ymax=cymax)
+    # sys.exit(0)
+
+
+    fig, ax = plt.subplots(figsize=(2, 2))
+    labels = ["multiple\nPSAMs", "binding\nsaturation", "RBP\ntitration", "multiple RBP\nconcentrations", "RNA\nstructure"]
+    barplot(ax, 
+        [dcorr_multi, dcorr_linocc, dcorr_xsrbp, dcorr_oneconc, dcorr_struct], 
+        labels,
+    )
+    ax.set_xlabel("median corr. change")
+    ax.set_xticks([0, .1, .2, ])
+    fig.tight_layout()
+    fig.savefig('effects_corr.pdf')
+
+    fig, ax = plt.subplots(figsize=(2, 2))
+    barplot(ax, 
+        [derr_multi, derr_linocc, derr_xsrbp, derr_oneconc, derr_struct], 
+        labels,
+        sign=-1
+    )
+    ax.set_xlabel("median model error change, log2")
+    ax.set_xticks([0, -1, -2])
+    fig.tight_layout()
+    fig.savefig('effects_err.pdf')
+
+
+
+    MC = ModelComparisons(variant_dict=dict(
+        single_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".s_eval4", redo=redo8),
+        lo_eval = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4_eval4", redo=redo8),
+        lo = load_or_make("RBNS/*/RBPamp/" + rbase + ".lo4", redo=redo8),
+    ), rbps=rbps)
+
+    # MC.left_out_single_conc_plot() ## This one is deprecated!
+
+    # cymin = -.1
+    # cymax = .9
+    cymin = None
+    cymax = None
+    MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
 
 
 
@@ -1753,7 +1755,7 @@ MC.oneconc(corr_ymin=cymin, corr_ymax=cymax)
 
 
 # compare_runs(runs, rbps)
-sys.exit(0)
+    sys.exit(0)
 
 
 # err_std, corr_std = np.array([d_std[rbp] for rbp in rbps]).T

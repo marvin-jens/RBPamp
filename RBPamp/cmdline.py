@@ -1370,7 +1370,7 @@ def main_psam(args):
 
 def main():
     args = parse_cmdline()
-    if args.func:
+    if hasattr(args, "func") and args.func:
         args.func(args)
         sys.exit(0)
 
