@@ -207,7 +207,7 @@ def minimize_logspaced(func, bounds=[], n_samples=7, debug=False, nested=2, opti
 
 
 class GradientDescent(object):
-    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False, errors=[]):
+    def __init__(self, model, params0, dec=.5, ref_state=None, maxiter=1000, maxtime=11.5*3600, eps=1e-6, tau=13, predict_kwargs=dict(beta_fixed=False, tune=True), debug_grad=False, fix_A0=False, errors=[], A0_only=False):
         self.logger = logging.getLogger('opt.GradientDescent')
         self.model = model
         self.params = params0
@@ -241,6 +241,7 @@ class GradientDescent(object):
         self.maxtime = maxtime
         self.eps = eps
         self.tau = tau
+        self.A0_only = A0_only
 
     def line_search(self, state, vec, debug=True, min_step = 1e-6, max_step = 5., maxiter=10, xatol=1e-1):
         from scipy.optimize import minimize_scalar
@@ -402,9 +403,13 @@ class GradientDescent(object):
         try:
             while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
-                local_grad = state.grad #.unity()
-                # local_grad.A0 = 0.0046
+                if self.A0_only:
+                    local_grad = ana_grad_A0(state)
+                    print("ANA GRAD A0", local_grad)
+                else:
+                    local_grad = state.grad #.unity()
 
+                # local_grad.A0 = 0.0046
                 if debug:
                     print("LOCAL GRAD, EMP. GRAD")
                     if self.debug_grad:
