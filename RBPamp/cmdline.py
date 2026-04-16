@@ -1257,7 +1257,7 @@ class Run(object):
 
         tracker.set("COMPLETED")
 
-    def PSAM_gradient_descent(self, name="opt"):
+    def PSAM_gradient_descent(self, name="opt", **kwargs):
         tracker = self.get_state_tracker(name)
 
         from RBPamp.psamgrad import PSAMGradientDescent
@@ -1283,6 +1283,7 @@ class Run(object):
             continuation=self.args.cont,
             ignore_kmers=util.load_kmers_from_file(self.args.opt_ignore_kmers),
             tracker=tracker,
+            **kwargs
         )
         PGD.optimize(debug=self.args.debug_grad)
         self.params = PGD.descent.params
@@ -1321,51 +1322,24 @@ def main_psam(args):
     if args.re_calibrate_affinity:
         run.params = params
         run.params.acc_k = 0  # disable accessibility
-        R, R_err = rbns.R_value_matrix(run.args.grad_k)
-        logR = np.log2(R)
-        from RBPamp.partfunc import PartFuncModel, PartFuncModelState
+        # R, R_err = rbns.R_value_matrix(run.args.grad_k)
+        # logR = np.log2(R)
+        # from RBPamp.partfunc import PartFuncModel, PartFuncModelState
 
-        model = PartFuncModel(
-            rbns.reads[0],
-            params,
-            R,
-            rbp_conc=rbns.rbp_conc,
-            # **kwargs
-        )
-        model.init_subsample()
-        state = PartFuncModelState(model, params, R_error_weights=model.R_error_weights)
-        model.tune(state, debug=False, maxiter=30)
-        params = state.params
-        rbns.flush(all=True)
-
-        # run.PSAM_gradient_descent("opt_nostruct")
-        # tracker = self.get_state_tracker(name)
-
-        # from RBPamp.psamgrad import PSAMGradientDescent
-        # PGD = PSAMGradientDescent(
-        #     self.rbns,
-        #     self.params,
-        #     ref = self.ref,
-        #     k_fit = self.args.grad_k,
-        #     mdl_name = self.args.grad_mdl,
-        #     Z_thresh = self.args.Z_thresh,
-        #     run_name = name,
-        #     maxiter = self.args.grad_maxiter,
-        #     maxtime = self.args.grad_maxtime,
-        #     fix_A0 = self.args.fix_A0,
-        #     eps = self.args.mdl_epsilon,
-        #     tau = self.args.mdl_tau,
-        #     redo = self.args.redo,
-        #     debug_grad = self.args.debug_grad,
-        #     resample_int = self.args.resample_int,
-        #     excess_rbp = self.args.excess_rbp,
-        #     linear_occ = self.args.linear_occ,
-        #     continuation = self.args.cont,
-        #     ignore_kmers = util.load_kmers_from_file(self.args.opt_ignore_kmers),
-        #     tracker = tracker,
+        # model = PartFuncModel(
+        #     rbns.reads[0],
+        #     params,
+        #     R,
+        #     rbp_conc=rbns.rbp_conc,
+        #     # **kwargs
         # )
-
-    params.save(args.psam_out)
+        # model.init_subsample()
+        # state = PartFuncModelState(model, params, R_error_weights=model.R_error_weights)
+        # model.tune(state, debug=False, maxiter=30)
+        # params = state.params
+        # rbns.flush(all=True)
+        run.PSAM_gradient_descent("opt_nostruct_A0", A0_only=True)
+        run.params.save(args.psam_out)
 
 
 def main():

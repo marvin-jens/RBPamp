@@ -11,7 +11,7 @@ from RBPamp.cmdline import ensure_path
 import numpy as np
 
 class PSAMGradientDescent(object):
-    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, tracker=None, **kwargs):
+    def __init__(self, rbns, params, ref=None, k_fit=6, run_name='opt_grad', maxiter=1000, maxtime=11.5*3600, eps=1e-5, tau=13, redo=False, debug_grad=False, resample_int=0, continuation=False, fix_A0=False, tracker=None, A0_only=False, **kwargs):
         self.rbns = rbns
         self.ref = ref
         self.out_path = ensure_path(os.path.join(rbns.out_path, "{}/".format(run_name)))
@@ -92,7 +92,8 @@ class PSAMGradientDescent(object):
             tau = tau,
             debug_grad = debug_grad,
             fix_A0 = fix_A0,
-            errors = past_errors
+            errors = past_errors,
+            A0_only = A0_only,
         )
         self.logger.info("storing states in shelve '{}'".format((sname)))
         self.shelve["R_exp"] = self.R
