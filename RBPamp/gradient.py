@@ -111,6 +111,7 @@ def emp_grad_A0(state, eps=1e-4, _dE=True, _dR=False, _dq=False, _dPsi=False, _d
 
 def ana_grad_A0(state, eps=1e-3, _dE=True, _dR=False, _dq=False, _dPsi=False, _dZ=False):
     "useful for debugging"
+    print("calling into ANA GRAD A0")
     ret = []
     for i, params in enumerate(state.params):
         norm = (params.A0/state.params.A0)
@@ -404,8 +405,15 @@ class GradientDescent(object):
             while not self.converged() and not self.reached_maxiter(self.t) and not self.reached_maxtime(dt):
                 # print "computing gradient"
                 if self.A0_only:
-                    local_grad = ana_grad_A0(state)
+                    # make a fake gradient with only the A0 component
+                    grad = state.params.copy()
+                    d = grad.get_data()
+                    grad.set_data(0 * d)
+                    
+                    grad.A0s = [d['dE'] for d in ana_grad_A0(state)]
+                    local_grad = grad
                     print("ANA GRAD A0", local_grad)
+                    state.mdl.n_grad += 1 # for counting
                 else:
                     local_grad = state.grad #.unity()
 

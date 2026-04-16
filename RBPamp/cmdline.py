@@ -1258,6 +1258,7 @@ class Run(object):
         tracker.set("COMPLETED")
 
     def PSAM_gradient_descent(self, name="opt", **kwargs):
+        print(f"run.PSAM_gradient_descent {name} with kwargs {kwargs}")
         tracker = self.get_state_tracker(name)
 
         from RBPamp.psamgrad import PSAMGradientDescent

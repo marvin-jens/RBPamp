@@ -83,6 +83,7 @@ class PSAMGradientDescent(object):
             past_errors = [] 
 
         print("PAST ERRORS", past_errors)
+        print(f"A0_only={A0_only}")
         self.descent = RBPamp.gradient.GradientDescent(
             self.model,
             params,
