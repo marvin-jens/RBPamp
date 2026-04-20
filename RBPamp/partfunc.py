@@ -153,7 +153,7 @@ class PartFuncModelState(object):
             if len(self.R_error_weights):
                 self.R_errors *= self.R_error_weights
 
-            self.sample_errors = (self.R_errors ** 2).mean(axis=1)
+            self.sample_errors = (self.R_errors**2).mean(axis=1)
             self.error = self.sample_errors.mean()
         # print "self.error", self.error
 
@@ -214,7 +214,7 @@ class PartFuncModelState(object):
         I = aff.argsort()[::-1]
         kmer_weights = np.zeros(self.mdl.nA, dtype=np.float32)
 
-        INDMAX = int(4 ** self.mdl.k) - 1
+        INDMAX = int(4**self.mdl.k) - 1
         for i in I:
             ratio = aff[i] / self.params.A0
             if ratio < cutoff:
@@ -250,7 +250,9 @@ class PartFuncModelState(object):
         for i, (par, Z1m, Z1rm) in enumerate(
             zip(self.params, self.Z1_motif, self.Z1_read_motif)
         ):
-            g = cyska.PSAM_partition_function_gradient(self, par, Z1m, Z1rm, self.R_error_weights)
+            g = cyska.PSAM_partition_function_gradient(
+                self, par, Z1m, Z1rm, self.R_error_weights
+            )
             if i > 0:
                 g *= par.A0 / self.params.A0  # scale relative to primary motif
             grad_set.append(g)
@@ -303,14 +305,18 @@ class PartFuncModelState(object):
 
         return "\n".join(buf)
 
+
 def weights_from_kmer_list(ignore_kmers, ignore_weight=0.0):
     w = np.ones(4**6, dtype=np.float32)
     for kmer in ignore_kmers:
         idx = cyska.seq_to_index(kmer)
         w[idx] = ignore_weight
 
-    logging.warning(f"built R_error_weights for {len(ignore_kmers)} kmers. Total weight = {w.sum()}")
+    logging.warning(
+        f"built R_error_weights for {len(ignore_kmers)} kmers. Total weight = {w.sum()}"
+    )
     return w
+
 
 class PartFuncModel(object):
     """
@@ -356,7 +362,7 @@ class PartFuncModel(object):
             self.R0 = np.NaN
             self.lR0 = np.NaN
             self.k = 6
-            self.nA = 4 ** 6
+            self.nA = 4**6
 
         # print("partfuncmodel: 2")
         # compute kmer frequencies in the input reads
@@ -486,7 +492,7 @@ class PartFuncModel(object):
                         topmer, state.R[:, top], self.R0[:, top]
                     )
                 )
-                print(A0, state.params.A0, "->", state.error, betas)
+                print("A0", A0, state.params.A0, "->", state.error, betas)
 
             R_err[A0] = state.error
             R_corr[A0] = np.array(state.correlations).max()
@@ -574,7 +580,9 @@ class PartFuncModel(object):
     def predict(self, params, debug=False, tune=False, **kwargs):
         t0 = time.time()
         self.logger.debug(f"calling PartFuncModelState with kw={kwargs}")
-        state = PartFuncModelState(self, params, R_error_weights=self.R_error_weights, **kwargs)
+        state = PartFuncModelState(
+            self, params, R_error_weights=self.R_error_weights, **kwargs
+        )
         self.logger.debug("predict(took {:.2f} ms".format(1000.0 * (time.time() - t0)))
         if tune:
             state = self.tune(state, debug=debug)
@@ -622,7 +630,7 @@ class PartFuncModel(object):
                 # print "R-errors min/max/mean", R_errors.min(), R_errors.max(), R_errors.mean()
                 # print "most over-predicted", cyska.index_to_seq(R_errors.argmax(), self.k)
                 # print "most under-predicted", cyska.index_to_seq(R_errors.argmin(), self.k)
-                error = (R_errors ** 2).mean()
+                error = (R_errors**2).mean()
                 # print beta, "->", error, "R({})".format(top_mer), R[top_i], self.R0[i,top_i]
                 return error
 
